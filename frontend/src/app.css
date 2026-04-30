@@ -417,10 +417,33 @@ label {
 	min-width: 280px;
 	max-width: 400px;
 	animation: slideIn 0.2s ease;
-	cursor: pointer;
 	font: inherit;
 	color: inherit;
 	text-align: left;
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.toast-message {
+	flex: 1;
+	background: transparent;
+	border: 0;
+	color: inherit;
+	text-align: left;
+	cursor: pointer;
+	padding: 0;
+	font: inherit;
+}
+
+.toast-action {
+	color: var(--accent);
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.toast-action:hover {
+	text-decoration: underline;
 }
 
 .toast-dismiss-all {

@@ -295,9 +295,21 @@
 				</button>
 			{/if}
 			{#each $notifications as notification (notification.id)}
-				<button class="toast toast-{notification.type}" onclick={() => notifications.remove(notification.id)}>
-					{notification.message}
-				</button>
+				<div class="toast toast-{notification.type}">
+					<button
+						type="button"
+						class="toast-message"
+						onclick={() => notifications.remove(notification.id)}
+						aria-label="Закрыть уведомление"
+					>{notification.message}</button>
+					{#if notification.action}
+						<a
+							class="toast-action"
+							href={notification.action.href}
+							onclick={() => notifications.remove(notification.id)}
+						>{notification.action.label}</a>
+					{/if}
+				</div>
 			{/each}
 		</div>
 
