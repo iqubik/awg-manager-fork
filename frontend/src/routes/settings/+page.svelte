@@ -21,13 +21,22 @@
 		UpdateInfo,
 		HydraRouteStatus,
 	} from "$lib/types";
-	import { USAGE_LEVEL_LABELS, type UsageLevel } from "$lib/types/usageLevel";
+	import {
+		USAGE_LEVEL_LABELS,
+		isSectionVisible,
+		isRoutingSubTabVisible,
+		type UsageLevel,
+	} from "$lib/types/usageLevel";
+	import { usageLevel } from "$lib/stores/settings";
 
 	let systemInfo: SystemInfo | null = $state(null);
 	let settings = $state<Settings | null>(null);
 	let loading = $state(true);
 	let saving = $state(false);
 	const origin = $derived(typeof window !== "undefined" ? window.location.origin : "");
+	const showSingboxIntegration = $derived(isSectionVisible($usageLevel, "singboxTunnels"));
+	const showHydraIntegration = $derived(isRoutingSubTabVisible($usageLevel, "hrNeo"));
+	const showDnsRouteCard = $derived(isRoutingSubTabVisible($usageLevel, "dnsRoutes"));
 	let updateInfo: UpdateInfo | null = $state(null);
 	let restarting = $state(false);
 	let restartConfirmOpen = $state(false);
@@ -277,6 +286,8 @@
 					{singboxInstalling}
 					{singboxInstallError}
 					oninstallSingbox={installSingbox}
+					showSingbox={showSingboxIntegration}
+					showHydra={showHydraIntegration}
 				/>
 			</aside>
 
@@ -325,7 +336,7 @@
 					/>
 				</div>
 
-				{#if systemInfo.isOS5}
+				{#if systemInfo.isOS5 && showDnsRouteCard}
 					<div class="card">
 						<div class="section-label">DNS-маршрутизация</div>
 						<DnsRouteSettings
