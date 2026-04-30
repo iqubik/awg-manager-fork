@@ -2,6 +2,58 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { LegacyTabs, LegacyTab, IconButton, SaveStatusIndicator } from '$lib/components/ui';
+	import { usageLevel } from '$lib/stores/settings';
+	import { isSectionVisible, type Section } from '$lib/types/usageLevel';
+
+	type NavItem = {
+		section: Section;
+		href: string;
+		label: string;
+		matches: (path: string) => boolean;
+	};
+
+	const NAV_ITEMS: NavItem[] = [
+		{
+			section: 'tunnels',
+			href: '/',
+			label: 'ТУННЕЛИ',
+			matches: (p) =>
+				p === '/' || p.startsWith('/tunnels') || p.startsWith('/system-tunnels'),
+		},
+		{
+			section: 'servers',
+			href: '/servers',
+			label: 'СЕРВЕРЫ',
+			matches: (p) => p.startsWith('/servers'),
+		},
+		{
+			section: 'routing',
+			href: '/routing',
+			label: 'МАРШРУТИЗАЦИЯ',
+			matches: (p) => p.startsWith('/routing'),
+		},
+		{
+			section: 'monitoring',
+			href: '/monitoring',
+			label: 'МОНИТОРИНГ',
+			matches: (p) =>
+				p.startsWith('/monitoring') ||
+				p.startsWith('/pingcheck') ||
+				p.startsWith('/connections'),
+		},
+		{
+			section: 'diagnostics',
+			href: '/diagnostics',
+			label: 'ДИАГНОСТИКА',
+			matches: (p) => p.startsWith('/diagnostics') || p.startsWith('/logs'),
+		},
+		{
+			section: 'settings',
+			href: '/settings',
+			label: 'НАСТРОЙКИ',
+			matches: (p) => p.startsWith('/settings'),
+		},
+	];
 
 	interface Props {
 		authenticated: boolean;
@@ -31,20 +83,13 @@
 		onOpenDonate,
 	}: Props = $props();
 
+	const visibleItems = $derived(
+		NAV_ITEMS.filter((item) => isSectionVisible($usageLevel, item.section)),
+	);
+
 	const currentRoute = $derived.by(() => {
 		const path = $page.url.pathname;
-		if (path === '/' || path.startsWith('/tunnels') || path.startsWith('/system-tunnels')) return '/';
-		if (path.startsWith('/servers')) return '/servers';
-		if (path.startsWith('/routing')) return '/routing';
-		if (
-			path.startsWith('/monitoring') ||
-			path.startsWith('/pingcheck') ||
-			path.startsWith('/connections')
-		)
-			return '/monitoring';
-		if (path.startsWith('/diagnostics') || path.startsWith('/logs')) return '/diagnostics';
-		if (path.startsWith('/settings')) return '/settings';
-		return '';
+		return visibleItems.find((item) => item.matches(path))?.href ?? '';
 	});
 
 	function navigate(value: string) {
@@ -59,6 +104,18 @@
 
 	function toggleMobileMenu() {
 		mobileMenuOpen = !mobileMenuOpen;
+	}
+
+	function prettyMobileLabel(upperLabel: string): string {
+		const map: Record<string, string> = {
+			ТУННЕЛИ: 'Туннели',
+			СЕРВЕРЫ: 'Серверы',
+			МАРШРУТИЗАЦИЯ: 'Маршрутизация',
+			МОНИТОРИНГ: 'Мониторинг',
+			ДИАГНОСТИКА: 'Диагностика',
+			НАСТРОЙКИ: 'Настройки',
+		};
+		return map[upperLabel] ?? upperLabel;
 	}
 </script>
 
@@ -110,12 +167,9 @@
 		{#if authenticated}
 			<nav class="nav" aria-label="Главная навигация">
 				<LegacyTabs value={currentRoute} onChange={navigate} variant="underline">
-					<LegacyTab value="/">ТУННЕЛИ</LegacyTab>
-					<LegacyTab value="/servers">СЕРВЕРЫ</LegacyTab>
-					<LegacyTab value="/routing">МАРШРУТИЗАЦИЯ</LegacyTab>
-					<LegacyTab value="/monitoring">МОНИТОРИНГ</LegacyTab>
-					<LegacyTab value="/diagnostics">ДИАГНОСТИКА</LegacyTab>
-					<LegacyTab value="/settings">НАСТРОЙКИ</LegacyTab>
+					{#each visibleItems as item (item.section)}
+						<LegacyTab value={item.href}>{item.label}</LegacyTab>
+					{/each}
 				</LegacyTabs>
 			</nav>
 		{:else}
@@ -127,7 +181,7 @@
 				<span class="user-chip">{username}</span>
 			{/if}
 
-			{#if authenticated}
+			{#if authenticated && isSectionVisible($usageLevel, 'terminal')}
 				<IconButton ariaLabel="Терминал" href="/terminal">
 					<svg
 						viewBox="0 0 24 24"
@@ -265,59 +319,14 @@
 			aria-label="Закрыть меню"
 		></button>
 		<nav class="mobile-nav" aria-label="Мобильная навигация">
-			<a
-				href="/"
-				class="mobile-nav-link"
-				class:active={$page.url.pathname === '/' ||
-					$page.url.pathname.startsWith('/tunnels') ||
-					$page.url.pathname.startsWith('/system-tunnels')}
-				onclick={closeMobileMenu}
-			>
-				Туннели
-			</a>
-			<a
-				href="/servers"
-				class="mobile-nav-link"
-				class:active={$page.url.pathname.startsWith('/servers')}
-				onclick={closeMobileMenu}
-			>
-				Серверы
-			</a>
-			<a
-				href="/routing"
-				class="mobile-nav-link"
-				class:active={$page.url.pathname.startsWith('/routing')}
-				onclick={closeMobileMenu}
-			>
-				Маршрутизация
-			</a>
-			<a
-				href="/monitoring"
-				class="mobile-nav-link"
-				class:active={$page.url.pathname.startsWith('/monitoring') ||
-					$page.url.pathname.startsWith('/pingcheck') ||
-					$page.url.pathname.startsWith('/connections')}
-				onclick={closeMobileMenu}
-			>
-				Мониторинг
-			</a>
-			<a
-				href="/diagnostics"
-				class="mobile-nav-link"
-				class:active={$page.url.pathname.startsWith('/diagnostics') ||
-					$page.url.pathname.startsWith('/logs')}
-				onclick={closeMobileMenu}
-			>
-				Диагностика
-			</a>
-			<a
-				href="/settings"
-				class="mobile-nav-link"
-				class:active={$page.url.pathname.startsWith('/settings')}
-				onclick={closeMobileMenu}
-			>
-				Настройки
-			</a>
+			{#each visibleItems as item (item.section)}
+				<a
+					href={item.href}
+					class="mobile-nav-link"
+					class:active={item.matches($page.url.pathname)}
+					onclick={closeMobileMenu}>{prettyMobileLabel(item.label)}</a
+				>
+			{/each}
 		</nav>
 	{/if}
 </header>
