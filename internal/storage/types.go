@@ -15,7 +15,7 @@ type Settings struct {
 	DisableMemorySaving bool              `json:"disableMemorySaving"` // false = auto, true = soft mode
 	Updates             UpdateSettings    `json:"updates"`
 	DNSRoute            DNSRouteSettings  `json:"dnsRoute"`
-	OnboardingCompleted    bool              `json:"onboardingCompleted"`
+	UsageLevel             string            `json:"usageLevel"`
 	ServerInterfaces       []string          `json:"serverInterfaces,omitempty"`
 	ManagedServers         []ManagedServer   `json:"managedServers,omitempty"`
 	// ManagedServer is retained for one release as the migration source.
