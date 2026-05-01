@@ -94,6 +94,16 @@ definitions:
         example: awg-vpn0
         type: string
     type: object
+  api.AWGOutboundTagsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/api.AWGOutboundTagDTO'
+        type: array
+      success:
+        example: true
+        type: boolean
+    type: object
   api.AWGPeerDTO:
     properties:
       allowedIPs:
@@ -6312,17 +6322,15 @@ paths:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/api.AWGOutboundTagDTO'
-            type: array
+            $ref: '#/definitions/api.AWGOutboundTagsResponse'
         "405":
           description: Method Not Allowed
           schema:
-            type: string
+            $ref: '#/definitions/api.APIErrorEnvelope'
         "500":
           description: Internal Server Error
           schema:
-            type: string
+            $ref: '#/definitions/api.APIErrorEnvelope'
       security:
       - CookieAuth: []
       summary: List AWG outbound tags

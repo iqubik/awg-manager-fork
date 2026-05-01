@@ -31,12 +31,18 @@ func TestAWGOutboundsTags_Success(t *testing.T) {
 	if rr.Code != 200 {
 		t.Fatalf("want 200, got %d", rr.Code)
 	}
-	var body []map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+	var env struct {
+		Success bool             `json:"success"`
+		Data    []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &env); err != nil {
 		t.Fatalf("body: %v", err)
 	}
-	if len(body) != 1 || body[0]["tag"] != "awg-x" {
-		t.Errorf("body wrong: %v", body)
+	if !env.Success {
+		t.Errorf("envelope success should be true: %s", rr.Body.String())
+	}
+	if len(env.Data) != 1 || env.Data[0]["tag"] != "awg-x" {
+		t.Errorf("body wrong: %v", env.Data)
 	}
 }
 
@@ -50,8 +56,10 @@ func TestAWGOutboundsTags_Empty(t *testing.T) {
 		t.Fatalf("want 200, got %d", rr.Code)
 	}
 	body := strings.TrimSpace(rr.Body.String())
-	if body != "[]" {
-		t.Errorf("expected empty array, got %q", body)
+	// Empty result still uses the envelope shape so the frontend
+	// request<T>() helper resolves data.data to an empty array.
+	if body != `{"success":true,"data":[]}` {
+		t.Errorf("expected envelope with empty array, got %q", body)
 	}
 }
 
