@@ -144,6 +144,51 @@ const server = http.createServer((req, res) => {
 		return;
 	}
 
+	if (req.method === 'GET' && path === '/singbox/config-preview') {
+		const merged = {
+			log: { level: 'trace', timestamp: true },
+			dns: {
+				servers: [
+					{ tag: 'cf', address: '1.1.1.1', detour: 'direct' },
+					{ tag: 'local', address: '192.168.1.1', detour: 'direct' },
+				],
+				rules: [{ outbound: 'any', server: 'local' }],
+				final: 'cf',
+			},
+			inbounds: [
+				{ tag: 'tproxy-in', type: 'tproxy', listen: '::', listen_port: 51272, sniff: true },
+			],
+			outbounds: [
+				{ tag: 'direct', type: 'direct' },
+				{ tag: 'block', type: 'block' },
+				{ tag: 'awg-tunnel-1', type: 'wireguard', server: '203.0.113.7', server_port: 51820 },
+			],
+			route: {
+				rules: [
+					{ action: 'sniff' },
+					{ protocol: 'dns', action: 'hijack-dns' },
+					{ rule_set: ['geoip-ru'], outbound: 'direct' },
+					{ rule_set: ['geosite-tracker'], outbound: 'block' },
+				],
+				rule_set: [
+					{ tag: 'geoip-ru', type: 'remote', format: 'binary', url: 'https://example/ru.srs' },
+					{ tag: 'geosite-tracker', type: 'remote', format: 'binary', url: 'https://example/tracker.srs' },
+				],
+				final: 'awg-tunnel-1',
+				auto_detect_interface: true,
+			},
+			experimental: {
+				clash_api: { external_controller: '127.0.0.1:9090', external_ui: 'ui' },
+				cache_file: { enabled: true, path: '/opt/etc/sing-box/cache.db' },
+			},
+		};
+		send(res, 200, {
+			success: true,
+			data: { json: JSON.stringify(merged, null, 2) },
+		});
+		return;
+	}
+
 	if (req.method === 'POST' && path === '/singbox/install') {
 		if (singboxInstallShouldFail) {
 			send(res, 500, {
