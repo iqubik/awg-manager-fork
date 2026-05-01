@@ -24,6 +24,12 @@ const (
 	// our rule never accidentally displaces the kernel's local-table
 	// rule at priority 0.
 	IPRulePriority = 30000
+	// maxIPRuleDrainPasses caps the drain loop in Install/Uninstall.
+	// Defensive bound — `ip rule del` should return ENOENT quickly when
+	// nothing matches, but a buggy kernel returning success forever
+	// would otherwise hang Install. 32 is well above any realistic
+	// duplicate count (the worst observed was 10 in the wild).
+	maxIPRuleDrainPasses = 32
 )
 
 // Mutable in tests via t.Cleanup so they can redirect into a tmp dir.
@@ -114,6 +120,44 @@ type RestoreInputSpec struct {
 	// policy. Empty means no PREROUTING jump (defensive — caller should
 	// never reach Install with empty mark, but iptables doesn't panic).
 	PolicyMark string
+	// SocketBypass enables `-m socket --transparent -j RETURN` for TCP
+	// at the top of the chain — short-circuits packets that already
+	// belong to a sing-box transparent socket so they never re-enter
+	// TPROXY redirect. Requires xt_socket kernel module; gated by
+	// caller (Install) so the rule set still loads on stock builds.
+	SocketBypass bool
+}
+
+// socketModuleName is the name of the kernel module that backs
+// `iptables -m socket`. Loaded at boot on most Entware kernels but
+// not guaranteed; we feature-detect via /proc/modules + xtables match
+// help and fall back to no-bypass when absent.
+const socketModuleName = "xt_socket"
+
+var (
+	socketMatchOnce      sync.Once
+	socketMatchAvailable bool
+)
+
+// IsSocketMatchAvailable returns true when iptables knows the `socket`
+// match. Cached after first probe — module presence is static for the
+// lifetime of the process. Probe order:
+//  1. /proc/modules for `xt_socket` (fast path, common case)
+//  2. `iptables -m socket --help` shell-out (only when module is built
+//     into the kernel rather than loaded as a .ko)
+func IsSocketMatchAvailable(ctx context.Context) bool {
+	socketMatchOnce.Do(func() {
+		if isModuleLoaded(socketModuleName) {
+			socketMatchAvailable = true
+			return
+		}
+		res, err := sysexec.Run(ctx, sysiptables.Binary, "-m", "socket", "--help")
+		if err != nil || res == nil {
+			return
+		}
+		socketMatchAvailable = strings.Contains(res.Stdout+res.Stderr, "socket match options")
+	})
+	return socketMatchAvailable
 }
 
 var bypassCIDRs = []string{
@@ -137,6 +181,17 @@ func buildRestoreInput(spec RestoreInputSpec) string {
 	fmt.Fprintf(&b, "-A %s -p tcp --dport 79 -j RETURN\n", ChainName)
 
 	fmt.Fprintf(&b, "-A %s -m mark --mark 0xff -j RETURN\n", ChainName)
+
+	// Short-circuit packets that already belong to a transparent socket
+	// owned by sing-box. Without this, sing-box's TCP reply path can
+	// re-enter TPROXY redirect (the connection is already terminated
+	// locally; redirecting again breaks reply delivery to the client).
+	// UDP has no equivalent — TPROXY for UDP is stateless. Gated by
+	// xt_socket availability; the feature flag lives in the spec so the
+	// rule set is byte-identical on systems lacking the module.
+	if spec.SocketBypass {
+		fmt.Fprintf(&b, "-A %s -p tcp -m socket --transparent -j RETURN\n", ChainName)
+	}
 
 	fmt.Fprintf(&b, "-A %s -p tcp -j TPROXY --on-port %d --on-ip 127.0.0.1 --tproxy-mark 0x%x\n",
 		ChainName, TPROXYPort, Fwmark)
@@ -188,7 +243,10 @@ func (it *IPTables) Install(ctx context.Context, mark string) error {
 	// Idempotent: a no-op when no prior jumps exist.
 	it.removeSourceHooks(ctx)
 
-	input := buildRestoreInput(RestoreInputSpec{PolicyMark: mark})
+	input := buildRestoreInput(RestoreInputSpec{
+		PolicyMark:   mark,
+		SocketBypass: IsSocketMatchAvailable(ctx),
+	})
 	if it.persistRules != nil {
 		if err := it.persistRules(input); err != nil {
 			return fmt.Errorf("write netfilter rules: %w", err)
@@ -210,7 +268,7 @@ func (it *IPTables) Install(ctx context.Context, mark string) error {
 	// rules at priorities 0-N displaces the kernel's `from all lookup
 	// local` rule (normally at prio 0), breaking router-local routing
 	// (sing-box outbounds to direct silently fail).
-	for {
+	for i := 0; i < maxIPRuleDrainPasses; i++ {
 		if err := it.runIP(ctx, "rule", "del", "fwmark", fmt.Sprintf("0x%x", Fwmark),
 			"table", fmt.Sprintf("%d", RoutingTable)); err != nil {
 			break
@@ -294,8 +352,8 @@ func (it *IPTables) Uninstall(ctx context.Context) error {
 	_ = it.runIPTables(ctx, "-t", "mangle", "-X", ChainName)
 	// Drain ALL fwmark rules — historically Install accumulated
 	// duplicates at priorities 0-N (auto-assigned), so a single `del`
-	// would leave the rest. Loop until ENOENT.
-	for {
+	// would leave the rest. Loop until ENOENT, capped defensively.
+	for i := 0; i < maxIPRuleDrainPasses; i++ {
 		if err := it.runIP(ctx, "rule", "del", "fwmark", fmt.Sprintf("0x%x", Fwmark),
 			"table", fmt.Sprintf("%d", RoutingTable)); err != nil {
 			break

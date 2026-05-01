@@ -372,16 +372,39 @@ func (s *ServiceImpl) healTProxyInbound(ctx context.Context) error {
 }
 
 func ensureTProxyInbound(in []Inbound) []Inbound {
-	for _, i := range in {
-		if i.Tag == "tproxy-in" {
-			return in
+	for i := range in {
+		if in[i].Tag != "tproxy-in" {
+			continue
 		}
+		// Self-heal performance/UX fields on existing inbound (older
+		// versions persisted the inbound without these fields). Mirror
+		// the SKeen reference setup: both TCP and UDP get fast-open /
+		// fragment-handling, UDP timeout extended to 3m so long-lived
+		// flows (video calls, gaming) survive idle gaps.
+		changed := false
+		if !in[i].TCPFastOpen {
+			in[i].TCPFastOpen = true
+			changed = true
+		}
+		if !in[i].UDPFragment {
+			in[i].UDPFragment = true
+			changed = true
+		}
+		if in[i].UDPTimeout == "" {
+			in[i].UDPTimeout = "3m0s"
+			changed = true
+		}
+		_ = changed
+		return in
 	}
 	return append([]Inbound{{
 		Type:        "tproxy",
 		Tag:         "tproxy-in",
 		Listen:      "127.0.0.1",
 		ListenPort:  TPROXYPort,
+		TCPFastOpen: true,
+		UDPFragment: true,
+		UDPTimeout:  "3m0s",
 		RoutingMark: Fwmark,
 	}}, in...)
 }

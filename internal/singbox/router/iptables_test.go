@@ -19,6 +19,16 @@ type fakeCall struct {
 	stdin string
 }
 
+// errENOENT mimics the kernel's "rule not found" exit so the drain
+// loops terminate after a single pass — without this, fakeExec.runIP
+// returning nil for `ip rule del` causes the cap-bounded drain loop
+// to record N entries (or, before the cap, to OOM the test process).
+var errENOENT = errIPRule("RTNETLINK answers: No such file or directory")
+
+type errIPRule string
+
+func (e errIPRule) Error() string { return string(e) }
+
 func (f *fakeExec) restoreNoflush(_ context.Context, input string) error {
 	f.calls = append(f.calls, fakeCall{kind: "restore", stdin: input})
 	return f.err
@@ -31,7 +41,15 @@ func (f *fakeExec) runIPTables(_ context.Context, args ...string) error {
 
 func (f *fakeExec) runIP(_ context.Context, args ...string) error {
 	f.calls = append(f.calls, fakeCall{kind: "ip", args: args})
-	return f.err
+	if f.err != nil {
+		return f.err
+	}
+	// Make `ip rule del fwmark ...` return ENOENT after the first call
+	// so drain loops don't append forever.
+	if len(args) >= 4 && args[0] == "rule" && args[1] == "del" {
+		return errENOENT
+	}
+	return nil
 }
 
 func newFakeIPTables(fe *fakeExec) *IPTables {
@@ -92,6 +110,31 @@ func TestBuildRestoreInput_BaseRules_AlwaysPresent(t *testing.T) {
 			t.Errorf("missing line: %q\nin:\n%s", line, input)
 		}
 	}
+	// Socket-bypass MUST NOT appear when feature flag is off (xt_socket
+	// missing → loading the rules would fail with "Couldn't load match").
+	if strings.Contains(input, "-m socket --transparent") {
+		t.Errorf("socket bypass present without SocketBypass=true:\n%s", input)
+	}
+}
+
+func TestBuildRestoreInput_SocketBypass_AppearsBeforeTPROXY(t *testing.T) {
+	input := buildRestoreInput(RestoreInputSpec{
+		PolicyMark:   "0xffffaaa",
+		SocketBypass: true,
+	})
+	bypass := "-A AWGM-TPROXY -p tcp -m socket --transparent -j RETURN"
+	tproxy := "-A AWGM-TPROXY -p tcp -j TPROXY"
+	bi := strings.Index(input, bypass)
+	ti := strings.Index(input, tproxy)
+	if bi < 0 {
+		t.Fatalf("missing socket bypass line:\n%s", input)
+	}
+	if ti < 0 {
+		t.Fatalf("missing TPROXY line:\n%s", input)
+	}
+	if bi >= ti {
+		t.Errorf("socket bypass must precede TPROXY rule (bi=%d, ti=%d):\n%s", bi, ti, input)
+	}
 }
 
 func TestIPTablesInstallSequence(t *testing.T) {
@@ -100,17 +143,25 @@ func TestIPTablesInstallSequence(t *testing.T) {
 	if err := it.Install(context.Background(), "0xffffaaa"); err != nil {
 		t.Fatal(err)
 	}
-	if len(fe.calls) != 3 {
-		t.Fatalf("expected 3 calls, got %d: %+v", len(fe.calls), fe.calls)
+	// Expected order: iptables-restore, then `ip rule del` drain (one
+	// pass — fake returns ENOENT immediately), then `ip rule add` with
+	// our fixed priority, then `ip route add local 0.0.0.0/0`.
+	if len(fe.calls) != 4 {
+		t.Fatalf("expected 4 calls, got %d: %+v", len(fe.calls), fe.calls)
 	}
 	if fe.calls[0].kind != "restore" || !strings.Contains(fe.calls[0].stdin, "AWGM-TPROXY") {
 		t.Errorf("call 0: %+v", fe.calls[0])
 	}
-	if fe.calls[1].kind != "ip" || !strings.Contains(strings.Join(fe.calls[1].args, " "), "rule add fwmark") {
-		t.Errorf("call 1: %+v", fe.calls[1])
+	if fe.calls[1].kind != "ip" || !strings.Contains(strings.Join(fe.calls[1].args, " "), "rule del fwmark") {
+		t.Errorf("call 1 (drain): %+v", fe.calls[1])
 	}
-	if fe.calls[2].kind != "ip" || !strings.Contains(strings.Join(fe.calls[2].args, " "), "route add local") {
-		t.Errorf("call 2: %+v", fe.calls[2])
+	addArgs := strings.Join(fe.calls[2].args, " ")
+	if fe.calls[2].kind != "ip" || !strings.Contains(addArgs, "rule add fwmark") ||
+		!strings.Contains(addArgs, "priority 30000") {
+		t.Errorf("call 2 (rule add): %+v", fe.calls[2])
+	}
+	if fe.calls[3].kind != "ip" || !strings.Contains(strings.Join(fe.calls[3].args, " "), "route add local") {
+		t.Errorf("call 3 (route add): %+v", fe.calls[3])
 	}
 }
 
