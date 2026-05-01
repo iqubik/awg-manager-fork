@@ -1066,6 +1066,15 @@ export interface SingboxImportResponse {
 	tunnels: SingboxTunnel[]; // fresh full list
 }
 
+/**
+ * Response envelope payload for GET /api/singbox/config-preview.
+ * `json` is the pretty-printed merged sing-box config produced by
+ * stitching all `01-*.json` fragments onto `00-base.json`.
+ */
+export interface SingboxConfigPreview {
+	json: string;
+}
+
 export interface SingboxTraffic {
 	tag: string;
 	upload: number;

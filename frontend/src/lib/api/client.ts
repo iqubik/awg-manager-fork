@@ -52,6 +52,7 @@ import type {
 	SingboxTunnel,
 	SingboxStatus,
 	SingboxImportResponse,
+	SingboxConfigPreview,
 	DeviceProxyConfig,
 	DeviceProxyOutbound,
 	DeviceProxyRuntime,
@@ -1190,6 +1191,10 @@ class ApiClient {
 			method: 'POST',
 			body: JSON.stringify({ action }),
 		});
+	}
+
+	async singboxGetConfigPreview(): Promise<SingboxConfigPreview> {
+		return this.request<SingboxConfigPreview>('/singbox/config-preview');
 	}
 
 	async singboxListTunnels(): Promise<SingboxTunnel[]> {
