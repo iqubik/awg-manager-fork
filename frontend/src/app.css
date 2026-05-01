@@ -1160,6 +1160,12 @@ label {
 	border-color: var(--color-text-muted);
 }
 
+.chip-group-singbox.chip-active {
+	background: var(--color-info-tint, var(--color-bg-tertiary));
+	color: var(--color-info, var(--color-accent));
+	border-color: var(--color-info, var(--color-accent));
+}
+
 .chip-danger:hover:not(:disabled) {
 	color: var(--color-error);
 	border-color: var(--color-error-border);

@@ -7,7 +7,24 @@
   }
 
   export const ALL_LEVELS = ['error', 'warn', 'info', 'full', 'debug'] as const;
-  export const ALL_GROUPS = ['tunnel', 'routing', 'server', 'system'] as const;
+  export const ALL_GROUPS = ['tunnel', 'routing', 'server', 'system', 'singbox'] as const;
+
+  export const GROUP_LABELS: Record<typeof ALL_GROUPS[number], string> = {
+    tunnel: 'Туннели',
+    routing: 'Маршрутизация',
+    server: 'Серверы',
+    system: 'Система',
+    singbox: 'Sing-box',
+  };
+
+  export const SUBGROUP_LABELS: Record<string, string> = {
+    inbound: 'Входящие',
+    outbound: 'Исходящие',
+    dns: 'DNS',
+    router: 'Маршрутизация',
+    runtime: 'Clash API',
+    process: 'Процесс',
+  };
 </script>
 
 <script lang="ts">
@@ -143,12 +160,12 @@
         {@const active = filter.group === g}
         <button
           type="button"
-          class="chip chip-group-pill"
+          class="chip chip-group-pill chip-group-{g}"
           class:chip-active={active}
           aria-pressed={active}
           onclick={() => selectGroup(g)}
         >
-          {g}
+          {GROUP_LABELS[g]}
         </button>
       {/each}
     </span>
