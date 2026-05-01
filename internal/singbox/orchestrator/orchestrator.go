@@ -133,6 +133,30 @@ func (o *Orchestrator) removeDisabledCopy(meta SlotMeta) error {
 func (o *Orchestrator) Save(slot Slot, jsonBytes []byte) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	if err := o.saveLocked(slot, jsonBytes); err != nil {
+		return err
+	}
+	o.scheduleReload()
+	return nil
+}
+
+// SaveSilent is Save without the SIGHUP debounce. The slot file is
+// written but no reload is scheduled. Used by intentional "update on
+// disk only" paths (e.g. selector.default change that must not disturb
+// the live selector.now). Note: a CONCURRENT Save by another producer
+// will still trigger the next debounced reload — silence is best-effort
+// and only meaningful when this writer is the sole change source for
+// the window.
+func (o *Orchestrator) SaveSilent(slot Slot, jsonBytes []byte) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.saveLocked(slot, jsonBytes)
+}
+
+// saveLocked is the shared body. Caller MUST hold o.mu. Marks the
+// orchestrator dirty but does not arm the reload timer — that is the
+// caller's responsibility (Save does, SaveSilent does not).
+func (o *Orchestrator) saveLocked(slot Slot, jsonBytes []byte) error {
 	meta, ok := o.slots[slot]
 	if !ok {
 		return ErrUnknownSlot
@@ -147,7 +171,6 @@ func (o *Orchestrator) Save(slot Slot, jsonBytes []byte) error {
 		return fmt.Errorf("save %s: %w", slot, err)
 	}
 	o.dirty = true
-	o.scheduleReload()
 	return nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/hoaxisr/awg-manager/internal/events"
+	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 )
 
 // Service is the public contract used by tunnel.Service (as AWGSyncer
@@ -38,11 +39,19 @@ func NewService(d Deps) *ServiceImpl {
 var _ Service = (*ServiceImpl)(nil)
 
 // SyncAWGOutbounds writes 15-awg.json and triggers a sing-box reload.
+//
+// When the orchestrator is wired, writeFile pushes through SlotAwg,
+// which both writes the file and arms the debounced reload — calling
+// Singbox.Reload here would just produce a redundant SIGHUP, so we
+// skip it.
 func (s *ServiceImpl) SyncAWGOutbounds(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeFile(ctx); err != nil {
 		return err
+	}
+	if s.deps.Orch != nil {
+		return nil
 	}
 	if s.deps.Singbox != nil {
 		return s.deps.Singbox.Reload()
@@ -120,6 +129,19 @@ func (s *ServiceImpl) writeFile(ctx context.Context) error {
 	if err != nil {
 		s.logWarn("enumerate", "", err.Error())
 		return err
+	}
+	if s.deps.Orch != nil {
+		data, mErr := marshalEntries(entries)
+		if mErr != nil {
+			s.logWarn("marshal", "15-awg.json", mErr.Error())
+			return mErr
+		}
+		if err := s.deps.Orch.Save(orchestrator.SlotAwg, data); err != nil {
+			s.logWarn("save", "15-awg.json", err.Error())
+			return err
+		}
+		s.logInfo("sync", "15-awg.json", fmt.Sprintf("%d outbounds written", len(entries)))
+		return nil
 	}
 	if s.deps.Singbox == nil {
 		// Without a Singbox controller we don't know the config dir;

@@ -16,6 +16,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms/command"
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
+	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/sys/ndmsinfo"
 )
 
@@ -82,6 +83,13 @@ type Operator struct {
 	reloadPending  bool
 	reloadLastErr  error
 	reloadDoneChan chan struct{}
+
+	// orch is the config.d orchestrator. When non-nil, ApplyConfig
+	// writes 10-tunnels.json through the orchestrator's slot writer
+	// (which handles validate + debounced reload). Wired post-construction
+	// via SetOrch — orchestrator construction needs Operator.Process()
+	// so we can't pass it through OperatorDeps without a cycle.
+	orch *orchestrator.Orchestrator
 }
 
 // OperatorDeps are external dependencies for DI.
@@ -236,6 +244,16 @@ func (o *Operator) LastError() string {
 // change events consumed by deviceproxy.Service (and potentially
 // other subscribers in the future).
 func (o *Operator) SetEventBus(bus *events.Bus) { o.bus = bus }
+
+// Process exposes the underlying *Process so the orchestrator can
+// drive lifecycle (Start / Stop / Reload / IsRunning). The Process
+// type satisfies orchestrator.ProcessController by structural match.
+func (o *Operator) Process() *Process { return o.proc }
+
+// SetOrch wires the config.d orchestrator after construction. ApplyConfig
+// uses it (when non-nil) to write 10-tunnels.json through the slot
+// writer instead of the legacy direct-write path.
+func (o *Operator) SetOrch(orch *orchestrator.Orchestrator) { o.orch = orch }
 
 // tunnelsFile is the canonical path for the tunnels.json fragment
 // (config.d/10-tunnels.json). Used by applyConfig + RemoveTunnel.
@@ -875,8 +893,21 @@ func (o *Operator) loadConfig() (*Config, error) {
 // ApplyConfig runs the full Save + Validate + Promote + Reload sequence
 // on an externally-mutated Config. deviceproxy.Service uses this after
 // it has inserted its inbound/outbound/rule into the current config.
+//
+// When the orchestrator is wired (production), the tunnels payload is
+// extracted and written through SlotTunnels — validation + reload are
+// handled by the orchestrator's debounced pipeline. When unwired
+// (tests / pre-bootstrap), falls back to the legacy direct-write path
+// that writes 10-tunnels.json + sing-box check + SIGHUP inline.
 func (o *Operator) ApplyConfig(ctx context.Context, cfg *Config) error {
-	return o.applyConfig(ctx, cfg)
+	if o.orch == nil {
+		return o.applyConfig(ctx, cfg)
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal tunnels config: %w", err)
+	}
+	return o.orch.Save(orchestrator.SlotTunnels, data)
 }
 
 // ApplyConfigNoReload runs Save + Validate + Promote on an externally
@@ -889,6 +920,11 @@ func (o *Operator) ApplyConfig(ctx context.Context, cfg *Config) error {
 // deviceproxy.Service uses this on the "default-only change" save
 // path: rewriting config.json changes selector.default for next boot
 // without disturbing the live selector.
+//
+// Bypass orchestrator: this path intentionally avoids SIGHUP. The
+// orchestrator's debounced reload is normally desirable, but here the
+// caller has explicitly opted out to preserve live selector.now. We
+// take the legacy direct-write route even when orch is wired.
 func (o *Operator) ApplyConfigNoReload(ctx context.Context, cfg *Config) error {
 	// Defense-in-depth: no-reload assumes the running daemon will continue
 	// serving with its current in-memory config. If the process is down,

@@ -33,10 +33,9 @@ func buildOutbounds(entries []AWGEntry) []map[string]any {
 // a valid JSON object — even with zero entries the file contains
 // `{"outbounds":[]}` so sing-box can still merge config.d cleanly.
 func saveFile(path string, entries []AWGEntry) error {
-	f := fileShape{Outbounds: buildOutbounds(entries)}
-	raw, err := json.MarshalIndent(f, "", "  ")
+	raw, err := marshalEntries(entries)
 	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("mkdir parent: %w", err)
@@ -50,4 +49,16 @@ func saveFile(path string, entries []AWGEntry) error {
 		return fmt.Errorf("rename: %w", err)
 	}
 	return nil
+}
+
+// marshalEntries renders entries as the indented JSON payload that
+// 15-awg.json holds. Shared by saveFile (legacy direct-write) and the
+// orchestrator-Save path in writeFile.
+func marshalEntries(entries []AWGEntry) ([]byte, error) {
+	f := fileShape{Outbounds: buildOutbounds(entries)}
+	raw, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+	return raw, nil
 }

@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/logger"
+	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 )
 
@@ -119,6 +121,13 @@ type Deps struct {
 	Events   *events.Bus
 	IPTables *IPTables
 	AWGTags  AWGTagCatalog // optional — when nil, computeIssues only sees cfg.Outbounds
+	// Orch is the config.d orchestrator. When non-nil (production),
+	// persistConfig writes 20-router.json through the slot writer and
+	// Enable / Disable toggle SlotRouter so the file moves between
+	// active and disabled/ — sing-box only sees the file when the
+	// router is enabled. When nil (tests), persistConfig falls back
+	// to the legacy in-place write at routerConfigPath().
+	Orch *orchestrator.Orchestrator
 }
 
 type ServiceImpl struct {
@@ -143,11 +152,58 @@ func (s *ServiceImpl) routerConfigPath() string {
 	return filepath.Join(s.deps.Singbox.ConfigDir(), "20-router.json")
 }
 
+// disabledRouterConfigPath returns where the orchestrator parks the
+// router slot when SlotRouter is disabled. We keep this knowledge here
+// (rather than asking the orchestrator) so reads remain a pure file
+// operation that does not require taking the orch's lock.
+func (s *ServiceImpl) disabledRouterConfigPath() string {
+	return filepath.Join(s.deps.Singbox.ConfigDir(), "disabled", "20-router.json")
+}
+
+// loadRouterConfig reads the router slot from whichever location holds
+// the file. When the orchestrator is wired and the slot is disabled,
+// the file lives under disabled/ — but UI callers (ListRules etc.)
+// must still see the saved rules so the user can edit them. Falls back
+// to the disabled path only when the active path is missing.
 func (s *ServiceImpl) loadRouterConfig() (*RouterConfig, error) {
-	return LoadConfig(s.routerConfigPath())
+	cfg, err := LoadConfig(s.routerConfigPath())
+	if err == nil {
+		return cfg, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, err
+	}
+	if s.deps.Orch == nil {
+		return cfg, err
+	}
+	disabled, derr := LoadConfig(s.disabledRouterConfigPath())
+	if derr == nil {
+		return disabled, nil
+	}
+	if os.IsNotExist(derr) {
+		// Neither path holds the file — surface the original (active)
+		// not-exist error so callers can use os.IsNotExist().
+		return cfg, err
+	}
+	return nil, derr
 }
 
 func (s *ServiceImpl) persistConfig(ctx context.Context, cfg *RouterConfig) error {
+	if s.deps.Orch != nil {
+		// Orchestrator path — slot writer handles atomic write,
+		// cross-slot validation and debounced SIGHUP. We just
+		// marshal and hand off the bytes.
+		data, err := json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal router config: %w", err)
+		}
+		if err := s.deps.Orch.Save(orchestrator.SlotRouter, data); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Legacy fallback (tests) — in-place write + sing-box check + reload.
 	path := s.routerConfigPath()
 	backupPath := path + ".bak"
 
@@ -244,9 +300,19 @@ func (s *ServiceImpl) Enable(ctx context.Context) error {
 	if err := s.persistConfig(ctx, cfg); err != nil {
 		return err
 	}
-	if running, _ := s.deps.Singbox.IsRunning(); !running {
-		if err := s.deps.Singbox.Start(); err != nil {
-			return fmt.Errorf("sing-box start: %w", err)
+	// Promote SlotRouter to active so the orchestrator's reload picks
+	// up 20-router.json. The orchestrator handles starting sing-box if
+	// it isn't already running. When orch is unwired (tests), we keep
+	// the legacy explicit Start call.
+	if s.deps.Orch != nil {
+		if err := s.deps.Orch.SetEnabled(orchestrator.SlotRouter, true); err != nil {
+			return fmt.Errorf("orchestrator enable router: %w", err)
+		}
+	} else {
+		if running, _ := s.deps.Singbox.IsRunning(); !running {
+			if err := s.deps.Singbox.Start(); err != nil {
+				return fmt.Errorf("sing-box start: %w", err)
+			}
 		}
 	}
 
@@ -359,16 +425,29 @@ func (s *ServiceImpl) Disable(ctx context.Context) error {
 	}
 	s.currentMark = ""
 
-	cfg, err := s.loadRouterConfig()
-	if err == nil && cfg != nil {
-		filtered := make([]Inbound, 0, len(cfg.Inbounds))
-		for _, in := range cfg.Inbounds {
-			if in.Tag != "tproxy-in" {
-				filtered = append(filtered, in)
-			}
+	if s.deps.Orch != nil {
+		// Move 20-router.json under disabled/ — sing-box's non-recursive
+		// -C config.d does not see it after the next reload, so the
+		// tproxy inbound, route rules, DNS rules and composite outbounds
+		// all disappear from the merged config in one atomic rename.
+		if err := s.deps.Orch.SetEnabled(orchestrator.SlotRouter, false); err != nil {
+			s.deps.Log.Warn(fmt.Sprintf("orchestrator disable router: %v", err))
 		}
-		cfg.Inbounds = filtered
-		_ = s.persistConfig(ctx, cfg)
+	} else {
+		// Legacy fallback: strip the tproxy inbound in place so
+		// the running sing-box stops accepting on the TPROXY port
+		// after the persistConfig reload.
+		cfg, err := s.loadRouterConfig()
+		if err == nil && cfg != nil {
+			filtered := make([]Inbound, 0, len(cfg.Inbounds))
+			for _, in := range cfg.Inbounds {
+				if in.Tag != "tproxy-in" {
+					filtered = append(filtered, in)
+				}
+			}
+			cfg.Inbounds = filtered
+			_ = s.persistConfig(ctx, cfg)
+		}
 	}
 
 	settings, err := s.deps.Settings.Load()
