@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/hoaxisr/awg-manager/internal/logging"
 )
 
 func TestParseSingboxVersionOutput(t *testing.T) {
@@ -150,5 +152,29 @@ func TestEnsureBaseConfig_Idempotent(t *testing.T) {
 	raw, _ := os.ReadFile(basePath)
 	if string(raw) != existing {
 		t.Errorf("existing base must not be overwritten, got %s", raw)
+	}
+}
+
+func TestClassifyProcessLine(t *testing.T) {
+	tests := []struct {
+		in   string
+		want logging.Level
+	}{
+		{"sing-box version 1.9.3 starting", logging.LevelInfo},
+		{"FATAL: failed to bind tproxy", logging.LevelError},
+		{"ERROR connecting to outbound", logging.LevelError},
+		{"panic: nil dereference", logging.LevelError},
+		{"failed to load config", logging.LevelError},
+		{"WARN deprecated config field", logging.LevelWarn},
+		{"warning: unused outbound", logging.LevelWarn},
+		{"INFO route table updated", logging.LevelInfo},
+		{"", logging.LevelInfo},
+		{"some random output", logging.LevelInfo},
+	}
+	for _, tc := range tests {
+		got := classifyProcessLine(tc.in)
+		if got != tc.want {
+			t.Errorf("classifyProcessLine(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
