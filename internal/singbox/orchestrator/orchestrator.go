@@ -70,6 +70,13 @@ func New(configDir string, proc ProcessController) *Orchestrator {
 	}
 }
 
+// ConfigDir returns the absolute path the orchestrator is rooted at —
+// the directory sing-box reads via `-C`. Read-only access for handlers
+// that need to enumerate active slot files (e.g. config-preview).
+func (o *Orchestrator) ConfigDir() string {
+	return o.configDir
+}
+
 // Register adds a slot to the registry. Returns ErrSlotAlreadyRegistered
 // if called twice for the same slot.
 func (o *Orchestrator) Register(meta SlotMeta) error {
