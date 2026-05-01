@@ -41,11 +41,14 @@
 	// hot while this page is open.
 	let unsubStatus: (() => void) | undefined;
 	onMount(() => {
-		active = readSubFromURL();
 		unsubStatus = singboxStatus.subscribe(() => {});
 	});
 	onDestroy(() => {
 		unsubStatus?.();
+	});
+
+	$effect(() => {
+		active = readSubFromURL();
 	});
 
 	const status = $derived($singboxStatus.data);
