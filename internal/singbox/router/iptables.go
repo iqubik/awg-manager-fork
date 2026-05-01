@@ -165,7 +165,7 @@ func NewIPTables() *IPTables {
 		},
 		persistRules: writeNetfilterRulesFile,
 		persistHook:  writeNetfilterHook,
-		cleanupHook:  removeNetfilterHook,
+		cleanupHook:  removeNetfilterRulesFile,
 	}
 }
 
@@ -233,9 +233,18 @@ fi
 	return os.WriteFile(netfilterHookPath, []byte(script), 0755)
 }
 
-func removeNetfilterHook() {
-	_ = os.Remove(netfilterHookPath)
+// removeNetfilterRulesFile deletes the persisted rules file so the
+// netfilter.d hook becomes a no-op on the next NDMS reload. Called on
+// engine Disable. Idempotent.
+func removeNetfilterRulesFile() {
 	_ = os.Remove(netfilterRulesPath)
+}
+
+// removeNetfilterHookScript deletes the netfilter.d hook script. Used
+// only by full uninstall paths; Disable keeps the script in place so a
+// later Enable doesn't need to re-create it.
+func removeNetfilterHookScript() {
+	_ = os.Remove(netfilterHookPath)
 }
 
 func (it *IPTables) Uninstall(ctx context.Context) error {
