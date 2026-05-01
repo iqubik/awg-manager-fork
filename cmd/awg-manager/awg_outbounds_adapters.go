@@ -156,3 +156,25 @@ func (a *routerAWGTagAdapter) ListTags(ctx context.Context) ([]router.AWGTag, er
 	}
 	return out, nil
 }
+
+// routerSingboxTunnelAdapter projects sing-box tunnels (10-tunnels.json)
+// into the simple []string the router needs for cross-slot outbound
+// validation. Mirrors routerAWGTagAdapter so router stays decoupled
+// from internal/singbox types.
+type routerSingboxTunnelAdapter struct {
+	src *singbox.Operator
+}
+
+func (a *routerSingboxTunnelAdapter) ListTunnelTags(ctx context.Context) ([]string, error) {
+	tunnels, err := a.src.ListTunnels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(tunnels))
+	for _, t := range tunnels {
+		if t.Tag != "" {
+			out = append(out, t.Tag)
+		}
+	}
+	return out, nil
+}

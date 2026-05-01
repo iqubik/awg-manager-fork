@@ -113,14 +113,27 @@ type AWGTag struct {
 	Tag string
 }
 
+// SingboxTunnelCatalog returns the outbound tags for sing-box tunnels
+// owned by internal/singbox (lives in 10-tunnels.json). Routes can
+// reference these tags as their Outbound (e.g. "veesp" for a VLESS
+// outbound) — without this catalog, computeIssues would flag every
+// such reference as a dangling outbound, surfacing a misleading
+// "правило ссылается на несуществующий outbound" warn even though
+// sing-box itself merges the tags across slots and the rule resolves
+// at runtime.
+type SingboxTunnelCatalog interface {
+	ListTunnelTags(ctx context.Context) ([]string, error)
+}
+
 type Deps struct {
-	Log      *logger.Logger
-	Settings *storage.SettingsStore
-	Singbox  SingboxController
-	Policies AccessPolicyProvider
-	Events   *events.Bus
-	IPTables *IPTables
-	AWGTags  AWGTagCatalog // optional — when nil, computeIssues only sees cfg.Outbounds
+	Log          *logger.Logger
+	Settings     *storage.SettingsStore
+	Singbox      SingboxController
+	Policies     AccessPolicyProvider
+	Events       *events.Bus
+	IPTables     *IPTables
+	AWGTags      AWGTagCatalog        // optional — when nil, computeIssues only sees cfg.Outbounds
+	SingboxTunnels SingboxTunnelCatalog // optional — when nil, computeIssues skips cross-slot tunnel tags
 	// Orch is the config.d orchestrator. When non-nil (production),
 	// persistConfig writes 20-router.json through the slot writer and
 	// Enable / Disable toggle SlotRouter so the file moves between
@@ -760,6 +773,16 @@ func (s *ServiceImpl) computeIssues(cfg *RouterConfig) []Issue {
 		if awgTags, err := s.deps.AWGTags.ListTags(context.Background()); err == nil {
 			for _, t := range awgTags {
 				outboundTags[t.Tag] = struct{}{}
+			}
+		}
+	}
+	// Sing-box tunnels live in 10-tunnels.json owned by internal/singbox.
+	// Their tags (e.g. "veesp" for a VLESS outbound) are valid route
+	// targets but invisible to a router-only view of cfg.Outbounds.
+	if s.deps.SingboxTunnels != nil {
+		if tags, err := s.deps.SingboxTunnels.ListTunnelTags(context.Background()); err == nil {
+			for _, tag := range tags {
+				outboundTags[tag] = struct{}{}
 			}
 		}
 	}
