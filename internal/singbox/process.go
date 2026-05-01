@@ -17,7 +17,8 @@ import (
 
 // Process manages the sing-box process lifecycle (single-process model).
 //
-// stdout is /dev/null'd. stderr is scanned line-by-line for the entire
+// stdout is scanned line-by-line and forwarded to OnStdoutLine (nil =
+// silently consumed). stderr is scanned line-by-line for the entire
 // process lifetime — each line is forwarded to OnStderrLine (so FATAL
 // messages from sing-box reach the app log even after the startup
 // grace period passes) AND retained in a bounded buffer so a startup
@@ -33,6 +34,10 @@ type Process struct {
 	// sing-box's stderr. Nil = stderr is silently consumed (still scanned,
 	// just not forwarded). Set by Operator construction.
 	OnStderrLine func(string)
+
+	// OnStdoutLine is invoked once per line written to sing-box's stdout.
+	// Nil = stdout is silently consumed. Set by Operator construction.
+	OnStdoutLine func(string)
 
 	// OnExit is invoked when cmd.Wait returns AFTER the startup grace
 	// period — i.e., a "successful start that died later". The error is
@@ -88,9 +93,19 @@ func (p *Process) Start() error {
 	}
 	pr, pw := io.Pipe()
 	cmd.Stderr = pw
-	if devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0); err == nil {
-		cmd.Stdout = devnull
-	}
+
+	stdoutR, stdoutW := io.Pipe()
+	cmd.Stdout = stdoutW
+
+	go func() {
+		sc := bufio.NewScanner(stdoutR)
+		sc.Buffer(make([]byte, 0, 4096), 64*1024)
+		for sc.Scan() {
+			if p.OnStdoutLine != nil {
+				p.OnStdoutLine(sc.Text())
+			}
+		}
+	}()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	stderr := newLimitedBuffer(stderrBufferSize)
@@ -111,6 +126,7 @@ func (p *Process) Start() error {
 
 	if err := cmd.Start(); err != nil {
 		_ = pw.Close()
+		_ = stdoutW.Close()
 		<-scannerDone
 		return fmt.Errorf("start sing-box: %w", err)
 	}
@@ -118,6 +134,7 @@ func (p *Process) Start() error {
 		_ = syscall.Kill(cmd.Process.Pid, syscall.SIGTERM)
 		_ = cmd.Wait()
 		_ = pw.Close()
+		_ = stdoutW.Close()
 		<-scannerDone
 		return err
 	}
@@ -125,6 +142,7 @@ func (p *Process) Start() error {
 	go func() {
 		err := cmd.Wait()
 		_ = pw.Close()
+		_ = stdoutW.Close()
 		<-scannerDone
 		errCh <- err
 	}()
