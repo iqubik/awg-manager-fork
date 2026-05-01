@@ -60,6 +60,8 @@ type Service interface {
 
 	GetDNSGlobals(ctx context.Context) (final, strategy string, err error)
 	SetDNSGlobals(ctx context.Context, final, strategy string) error
+
+	Inspect(ctx context.Context, input InspectInput) (InspectResult, error)
 }
 
 type SingboxController interface {
@@ -858,4 +860,23 @@ func (s *ServiceImpl) UnbindDevice(ctx context.Context, mac string) error {
 		return fmt.Errorf("mac required")
 	}
 	return s.deps.Policies.UnassignDevice(ctx, mac)
+}
+
+// Inspect simulates which router rule would match the given input
+// (a domain or an IP) without invoking sing-box. Reads the current
+// persisted config so the result reflects what the user would observe
+// at runtime — minus rule_set evaluation, which v1 does not perform.
+func (s *ServiceImpl) Inspect(ctx context.Context, input InspectInput) (InspectResult, error) {
+	cfg, err := s.loadRouterConfig()
+	if err != nil {
+		return InspectResult{}, err
+	}
+	if cfg == nil {
+		cfg = NewEmptyConfig()
+	}
+	final := cfg.Route.Final
+	if final == "" {
+		final = "direct"
+	}
+	return Inspect(input, cfg.Route.Rules, cfg.Route.RuleSet, final), nil
 }

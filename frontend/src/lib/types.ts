@@ -1192,6 +1192,36 @@ export interface SingboxRouterRule {
 	outbound?: string;
 }
 
+/**
+ * One per-rule decision from the route inspector. matchedRule == -1 in
+ * SingboxRouterInspectResult means no rule produced a final destination
+ * — the route.final outbound was used instead.
+ */
+export interface SingboxRouterInspectMatch {
+	index: number;
+	matched: boolean;
+	action: string;
+	outbound?: string;
+	conditions?: string[];
+	reason?: string;
+}
+
+export interface SingboxRouterInspectResult {
+	input: string;
+	inputType: 'domain' | 'ip';
+	matches: SingboxRouterInspectMatch[];
+	destination: string;
+	matchedRule: number;
+	final: string;
+	note?: string;
+}
+
+export interface SingboxRouterInspectRequest {
+	domain: string;
+	port?: number;
+	protocol?: string;
+}
+
 export interface SingboxRouterRuleSet {
 	tag: string;
 	type: 'remote' | 'local';

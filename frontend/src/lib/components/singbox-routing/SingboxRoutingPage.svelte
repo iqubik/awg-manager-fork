@@ -5,6 +5,7 @@
 	import { Tabs, Button } from '$lib/components/ui';
 	import { singboxStatus } from '$lib/stores/singbox';
 	import JsonConfigDrawer from './JsonConfigDrawer.svelte';
+	import RouteInspector from './RouteInspector.svelte';
 	import EngineSubTab from './EngineSubTab.svelte';
 	import RulesSubTab from './RulesSubTab.svelte';
 	import RuleSetsSubTab from './RuleSetsSubTab.svelte';
@@ -27,6 +28,7 @@
 
 	let active = $state<SubTab>('engine');
 	let drawerOpen = $state(false);
+	let inspectorOpen = $state(false);
 
 	function readSubFromURL(): SubTab {
 		const v = $page.url.searchParams.get('sub');
@@ -70,6 +72,7 @@
 			<span class="status-dot"></span>
 			sing-box · {running ? `v${version}` : 'остановлен'}
 		</span>
+		<Button size="sm" variant="ghost" onclick={() => (inspectorOpen = true)}>Инспектор</Button>
 		<Button size="sm" variant="ghost" onclick={() => (drawerOpen = true)}>Конфиг</Button>
 	</div>
 </header>
@@ -93,6 +96,7 @@
 </section>
 
 <JsonConfigDrawer open={drawerOpen} onClose={() => (drawerOpen = false)} />
+<RouteInspector open={inspectorOpen} onClose={() => (inspectorOpen = false)} />
 
 <style>
 	.page-header {

@@ -912,6 +912,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 				rh.PutDNSGlobals(w, r)
 			}
 		}))
+		mux.HandleFunc("/api/singbox/router/inspect", guarded(rh.Inspect))
 	}
 
 	if s.awgOutboundsHandler != nil {

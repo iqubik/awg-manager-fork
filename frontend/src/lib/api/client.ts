@@ -69,7 +69,9 @@ import type {
 	RouterPolicy,
 	SingboxRouterDNSServer,
 	SingboxRouterDNSRule,
-	SingboxRouterDNSGlobals
+	SingboxRouterDNSGlobals,
+	SingboxRouterInspectRequest,
+	SingboxRouterInspectResult
 } from '$lib/types';
 
 interface ApiResponse<T> {
@@ -1526,6 +1528,15 @@ class ApiClient {
 		await this.request('/singbox/router/dns/globals', {
 			method: 'PUT',
 			body: JSON.stringify(globals),
+		});
+	}
+
+	async singboxRouterInspectRoute(
+		req: SingboxRouterInspectRequest,
+	): Promise<SingboxRouterInspectResult> {
+		return this.request('/singbox/router/inspect', {
+			method: 'POST',
+			body: JSON.stringify(req),
 		});
 	}
 

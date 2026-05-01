@@ -95,6 +95,9 @@ func (m *mockRouterSvc) GetDNSGlobals(ctx context.Context) (string, string, erro
 func (m *mockRouterSvc) SetDNSGlobals(ctx context.Context, final, strategy string) error {
 	return nil
 }
+func (m *mockRouterSvc) Inspect(ctx context.Context, input router.InspectInput) (router.InspectResult, error) {
+	return router.InspectResult{Input: input.Domain, InputType: "domain", Destination: "direct", MatchedRule: -1, Matches: []router.RuleMatchResult{}, Final: "direct"}, nil
+}
 
 func newMockRouterHandler(svc *mockRouterSvc) *SingboxRouterHandler {
 	return &SingboxRouterHandler{svc: svc}
