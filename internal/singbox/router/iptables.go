@@ -244,13 +244,6 @@ func removeNetfilterRulesFile() {
 	_ = os.Remove(netfilterRulesPath)
 }
 
-// removeNetfilterHookScript deletes the netfilter.d hook script. Used
-// only by full uninstall paths; Disable keeps the script in place so a
-// later Enable doesn't need to re-create it.
-func removeNetfilterHookScript() {
-	_ = os.Remove(netfilterHookPath)
-}
-
 // refreshNetfilterHookIfPresent rewrites the netfilter.d hook script
 // when one is already installed, so older versions get the current
 // pidof guard on daemon startup. No-op when the file is absent —
