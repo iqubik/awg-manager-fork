@@ -814,6 +814,20 @@ func main() {
 	srv.SetAWGOutboundsHandler(api.NewAWGOutboundsHandler(awgoutboundsSvc))
 	srv.SetSingboxConfigHandler(api.NewSingboxConfigHandler(sbOrch.ConfigDir))
 
+	proxiesHandler := api.NewSingboxProxiesHandler(
+		clashProxy.ClashBaseURL,
+		func() map[string]struct{} {
+			out, _ := routerSvc.ListCompositeOutbounds(context.Background())
+			set := make(map[string]struct{}, len(out))
+			for _, o := range out {
+				set[o.Tag] = struct{}{}
+			}
+			return set
+		},
+		nil,
+	)
+	srv.SetSingboxProxiesHandler(proxiesHandler)
+
 	// Boot status: 0 = booting, 1 = done. Used by /api/system/info.
 	var bootDone int32
 	srv.SetBootStatusFunc(func() bool { return atomic.LoadInt32(&bootDone) == 0 })

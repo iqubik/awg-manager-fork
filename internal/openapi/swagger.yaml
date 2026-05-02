@@ -1772,12 +1772,15 @@ definitions:
         description: |-
           UsageLevel controls which UI sections are visible to the user.
           Filtering is frontend-only — the API does not enforce it.
-          enums: basic,advanced,expert
+          enums: expert,advanced,basic
+          First enum is the prism mock default (prism picks the first
+          enum value over the example tag); putting `expert` first means
+          dev:mock surfaces all advanced UI without manual toggling.
         enum:
-        - basic
-        - advanced
         - expert
-        example: advanced
+        - advanced
+        - basic
+        example: expert
         type: string
     type: object
   api.SettingsResponse:
@@ -1994,6 +1997,60 @@ definitions:
         example: ipv4_only
         type: string
     type: object
+  api.SingboxProxiesListResponse:
+    properties:
+      groups:
+        items:
+          $ref: '#/definitions/api.SingboxProxyGroup'
+        type: array
+    type: object
+  api.SingboxProxiesSelectRequest:
+    properties:
+      group:
+        example: veesp-fast
+        type: string
+      member:
+        example: vless-1
+        type: string
+    type: object
+  api.SingboxProxiesTestRequest:
+    properties:
+      group:
+        type: string
+      timeout:
+        type: integer
+      url:
+        type: string
+    type: object
+  api.SingboxProxiesTestResponse:
+    properties:
+      delays:
+        additionalProperties:
+          type: integer
+        type: object
+    type: object
+  api.SingboxProxyGroup:
+    properties:
+      members:
+        items:
+          $ref: '#/definitions/api.SingboxProxyMember'
+        type: array
+      now:
+        type: string
+      tag:
+        type: string
+      type:
+        type: string
+    type: object
+  api.SingboxProxyMember:
+    properties:
+      lastDelay:
+        type: integer
+      tag:
+        type: string
+      type:
+        type: string
+    type: object
   api.SingboxRouterApplyPresetRequest:
     properties:
       id:
@@ -2017,6 +2074,72 @@ definitions:
       description:
         example: My VPN policy
         type: string
+    type: object
+  api.SingboxRouterInspectData:
+    properties:
+      destination:
+        example: vpn
+        type: string
+      final:
+        example: direct
+        type: string
+      input:
+        example: google.com
+        type: string
+      inputType:
+        example: domain
+        type: string
+      matchedRule:
+        example: 0
+        type: integer
+      matches:
+        items:
+          $ref: '#/definitions/api.SingboxRouterInspectMatchDTO'
+        type: array
+      note:
+        type: string
+    type: object
+  api.SingboxRouterInspectMatchDTO:
+    properties:
+      action:
+        example: route
+        type: string
+      conditions:
+        items:
+          type: string
+        type: array
+      index:
+        example: 0
+        type: integer
+      matched:
+        example: true
+        type: boolean
+      outbound:
+        example: vpn
+        type: string
+      reason:
+        example: 'совпало по: domain_suffix'
+        type: string
+    type: object
+  api.SingboxRouterInspectRequest:
+    properties:
+      domain:
+        example: google.com
+        type: string
+      port:
+        example: 443
+        type: integer
+      protocol:
+        example: tcp
+        type: string
+    type: object
+  api.SingboxRouterInspectResponse:
+    properties:
+      data:
+        $ref: '#/definitions/api.SingboxRouterInspectData'
+      success:
+        example: true
+        type: boolean
     type: object
   api.SingboxRouterIssueDTO:
     properties:
@@ -6854,6 +6977,40 @@ paths:
       summary: Enable singbox-router
       tags:
       - singbox-router
+  /singbox/router/inspect:
+    post:
+      consumes:
+      - application/json
+      description: Simulates which router rule would match the given domain or IP,
+        returning the would-be outbound. Pure simulator — does not invoke sing-box.
+        rule_set matchers are NOT evaluated in this version.
+      parameters:
+      - description: Domain or IP to test, plus optional port/protocol
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SingboxRouterInspectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SingboxRouterInspectResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Inspect router routing decision
+      tags:
+      - singbox-router
   /singbox/router/outbounds/add:
     post:
       consumes:
@@ -7179,6 +7336,116 @@ paths:
       security:
       - CookieAuth: []
       summary: List singbox-router presets
+      tags:
+      - singbox-router
+  /singbox/router/proxies/list:
+    get:
+      description: Returns selector/urltest/loadbalance groups managed by this router
+        with their currently active member and per-member last latency. Filtered to
+        groups defined in 20-router.json — Clash builtins (DIRECT, GLOBAL, REJECT)
+        are excluded.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/api.OkResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/api.SingboxProxiesListResponse'
+              type: object
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: List sing-box composite proxy groups with live state
+      tags:
+      - singbox-router
+  /singbox/router/proxies/select:
+    post:
+      consumes:
+      - application/json
+      description: Sets the active member of a Clash-managed `selector` outbound.
+        URLTest / loadbalance groups are read-only and return 400.
+      parameters:
+      - description: Group and member tags
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SingboxProxiesSelectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.OkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Switch active member of a sing-box selector group
+      tags:
+      - singbox-router
+  /singbox/router/proxies/test:
+    post:
+      consumes:
+      - application/json
+      description: Calls Clash `/group/<name>/delay`, returning the per-member delay
+        map. Members that timed out come back with 0.
+      parameters:
+      - description: Group and optional URL/timeout
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SingboxProxiesTestRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/api.OkResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/api.SingboxProxiesTestResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Force latency test for all members of a composite group
       tags:
       - singbox-router
   /singbox/router/rules/add:

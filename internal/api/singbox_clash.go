@@ -29,6 +29,19 @@ var clashHTTPClient = &http.Client{
 	Timeout: 30 * time.Second,
 }
 
+// ClashBaseURL returns the upstream clash_api endpoint, e.g.
+// "http://127.0.0.1:9099". Used by SingboxProxiesHandler to make
+// internal HTTP calls instead of duplicating the URL. Returns an
+// empty string if the underlying ClashClient has no address yet so
+// callers can short-circuit before issuing a malformed request.
+func (p *ClashProxy) ClashBaseURL() string {
+	addr := p.op.Clash().Address()
+	if addr == "" {
+		return ""
+	}
+	return "http://" + addr
+}
+
 // ServeHTTP routes HTTP and WebSocket upgrade requests to the Clash upstream.
 func (p *ClashProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	upstreamPath := strings.TrimPrefix(r.URL.Path, clashPrefix)
