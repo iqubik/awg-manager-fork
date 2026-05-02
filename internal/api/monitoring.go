@@ -80,13 +80,14 @@ func NewMonitoringHandler(svc *monitoring.Service) *MonitoringHandler {
 // GET /api/monitoring/matrix
 //
 //	@Summary		Get monitoring matrix snapshot
-//	@Description	Returns the latest cross-tunnel × cross-target latency/loss matrix snapshot. Responds 503 until the monitoring service has finished bootstrap.
+//	@Description	Returns the latest cross-tunnel × cross-target latency/loss matrix snapshot. Responds 503 until the monitoring service has finished bootstrap. Pass `?force=1` to invalidate the Clash cache and run a fresh probing tick before returning.
 //	@Tags			monitoring
 //	@Produce		json
 //	@Security		CookieAuth
-//	@Success		200	{object}	MonitoringSnapshotResponse
-//	@Failure		405	{object}	APIErrorEnvelope
-//	@Failure		503	{object}	APIErrorEnvelope
+//	@Param			force	query		int		false	"Set to 1 to force-refresh ICMP/Clash data before snapshot read"
+//	@Success		200		{object}	MonitoringSnapshotResponse
+//	@Failure		405		{object}	APIErrorEnvelope
+//	@Failure		503		{object}	APIErrorEnvelope
 //	@Router			/monitoring/matrix [get]
 func (h *MonitoringHandler) GetMatrix(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -96,6 +97,9 @@ func (h *MonitoringHandler) GetMatrix(w http.ResponseWriter, r *http.Request) {
 	if h.svc == nil {
 		response.ErrorWithStatus(w, http.StatusServiceUnavailable, "Monitoring service not available", "SERVICE_UNAVAILABLE")
 		return
+	}
+	if r.URL.Query().Get("force") == "1" {
+		h.svc.RefreshNow(r.Context())
 	}
 	snap := h.svc.Snapshot()
 	response.Success(w, snap)

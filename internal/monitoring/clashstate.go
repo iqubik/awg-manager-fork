@@ -44,6 +44,15 @@ func NewClashState(clashBaseURL func() string, httpClient *http.Client) *ClashSt
 	}
 }
 
+// Invalidate marks the cache as stale so the next LatencyForOutbound
+// call re-fetches /proxies. Used by force-refresh paths (e.g. the
+// /monitoring/matrix?force=1 button).
+func (c *ClashState) Invalidate() {
+	c.mu.Lock()
+	c.lastFetch = time.Time{}
+	c.mu.Unlock()
+}
+
 // LatencyForOutbound returns the last-known delay for the named
 // outbound. ok=false means: tag unknown, OR last delay was 0 (timeout
 // / never tested), OR Clash is unreachable.

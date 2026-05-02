@@ -191,6 +191,8 @@ func (f *fakeClashState) LatencyForOutbound(ctx context.Context, tag string) (in
 	return d, ok && d > 0
 }
 
+func (f *fakeClashState) Invalidate() {}
+
 func TestScheduler_AugmentSingboxClashData_PopulatesUrltestMembers(t *testing.T) {
 	s := NewScheduler(SchedulerDeps{
 		Composites: &fakeComposites{items: []CompositeOutboundInfo{

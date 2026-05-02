@@ -80,6 +80,13 @@ func (s *Service) Snapshot() Snapshot {
 	return s.scheduler.LatestSnapshot()
 }
 
+// RefreshNow synchronously invalidates the Clash cache and runs a
+// fresh probing tick. Wired to /monitoring/matrix?force=1 so the
+// Refresh button reflects fresh state before the next snapshot read.
+func (s *Service) RefreshNow(ctx context.Context) {
+	s.scheduler.RunOnceForced(ctx)
+}
+
 // History returns recent samples for (targetID, tunnelID), bounded by limit.
 func (s *Service) History(targetID, tunnelID string, limit int) []Sample {
 	return s.history.Get(targetID, tunnelID, limit)

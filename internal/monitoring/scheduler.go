@@ -84,9 +84,11 @@ type CompositeOutboundInfo struct {
 
 // ClashStateProvider returns the latest known per-outbound latency.
 // Implementation handles its own caching; scheduler just queries.
-// Optional — when nil, augmentation is skipped.
+// Optional — when nil, augmentation is skipped. Invalidate is called
+// by force-refresh paths so the next LatencyForOutbound re-fetches.
 type ClashStateProvider interface {
 	LatencyForOutbound(ctx context.Context, tag string) (delayMs int, ok bool)
+	Invalidate()
 }
 
 // SchedulerDeps wires Scheduler against the rest of the system.
@@ -192,6 +194,19 @@ func (s *Scheduler) loop(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// RunOnceForced invalidates the Clash cache (if wired) and runs a
+// fresh tick. Used by /monitoring/matrix?force=1 so the Refresh
+// button delivers fresh ICMP and Clash data in one round-trip.
+func (s *Scheduler) RunOnceForced(ctx context.Context) {
+	s.mu.RLock()
+	cs := s.deps.ClashState
+	s.mu.RUnlock()
+	if cs != nil {
+		cs.Invalidate()
+	}
+	s.RunOnce(ctx)
 }
 
 // RunOnce executes a single tick — exposed for testing. Probes every
