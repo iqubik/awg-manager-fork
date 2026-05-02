@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { api } from '$lib/api/client';
 	import { singboxRouter } from '$lib/stores/singboxRouter';
 	import { singboxTunnels } from '$lib/stores/singbox';
+	import { singboxProxies, latencyHistory } from '$lib/stores/singboxProxies';
 	import { StatRow, Badge } from '$lib/components/ui';
 	import type { StatTile } from '$lib/components/ui';
 	import type { AWGTagInfo, SingboxTunnel } from '$lib/types';
@@ -16,6 +17,8 @@
 
 	const outbounds = $derived($outboundsStore);
 	const phase1Tunnels = $derived(($phase1Store.data ?? []) as SingboxTunnel[]);
+	const proxiesGroups = $derived($singboxProxies.data ?? []);
+	const proxiesHistory = $derived($latencyHistory);
 
 	let awgTags = $state<AWGTagInfo[]>([]);
 
@@ -31,8 +34,15 @@
 		await singboxRouter.loadAll();
 	}
 
+	let unsubProxies: (() => void) | null = null;
+
 	onMount(() => {
 		loadAWGTags();
+		unsubProxies = singboxProxies.subscribe(() => {});
+	});
+
+	onDestroy(() => {
+		unsubProxies?.();
 	});
 
 	const outboundOptions = $derived(
@@ -119,6 +129,8 @@
 	{outbounds}
 	{outboundOptions}
 	onChange={refresh}
+	proxies={proxiesGroups}
+	latencyHistory={proxiesHistory}
 />
 
 <style>
