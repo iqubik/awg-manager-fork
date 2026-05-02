@@ -203,6 +203,8 @@
 		display: flex; gap: 6px; flex-shrink: 0;
 		font-family: ui-monospace, monospace;
 		font-size: 11px; color: var(--text-secondary, #b8b6b3);
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
 	}
 	.dot { color: var(--text-tertiary, #6e6e6e); }
 	.count { color: var(--text-tertiary, #6e6e6e); }

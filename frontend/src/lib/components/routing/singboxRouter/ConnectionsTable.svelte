@@ -63,6 +63,17 @@
 
 <div class="wrap">
 	<table class="t">
+		<colgroup>
+			<col style="width: 56px" />
+			<col />
+			<col />
+			<col style="width: 140px" />
+			<col style="width: 110px" />
+			<col style="width: 84px" />
+			<col style="width: 84px" />
+			<col style="width: 84px" />
+			<col style="width: 36px" />
+		</colgroup>
 		<thead>
 			<tr>
 				<th>Прот</th>
@@ -70,8 +81,8 @@
 				<th class="sortable" onclick={() => onSortChange('destination')}>Назначение {arrow('destination')}</th>
 				<th class="sortable" onclick={() => onSortChange('outbound')}>Outbound {arrow('outbound')}</th>
 				<th>Rule</th>
-				<th class="sortable" onclick={() => onSortChange('upload')}>↑ {arrow('upload')}</th>
-				<th class="sortable" onclick={() => onSortChange('download')}>↓ {arrow('download')}</th>
+				<th class="sortable num" onclick={() => onSortChange('upload')}>↑ {arrow('upload')}</th>
+				<th class="sortable num" onclick={() => onSortChange('download')}>↓ {arrow('download')}</th>
 				<th class="sortable" onclick={() => onSortChange('start')}>Время {arrow('start')}</th>
 				<th></th>
 			</tr>
@@ -102,9 +113,9 @@
 					<td title={`${c.rule} ${c.rulePayload}`.trim()}>
 						<span class="badge muted">{c.rule || '—'}</span>
 					</td>
-					<td class="mono">{formatBytes(c.upload)}</td>
-					<td class="mono">{formatBytes(c.download)}</td>
-					<td class="mono small">{relativeTime(c.start)}</td>
+					<td class="mono num">{formatBytes(c.upload)}</td>
+					<td class="mono num">{formatBytes(c.download)}</td>
+					<td class="mono small num">{relativeTime(c.start)}</td>
 					<td>
 						<button class="kill" type="button" onclick={() => onKill(c.id)} title="Закрыть соединение">×</button>
 					</td>
@@ -129,12 +140,24 @@
 
 <style>
 	.wrap { overflow-x: auto; min-height: 320px; }
-	.t { width: 100%; border-collapse: collapse; font-size: 13px; }
+	.t {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 13px;
+		table-layout: fixed;
+	}
 	.t th, .t td {
 		padding: 6px 10px;
 		border-bottom: 1px solid var(--border-1, #2c3134);
 		text-align: left;
 		vertical-align: top;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.t td > div {
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.t th {
 		font-size: 11px; font-weight: 600;
@@ -143,6 +166,7 @@
 		background: var(--surface-1, #1f2425);
 		position: sticky; top: 0;
 	}
+	.t .num { text-align: right; font-variant-numeric: tabular-nums; }
 	.sortable { cursor: pointer; user-select: none; }
 	.sortable:hover { color: var(--text-primary, #e8e6e3); }
 	.mono { font-family: ui-monospace, monospace; }

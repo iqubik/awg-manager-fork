@@ -153,14 +153,18 @@
 </script>
 
 <div class="totals">
-	<span>
-		Всего: <strong>{filteredConns.length}</strong>
-		{#if filteredConns.length !== snapshot.connectionsTotal}
-			<span class="muted">из {snapshot.connectionsTotal}</span>
-		{/if}
-		соединений
+	<span class="totals-text">
+		<span class="totals-count">
+			Всего: <strong class="num">{filteredConns.length}</strong>
+			{#if filteredConns.length !== snapshot.connectionsTotal}
+				<span class="muted">из <span class="num">{snapshot.connectionsTotal}</span></span>
+			{/if}
+			соединений
+		</span>
 		<span class="dot">·</span>
-		↑ {formatBytes(totalUp)} · ↓ {formatBytes(totalDown)}
+		<span class="totals-bytes num">↑ {formatBytes(totalUp)}</span>
+		<span class="dot">·</span>
+		<span class="totals-bytes num">↓ {formatBytes(totalDown)}</span>
 	</span>
 	<span class="status status-{statusLabel.cls}">
 		<span class="dot-icon">{statusLabel.dot}</span> {statusLabel.text}
@@ -193,6 +197,9 @@
 	}
 	.muted { color: var(--text-tertiary, #6e6e6e); }
 	.dot { color: var(--text-tertiary, #6e6e6e); margin: 0 6px; }
+	.num { font-variant-numeric: tabular-nums; }
+	.totals-text { display: inline-flex; align-items: baseline; gap: 0; white-space: nowrap; }
+	.totals-bytes { display: inline-block; min-width: 90px; }
 	.status {
 		display: inline-flex; align-items: center; gap: 4px;
 		font-size: 12px;
