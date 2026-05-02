@@ -3,6 +3,7 @@ package monitoring
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -184,6 +185,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) {
 	}()
 
 	tunnels := s.collectTunnels(ctx)
+	s.augmentSingboxClashData(ctx, tunnels)
 	targets := EffectiveTargets(tunnels)
 
 	cells := make([]Cell, 0, len(targets)*len(tunnels))
@@ -397,4 +399,52 @@ func (s *Scheduler) collectTunnels(ctx context.Context) []Tunnel {
 	}
 
 	return out
+}
+
+// augmentSingboxClashData walks the tunnels list and, for each
+// sing-box tunnel that is a member of a urltest composite group AND
+// has a recorded latency in the ClashState cache, populates
+// ClashDelay + UrltestGroup. No-op for non-sing-box tunnels and for
+// sing-box tunnels with no urltest membership or no recorded delay.
+//
+// Mutates `tunnels` in place. Safe to call when Composites or
+// ClashState deps are nil — short-circuits.
+func (s *Scheduler) augmentSingboxClashData(ctx context.Context, tunnels []Tunnel) {
+	if s.deps.Composites == nil || s.deps.ClashState == nil {
+		return
+	}
+	composites, err := s.deps.Composites.List(ctx)
+	if err != nil {
+		return
+	}
+	// Build memberTag → urltestGroupTag map. First urltest group wins
+	// per member (sing-box does the same — a member can technically
+	// appear in multiple groups but only one urltest tracks its delay
+	// authoritatively).
+	urltestOf := make(map[string]string)
+	for _, c := range composites {
+		if strings.ToLower(c.Type) != "urltest" {
+			continue
+		}
+		for _, m := range c.Members {
+			if _, exists := urltestOf[m]; !exists {
+				urltestOf[m] = c.Tag
+			}
+		}
+	}
+	for i := range tunnels {
+		if tunnels[i].Source != "singbox" {
+			continue
+		}
+		group, ok := urltestOf[tunnels[i].SingboxTag]
+		if !ok {
+			continue
+		}
+		delay, hasDelay := s.deps.ClashState.LatencyForOutbound(ctx, tunnels[i].SingboxTag)
+		if !hasDelay {
+			continue
+		}
+		tunnels[i].ClashDelay = delay
+		tunnels[i].UrltestGroup = group
+	}
 }

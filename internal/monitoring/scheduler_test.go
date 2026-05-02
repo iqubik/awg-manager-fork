@@ -172,3 +172,51 @@ func TestScheduler_SingboxTunnels_AppearInSnapshot(t *testing.T) {
 		t.Errorf("expected t2s0->veesp, t2s1->prague, got %+v", got)
 	}
 }
+
+type fakeComposites struct {
+	items []CompositeOutboundInfo
+	err   error
+}
+
+func (f *fakeComposites) List(ctx context.Context) ([]CompositeOutboundInfo, error) {
+	return f.items, f.err
+}
+
+type fakeClashState struct {
+	delays map[string]int
+}
+
+func (f *fakeClashState) LatencyForOutbound(ctx context.Context, tag string) (int, bool) {
+	d, ok := f.delays[tag]
+	return d, ok && d > 0
+}
+
+func TestScheduler_AugmentSingboxClashData_PopulatesUrltestMembers(t *testing.T) {
+	s := NewScheduler(SchedulerDeps{
+		Composites: &fakeComposites{items: []CompositeOutboundInfo{
+			{Tag: "auto", Type: "urltest", Members: []string{"veesp", "prague"}},
+			{Tag: "manual", Type: "selector", Members: []string{"veesp"}},
+		}},
+		ClashState: &fakeClashState{delays: map[string]int{
+			"veesp":  45,
+			"prague": 0, // never tested — should NOT be populated
+		}},
+	}, nil)
+	tunnels := []Tunnel{
+		{ID: "veesp", IfaceName: "t2s0", Source: "singbox", SingboxTag: "veesp"},
+		{ID: "prague", IfaceName: "t2s1", Source: "singbox", SingboxTag: "prague"},
+		{ID: "wg-1", IfaceName: "nwg0", Source: "system"},
+	}
+
+	s.augmentSingboxClashData(context.Background(), tunnels)
+
+	if tunnels[0].ClashDelay != 45 || tunnels[0].UrltestGroup != "auto" {
+		t.Errorf("veesp: expected ClashDelay=45 UrltestGroup=auto, got %+v", tunnels[0])
+	}
+	if tunnels[1].ClashDelay != 0 || tunnels[1].UrltestGroup != "" {
+		t.Errorf("prague (zero delay): expected no augmentation, got %+v", tunnels[1])
+	}
+	if tunnels[2].ClashDelay != 0 || tunnels[2].UrltestGroup != "" {
+		t.Errorf("nwg0 (non-singbox): expected no augmentation, got %+v", tunnels[2])
+	}
+}
