@@ -71,7 +71,11 @@ import type {
 	SingboxRouterDNSRule,
 	SingboxRouterDNSGlobals,
 	SingboxRouterInspectRequest,
-	SingboxRouterInspectResult
+	SingboxRouterInspectResult,
+	SingboxProxiesListResponse,
+	SingboxProxiesSelectRequest,
+	SingboxProxiesTestRequest,
+	SingboxProxiesTestResponse
 } from '$lib/types';
 
 interface ApiResponse<T> {
@@ -1438,6 +1442,24 @@ class ApiClient {
 		await this.request('/singbox/router/outbounds/delete', {
 			method: 'POST',
 			body: JSON.stringify({ tag, force }),
+		});
+	}
+
+	async singboxRouterListProxies(): Promise<SingboxProxiesListResponse> {
+		return this.request<SingboxProxiesListResponse>('/singbox/router/proxies/list');
+	}
+
+	async singboxRouterSelectProxy(req: SingboxProxiesSelectRequest): Promise<void> {
+		await this.request<unknown>('/singbox/router/proxies/select', {
+			method: 'POST',
+			body: JSON.stringify(req),
+		});
+	}
+
+	async singboxRouterTestProxy(req: SingboxProxiesTestRequest): Promise<SingboxProxiesTestResponse> {
+		return this.request<SingboxProxiesTestResponse>('/singbox/router/proxies/test', {
+			method: 'POST',
+			body: JSON.stringify(req),
 		});
 	}
 

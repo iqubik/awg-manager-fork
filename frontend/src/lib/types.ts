@@ -1244,6 +1244,44 @@ export interface SingboxRouterOutbound {
 	strategy?: string;
 }
 
+/**
+ * Live state of one composite outbound (selector / urltest / loadbalance).
+ * Returned by GET /api/singbox/router/proxies/list.
+ */
+export interface SingboxProxyMember {
+	tag: string;
+	type: string;
+	/** Last latency in ms; 0 = not tested or unreachable. */
+	lastDelay?: number;
+}
+
+export interface SingboxProxyGroup {
+	tag: string;
+	type: 'selector' | 'urltest' | 'loadbalance';
+	now: string;
+	members: SingboxProxyMember[];
+}
+
+export interface SingboxProxiesListResponse {
+	groups: SingboxProxyGroup[];
+}
+
+export interface SingboxProxiesSelectRequest {
+	group: string;
+	member: string;
+}
+
+export interface SingboxProxiesTestRequest {
+	group: string;
+	url?: string;
+	timeout?: number;
+}
+
+export interface SingboxProxiesTestResponse {
+	/** memberTag → delay in ms; 0 = unreachable. */
+	delays: Record<string, number>;
+}
+
 export interface SingboxRouterPresetLink {
 	ruleSetRef: string;
 	actionTarget: 'tunnel' | 'reject' | 'direct';
