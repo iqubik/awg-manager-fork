@@ -153,85 +153,55 @@ func (h *SettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 // Update saves settings.
 //
 //	@Summary		Update settings
-//	@Description	Persists Settings. Sub-structs (server, pingCheck, logging, dnsRoute, managedServers, ...) preserved when zero/nil. ApiKey preserved when empty (rotate via /settings/regenerate-api-key). Top-level bool flags (authEnabled, disableMemorySaving) MUST be sent on every save.
+//	@Description	Persists Settings via patch semantics: any field omitted from the payload is preserved, including top-level bool flags. Send only the fields you want to change, or send the full Settings object to update everything atomically. ApiKey preserved when omitted (rotate via /settings/regenerate-api-key).
 //	@Tags			settings
 //	@Accept			json
 //	@Produce		json
 //	@Security		CookieAuth
-//	@Param			body	body		SettingsData	true	"Full settings object"
+//	@Param			body	body		SettingsData	true	"Settings patch — any subset of fields"
 //	@Success		200		{object}	SettingsResponse
 //	@Failure		400		{object}	APIErrorEnvelope
 //	@Failure		500		{object}	APIErrorEnvelope
 //	@Router			/settings/update [post]
 func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
-	settings, ok := parseJSON[storage.Settings](w, r, http.MethodPost)
+	patch, ok := parseJSON[storage.SettingsPatch](w, r, http.MethodPost)
 	if !ok {
 		return
 	}
 
-	// Get current settings to detect pingCheck toggle change
 	oldSettings, err := h.store.Get()
 	if err != nil {
 		response.Error(w, err.Error(), "SETTINGS_LOAD_ERROR")
 		return
 	}
 
-	// Defense-in-depth for partial updates: Go's json decoder cannot
-	// distinguish "field absent" from "field present with zero value", so a
-	// payload missing any top-level field decodes to zero. Without preserve
-	// logic Save(&settings) would wipe every omitted section (server,
-	// pingCheck, logging, etc.). Frontend currently sends full objects via
-	// spread, but a single forgotten spread would silently nuke the config.
+	// Apply patch onto a snapshot of the current settings: any field the
+	// client did NOT send (nil pointer in patch) keeps its existing value.
+	// This replaces the previous zero-value-restore defense, which could
+	// not protect top-level bool flags (false vs absent were
+	// indistinguishable in a non-pointer DTO).
 	//
-	// Policy: for every top-level sub-struct or slice field, restore from
-	// existing if the incoming value is zero. Top-level bool flags
-	// (AuthEnabled, DisableMemorySaving) cannot be
-	// defended this way — "false" and "not sent" are indistinguishable —
-	// so the caller is expected to always send the full object.
-	if settings.Server == (storage.ServerSettings{}) {
-		settings.Server = oldSettings.Server
+	// NOTE: sub-structs are replaced wholesale (no recursion). The frontend
+	// always sends each sub-struct in full via spread, so omitting one
+	// inner field is not a supported partial-update pattern. If a future
+	// caller needs field-level granularity inside a sub-struct, add a
+	// dedicated *Patch type for that sub-struct.
+	//
+	// Defense-in-depth: an explicit empty ApiKey ("") would WIPE the key,
+	// stranding any Bearer-auth client. The intended rotation path is
+	// /settings/regenerate-api-key. Treat explicit empty as "absent" so a
+	// stale/buggy client cannot accidentally revoke its own key.
+	if patch.ApiKey != nil && *patch.ApiKey == "" {
+		patch.ApiKey = nil
 	}
-	if settings.PingCheck == (storage.PingCheckSettings{}) {
-		settings.PingCheck = oldSettings.PingCheck
-	}
-	if settings.Logging == (storage.LoggingSettings{}) {
-		settings.Logging = oldSettings.Logging
-	}
-	if settings.DNSRoute == (storage.DNSRouteSettings{}) {
-		settings.DNSRoute = oldSettings.DNSRoute
-	}
-	if settings.ServerInterfaces == nil {
-		settings.ServerInterfaces = oldSettings.ServerInterfaces
-	}
-	if settings.ManagedPolicies == nil {
-		settings.ManagedPolicies = oldSettings.ManagedPolicies
-	}
-	if settings.ManagedServer == nil {
-		settings.ManagedServer = oldSettings.ManagedServer
-	}
-	if settings.ManagedServers == nil {
-		settings.ManagedServers = oldSettings.ManagedServers
-	}
-	if settings.SchemaVersion == 0 {
-		settings.SchemaVersion = oldSettings.SchemaVersion
-	}
-	// ApiKey is omitempty: a payload that omits the field decodes to "".
-	// Preserve the existing key in that case so a partial update can't
-	// silently revoke API access. To ROTATE the key the caller sends a new
-	// non-empty value; to CLEAR it the caller currently has no path —
-	// matches the behavior of other secret fields.
-	if settings.ApiKey == "" {
-		settings.ApiKey = oldSettings.ApiKey
-	}
+	merged := *oldSettings
+	storage.ApplyPatch(&merged, &patch)
 
-	// UsageLevel is a top-level string but treated like a sub-struct: an
-	// empty value (omitted from payload) restores from existing rather
-	// than silently resetting to "basic". A non-empty value is validated;
-	// invalid input rejected with 400 so a typo does not silently turn
-	// into "advanced".
-	if settings.UsageLevel == "" {
-		settings.UsageLevel = oldSettings.UsageLevel
-	} else if storage.NormalizeUsageLevel(settings.UsageLevel) != settings.UsageLevel {
+	// Validate usageLevel after merge. Empty merged.UsageLevel is
+	// impossible because oldSettings always carries a value (default
+	// settings populate it; migration v15 backfills it), so we only
+	// reject explicit invalid values.
+	if storage.NormalizeUsageLevel(merged.UsageLevel) != merged.UsageLevel {
 		response.ErrorWithStatus(w, http.StatusBadRequest,
 			"invalid usageLevel: must be one of basic, advanced, expert",
 			"INVALID_USAGE_LEVEL")
@@ -240,24 +210,24 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	// Detect ping check toggle change before saving
 	pingCheckWasEnabled := oldSettings.PingCheck.Enabled
-	pingCheckNowEnabled := settings.PingCheck.Enabled
+	pingCheckNowEnabled := merged.PingCheck.Enabled
 	toggleEnabled := !pingCheckWasEnabled && pingCheckNowEnabled
 	toggleDisabled := pingCheckWasEnabled && !pingCheckNowEnabled
 
 	// Detect logging toggle change
 	loggingWasEnabled := oldSettings.Logging.Enabled
-	loggingNowEnabled := settings.Logging.Enabled
+	loggingNowEnabled := merged.Logging.Enabled
 
 	// Update tunnel configs if enabling
 	if h.tunnels != nil && toggleEnabled {
-		if err := h.enablePingCheckOnAllTunnels(&settings); err != nil {
+		if err := h.enablePingCheckOnAllTunnels(&merged); err != nil {
 			response.Error(w, err.Error(), "TOGGLE_ENABLE_ERROR")
 			return
 		}
 	}
 
 	// Save settings BEFORE starting monitoring (so service reads new values)
-	if err := h.store.Save(&settings); err != nil {
+	if err := h.store.Save(&merged); err != nil {
 		response.Error(w, err.Error(), "SETTINGS_SAVE_ERROR")
 		return
 	}
@@ -292,18 +262,18 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.log.Info("pingcheck", "", "Ping Check disabled")
 	}
 
-	if oldSettings.Server.Port != settings.Server.Port {
+	if oldSettings.Server.Port != merged.Server.Port {
 		h.log.Info("update", "", "Server port changed")
 	}
-	if oldSettings.AuthEnabled != settings.AuthEnabled {
-		if settings.AuthEnabled {
+	if oldSettings.AuthEnabled != merged.AuthEnabled {
+		if merged.AuthEnabled {
 			h.log.Info("auth", "", "Authentication enabled")
 		} else {
 			h.log.Warn("auth", "", "Authentication disabled")
 		}
 	}
-	if oldSettings.DisableMemorySaving != settings.DisableMemorySaving {
-		if settings.DisableMemorySaving {
+	if oldSettings.DisableMemorySaving != merged.DisableMemorySaving {
+		if merged.DisableMemorySaving {
 			h.log.Info("memory-saving", "", "Memory saving disabled")
 		} else {
 			h.log.Info("memory-saving", "", "Memory saving enabled")
@@ -317,7 +287,7 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.logsSnapshot()
 	}
 
-	response.Success(w, settings)
+	response.Success(w, merged)
 	publishInvalidated(h.bus, ResourceSettings, "updated")
 }
 
