@@ -2,10 +2,13 @@ package traffic
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/hoaxisr/awg-manager/internal/logging"
 )
 
 // Publisher receives SSE events. Implemented by *events.Bus in production.
@@ -38,6 +41,7 @@ type SysfsPoller struct {
 	history  HistoryFeeder
 	pub      Publisher
 	log      PollerLogger
+	appLog   *logging.ScopedLogger
 	root     string
 	interval time.Duration
 
@@ -49,12 +53,12 @@ type SysfsPoller struct {
 }
 
 // NewSysfsPoller wires the production poller. 10 s interval, standard sysfs root.
-func NewSysfsPoller(lister TunnelLister, history HistoryFeeder, pub Publisher, log PollerLogger) *SysfsPoller {
-	return newSysfsPoller(lister, history, pub, log, DefaultSysfsRoot, 10*time.Second)
+func NewSysfsPoller(lister TunnelLister, history HistoryFeeder, pub Publisher, log PollerLogger, appLogger logging.AppLogger) *SysfsPoller {
+	return newSysfsPoller(lister, history, pub, log, appLogger, DefaultSysfsRoot, 10*time.Second)
 }
 
 // newSysfsPoller is the test-facing constructor; exposes root and interval.
-func newSysfsPoller(lister TunnelLister, history HistoryFeeder, pub Publisher, log PollerLogger, root string, interval time.Duration) *SysfsPoller {
+func newSysfsPoller(lister TunnelLister, history HistoryFeeder, pub Publisher, log PollerLogger, appLogger logging.AppLogger, root string, interval time.Duration) *SysfsPoller {
 	if log == nil {
 		log = nopPollerLogger{}
 	}
@@ -63,6 +67,7 @@ func newSysfsPoller(lister TunnelLister, history HistoryFeeder, pub Publisher, l
 		history:  history,
 		pub:      pub,
 		log:      log,
+		appLog:   logging.NewScopedLogger(appLogger, logging.GroupSystem, logging.SubTraffic),
 		root:     root,
 		interval: interval,
 		stopCh:   make(chan struct{}),
@@ -123,6 +128,7 @@ func (p *SysfsPoller) tick() {
 			// Only log non-existence-neutral errors (malformed values, perm).
 			if !os.IsNotExist(err) {
 				p.log.Warnf("sysfs %s (%s): %v", rt.ID, rt.IfaceName, err)
+				p.appLog.Warn("read-counters", rt.ID, fmt.Sprintf("sysfs %s: %v", rt.IfaceName, err))
 			}
 			continue
 		}

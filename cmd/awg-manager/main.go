@@ -167,6 +167,7 @@ func main() {
 	// orchestrator).
 	ndmsSem := ndmstransport.NewSemaphore(4)
 	ndmsTransportClient := ndmstransport.New(ndmsSem)
+	ndmsTransportClient.SetAppLogger(loggingService)
 
 	ndmsQueries := ndmsquery.NewQueries(ndmsquery.Deps{
 		Getter: ndmsTransportClient,
@@ -232,6 +233,7 @@ func main() {
 
 	// Create NativeWG operator
 	rciClient := rci.New()
+	rciClient.SetAppLogger(loggingService)
 	nwgOp := nwg.NewOperator(log, ndmsQueries, ndmsCommands, ndmsTransportClient, rciClient, loggingService)
 
 	// Load awg_proxy.ko if firmware < 5.1 Alpha 4
@@ -261,11 +263,13 @@ func main() {
 		&tunnelProviderAdapter{svc: tunnelService, store: awgStore},
 		ndmsQueries.Interfaces,
 		&storeAdapter{store: awgStore},
+		loggingService,
 	)
 
 	// HydraRoute Neo integration (optional — detected at startup)
-	hydraService := hydraroute.NewService(catalog, log)
+	hydraService := hydraroute.NewService(catalog, log, loggingService)
 	geoDataStore := hydraroute.NewGeoDataStore(*dataDir)
+	geoDataStore.SetAppLogger(loggingService)
 	hydraService.SetGeoDataStore(geoDataStore)
 	// Adopt any geo files already listed in hrneo.conf (e.g. added manually
 	// before awg-manager was installed) so they show up in the UI. Adoption
@@ -525,6 +529,7 @@ func main() {
 		trafficHistory,
 		eventBus,
 		metricsLogger(loggingService),
+		loggingService,
 	)
 	sysfsTrafficPoller.Start()
 
@@ -561,7 +566,7 @@ func main() {
 	// matrix tick so cards show fresh latency without waiting up to 60s.
 	// All actual probing happens inside monitoring.Scheduler.
 	connAdapter := connectivity.NewAdapter(tunnelService)
-	connMonitor := connectivity.NewMonitor(eventBus, monitoringService.Scheduler(), connAdapter)
+	connMonitor := connectivity.NewMonitor(eventBus, monitoringService.Scheduler(), connAdapter, loggingService)
 	connMonitor.Start()
 	defer connMonitor.Stop()
 
@@ -750,6 +755,7 @@ func main() {
 		NDMSQuery:    deviceproxy.NewNDMSAdapter(ndmsQueries),
 		Bus:          eventBus,
 		AWGOutbounds: &deviceproxyAWGOutboundsAdapter{src: awgoutboundsSvc},
+		AppLogger:    loggingService,
 	})
 	// Reflect deviceproxy storage state into the orchestrator slot so
 	// the saved Enabled flag matches the on-disk active/disabled
@@ -884,6 +890,7 @@ func main() {
 		&dnsRouteCountAdapter{store: dnsRouteStore},
 		&runningTunnelAdapter{svc: tunnelService},
 		log,
+		loggingService,
 	)
 	dnsCheckService.EnsureIPHost(context.Background())
 	srv.SetDnsCheckService(dnsCheckService)

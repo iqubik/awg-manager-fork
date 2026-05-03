@@ -353,11 +353,13 @@ type Deps struct {
 	LogService      LogServiceForDiag
 	AppVersion      string
 	PingCheckFacade PingCheckForDiag
+	AppLogger       logging.AppLogger
 }
 
 // Runner executes diagnostic runs.
 type Runner struct {
-	deps Deps
+	deps   Deps
+	appLog *logging.ScopedLogger
 
 	mu          sync.Mutex
 	status      RunStatus
@@ -370,6 +372,7 @@ type Runner struct {
 func NewRunner(deps Deps) *Runner {
 	return &Runner{
 		deps:   deps,
+		appLog: logging.NewScopedLogger(deps.AppLogger, logging.GroupSystem, logging.SubDiagnostics),
 		status: RunStatus{Status: "idle"},
 	}
 }
@@ -503,6 +506,7 @@ func (r *Runner) execute(ctx context.Context) {
 
 func (r *Runner) executeStream(ctx context.Context) {
 	start := time.Now()
+	r.appLog.Info("run", "", "Diagnostics started")
 	report := &Report{
 		Version:     "1.0",
 		GeneratedAt: start,
@@ -513,6 +517,7 @@ func (r *Runner) executeStream(ctx context.Context) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			r.emit(DiagEvent{Type: "error", Message: fmt.Sprintf("panic: %v", rec)})
+			r.appLog.Error("run", "", fmt.Sprintf("Diagnostics panicked: %v", rec))
 			r.mu.Lock()
 			r.status = RunStatus{Status: "error", Error: fmt.Sprintf("panic: %v", rec)}
 			r.mu.Unlock()
@@ -522,6 +527,7 @@ func (r *Runner) executeStream(ctx context.Context) {
 
 		report.DurationMs = time.Since(start).Milliseconds()
 		report.Tests = allResults
+		r.appLog.Info("run", "", fmt.Sprintf("Diagnostics complete in %dms (%d tests)", report.DurationMs, len(allResults)))
 
 		summary := &DoneSummary{Total: len(allResults)}
 		for _, tr := range allResults {

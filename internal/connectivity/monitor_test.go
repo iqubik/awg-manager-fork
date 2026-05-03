@@ -32,7 +32,7 @@ func TestMonitor_TriggersMatrixOnRunningEvent(t *testing.T) {
 	hs := &mockHandshake{}
 	hs.hasHandshake.Store(true) // skip handshake wait
 
-	mon := NewMonitor(bus, matrix, hs)
+	mon := NewMonitor(bus, matrix, hs, nil)
 	mon.Start()
 	defer mon.Stop()
 
@@ -66,7 +66,7 @@ func TestMonitor_TriggersMatrixOnRunningEvent(t *testing.T) {
 func TestMonitor_IgnoresNonRunningStateEvents(t *testing.T) {
 	bus := events.NewBus()
 	matrix := &mockMatrix{}
-	mon := NewMonitor(bus, matrix, nil)
+	mon := NewMonitor(bus, matrix, nil, nil)
 	mon.Start()
 	defer mon.Stop()
 

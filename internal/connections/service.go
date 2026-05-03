@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms/transport"
 	"github.com/hoaxisr/awg-manager/internal/routing"
 )
@@ -28,6 +29,7 @@ type Service struct {
 	catalog routing.Catalog
 	ndms    ndmsClient
 	lister  DNSListLister
+	appLog  *logging.ScopedLogger
 }
 
 // NewService creates a new connections service.
@@ -35,11 +37,12 @@ type Service struct {
 // The lister is used to resolve DNS-route list IDs into display names when
 // attributing connections to rules. Pass nil to disable name resolution
 // (rule attribution still works, just without ListName).
-func NewService(catalog routing.Catalog, ndmsClient ndmsClient, lister DNSListLister) *Service {
+func NewService(catalog routing.Catalog, ndmsClient ndmsClient, lister DNSListLister, appLogger logging.AppLogger) *Service {
 	return &Service{
 		catalog: catalog,
 		ndms:    ndmsClient,
 		lister:  lister,
+		appLog:  logging.NewScopedLogger(appLogger, logging.GroupSystem, logging.SubConnections),
 	}
 }
 
@@ -65,6 +68,7 @@ func (s *Service) List(ctx context.Context, params ListParams) (*ListResponse, e
 	// 1. Read conntrack
 	rawConns, err := readConntrackFile()
 	if err != nil {
+		s.appLog.Warn("read-conntrack", "", err.Error())
 		return nil, fmt.Errorf("read conntrack: %w", err)
 	}
 
@@ -204,6 +208,7 @@ func (s *Service) resolveClientNames(ctx context.Context) map[string]string {
 
 	raw, err := s.ndms.GetRaw(ctx, "/show/ip/hotspot")
 	if err != nil {
+		s.appLog.Warn("resolve-clients", "ndms.hotspot", err.Error())
 		return result
 	}
 
@@ -215,6 +220,7 @@ func (s *Service) resolveClientNames(ctx context.Context) map[string]string {
 		} `json:"host"`
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
+		s.appLog.Warn("resolve-clients", "ndms.hotspot", "parse hotspot response: "+err.Error())
 		return result
 	}
 
@@ -239,10 +245,12 @@ func (s *Service) resolveClientNames(ctx context.Context) map[string]string {
 func (s *Service) fetchIPRules(ctx context.Context) map[string][]RuleHit {
 	raw, err := s.ndms.GetRaw(ctx, "/show/object-group/fqdn")
 	if err != nil {
+		s.appLog.Warn("fetch-rules", "ndms.object-group/fqdn", err.Error())
 		return nil
 	}
 	groups, err := parseObjectGroupRuntime(bytes.NewReader(raw))
 	if err != nil {
+		s.appLog.Warn("fetch-rules", "object-group/fqdn", "parse runtime: "+err.Error())
 		return nil
 	}
 	return buildIPRuleMap(ctx, groups, s.lister)

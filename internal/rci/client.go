@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/hoaxisr/awg-manager/internal/logging"
 )
 
 const (
@@ -35,6 +37,7 @@ var sharedTransport = &http.Transport{
 type Client struct {
 	http    *http.Client
 	baseURL string
+	appLog  *logging.ScopedLogger
 }
 
 // New creates a new RCI client with default timeout (10s).
@@ -53,27 +56,41 @@ func NewWithTimeout(timeout time.Duration) *Client {
 	}
 }
 
+// SetAppLogger wires the UI-visible logger into the client. Optional;
+// nil-safe. Call once after construction. All HTTP exchanges go through
+// this scoped logger at debug level — visible only when log level=debug.
+func (c *Client) SetAppLogger(appLogger logging.AppLogger) {
+	c.appLog = logging.NewScopedLogger(appLogger, logging.GroupSystem, logging.SubRCI)
+}
+
 // Get performs an HTTP GET to /rci/{path} and decodes JSON into dst.
 func (c *Client) Get(ctx context.Context, path string, dst any) error {
+	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+path, nil)
 	if err != nil {
+		c.appLog.Debug("GET", path, fmt.Sprintf("build request: %v", err))
 		return fmt.Errorf("rci GET %s: %w", path, err)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		c.appLog.Debug("GET", path, fmt.Sprintf("transport: %v", err))
 		return fmt.Errorf("rci GET %s: %w", path, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		c.appLog.Debug("GET", path, fmt.Sprintf("status %d", resp.StatusCode))
 		return fmt.Errorf("rci GET %s: status %d", path, resp.StatusCode)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		c.appLog.Debug("GET", path, fmt.Sprintf("read body: %v", err))
 		return fmt.Errorf("rci GET %s: read: %w", path, err)
 	}
 	if err := json.Unmarshal(body, dst); err != nil {
+		c.appLog.Debug("GET", path, fmt.Sprintf("decode: %v", err))
 		return fmt.Errorf("rci GET %s: decode: %w", path, err)
 	}
+	c.appLog.Debug("GET", path, fmt.Sprintf("200 in %dms", time.Since(start).Milliseconds()))
 	return nil
 }
 
@@ -114,37 +131,45 @@ func (c *Client) PostBatch(ctx context.Context, commands []any) ([]json.RawMessa
 }
 
 func (c *Client) postJSON(ctx context.Context, payload any) (json.RawMessage, error) {
+	start := time.Now()
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(payload); err != nil {
+		c.appLog.Debug("POST", "", fmt.Sprintf("marshal: %v", err))
 		return nil, fmt.Errorf("rci POST: marshal: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/", &buf)
 	if err != nil {
+		c.appLog.Debug("POST", "", fmt.Sprintf("build request: %v", err))
 		return nil, fmt.Errorf("rci POST: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
+		c.appLog.Debug("POST", "", fmt.Sprintf("transport: %v", err))
 		return nil, fmt.Errorf("rci POST: %w", err)
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
+		c.appLog.Debug("POST", "", fmt.Sprintf("read body: %v", err))
 		return nil, fmt.Errorf("rci POST: read: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		c.appLog.Debug("POST", "", fmt.Sprintf("status %d: %s", resp.StatusCode, string(data)))
 		return nil, fmt.Errorf("rci POST: status %d: %s", resp.StatusCode, string(data))
 	}
 
 	// NDMS returns HTTP 200 even on errors — check body.
 	if errMsg := ExtractError(data); errMsg != "" {
+		c.appLog.Debug("POST", "", fmt.Sprintf("ndms-error: %s", errMsg))
 		return json.RawMessage(data), fmt.Errorf("rci POST: %s", errMsg)
 	}
 
+	c.appLog.Debug("POST", "", fmt.Sprintf("200 in %dms", time.Since(start).Milliseconds()))
 	return json.RawMessage(data), nil
 }

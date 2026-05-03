@@ -78,7 +78,7 @@ func TestSysfsPoller_FeedsHistoryAndPublishes(t *testing.T) {
 	defer hist.Stop()
 	pub := &spyPublisher{}
 
-	p := newSysfsPoller(lister, hist, pub, &fakeLog{}, root, 20*time.Millisecond)
+	p := newSysfsPoller(lister, hist, pub, &fakeLog{}, nil, root, 20*time.Millisecond)
 	p.Start()
 	defer p.Stop()
 
@@ -117,7 +117,7 @@ func TestSysfsPoller_MissingIfaceSkippedQuietly(t *testing.T) {
 	pub := &spyPublisher{}
 	lg := &fakeLog{}
 
-	p := newSysfsPoller(lister, hist, pub, lg, root, 20*time.Millisecond)
+	p := newSysfsPoller(lister, hist, pub, lg, nil, root, 20*time.Millisecond)
 	p.Start()
 	time.Sleep(80 * time.Millisecond)
 	p.Stop()
@@ -137,7 +137,7 @@ func TestSysfsPoller_NoRunningTunnelsIsNoop(t *testing.T) {
 	defer hist.Stop()
 	pub := &spyPublisher{}
 
-	p := newSysfsPoller(lister, hist, pub, &fakeLog{}, root, 20*time.Millisecond)
+	p := newSysfsPoller(lister, hist, pub, &fakeLog{}, nil, root, 20*time.Millisecond)
 	p.Start()
 	time.Sleep(60 * time.Millisecond)
 	p.Stop()
@@ -151,7 +151,7 @@ func TestSysfsPoller_NoRunningTunnelsIsNoop(t *testing.T) {
 // wiring may fail before the poller is ever Start()ed. Stop() must not
 // block waiting for doneCh (the goroutine was never launched).
 func TestSysfsPoller_StopWithoutStart(t *testing.T) {
-	p := newSysfsPoller(&fakeTunnelLister{}, New(), &spyPublisher{}, &fakeLog{}, t.TempDir(), 20*time.Millisecond)
+	p := newSysfsPoller(&fakeTunnelLister{}, New(), &spyPublisher{}, &fakeLog{}, nil, t.TempDir(), 20*time.Millisecond)
 	done := make(chan struct{})
 	go func() {
 		p.Stop()
@@ -167,7 +167,7 @@ func TestSysfsPoller_StopWithoutStart(t *testing.T) {
 // TestSysfsPoller_DoubleStartStop verifies sync.Once protection works
 // for both lifecycle entry points.
 func TestSysfsPoller_DoubleStartStop(t *testing.T) {
-	p := newSysfsPoller(&fakeTunnelLister{}, New(), &spyPublisher{}, &fakeLog{}, t.TempDir(), 20*time.Millisecond)
+	p := newSysfsPoller(&fakeTunnelLister{}, New(), &spyPublisher{}, &fakeLog{}, nil, t.TempDir(), 20*time.Millisecond)
 	p.Start()
 	p.Start() // must be no-op
 	p.Stop()

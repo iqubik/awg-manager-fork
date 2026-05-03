@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/events"
+	"github.com/hoaxisr/awg-manager/internal/logging"
 )
 
 // MatrixRunner triggers a single monitoring-matrix tick. Concrete impl is
@@ -28,6 +29,7 @@ type Monitor struct {
 	bus       *events.Bus
 	matrix    MatrixRunner
 	handshake HandshakeChecker
+	appLog    *logging.ScopedLogger
 	triggerCh chan string
 	stopCh    chan struct{}
 	wg        sync.WaitGroup
@@ -35,11 +37,12 @@ type Monitor struct {
 
 // NewMonitor creates a Monitor that pokes the matrix scheduler after
 // handshake. Call Start() to begin listening.
-func NewMonitor(bus *events.Bus, matrix MatrixRunner, hs HandshakeChecker) *Monitor {
+func NewMonitor(bus *events.Bus, matrix MatrixRunner, hs HandshakeChecker, appLogger logging.AppLogger) *Monitor {
 	return &Monitor{
 		bus:       bus,
 		matrix:    matrix,
 		handshake: hs,
+		appLog:    logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubConnectivity),
 		triggerCh: make(chan string, 16),
 		stopCh:    make(chan struct{}),
 	}
@@ -111,6 +114,7 @@ func (m *Monitor) runAfterHandshake(tunnelID string) {
 	if m.matrix == nil {
 		return
 	}
+	m.appLog.Debug("await-handshake", tunnelID, "tunnel went running, waiting for handshake")
 	if m.handshake != nil {
 		deadline := time.After(30 * time.Second)
 		poll := time.NewTicker(2 * time.Second)
@@ -126,6 +130,7 @@ func (m *Monitor) runAfterHandshake(tunnelID string) {
 			case <-poll.C:
 				continue
 			case <-deadline:
+				m.appLog.Debug("await-handshake", tunnelID, "handshake timeout (30s) — skipping immediate matrix tick")
 				return
 			case <-m.stopCh:
 				return
@@ -133,6 +138,7 @@ func (m *Monitor) runAfterHandshake(tunnelID string) {
 		}
 	}
 
+	m.appLog.Debug("matrix-tick", tunnelID, "handshake observed, requesting immediate matrix run")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	m.matrix.RunOnce(ctx)

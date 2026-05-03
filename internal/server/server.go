@@ -486,9 +486,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	externalHandler.SetTunnelListPublisher(tunnelsHandler.PublishTunnelList)
 	updateHandler := api.NewUpdateHandler(s.updaterService, appLog)
 	dnsRouteHandler := api.NewDNSRouteHandler(s.dnsRouteService, appLog)
+	diagRCI := rci.New()
+	diagRCI.SetAppLogger(s.loggingService)
 	diagRunner := diagnostics.NewRunner(diagnostics.Deps{
 		TunnelService:   s.tunnelService,
-		RCI:             rci.New(),
+		RCI:             diagRCI,
 		NDMSQueries:     s.ndmsQueries,
 		NDMSTransport:   s.ndmsTransport,
 		Backend:         s.activeBackend,
@@ -497,11 +499,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		LogService:      &diagLogAdapter{svc: s.loggingService},
 		AppVersion:      s.config.Version,
 		PingCheckFacade: s.pingCheckService,
+		AppLogger:       s.loggingService,
 	})
 	diagHandler := api.NewDiagnosticsHandler(diagRunner)
 
 	// Connections viewer
-	connectionsService := connections.NewService(s.catalog, s.ndmsTransport, s.dnsRouteService)
+	connectionsService := connections.NewService(s.catalog, s.ndmsTransport, s.dnsRouteService, s.loggingService)
 	connectionsHandler := api.NewConnectionsHandler(connectionsService)
 
 	signatureHandler := api.NewSignatureHandler()
