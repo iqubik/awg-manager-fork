@@ -124,45 +124,87 @@ type Server struct {
 	shutdownHooks []func()  // cleanup functions called before syscall.Exec
 }
 
+// Deps groups all New() construction-time dependencies into a named
+// struct so call sites and signature edits are not positional. Adding
+// a new dependency: append a field here AND set it in main.go.
+//
+// Optional handlers and operators that must be constructed AFTER
+// server.New (because they consume *Server or each other) stay wired
+// via the existing post-construction Set*Handler() / SetSingboxOperator()
+// setters — see SetSingboxRouterHandler etc. below in this file.
+type Deps struct {
+	Log                 *logger.Logger
+	TunnelService       api.TunnelService
+	ExternalService     api.ExternalTunnelService
+	TestingService      *testing.Service
+	Keenetic            *auth.KeeneticClient
+	Sessions            *auth.SessionStore
+	Settings            *storage.SettingsStore
+	Tunnels             *storage.AWGTunnelStore
+	PingCheckService    api.PingCheckService
+	LoggingService      *logging.Service
+	ActiveBackend       backend.Backend
+	KmodLoader          *kmod.Loader
+	UpdaterService      *updater.Service
+	NdmsQueries         *ndmsquery.Queries
+	TrafficHistory      *traffic.History
+	DnsRouteService     api.DNSRouteService
+	StaticRouteService  api.StaticRouteService
+	SystemTunnelService systemtunnel.Service
+	ManagedService      managed.ManagedServerService
+	NwgOp               *nwg.OperatorNativeWG
+	TerminalManager     terminal.Manager
+	AccessPolicySvc     accesspolicy.Service
+	ClientRouteSvc      clientroute.Service
+	Catalog             routing.Catalog
+	Orch                *orchestrator.Orchestrator
+	Bus                 *events.Bus
+	HydraService        *hydraroute.Service
+	SingboxHandler      *api.SingboxHandler
+	ClashProxy          *api.ClashProxy
+	SingboxConnsHandler *api.SingboxConnectionsHandler
+	MonitoringService   *monitoring.Service
+}
+
 // New creates a new server instance.
-func New(cfg Config, log *logger.Logger, tunnelService api.TunnelService, externalService api.ExternalTunnelService, testingService *testing.Service, keenetic *auth.KeeneticClient, sessions *auth.SessionStore, settings *storage.SettingsStore, tunnels *storage.AWGTunnelStore, pingCheckService api.PingCheckService, loggingService *logging.Service, activeBackend backend.Backend, kmodLoader *kmod.Loader, updaterService *updater.Service, ndmsQueries *ndmsquery.Queries, trafficHistory *traffic.History, dnsRouteService api.DNSRouteService, staticRouteService api.StaticRouteService, systemTunnelService systemtunnel.Service, managedService managed.ManagedServerService, nwgOp *nwg.OperatorNativeWG, terminalManager terminal.Manager, accessPolicySvc accesspolicy.Service, clientRouteSvc clientroute.Service, catalog routing.Catalog, orch *orchestrator.Orchestrator, bus *events.Bus, hydraService *hydraroute.Service, singboxHandler *api.SingboxHandler, clashProxy *api.ClashProxy, singboxConnsHandler *api.SingboxConnectionsHandler, monitoringService *monitoring.Service) *Server {
+func New(cfg Config, deps Deps) *Server {
 	id := generateInstanceID()
-	log.Infof("Server instance: %s", id)
+	deps.Log.Infof("Server instance: %s", id)
 
 	return &Server{
 		config:              cfg,
-		log:                 log,
-		tunnelService:       tunnelService,
-		externalService:     externalService,
-		testingService:      testingService,
-		keenetic:            keenetic,
-		sessions:            sessions,
-		settings:            settings,
-		tunnels:             tunnels,
-		pingCheckService:    pingCheckService,
-		loggingService:      loggingService,
-		activeBackend:       activeBackend,
-		kmodLoader:          kmodLoader,
-		updaterService:      updaterService,
-		ndmsQueries:         ndmsQueries,
-		trafficHistory:      trafficHistory,
-		dnsRouteService:     dnsRouteService,
-		staticRouteService:  staticRouteService,
-		systemTunnelService: systemTunnelService,
-		managedService:      managedService,
-		nwgOp:               nwgOp,
-		terminalManager:     terminalManager,
-		accessPolicyService: accessPolicySvc,
-		clientRouteService:  clientRouteSvc,
-		catalog:             catalog,
-		hydraService:        hydraService,
-		orch:                orch,
-		bus:                 bus,
-		singboxHandler:      singboxHandler,
-		singboxConnsHandler: singboxConnsHandler,
-		clashProxy:          clashProxy,
-		monitoringService:   monitoringService,
-		authMiddleware:      auth.NewMiddleware(sessions, settings, log),
+		log:                 deps.Log,
+		tunnelService:       deps.TunnelService,
+		externalService:     deps.ExternalService,
+		testingService:      deps.TestingService,
+		keenetic:            deps.Keenetic,
+		sessions:            deps.Sessions,
+		settings:            deps.Settings,
+		tunnels:             deps.Tunnels,
+		pingCheckService:    deps.PingCheckService,
+		loggingService:      deps.LoggingService,
+		activeBackend:       deps.ActiveBackend,
+		kmodLoader:          deps.KmodLoader,
+		updaterService:      deps.UpdaterService,
+		ndmsQueries:         deps.NdmsQueries,
+		trafficHistory:      deps.TrafficHistory,
+		dnsRouteService:     deps.DnsRouteService,
+		staticRouteService:  deps.StaticRouteService,
+		systemTunnelService: deps.SystemTunnelService,
+		managedService:      deps.ManagedService,
+		nwgOp:               deps.NwgOp,
+		terminalManager:     deps.TerminalManager,
+		accessPolicyService: deps.AccessPolicySvc,
+		clientRouteService:  deps.ClientRouteSvc,
+		catalog:             deps.Catalog,
+		hydraService:        deps.HydraService,
+		orch:                deps.Orch,
+		bus:                 deps.Bus,
+		singboxHandler:      deps.SingboxHandler,
+		singboxConnsHandler: deps.SingboxConnsHandler,
+		clashProxy:          deps.ClashProxy,
+		monitoringService:   deps.MonitoringService,
+		authMiddleware:      auth.NewMiddleware(deps.Sessions, deps.Settings, deps.Log),
 		instanceID:          id,
 	}
 }
