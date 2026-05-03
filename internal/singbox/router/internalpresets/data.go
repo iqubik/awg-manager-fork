@@ -1,9 +1,6 @@
 package internalpresets
 
-const (
-	sagerNetSiteRoot = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/"
-	sagerNetIPRoot   = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/"
-)
+const sagerNetSiteRoot = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/"
 
 type Preset struct {
 	ID        string     `json:"id"`
@@ -45,24 +42,7 @@ type RuleLink struct {
 }
 
 func All() []Preset {
-	out := []Preset{
-		{
-			ID: "all-non-ru", Name: "Обход блокировок РФ (всё не-RU → VPN)",
-			IconSlug: "lucide-shield-check",
-			Featured: true,
-			RuleSets: []RuleRef{{Tag: "geosite-geolocation-!ru", URL: sagerNetSiteRoot + "geosite-geolocation-!ru.srs"}},
-			Rules:    []RuleLink{{RuleSetRef: "geosite-geolocation-!ru", ActionTarget: "tunnel"}},
-			Notice:   "Весь не-российский трафик через VPN. One-click сетап для обхода блокировок.",
-		},
-		{
-			ID: "geoip-ru-direct", Name: "Российский трафик → мимо VPN",
-			IconSlug: "lucide-globe",
-			Featured: true,
-			RuleSets: []RuleRef{{Tag: "geoip-ru", URL: sagerNetIPRoot + "geoip-ru.srs"}},
-			Rules:    []RuleLink{{RuleSetRef: "geoip-ru", ActionTarget: "direct"}},
-			Notice:   "Полезно когда final=tunnel (всё по умолчанию в VPN, а RU — мимо)",
-		},
-	}
+	out := []Preset{}
 
 	// Соцсети / мессенджеры
 	out = append(out,
