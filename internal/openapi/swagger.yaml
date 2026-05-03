@@ -1009,6 +1009,9 @@ definitions:
     type: object
   api.LoggingSettingsDTO:
     properties:
+      appMaxEntries:
+        example: 5000
+        type: integer
       enabled:
         example: true
         type: boolean
@@ -1016,7 +1019,10 @@ definitions:
         example: info
         type: string
       maxAge:
-        example: 7
+        example: 2
+        type: integer
+      singboxMaxEntries:
+        example: 5000
         type: integer
     type: object
   api.LoginRequest:
@@ -1037,6 +1043,15 @@ definitions:
     type: object
   api.LogsData:
     properties:
+      bucket:
+        example: app
+        type: string
+      bufferCapacity:
+        example: 5000
+        type: integer
+      bufferSize:
+        example: 123
+        type: integer
       enabled:
         example: true
         type: boolean
@@ -1044,6 +1059,9 @@ definitions:
         items:
           $ref: '#/definitions/api.LogEntryDTO'
         type: array
+      oldestTimestamp:
+        example: "2024-01-15T08:00:00Z"
+        type: string
       total:
         example: 42
         type: integer
@@ -1835,6 +1853,21 @@ definitions:
     properties:
       json:
         type: string
+    type: object
+  api.SingboxConnectionsClientsData:
+    properties:
+      clientsByIP:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  api.SingboxConnectionsClientsResponse:
+    properties:
+      data:
+        $ref: '#/definitions/api.SingboxConnectionsClientsData'
+      success:
+        example: true
+        type: boolean
     type: object
   api.SingboxControlRequest:
     properties:
@@ -2743,6 +2776,24 @@ definitions:
         items:
           $ref: '#/definitions/api.StaticRouteDTO'
         type: array
+      success:
+        example: true
+        type: boolean
+    type: object
+  api.SubgroupsData:
+    properties:
+      group:
+        example: routing
+        type: string
+      subgroups:
+        items:
+          type: string
+        type: array
+    type: object
+  api.SubgroupsResponseEnvelope:
+    properties:
+      data:
+        $ref: '#/definitions/api.SubgroupsData'
       success:
         example: true
         type: boolean
@@ -5004,6 +5055,41 @@ paths:
       - import
   /logs:
     get:
+      description: Returns log entries from the selected bucket. `bucket=app` (default)
+        covers tunnel/routing/server/system events; `bucket=singbox` covers sing-box
+        forwarder events isolated from app history.
+      parameters:
+      - description: Bucket selector
+        enum:
+        - app
+        - singbox
+        in: query
+        name: bucket
+        type: string
+      - description: Filter by group
+        in: query
+        name: group
+        type: string
+      - description: Filter by subgroup
+        in: query
+        name: subgroup
+        type: string
+      - description: Filter by level
+        in: query
+        name: level
+        type: string
+      - description: Max entries to return (default 200)
+        in: query
+        name: limit
+        type: integer
+      - description: Skip first N matching entries
+        in: query
+        name: offset
+        type: integer
+      - description: Unix seconds — return only entries strictly after this
+        in: query
+        name: since
+        type: integer
       produces:
       - application/json
       responses:
@@ -5026,6 +5112,18 @@ paths:
       - logs
   /logs/clear:
     post:
+      description: Clears all entries from the requested bucket. `bucket` is required
+        — there is no implicit "clear everything" since app and sing-box logs serve
+        different audiences.
+      parameters:
+      - description: Bucket to clear
+        enum:
+        - app
+        - singbox
+        in: query
+        name: bucket
+        required: true
+        type: string
       produces:
       - application/json
       responses:
@@ -5044,6 +5142,38 @@ paths:
       security:
       - CookieAuth: []
       summary: Clear logs
+      tags:
+      - logs
+  /logs/subgroups:
+    get:
+      description: Returns the static subgroup catalog from internal/logging.KnownSubgroups.
+        Order is presentation-stable. Empty group returns 400.
+      parameters:
+      - description: Group name
+        enum:
+        - tunnel
+        - routing
+        - server
+        - system
+        - singbox
+        in: query
+        name: group
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SubgroupsResponseEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: List known subgroups for a group
       tags:
       - logs
   /managed-servers:
@@ -5707,6 +5837,13 @@ paths:
     get:
       description: Returns the latest cross-tunnel × cross-target latency/loss matrix
         snapshot. Responds 503 until the monitoring service has finished bootstrap.
+        Pass `?force=1` to invalidate the Clash cache and run a fresh probing tick
+        before returning.
+      parameters:
+      - description: Set to 1 to force-refresh ICMP/Clash data before snapshot read
+        in: query
+        name: force
+        type: integer
       produces:
       - application/json
       responses:
@@ -6380,12 +6517,12 @@ paths:
     post:
       consumes:
       - application/json
-      description: Persists Settings. Sub-structs (server, pingCheck, logging, dnsRoute,
-        managedServers, ...) preserved when zero/nil. ApiKey preserved when empty
-        (rotate via /settings/regenerate-api-key). Top-level bool flags (authEnabled,
-        disableMemorySaving) MUST be sent on every save.
+      description: 'Persists Settings via patch semantics: any field omitted from
+        the payload is preserved, including top-level bool flags. Send only the fields
+        you want to change, or send the full Settings object to update everything
+        atomically. ApiKey preserved when omitted (rotate via /settings/regenerate-api-key).'
       parameters:
-      - description: Full settings object
+      - description: Settings patch — any subset of fields
         in: body
         name: body
         required: true
@@ -6492,6 +6629,31 @@ paths:
       security:
       - CookieAuth: []
       summary: Get merged sing-box configuration preview
+      tags:
+      - singbox
+  /singbox/connections/clients:
+    get:
+      description: Returns the current NDMS hotspot mapping of source IPs to device
+        display names. Cached upstream (TTL 30s). On any error returns 200 with an
+        empty map (best-effort) so the UI keeps working with raw IPs.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SingboxConnectionsClientsResponse'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: IP → display-name map for sing-box connections
       tags:
       - singbox
   /singbox/control:

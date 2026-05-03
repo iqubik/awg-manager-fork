@@ -13,7 +13,7 @@
 	import { serverOnline } from '$lib/stores/events';
 	import { healthMonitor } from '$lib/stores/health';
 	import { tunnels } from '$lib/stores/tunnels';
-	import { logEntries } from '$lib/stores/logs';
+	import { appLogEntries, singboxLogEntries, logStoreFor, type LogBucket } from '$lib/stores/logs';
 	import { monitoringStore } from '$lib/stores/monitoring';
 	import { appendPingLog } from '$lib/stores/pingcheck';
 	import { systemInfo } from '$lib/stores/system';
@@ -71,20 +71,23 @@
 				tunnels.invalidate();
 
 				// Log catch-up: fetch entries we missed during the outage so the
-				// terminal feed has no gap. Use lastSeenTs - 1s for safe overlap
-				// (appendMany dedupes by composite key).
-				const lastTs = get(logEntries.lastSeenTs);
-				if (lastTs > 0) {
-					const sinceUnix = Math.floor((lastTs - 1000) / 1000);
-					api.getLogs({ since: sinceUnix, limit: 1000 })
-						.then((resp) => {
-							if (resp.logs.length > 0) {
-								logEntries.appendMany(resp.logs);
-							}
-						})
-						.catch(() => {
-							// silent — next SSE event will resume the stream
-						});
+				// terminal feed has no gap. Per-bucket — each store keeps its
+				// own lastSeenTs and gets only its own entries.
+				for (const bucket of ['app', 'singbox'] as const) {
+					const store = logStoreFor(bucket);
+					const lastTs = get(store.lastSeenTs);
+					if (lastTs > 0) {
+						const sinceUnix = Math.floor((lastTs - 1000) / 1000);
+						api.getLogs({ bucket, since: sinceUnix, limit: 1000 })
+							.then((resp) => {
+								if (resp.logs.length > 0) {
+									store.appendMany(resp.logs);
+								}
+							})
+							.catch(() => {
+								// silent — next SSE event will resume the stream
+							});
+					}
 				}
 			},
 			onDisconnected: () => {
@@ -125,8 +128,13 @@
 			// applyMatrixSnapshot below; the manual recheck button still
 			// flows through api.checkConnectivity → updateConnectivity.
 
-			// Logs & ping-check streams
-			onLogEntry: (data) => logEntries.append(data),
+			// Logs & ping-check streams — route by bucket to the correct store.
+			// Old backends (pre-2.9.10) didn't include bucket; default to "app"
+			// so the terminal still fills until the user upgrades.
+			onLogEntry: (data) => {
+				const bucket: LogBucket = data.bucket === 'singbox' ? 'singbox' : 'app';
+				logStoreFor(bucket).append(data);
+			},
 			onMonitoringMatrixUpdate: (data) => {
 				monitoringStore.setSnapshot(data);
 				tunnels.applyMatrixSnapshot(data);

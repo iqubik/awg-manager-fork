@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/hoaxisr/awg-manager/internal/events"
+	"github.com/hoaxisr/awg-manager/internal/logging"
 )
 
 // Deps groups the external collaborators Service needs. Wired once at
@@ -19,6 +20,7 @@ type Deps struct {
 	NDMSQuery    NDMSInterfaceQuery  // nil → ListenInterface resolution fails explicitly
 	Bus          *events.Bus         // nil → no event subscriptions or publishes
 	AWGOutbounds AWGOutboundsCatalog // nil → AWG-related selector members empty
+	AppLogger    logging.AppLogger   // nil → silent in UI logs
 }
 
 // AWGOutboundsCatalog is the narrow contract Service needs from the
@@ -77,7 +79,8 @@ type TunnelInboundPortsFn func() []int
 // Service owns the deviceproxy storage + mutation surface. All public
 // methods serialise through the embedded mutex.
 type Service struct {
-	d Deps
+	d      Deps
+	appLog *logging.ScopedLogger
 
 	mu          sync.Mutex
 	tunnelPorts TunnelInboundPortsFn
@@ -88,7 +91,10 @@ type Service struct {
 var ErrOutboundUnavailable = errors.New("outbound is not available")
 
 func NewService(d Deps) *Service {
-	return &Service{d: d}
+	return &Service{
+		d:      d,
+		appLog: logging.NewScopedLogger(d.AppLogger, logging.GroupRouting, logging.SubDeviceProxy),
+	}
 }
 
 // GetConfig returns the current persisted Config. Defensive copy via Store.
@@ -195,6 +201,17 @@ func (s *Service) SaveConfig(ctx context.Context, cfg Config) error {
 
 	if err := s.d.Store.Save(cfg); err != nil {
 		return fmt.Errorf("persist storage: %w", err)
+	}
+
+	switch {
+	case oldCfg.Enabled && !cfg.Enabled:
+		s.appLog.Info("disable", cfg.SelectedOutbound, "Device proxy disabled")
+	case !oldCfg.Enabled && cfg.Enabled:
+		s.appLog.Info("enable", cfg.SelectedOutbound, fmt.Sprintf("Device proxy enabled on :%d via %s", cfg.Port, cfg.SelectedOutbound))
+	case onlySelectedOutboundChanged(oldCfg, cfg):
+		s.appLog.Info("change-outbound", cfg.SelectedOutbound, fmt.Sprintf("Device proxy outbound switched to %s", cfg.SelectedOutbound))
+	default:
+		s.appLog.Info("update", cfg.SelectedOutbound, fmt.Sprintf("Device proxy config updated (port=%d outbound=%s)", cfg.Port, cfg.SelectedOutbound))
 	}
 
 	if s.d.Bus != nil {
@@ -402,8 +419,10 @@ func (s *Service) SelectRuntimeOutbound(ctx context.Context, tag string) error {
 		return fmt.Errorf("singbox operator unavailable")
 	}
 	if err := sb.SetSelectorDefault(ctx, "device-proxy-selector", tag); err != nil {
+		s.appLog.Warn("select-runtime", tag, fmt.Sprintf("hot-switch failed: %v", err))
 		return err
 	}
+	s.appLog.Info("select-runtime", tag, "Device proxy hot-switched outbound")
 
 	// Hot-switch changed runtime.activeTag — give the frontend SSE
 	// fast-path so the "Активный туннель" card updates sub-second,

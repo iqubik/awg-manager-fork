@@ -16,19 +16,33 @@
 		onSave,
 	}: Props = $props();
 
+	const MIN_ENTRIES = 100;
+	const MAX_ENTRIES = 100000;
+
 	let localMaxAge = $state(settings.logging.maxAge);
 	let localLogLevel = $state<'info' | 'full' | 'debug'>(
 		(settings.logging.logLevel as 'info' | 'full' | 'debug') || 'info',
 	);
+	let localAppMaxEntries = $state(settings.logging.appMaxEntries || 5000);
+	let localSingboxMaxEntries = $state(settings.logging.singboxMaxEntries || 5000);
 
 	$effect(() => {
 		localMaxAge = settings.logging.maxAge;
 		localLogLevel = (settings.logging.logLevel as 'info' | 'full' | 'debug') || 'info';
+		localAppMaxEntries = settings.logging.appMaxEntries || 5000;
+		localSingboxMaxEntries = settings.logging.singboxMaxEntries || 5000;
 	});
+
+	function clampEntries(n: number): number {
+		if (!Number.isFinite(n)) return 5000;
+		return Math.min(MAX_ENTRIES, Math.max(MIN_ENTRIES, Math.round(n)));
+	}
 
 	function handleSave() {
 		settings.logging.maxAge = localMaxAge;
 		settings.logging.logLevel = localLogLevel;
+		settings.logging.appMaxEntries = clampEntries(localAppMaxEntries);
+		settings.logging.singboxMaxEntries = clampEntries(localSingboxMaxEntries);
 		onSave();
 	}
 
@@ -56,9 +70,19 @@
 		localLogLevel = v;
 		handleSave();
 	}
+
+	function handleAppCommit() {
+		localAppMaxEntries = clampEntries(localAppMaxEntries);
+		handleSave();
+	}
+
+	function handleSingboxCommit() {
+		localSingboxMaxEntries = clampEntries(localSingboxMaxEntries);
+		handleSave();
+	}
 </script>
 
-<div class="setting-row">
+<div id="logging" class="setting-row">
 	<div class="flex flex-col gap-1">
 		<span class="font-medium">Логирование</span>
 		<span class="setting-description">
@@ -97,6 +121,42 @@
 			/>
 		</div>
 	</div>
+
+	<div class="setting-row">
+		<div class="flex flex-col gap-1">
+			<span class="font-medium">Размер буфера приложения</span>
+			<span class="setting-description">Сколько записей удерживать в журнале приложения (туннели, маршрутизация, серверы, система). По умолчанию 5000.</span>
+		</div>
+		<div class="num-input">
+			<input
+				type="number"
+				bind:value={localAppMaxEntries}
+				onblur={handleAppCommit}
+				min={MIN_ENTRIES}
+				max={MAX_ENTRIES}
+				step="500"
+				disabled={saving}
+			/>
+		</div>
+	</div>
+
+	<div class="setting-row">
+		<div class="flex flex-col gap-1">
+			<span class="font-medium">Размер буфера sing-box</span>
+			<span class="setting-description">Sing-box форвардер шумный — отдельный буфер, чтобы не вытеснять записи приложения. По умолчанию 5000.</span>
+		</div>
+		<div class="num-input">
+			<input
+				type="number"
+				bind:value={localSingboxMaxEntries}
+				onblur={handleSingboxCommit}
+				min={MIN_ENTRIES}
+				max={MAX_ENTRIES}
+				step="500"
+				disabled={saving}
+			/>
+		</div>
+	</div>
 {/if}
 
 <style>
@@ -109,5 +169,29 @@
 
 	.hours-select {
 		min-width: 110px;
+	}
+
+	.num-input {
+		min-width: 110px;
+	}
+
+	.num-input input {
+		width: 100%;
+		background: var(--color-bg-primary);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius);
+		color: var(--color-text-primary);
+		font: inherit;
+		font-size: 13px;
+		padding: 0.375rem 0.5rem;
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+	.num-input input:focus {
+		outline: none;
+		border-color: var(--color-accent);
+	}
+	.num-input input:disabled {
+		opacity: 0.6;
 	}
 </style>

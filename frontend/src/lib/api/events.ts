@@ -17,6 +17,7 @@ export interface LogEntryEvent {
 	action: string;
 	target: string;
 	message: string;
+	bucket: 'app' | 'singbox';
 }
 
 export interface SystemBootingEvent {

@@ -93,9 +93,11 @@ type PingCheckDefaults struct {
 
 // LoggingSettings contains application logging configuration.
 type LoggingSettings struct {
-	Enabled  bool   `json:"enabled"`  // default: false
-	MaxAge   int    `json:"maxAge"`   // hours, default: 2
-	LogLevel string `json:"logLevel"` // "warn", "info", "full", "debug"; default: "info"
+	Enabled           bool   `json:"enabled"`           // default: false
+	MaxAge            int    `json:"maxAge"`            // hours, default: 2 (shared by both buffers)
+	LogLevel          string `json:"logLevel"`          // "warn", "info", "full", "debug"; default: "info"
+	AppMaxEntries     int    `json:"appMaxEntries"`     // app-bucket buffer cap, default: 5000
+	SingboxMaxEntries int    `json:"singboxMaxEntries"` // singbox-bucket buffer cap, default: 5000
 }
 
 // UpdateSettings contains auto-update configuration.

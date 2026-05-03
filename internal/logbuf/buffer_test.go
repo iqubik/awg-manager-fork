@@ -189,6 +189,63 @@ func TestBuffer_SetMaxAgeNonPositiveDefaults(t *testing.T) {
 	}
 }
 
+func TestBuffer_SetMaxEntriesTrims(t *testing.T) {
+	b := newBuf(10, time.Hour)
+	defer b.Stop()
+
+	base := time.Now()
+	for i := 0; i < 10; i++ {
+		b.Add(entry{ts: base.Add(time.Duration(i) * time.Second), tag: "x"})
+	}
+
+	b.SetMaxEntries(3)
+
+	got := b.GetAll()
+	if len(got) != 3 {
+		t.Fatalf("len after shrink = %d, want 3", len(got))
+	}
+	// Must keep newest. Newest-first order: ts=9, 8, 7
+	if !got[0].ts.Equal(base.Add(9 * time.Second)) {
+		t.Errorf("newest = %v, want ts+9s", got[0].ts)
+	}
+	if !got[2].ts.Equal(base.Add(7 * time.Second)) {
+		t.Errorf("oldest-retained = %v, want ts+7s", got[2].ts)
+	}
+}
+
+func TestBuffer_SetMaxEntriesIgnoresNonPositive(t *testing.T) {
+	b := newBuf(5, time.Hour)
+	defer b.Stop()
+
+	b.SetMaxEntries(0)
+	b.SetMaxEntries(-1)
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.maxEntries != 5 {
+		t.Errorf("maxEntries changed to %d on non-positive set, want 5", b.maxEntries)
+	}
+}
+
+func TestBuffer_SetMaxEntriesGrows(t *testing.T) {
+	b := newBuf(3, time.Hour)
+	defer b.Stop()
+
+	base := time.Now()
+	for i := 0; i < 3; i++ {
+		b.Add(entry{ts: base.Add(time.Duration(i) * time.Second), tag: "x"})
+	}
+
+	b.SetMaxEntries(10)
+	for i := 3; i < 8; i++ {
+		b.Add(entry{ts: base.Add(time.Duration(i) * time.Second), tag: "x"})
+	}
+
+	if got := b.Len(); got != 8 {
+		t.Errorf("len after grow = %d, want 8", got)
+	}
+}
+
 func TestBuffer_StopIsIdempotent(t *testing.T) {
 	b := newBuf(10, time.Hour)
 	b.Stop()

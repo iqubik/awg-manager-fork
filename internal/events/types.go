@@ -37,7 +37,10 @@ type PingCheckStateEvent struct {
 	RestartDetected bool   `json:"restartDetected,omitempty"`
 }
 
-// LogEntryEvent is sent for each new log entry.
+// LogEntryEvent is sent for each new log entry. Bucket selects which
+// frontend store consumes the event — sing-box logs are isolated from
+// app logs so a noisy sing-box stream cannot evict tunnel/routing
+// history from the same ring buffer.
 type LogEntryEvent struct {
 	Timestamp string `json:"timestamp"`
 	Level     string `json:"level"`
@@ -46,6 +49,7 @@ type LogEntryEvent struct {
 	Action    string `json:"action"`
 	Target    string `json:"target"`
 	Message   string `json:"message"`
+	Bucket    string `json:"bucket"` // "app" | "singbox"
 }
 
 // Traffic update payload (sent by Traffic Collector).

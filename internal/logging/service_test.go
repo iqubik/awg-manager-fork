@@ -7,9 +7,11 @@ import (
 
 // mockSettings implements SettingsGetter for testing.
 type mockSettings struct {
-	enabled  bool
-	maxAge   int
-	logLevel string
+	enabled        bool
+	maxAge         int
+	logLevel       string
+	appMaxEntries  int
+	sbMaxEntries   int
 }
 
 func (m *mockSettings) IsLoggingEnabled() bool {
@@ -26,6 +28,9 @@ func (m *mockSettings) GetLogLevel() string {
 	}
 	return m.logLevel
 }
+
+func (m *mockSettings) GetAppMaxEntries() int     { return m.appMaxEntries }
+func (m *mockSettings) GetSingboxMaxEntries() int { return m.sbMaxEntries }
 
 func TestService_IsEnabled(t *testing.T) {
 	tests := []struct {
@@ -56,7 +61,10 @@ func TestService_IsEnabled(t *testing.T) {
 			if tt.settings != nil {
 				svc = NewService(tt.settings)
 			} else {
-				svc = &Service{buffer: NewLogBuffer()}
+				svc = &Service{
+					appBuffer:     NewLogBuffer(BucketApp),
+					singboxBuffer: NewLogBuffer(BucketSingbox),
+				}
 			}
 			defer svc.Stop()
 
@@ -90,7 +98,7 @@ func TestService_AppLogWhenEnabled(t *testing.T) {
 		t.Errorf("Len() = %d, want 1", svc.Len())
 	}
 
-	logs, _ := svc.GetLogs("", "", "", time.Time{}, 200, 0)
+	logs, _ := svc.GetLogs(BucketApp, "", "", "", time.Time{}, 200, 0)
 	if len(logs) != 1 {
 		t.Fatalf("GetLogs() len = %d, want 1", len(logs))
 	}
@@ -120,7 +128,7 @@ func TestService_AppLogWarn(t *testing.T) {
 
 	svc.AppLog(LevelWarn, GroupTunnel, SubLifecycle, "start", "awg0", "Tunnel already running")
 
-	logs, _ := svc.GetLogs("", "", "", time.Time{}, 200, 0)
+	logs, _ := svc.GetLogs(BucketApp, "", "", "", time.Time{}, 200, 0)
 	if len(logs) != 1 {
 		t.Fatalf("GetLogs() len = %d, want 1", len(logs))
 	}
@@ -142,7 +150,7 @@ func TestService_AppLogError(t *testing.T) {
 		t.Errorf("Len() = %d, want 1 (error always visible)", svc.Len())
 	}
 
-	logs, total := svc.GetLogs("", "", "", time.Time{}, 200, 0)
+	logs, total := svc.GetLogs(BucketApp, "", "", "", time.Time{}, 200, 0)
 	if total != 1 {
 		t.Errorf("total = %d, want 1", total)
 	}
@@ -161,7 +169,7 @@ func TestService_GetLogsPagination(t *testing.T) {
 	}
 
 	// First page
-	logs, total := svc.GetLogs("", "", "", time.Time{}, 3, 0)
+	logs, total := svc.GetLogs(BucketApp, "", "", "", time.Time{}, 3, 0)
 	if total != 10 {
 		t.Errorf("total = %d, want 10", total)
 	}
@@ -170,7 +178,7 @@ func TestService_GetLogsPagination(t *testing.T) {
 	}
 
 	// Last page
-	logs, total = svc.GetLogs("", "", "", time.Time{}, 3, 9)
+	logs, total = svc.GetLogs(BucketApp, "", "", "", time.Time{}, 3, 9)
 	if total != 10 {
 		t.Errorf("total = %d, want 10", total)
 	}
@@ -179,7 +187,7 @@ func TestService_GetLogsPagination(t *testing.T) {
 	}
 
 	// Default limit (0 → 200)
-	logs, total = svc.GetLogs("", "", "", time.Time{}, 0, 0)
+	logs, total = svc.GetLogs(BucketApp, "", "", "", time.Time{}, 0, 0)
 	if total != 10 {
 		t.Errorf("total (default limit) = %d, want 10", total)
 	}
@@ -247,26 +255,26 @@ func TestService_GetLogsFiltered(t *testing.T) {
 	svc.AppLog(LevelInfo, GroupSystem, SubSettings, "update", "", "msg3")
 
 	// Filter by group
-	logs, _ := svc.GetLogs(GroupTunnel, "", "", time.Time{}, 200, 0)
+	logs, _ := svc.GetLogs(BucketApp, GroupTunnel, "", "", time.Time{}, 200, 0)
 	if len(logs) != 2 {
 		t.Errorf("GetLogs(tunnel) len = %d, want 2", len(logs))
 	}
 
 	// Filter by level
-	logs, _ = svc.GetLogs("", "", string(LevelWarn), time.Time{}, 200, 0)
+	logs, _ = svc.GetLogs(BucketApp, "", "", string(LevelWarn), time.Time{}, 200, 0)
 	if len(logs) != 1 {
 		t.Errorf("GetLogs(warn) len = %d, want 1", len(logs))
 	}
 
 	// Filter by subgroup
-	logs, _ = svc.GetLogs("", SubLifecycle, "", time.Time{}, 200, 0)
+	logs, _ = svc.GetLogs(BucketApp, "", SubLifecycle, "", time.Time{}, 200, 0)
 	if len(logs) != 1 {
 		t.Errorf("GetLogs(lifecycle) len = %d, want 1", len(logs))
 	}
 
 	// Filter by group + level (info): tunnel has info+warn; warn is always
 	// visible AND info <= info → both match → 2.
-	logs, _ = svc.GetLogs(GroupTunnel, "", string(LevelInfo), time.Time{}, 200, 0)
+	logs, _ = svc.GetLogs(BucketApp, GroupTunnel, "", string(LevelInfo), time.Time{}, 200, 0)
 	if len(logs) != 2 {
 		t.Errorf("GetLogs(tunnel, info) len = %d, want 2", len(logs))
 	}
@@ -280,7 +288,7 @@ func TestService_Clear(t *testing.T) {
 	svc.AppLog(LevelInfo, GroupTunnel, SubLifecycle, "create", "t1", "msg1")
 	svc.AppLog(LevelInfo, GroupTunnel, SubLifecycle, "create", "t2", "msg2")
 
-	svc.Clear()
+	svc.Clear(BucketApp)
 
 	if svc.Len() != 0 {
 		t.Errorf("Len() after Clear() = %d, want 0", svc.Len())
@@ -301,6 +309,107 @@ func TestService_AppLoggerInterface(t *testing.T) {
 	}
 }
 
+// Sing-box bucket isolation: an entry with GroupSingbox routes to the
+// singbox buffer and does NOT appear in the app buffer.
+func TestService_SingboxRoutes(t *testing.T) {
+	settings := &mockSettings{enabled: true, maxAge: 2, logLevel: "info"}
+	svc := NewService(settings)
+	defer svc.Stop()
+
+	svc.AppLog(LevelInfo, GroupTunnel, SubLifecycle, "create", "t1", "app entry")
+	svc.AppLog(LevelInfo, GroupSingbox, SubSBOutbound, "run", "veesp", "outbound")
+	svc.AppLog(LevelInfo, GroupSingbox, SubSBInbound, "run", "tun", "inbound")
+
+	appLogs, appTotal := svc.GetLogs(BucketApp, "", "", "", time.Time{}, 200, 0)
+	if appTotal != 1 {
+		t.Errorf("app bucket total = %d, want 1", appTotal)
+	}
+	if len(appLogs) != 1 || appLogs[0].Group != GroupTunnel {
+		t.Errorf("app bucket should contain only tunnel entry, got %+v", appLogs)
+	}
+
+	sbLogs, sbTotal := svc.GetLogs(BucketSingbox, "", "", "", time.Time{}, 200, 0)
+	if sbTotal != 2 {
+		t.Errorf("singbox bucket total = %d, want 2", sbTotal)
+	}
+	for _, e := range sbLogs {
+		if e.Group != GroupSingbox {
+			t.Errorf("singbox bucket has non-singbox entry: %+v", e)
+		}
+	}
+}
+
+func TestService_ClearOnlyOneBucket(t *testing.T) {
+	settings := &mockSettings{enabled: true, maxAge: 2, logLevel: "info"}
+	svc := NewService(settings)
+	defer svc.Stop()
+
+	svc.AppLog(LevelInfo, GroupTunnel, SubLifecycle, "x", "t", "app")
+	svc.AppLog(LevelInfo, GroupSingbox, SubSBOutbound, "x", "t", "sb")
+
+	svc.Clear(BucketApp)
+
+	if _, total := svc.GetLogs(BucketApp, "", "", "", time.Time{}, 200, 0); total != 0 {
+		t.Errorf("app bucket should be empty after Clear(app), total=%d", total)
+	}
+	if _, total := svc.GetLogs(BucketSingbox, "", "", "", time.Time{}, 200, 0); total != 1 {
+		t.Errorf("singbox bucket must be untouched, total=%d, want 1", total)
+	}
+}
+
+func TestService_StatsReportsBucketState(t *testing.T) {
+	settings := &mockSettings{enabled: true, maxAge: 2, logLevel: "info", appMaxEntries: 100, sbMaxEntries: 200}
+	svc := NewService(settings)
+	defer svc.Stop()
+
+	svc.AppLog(LevelInfo, GroupTunnel, SubLifecycle, "x", "t", "msg")
+	svc.AppLog(LevelInfo, GroupTunnel, SubLifecycle, "x", "t", "msg")
+
+	stats := svc.Stats(BucketApp)
+	if stats.Bucket != BucketApp {
+		t.Errorf("Bucket = %s, want %s", stats.Bucket, BucketApp)
+	}
+	if stats.Size != 2 {
+		t.Errorf("Size = %d, want 2", stats.Size)
+	}
+	if stats.Capacity != 100 {
+		t.Errorf("Capacity = %d, want 100", stats.Capacity)
+	}
+	if stats.Oldest.IsZero() {
+		t.Error("Oldest should be non-zero with entries present")
+	}
+
+	emptyStats := svc.Stats(BucketSingbox)
+	if emptyStats.Capacity != 200 {
+		t.Errorf("Singbox capacity = %d, want 200", emptyStats.Capacity)
+	}
+	if !emptyStats.Oldest.IsZero() {
+		t.Error("Oldest should be zero on empty bucket")
+	}
+}
+
+// ApplySettings re-reads the store and applies new caps to live buffers.
+func TestService_ApplySettingsRetargetsCaps(t *testing.T) {
+	settings := &mockSettings{enabled: true, maxAge: 2, logLevel: "info", appMaxEntries: 1000, sbMaxEntries: 1000}
+	svc := NewService(settings)
+	defer svc.Stop()
+
+	for i := 0; i < 50; i++ {
+		svc.AppLog(LevelInfo, GroupTunnel, SubLifecycle, "x", "t", "msg")
+	}
+
+	// Shrink to 10.
+	settings.appMaxEntries = 10
+	svc.ApplySettings()
+
+	if got := svc.Stats(BucketApp).Size; got != 10 {
+		t.Errorf("after shrink, Size = %d, want 10", got)
+	}
+	if got := svc.Stats(BucketApp).Capacity; got != 10 {
+		t.Errorf("after shrink, Capacity = %d, want 10", got)
+	}
+}
+
 func TestScopedLogger(t *testing.T) {
 	settings := &mockSettings{enabled: true, maxAge: 2, logLevel: "debug"}
 	svc := NewService(settings)
@@ -317,7 +426,7 @@ func TestScopedLogger(t *testing.T) {
 		t.Errorf("Len() = %d, want 5", svc.Len())
 	}
 
-	logs, _ := svc.GetLogs("", "", "", time.Time{}, 200, 0)
+	logs, _ := svc.GetLogs(BucketApp, "", "", "", time.Time{}, 200, 0)
 	// All should have GroupTunnel and SubLifecycle
 	for _, entry := range logs {
 		if entry.Group != GroupTunnel {
@@ -345,4 +454,16 @@ func TestScopedLogger_NilSafe(t *testing.T) {
 	sl2.Error("fail", "t1", "msg")
 	sl2.Full("setup", "t1", "msg")
 	sl2.Debug("trace", "t1", "msg")
+}
+
+// BucketForGroup routes singbox to its bucket and everything else to app.
+func TestBucketForGroup(t *testing.T) {
+	if BucketForGroup(GroupSingbox) != BucketSingbox {
+		t.Errorf("singbox should map to BucketSingbox")
+	}
+	for _, g := range []string{GroupTunnel, GroupRouting, GroupServer, GroupSystem, ""} {
+		if BucketForGroup(g) != BucketApp {
+			t.Errorf("group %q should map to BucketApp", g)
+		}
+	}
 }

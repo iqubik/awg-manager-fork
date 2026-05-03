@@ -90,7 +90,7 @@ func TestListAll_ManagedTunnels(t *testing.T) {
 	}
 	store := &mockStoreClient{entries: map[string]StoreEntry{}}
 
-	cat := NewCatalog(provider, nil, store)
+	cat := NewCatalog(provider, nil, store, nil)
 	result := cat.ListAll(context.Background())
 
 	if len(result) != 3 {
@@ -155,7 +155,7 @@ func TestListAll_SystemDedup(t *testing.T) {
 	}
 	store := &mockStoreClient{entries: map[string]StoreEntry{}}
 
-	cat := NewCatalog(provider, ndmsClient, store)
+	cat := NewCatalog(provider, ndmsClient, store, nil)
 	result := cat.ListAll(context.Background())
 
 	// Should have: 1 managed (awg10) + 1 system (Wireguard0). Wireguard1 deduped.
@@ -186,7 +186,7 @@ func TestListAll_SystemDedup(t *testing.T) {
 
 func TestListAll_EmptyResult(t *testing.T) {
 	provider := &mockTunnelProvider{tunnels: nil}
-	cat := NewCatalog(provider, nil, nil)
+	cat := NewCatalog(provider, nil, nil, nil)
 
 	result := cat.ListAll(context.Background())
 
@@ -209,7 +209,7 @@ func TestListAll_WANInterfaces(t *testing.T) {
 		tunnels: nil,
 		wan:     wanModel,
 	}
-	cat := NewCatalog(provider, nil, nil)
+	cat := NewCatalog(provider, nil, nil, nil)
 	result := cat.ListAll(context.Background())
 
 	if len(result) != 2 {
@@ -256,7 +256,7 @@ func TestListAll_SystemNoDescription(t *testing.T) {
 			{ID: "Wireguard0", Type: "wireguard", Description: ""},
 		},
 	}
-	cat := NewCatalog(provider, ndmsClient, nil)
+	cat := NewCatalog(provider, ndmsClient, nil, nil)
 	result := cat.ListAll(context.Background())
 
 	if len(result) != 1 {
@@ -274,7 +274,7 @@ func TestResolveInterface_ManagedKernel(t *testing.T) {
 	store := &mockStoreClient{entries: map[string]StoreEntry{
 		"awgm0": {Backend: "kernel"},
 	}}
-	cat := NewCatalog(&mockTunnelProvider{}, nil, store)
+	cat := NewCatalog(&mockTunnelProvider{}, nil, store, nil)
 
 	iface, err := cat.ResolveInterface(context.Background(), "awgm0")
 	if err != nil {
@@ -290,7 +290,7 @@ func TestResolveInterface_ManagedOS5(t *testing.T) {
 	store := &mockStoreClient{entries: map[string]StoreEntry{
 		"awg10": {Backend: "kernel"},
 	}}
-	cat := NewCatalog(&mockTunnelProvider{}, nil, store)
+	cat := NewCatalog(&mockTunnelProvider{}, nil, store, nil)
 
 	iface, err := cat.ResolveInterface(context.Background(), "awg10")
 	if err != nil {
@@ -305,7 +305,7 @@ func TestResolveInterface_NativeWG(t *testing.T) {
 	store := &mockStoreClient{entries: map[string]StoreEntry{
 		"awg10": {Backend: "nativewg", NWGIndex: 2},
 	}}
-	cat := NewCatalog(&mockTunnelProvider{}, nil, store)
+	cat := NewCatalog(&mockTunnelProvider{}, nil, store, nil)
 
 	iface, err := cat.ResolveInterface(context.Background(), "awg10")
 	if err != nil {
@@ -317,7 +317,7 @@ func TestResolveInterface_NativeWG(t *testing.T) {
 }
 
 func TestResolveInterface_SystemTunnel(t *testing.T) {
-	cat := NewCatalog(&mockTunnelProvider{}, nil, &mockStoreClient{entries: map[string]StoreEntry{}})
+	cat := NewCatalog(&mockTunnelProvider{}, nil, &mockStoreClient{entries: map[string]StoreEntry{}}, nil)
 
 	iface, err := cat.ResolveInterface(context.Background(), "system:Wireguard0")
 	if err != nil {
@@ -335,7 +335,7 @@ func TestResolveInterface_WAN(t *testing.T) {
 	})
 
 	provider := &mockTunnelProvider{wan: wanModel}
-	cat := NewCatalog(provider, nil, nil)
+	cat := NewCatalog(provider, nil, nil, nil)
 
 	iface, err := cat.ResolveInterface(context.Background(), "wan:ppp0")
 	if err != nil {
@@ -351,7 +351,7 @@ func TestResolveInterface_WANNotFound(t *testing.T) {
 	wanModel.Populate([]wan.Interface{})
 
 	provider := &mockTunnelProvider{wan: wanModel}
-	cat := NewCatalog(provider, nil, nil)
+	cat := NewCatalog(provider, nil, nil, nil)
 
 	_, err := cat.ResolveInterface(context.Background(), "wan:ppp0")
 	if err == nil {
@@ -361,7 +361,7 @@ func TestResolveInterface_WANNotFound(t *testing.T) {
 
 func TestResolveInterface_WANNoModel(t *testing.T) {
 	provider := &mockTunnelProvider{wan: nil}
-	cat := NewCatalog(provider, nil, nil)
+	cat := NewCatalog(provider, nil, nil, nil)
 
 	_, err := cat.ResolveInterface(context.Background(), "wan:ppp0")
 	if err == nil {
@@ -375,7 +375,7 @@ func TestExists_Managed(t *testing.T) {
 	store := &mockStoreClient{entries: map[string]StoreEntry{
 		"awg10": {Backend: "kernel"},
 	}}
-	cat := NewCatalog(&mockTunnelProvider{}, nil, store)
+	cat := NewCatalog(&mockTunnelProvider{}, nil, store, nil)
 
 	if !cat.Exists(context.Background(), "awg10") {
 		t.Error("expected Exists=true for managed tunnel")
@@ -389,7 +389,7 @@ func TestExists_System(t *testing.T) {
 		},
 	}
 	store := &mockStoreClient{entries: map[string]StoreEntry{}}
-	cat := NewCatalog(&mockTunnelProvider{}, ndmsClient, store)
+	cat := NewCatalog(&mockTunnelProvider{}, ndmsClient, store, nil)
 
 	if !cat.Exists(context.Background(), "system:Wireguard0") {
 		t.Error("expected Exists=true for system tunnel with kernel iface")
@@ -402,7 +402,7 @@ func TestExists_SystemNotFound(t *testing.T) {
 		sysNames: map[string]string{}, // will return ndmsName itself (default mock behavior)
 	}
 	store := &mockStoreClient{entries: map[string]StoreEntry{}}
-	cat := NewCatalog(&mockTunnelProvider{}, ndmsClient, store)
+	cat := NewCatalog(&mockTunnelProvider{}, ndmsClient, store, nil)
 
 	if cat.Exists(context.Background(), "system:Wireguard99") {
 		t.Error("expected Exists=false for unknown system tunnel")
@@ -411,7 +411,7 @@ func TestExists_SystemNotFound(t *testing.T) {
 
 func TestExists_NotFound(t *testing.T) {
 	store := &mockStoreClient{entries: map[string]StoreEntry{}}
-	cat := NewCatalog(&mockTunnelProvider{}, nil, store)
+	cat := NewCatalog(&mockTunnelProvider{}, nil, store, nil)
 
 	if cat.Exists(context.Background(), "awg99") {
 		t.Error("expected Exists=false for non-existent tunnel")
@@ -423,7 +423,7 @@ func TestExists_WAN(t *testing.T) {
 	wanModel.Populate([]wan.Interface{
 		{Name: "ppp0", ID: "PPPoE0", Up: true, Priority: 100},
 	})
-	cat := NewCatalog(&mockTunnelProvider{wan: wanModel}, nil, &mockStoreClient{entries: map[string]StoreEntry{}})
+	cat := NewCatalog(&mockTunnelProvider{wan: wanModel}, nil, &mockStoreClient{entries: map[string]StoreEntry{}}, nil)
 
 	if !cat.Exists(context.Background(), "wan:ppp0") {
 		t.Error("expected Exists=true for WAN interface")
@@ -444,7 +444,7 @@ func TestGetKernelIface_Running(t *testing.T) {
 	store := &mockStoreClient{entries: map[string]StoreEntry{
 		"awg10": {Backend: "kernel"},
 	}}
-	cat := NewCatalog(provider, nil, store)
+	cat := NewCatalog(provider, nil, store, nil)
 
 	iface, running := cat.GetKernelIface(context.Background(), "awg10")
 	if !running {
@@ -464,7 +464,7 @@ func TestGetKernelIface_Stopped(t *testing.T) {
 	store := &mockStoreClient{entries: map[string]StoreEntry{
 		"awg10": {Backend: "kernel"},
 	}}
-	cat := NewCatalog(provider, nil, store)
+	cat := NewCatalog(provider, nil, store, nil)
 
 	iface, running := cat.GetKernelIface(context.Background(), "awg10")
 	if running {
@@ -484,7 +484,7 @@ func TestGetKernelIface_NativeWG(t *testing.T) {
 	store := &mockStoreClient{entries: map[string]StoreEntry{
 		"awg10": {Backend: "nativewg", NWGIndex: 3},
 	}}
-	cat := NewCatalog(provider, nil, store)
+	cat := NewCatalog(provider, nil, store, nil)
 
 	iface, running := cat.GetKernelIface(context.Background(), "awg10")
 	if !running {
@@ -501,7 +501,7 @@ func TestGetKernelIface_System(t *testing.T) {
 			"Wireguard0": "nwg0",
 		},
 	}
-	cat := NewCatalog(&mockTunnelProvider{}, ndmsClient, &mockStoreClient{entries: map[string]StoreEntry{}})
+	cat := NewCatalog(&mockTunnelProvider{}, ndmsClient, &mockStoreClient{entries: map[string]StoreEntry{}}, nil)
 
 	iface, running := cat.GetKernelIface(context.Background(), "system:Wireguard0")
 	if !running {
@@ -516,7 +516,7 @@ func TestGetKernelIface_SystemNotFound(t *testing.T) {
 	ndmsClient := &mockNDMSClient{
 		sysNames: map[string]string{}, // returns input as-is
 	}
-	cat := NewCatalog(&mockTunnelProvider{}, ndmsClient, &mockStoreClient{entries: map[string]StoreEntry{}})
+	cat := NewCatalog(&mockTunnelProvider{}, ndmsClient, &mockStoreClient{entries: map[string]StoreEntry{}}, nil)
 
 	iface, running := cat.GetKernelIface(context.Background(), "system:Wireguard99")
 	if running {
@@ -538,7 +538,7 @@ func TestListAll_ProviderError(t *testing.T) {
 			{ID: "Wireguard0", Type: "wireguard", Description: "Still works"},
 		},
 	}
-	cat := NewCatalog(provider, ndmsClient, nil)
+	cat := NewCatalog(provider, ndmsClient, nil, nil)
 	result := cat.ListAll(context.Background())
 
 	if len(result) != 1 {

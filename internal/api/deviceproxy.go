@@ -85,7 +85,7 @@ type DeviceProxyHandler struct {
 func NewDeviceProxyHandler(svc *deviceproxy.Service, appLogger logging.AppLogger) *DeviceProxyHandler {
 	return &DeviceProxyHandler{
 		svc: svc,
-		log: logging.NewScopedLogger(appLogger, logging.GroupRouting, "deviceproxy"),
+		log: logging.NewScopedLogger(appLogger, logging.GroupRouting, logging.SubDeviceProxy),
 	}
 }
 

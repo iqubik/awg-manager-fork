@@ -454,6 +454,8 @@
       <LogsToolbar
         bind:filter={toolbarFilter}
         onFilterChange={(f) => console.log('filter', f)}
+        bucket="app"
+        onBucketChange={(b) => console.log('bucket', b)}
         paused={toolbarPaused}
         bufferCount={0}
         onTogglePause={() => toolbarPaused = !toolbarPaused}
@@ -463,6 +465,8 @@
         onClear={() => alert('clear')}
         totalEntries={1234}
         visibleEntries={567}
+        bufferStats={{ size: 567, capacity: 5000, oldest: new Date(Date.now() - 1800_000).toISOString() }}
+        availableSubgroups={['lifecycle', 'ops', 'state']}
       />
     </div>
   </section>

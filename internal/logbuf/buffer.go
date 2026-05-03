@@ -165,6 +165,20 @@ func (b *Buffer[T]) SetMaxAge(hours int) {
 	b.maxAge = time.Duration(hours) * time.Hour
 }
 
+// SetMaxEntries updates the size cap. Trims the buffer immediately if it
+// exceeds the new cap. A non-positive value is ignored.
+func (b *Buffer[T]) SetMaxEntries(n int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if n <= 0 {
+		return
+	}
+	b.maxEntries = n
+	if len(b.entries) > n {
+		b.entries = b.entries[len(b.entries)-n:]
+	}
+}
+
 // Stop signals the cleanup goroutine to exit. Idempotent — repeat
 // calls are no-ops, matching the shutdown contract of the surrounding
 // services (Service.Stop / nwgMonitor.Stop may fire through multiple

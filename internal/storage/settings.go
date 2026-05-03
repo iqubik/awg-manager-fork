@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 16
+	CurrentSchemaVersion = 17
 	DefaultPort          = 2222
 	DefaultInterface     = "br0"
 )
@@ -106,6 +106,9 @@ func (s *SettingsStore) Load() (*Settings, error) {
 		if settings.SchemaVersion < 16 {
 			s.migrateToV16(&settings)
 		}
+		if settings.SchemaVersion < 17 {
+			s.migrateToV17(&settings)
+		}
 		// Save migrated settings
 		if err := s.saveUnlocked(&settings); err != nil {
 			return nil, err
@@ -137,8 +140,10 @@ func (s *SettingsStore) defaultSettings() *Settings {
 			},
 		},
 		Logging: LoggingSettings{
-			Enabled: true,
-			MaxAge:  2,
+			Enabled:           true,
+			MaxAge:            2,
+			AppMaxEntries:     5000,
+			SingboxMaxEntries: 5000,
 		},
 		Updates: UpdateSettings{
 			CheckEnabled: true,
@@ -286,6 +291,19 @@ func (s *SettingsStore) migrateToV15(settings *Settings) {
 func (s *SettingsStore) migrateToV16(settings *Settings) {
 	settings.UsageLevel = UsageLevelAdvanced
 	settings.SchemaVersion = 16
+}
+
+// migrateToV17 introduces per-bucket buffer caps for the logging system.
+// Existing installs default to 5000 entries each (matches the prior
+// hardcoded MaxEntries that lived in internal/logging/buffer.go).
+func (s *SettingsStore) migrateToV17(settings *Settings) {
+	if settings.Logging.AppMaxEntries == 0 {
+		settings.Logging.AppMaxEntries = 5000
+	}
+	if settings.Logging.SingboxMaxEntries == 0 {
+		settings.Logging.SingboxMaxEntries = 5000
+	}
+	settings.SchemaVersion = 17
 }
 
 // migrateManagedServers moves a legacy singular managedServer into the
@@ -568,6 +586,30 @@ func (s *SettingsStore) GetLoggingMaxAge() int {
 		return 2
 	}
 	return settings.Logging.MaxAge
+}
+
+// GetAppMaxEntries returns the cap for the app log buffer.
+func (s *SettingsStore) GetAppMaxEntries() int {
+	settings, err := s.Get()
+	if err != nil {
+		return 5000
+	}
+	if settings.Logging.AppMaxEntries <= 0 {
+		return 5000
+	}
+	return settings.Logging.AppMaxEntries
+}
+
+// GetSingboxMaxEntries returns the cap for the sing-box log buffer.
+func (s *SettingsStore) GetSingboxMaxEntries() int {
+	settings, err := s.Get()
+	if err != nil {
+		return 5000
+	}
+	if settings.Logging.SingboxMaxEntries <= 0 {
+		return 5000
+	}
+	return settings.Logging.SingboxMaxEntries
 }
 
 // AddManagedPolicy adds a policy name to the managed policies list.

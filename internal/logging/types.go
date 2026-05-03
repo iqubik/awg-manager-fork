@@ -35,7 +35,7 @@ const (
 	GroupSingbox = "singbox"
 )
 
-// Subgroups
+// Subgroups — app-buckets (tunnel/routing/server/system)
 const (
 	SubLifecycle     = "lifecycle"
 	SubOps           = "ops"
@@ -43,10 +43,17 @@ const (
 	SubFirewall      = "firewall"
 	SubPingcheck     = "pingcheck"
 	SubConnectivity  = "connectivity"
+	SubTest          = "test"
+	SubSignature     = "signature"
 	SubDnsRoute      = "dns-route"
 	SubStaticRoute   = "static-route"
 	SubAccessPolicy  = "access-policy"
 	SubClientRoute   = "client-route"
+	SubSingboxRouter = "singbox-router"
+	SubDeviceProxy   = "deviceproxy"
+	SubHrNeo         = "hrneo"
+	SubRoutingCatalog = "catalog"
+	SubAWGOutbounds  = "awg-outbounds"
 	SubManaged       = "managed"
 	SubSystemTunnel  = "system-tunnels"
 	SubBoot          = "boot"
@@ -54,9 +61,15 @@ const (
 	SubAuth          = "auth"
 	SubSettings      = "settings"
 	SubUpdate        = "update"
-	SubSingboxRouter = "singbox-router"
-	SubAWGOutbounds  = "awg-outbounds"
+	SubCleanup       = "cleanup"
+	SubDnsCheck      = "dnscheck"
+	SubConnections   = "connections"
+	SubTraffic       = "traffic"
+	SubDiagnostics   = "diagnostics"
+	SubRCI           = "rci"
+	SubNDMS          = "ndms"
 
+	// Singbox bucket subgroups
 	SubSBInbound  = "inbound"
 	SubSBOutbound = "outbound"
 	SubSBDNS      = "dns"
@@ -64,6 +77,51 @@ const (
 	SubSBRuntime  = "runtime"
 	SubSBProcess  = "process"
 )
+
+// Bucket identifies which buffer a log entry belongs to. Sing-box logs are
+// isolated from app logs so a noisy forwarder cannot evict tunnel/routing
+// history from the same ring buffer.
+type Bucket string
+
+const (
+	BucketApp     Bucket = "app"
+	BucketSingbox Bucket = "singbox"
+)
+
+// BucketForGroup returns which bucket receives entries from the given group.
+// All groups except `singbox` go to the app bucket.
+func BucketForGroup(group string) Bucket {
+	if group == GroupSingbox {
+		return BucketSingbox
+	}
+	return BucketApp
+}
+
+// KnownSubgroups is the static catalog of subgroups per group used by the
+// frontend to render the second-row chip filter. Order is presentation-stable
+// (alphabetical within group except where a domain ordering matters).
+var KnownSubgroups = map[string][]string{
+	GroupTunnel: {
+		SubLifecycle, SubOps, SubState, SubFirewall,
+		SubPingcheck, SubConnectivity, SubTest, SubSignature,
+	},
+	GroupRouting: {
+		SubDnsRoute, SubStaticRoute, SubAccessPolicy, SubClientRoute,
+		SubSingboxRouter, SubDeviceProxy, SubHrNeo, SubRoutingCatalog,
+		SubAWGOutbounds,
+	},
+	GroupServer: {
+		SubManaged,
+	},
+	GroupSystem: {
+		SubBoot, SubAuth, SubSettings, SubUpdate, SubWan, SubSystemTunnel,
+		SubCleanup, SubDnsCheck, SubConnections, SubTraffic, SubDiagnostics,
+		SubRCI, SubNDMS,
+	},
+	GroupSingbox: {
+		SubSBProcess, SubSBInbound, SubSBOutbound, SubSBDNS, SubSBRouter, SubSBRuntime,
+	},
+}
 
 // LogEntry represents a single log entry.
 type LogEntry struct {

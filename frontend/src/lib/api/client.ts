@@ -599,6 +599,7 @@ class ApiClient {
 	// ─────────────────────────────────────────────
 
 	async getLogs(params?: {
+		bucket?: 'app' | 'singbox';
 		group?: string;
 		subgroup?: string;
 		level?: string;
@@ -607,6 +608,7 @@ class ApiClient {
 		offset?: number;
 	}): Promise<LogsResponse> {
 		const query = new URLSearchParams();
+		if (params?.bucket) query.set('bucket', params.bucket);
 		if (params?.group) query.set('group', params.group);
 		if (params?.subgroup) query.set('subgroup', params.subgroup);
 		if (params?.level) query.set('level', params.level);
@@ -617,8 +619,12 @@ class ApiClient {
 		return this.request(`/logs${qs ? '?' + qs : ''}`);
 	}
 
-	async clearLogs(): Promise<void> {
-		await this.request('/logs/clear', { method: 'POST' });
+	async clearLogs(bucket: 'app' | 'singbox' = 'app'): Promise<void> {
+		await this.request(`/logs/clear?bucket=${bucket}`, { method: 'POST' });
+	}
+
+	async getLogsSubgroups(group: string): Promise<{ group: string; subgroups: string[] }> {
+		return this.request(`/logs/subgroups?group=${encodeURIComponent(group)}`);
 	}
 
 	// #endregion

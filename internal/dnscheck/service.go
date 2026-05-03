@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hoaxisr/awg-manager/internal/logger"
+	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms/transport"
 )
 
@@ -38,15 +39,17 @@ type Service struct {
 	dns     DnsRouteProvider
 	tunnels TunnelStateProvider
 	log     *logger.Logger
+	appLog  *logging.ScopedLogger
 }
 
 // NewService creates a new DNS check service.
-func NewService(ndmsClient ndmsClient, dns DnsRouteProvider, tunnels TunnelStateProvider, log *logger.Logger) *Service {
+func NewService(ndmsClient ndmsClient, dns DnsRouteProvider, tunnels TunnelStateProvider, log *logger.Logger, appLogger logging.AppLogger) *Service {
 	return &Service{
 		ndms:    ndmsClient,
 		dns:     dns,
 		tunnels: tunnels,
 		log:     log,
+		appLog:  logging.NewScopedLogger(appLogger, logging.GroupSystem, logging.SubDnsCheck),
 	}
 }
 
@@ -62,6 +65,7 @@ func (s *Service) EnsureIPHost(ctx context.Context) {
 	routerIP := getBr0IP()
 	if routerIP == "" {
 		s.log.Warnf("dnscheck: br0 has no IPv4, skipping ip host setup")
+		s.appLog.Warn("ensure-ip-host", probeDomain, "br0 has no IPv4, skipping")
 		return
 	}
 	if current, ok := s.lookupIPHost(ctx, probeDomain); ok && current == routerIP {
@@ -69,9 +73,11 @@ func (s *Service) EnsureIPHost(ctx context.Context) {
 	}
 	if err := s.createIPHost(ctx, probeDomain, routerIP); err != nil {
 		s.log.Warnf("dnscheck: failed to create ip host %s -> %s: %v", probeDomain, routerIP, err)
+		s.appLog.Warn("ensure-ip-host", probeDomain, fmt.Sprintf("failed to create %s -> %s: %v", probeDomain, routerIP, err))
 		return
 	}
 	s.log.Infof("dnscheck: ip host %s -> %s", probeDomain, routerIP)
+	s.appLog.Info("ensure-ip-host", probeDomain, fmt.Sprintf("created %s -> %s", probeDomain, routerIP))
 }
 
 // lookupIPHost returns the configured address for the given domain, or
@@ -102,6 +108,7 @@ func (s *Service) lookupIPHost(ctx context.Context, domain string) (string, bool
 // the results along with client info. Check 3 (DNS probe) is left pending —
 // the frontend performs it directly via fetch to the probe domain.
 func (s *Service) Start(ctx context.Context, clientIP string) (*StartResponse, error) {
+	s.appLog.Info("start", clientIP, "DNS check started")
 	hostname := s.resolveHostname(ctx, clientIP)
 
 	checks := []CheckResult{
@@ -110,6 +117,18 @@ func (s *Service) Start(ctx context.Context, clientIP string) (*StartResponse, e
 		{ID: "dns_probe", Status: "pending", Title: "DNS-запрос к роутеру", Message: "Ожидание DNS-запроса..."},
 		s.checkPolicy(ctx, clientIP),
 		s.checkEncryption(ctx),
+	}
+
+	failures := 0
+	for _, c := range checks {
+		if c.Status == "fail" {
+			failures++
+		}
+	}
+	if failures > 0 {
+		s.appLog.Warn("complete", clientIP, fmt.Sprintf("DNS check completed with %d failed checks", failures))
+	} else {
+		s.appLog.Info("complete", clientIP, "DNS check completed: all checks passed")
 	}
 
 	return &StartResponse{

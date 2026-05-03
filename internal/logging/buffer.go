@@ -7,28 +7,46 @@ import (
 )
 
 const (
-	defaultMaxAge = 4 * time.Hour
-	maxEntries    = 10000
+	defaultMaxAge        = 2 * time.Hour
+	defaultAppMaxEntries = 5000
+	defaultSBMaxEntries  = 5000
 )
 
 // LogBuffer stores app log entries with automatic cleanup.
 // Thin wrapper over logbuf.Buffer[LogEntry] — see internal/logbuf for
 // the shared ring + TTL + goroutine-safe storage machinery.
+//
+// Each Service owns one buffer per Bucket so a noisy stream (sing-box)
+// cannot evict history from another stream (app).
 type LogBuffer struct {
-	inner *logbuf.Buffer[LogEntry]
+	bucket Bucket
+	inner  *logbuf.Buffer[LogEntry]
 }
 
-// NewLogBuffer creates a new log buffer with automatic cleanup.
-func NewLogBuffer() *LogBuffer {
+// NewLogBuffer creates a new log buffer for the given bucket. Defaults
+// (MaxAge / MaxEntries) are bucket-specific; the Service overrides them
+// from settings on construction via SetMaxAge / SetMaxEntries.
+func NewLogBuffer(bucket Bucket) *LogBuffer {
 	return &LogBuffer{
+		bucket: bucket,
 		inner: logbuf.New(logbuf.Options[LogEntry]{
 			MaxAge:       defaultMaxAge,
-			MaxEntries:   maxEntries,
+			MaxEntries:   defaultMaxEntriesFor(bucket),
 			TimestampOf:  func(e LogEntry) time.Time { return e.Timestamp },
 			SetTimestamp: func(e *LogEntry, t time.Time) { e.Timestamp = t },
 		}),
 	}
 }
+
+func defaultMaxEntriesFor(bucket Bucket) int {
+	if bucket == BucketSingbox {
+		return defaultSBMaxEntries
+	}
+	return defaultAppMaxEntries
+}
+
+// Bucket returns which bucket this buffer belongs to.
+func (lb *LogBuffer) Bucket() Bucket { return lb.bucket }
 
 // Add adds a new log entry to the buffer.
 func (lb *LogBuffer) Add(entry LogEntry) { lb.inner.Add(entry) }
@@ -56,11 +74,24 @@ func (lb *LogBuffer) Clear() { lb.inner.Clear() }
 // SetMaxAge updates the maximum age for log entries (hours).
 func (lb *LogBuffer) SetMaxAge(hours int) { lb.inner.SetMaxAge(hours) }
 
+// SetMaxEntries updates the size cap. Trims immediately if exceeded.
+func (lb *LogBuffer) SetMaxEntries(n int) { lb.inner.SetMaxEntries(n) }
+
 // Stop stops the cleanup goroutine.
 func (lb *LogBuffer) Stop() { lb.inner.Stop() }
 
 // Len returns the number of entries in the buffer.
 func (lb *LogBuffer) Len() int { return lb.inner.Len() }
+
+// Oldest returns the timestamp of the oldest entry, or zero if empty.
+func (lb *LogBuffer) Oldest() time.Time {
+	all := lb.inner.GetAll()
+	if len(all) == 0 {
+		return time.Time{}
+	}
+	// GetAll returns newest-first — the last element is the oldest.
+	return all[len(all)-1].Timestamp
+}
 
 // matcher builds the group/subgroup/level/since composite predicate once so
 // Filter/FilterPage don't recompute the closure shape per entry. A zero

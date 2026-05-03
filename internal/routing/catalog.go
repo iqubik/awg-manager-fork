@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms"
 	"github.com/hoaxisr/awg-manager/internal/tunnel"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/nwg"
@@ -110,6 +111,7 @@ type CatalogImpl struct {
 	provider TunnelProvider
 	ifaces   interfaceQueries
 	store    StoreClient
+	appLog   *logging.ScopedLogger
 
 	// Snapshot providers (nil-safe). Set via SetSnapshotProvider.
 	snapDnsRoutes        SnapshotFunc
@@ -122,8 +124,13 @@ type CatalogImpl struct {
 }
 
 // NewCatalog creates a new CatalogImpl.
-func NewCatalog(provider TunnelProvider, ifaces interfaceQueries, store StoreClient) *CatalogImpl {
-	return &CatalogImpl{provider: provider, ifaces: ifaces, store: store}
+func NewCatalog(provider TunnelProvider, ifaces interfaceQueries, store StoreClient, appLogger logging.AppLogger) *CatalogImpl {
+	return &CatalogImpl{
+		provider: provider,
+		ifaces:   ifaces,
+		store:    store,
+		appLog:   logging.NewScopedLogger(appLogger, logging.GroupRouting, logging.SubRoutingCatalog),
+	}
 }
 
 // ListAll returns a deduplicated list of all tunnels and interfaces for UI dropdowns.
@@ -377,6 +384,7 @@ func (c *CatalogImpl) fillSection(ctx context.Context, key string, fn SnapshotFu
 	}
 	v, err := fn(ctx)
 	if err != nil {
+		c.appLog.Warn("snapshot-section", key, err.Error())
 		*missing = append(*missing, key)
 		return
 	}

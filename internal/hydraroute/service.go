@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/logger"
+	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms/command"
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
 	"github.com/hoaxisr/awg-manager/internal/sys/exec"
@@ -22,6 +23,7 @@ type KernelIfaceResolver interface {
 type Service struct {
 	resolver        KernelIfaceResolver
 	log             *logger.Logger
+	appLog          *logging.ScopedLogger
 	mu              sync.Mutex
 	status          Status
 	restartTimer    *time.Timer
@@ -32,14 +34,16 @@ type Service struct {
 }
 
 // NewService creates a new HydraRoute service. Detects HRNeo on creation.
-func NewService(resolver KernelIfaceResolver, log *logger.Logger) *Service {
+func NewService(resolver KernelIfaceResolver, log *logger.Logger, appLogger logging.AppLogger) *Service {
 	s := &Service{
 		resolver: resolver,
 		log:      log,
+		appLog:   logging.NewScopedLogger(appLogger, logging.GroupRouting, logging.SubHrNeo),
 		status:   Detect(),
 	}
 	if s.status.Installed {
 		s.log.Infof("hydraroute: detected (running=%v)", s.status.Running)
+		s.appLog.Info("detect", "", fmt.Sprintf("HrNeo detected (running=%v)", s.status.Running))
 	}
 	return s
 }
@@ -105,8 +109,10 @@ func (s *Service) scheduleRestart() {
 		result, err := exec.Run(context.Background(), neoCommand, "restart")
 		if err != nil {
 			s.log.Warnf("hydraroute: neo restart failed: %v", exec.FormatError(result, err))
+			s.appLog.Warn("restart", "", fmt.Sprintf("neo restart failed: %v", exec.FormatError(result, err)))
 		} else {
 			s.log.Infof("hydraroute: neo restarted")
+			s.appLog.Info("restart", "", "neo restarted")
 		}
 		s.mu.Lock()
 		s.status = Detect()
@@ -173,7 +179,9 @@ func (s *Service) EnsurePolicyInterfaces(ctx context.Context, policyName string,
 		if s.log != nil {
 			s.log.Infof("hydraroute: ip policy %s permit global %s order %d", policyName, iface, i)
 		}
+		s.appLog.Info("permit-iface", iface, fmt.Sprintf("ip policy %s permit global order %d", policyName, i))
 		if err := policies.PermitInterface(ctx, policyName, iface, i); err != nil {
+			s.appLog.Warn("permit-iface", iface, fmt.Sprintf("policy %s: %v", policyName, err))
 			return fmt.Errorf("permit %s in policy %s: %w", iface, policyName, err)
 		}
 	}
@@ -236,14 +244,15 @@ func (s *Service) SyncGeoFilesToConfig() error {
 	if err != nil {
 		return err
 	}
+	geoIP, geoSite := 0, 0
+	if s.geodata != nil {
+		ips, sites := s.geodata.GeoFilePaths()
+		geoIP, geoSite = len(ips), len(sites)
+	}
 	if s.log != nil {
-		geoIP, geoSite := 0, 0
-		if s.geodata != nil {
-			ips, sites := s.geodata.GeoFilePaths()
-			geoIP, geoSite = len(ips), len(sites)
-		}
 		s.log.Infof("hydraroute: sync geo files to config — %d geoip + %d geosite", geoIP, geoSite)
 	}
+	s.appLog.Info("sync-geo", "", fmt.Sprintf("sync geo files: %d geoip + %d geosite", geoIP, geoSite))
 	return s.WriteConfig(cfg)
 }
 

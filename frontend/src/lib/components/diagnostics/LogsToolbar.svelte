@@ -1,4 +1,6 @@
 <script lang="ts" module>
+  import type { LogBucket } from '$lib/stores/logs';
+
   export interface LogsFilter {
     search: string;
     group: string;
@@ -7,32 +9,82 @@
   }
 
   export const ALL_LEVELS = ['error', 'warn', 'info', 'full', 'debug'] as const;
-  export const ALL_GROUPS = ['tunnel', 'routing', 'server', 'system', 'singbox'] as const;
 
-  export const GROUP_LABELS: Record<typeof ALL_GROUPS[number], string> = {
+  export const APP_GROUPS = ['tunnel', 'routing', 'server', 'system'] as const;
+  export const SINGBOX_GROUPS = ['inbound', 'outbound', 'dns', 'router', 'runtime', 'process'] as const;
+
+  // App-bucket entries land under group=tunnel/routing/server/system; sing-box
+  // entries land under group="singbox" with subgroup=inbound/outbound/etc.
+  // The toolbar shows the user a flat list of "groups" that abstracts this:
+  // when bucket=singbox, "groups" actually drive the SUBGROUP filter and the
+  // group filter is forced to "singbox" by LogsTerminal.
+  export const GROUP_LABELS: Record<string, string> = {
     tunnel: 'Туннели',
     routing: 'Маршрутизация',
     server: 'Серверы',
     system: 'Система',
-    singbox: 'Sing-box',
-  };
-
-  export const SUBGROUP_LABELS: Record<string, string> = {
     inbound: 'Входящие',
     outbound: 'Исходящие',
     dns: 'DNS',
     router: 'Маршрутизация',
-    runtime: 'Clash API',
+    runtime: 'Runtime',
     process: 'Процесс',
   };
+
+  export const SUBGROUP_LABELS: Record<string, string> = {
+    // tunnel
+    lifecycle: 'Жизненный цикл',
+    ops: 'Операции',
+    state: 'Состояние',
+    firewall: 'Firewall',
+    pingcheck: 'Ping-check',
+    connectivity: 'Connectivity',
+    test: 'Тестирование',
+    signature: 'Подпись',
+    // routing
+    'dns-route': 'DNS-маршруты',
+    'static-route': 'Статические маршруты',
+    'access-policy': 'Access policies',
+    'client-route': 'Per-client routes',
+    'singbox-router': 'Sing-box router',
+    deviceproxy: 'Device proxy',
+    hrneo: 'HrNeo',
+    catalog: 'Каталог',
+    'awg-outbounds': 'AWG outbounds',
+    // server
+    managed: 'Managed',
+    // system
+    boot: 'Загрузка',
+    auth: 'Авторизация',
+    settings: 'Настройки',
+    update: 'Обновления',
+    wan: 'WAN',
+    'system-tunnels': 'Системные туннели',
+    cleanup: 'Cleanup',
+    dnscheck: 'DNS-проверки',
+    connections: 'Соединения',
+    traffic: 'Трафик',
+    diagnostics: 'Диагностика',
+    rci: 'RCI',
+    ndms: 'NDMS',
+  };
+
+  export interface BufferBadge {
+    size: number;
+    capacity: number;
+    oldest?: string;
+  }
 </script>
 
 <script lang="ts">
   import { Badge, StatusDot, Modal, Button } from '$lib/components/ui';
+  import { formatRelativeTime } from '$lib/utils/format';
 
   interface Props {
     filter: LogsFilter;
     onFilterChange: (filter: LogsFilter) => void;
+    bucket: LogBucket;
+    onBucketChange: (bucket: LogBucket) => void;
     paused: boolean;
     bufferCount: number;
     onTogglePause: () => void;
@@ -42,6 +94,8 @@
     onClear: () => void;
     totalEntries: number;
     visibleEntries: number;
+    bufferStats: BufferBadge;
+    availableSubgroups: string[];
     downloading?: boolean;
     clearing?: boolean;
     searchInputRef?: (el: HTMLInputElement) => void;
@@ -50,6 +104,8 @@
   let {
     filter = $bindable(),
     onFilterChange,
+    bucket,
+    onBucketChange,
     paused,
     bufferCount,
     onTogglePause,
@@ -59,6 +115,8 @@
     onClear,
     totalEntries,
     visibleEntries,
+    bufferStats,
+    availableSubgroups,
     downloading = false,
     clearing = false,
     searchInputRef,
@@ -72,6 +130,8 @@
     debug: 'DEBUG',
   };
 
+  const groupOptions = $derived(bucket === 'singbox' ? SINGBOX_GROUPS : APP_GROUPS);
+
   function toggleLevel(lvl: string) {
     const set = new Set(filter.levels);
     if (set.has(lvl)) set.delete(lvl);
@@ -84,6 +144,12 @@
     if (filter.group === g) return;
     filter.group = g;
     filter.subgroup = '';
+    onFilterChange({ ...filter });
+  }
+
+  function selectSubgroup(s: string) {
+    if (filter.subgroup === s) return;
+    filter.subgroup = s;
     onFilterChange({ ...filter });
   }
 
@@ -109,10 +175,42 @@
   $effect(() => {
     if (searchEl && searchInputRef) searchInputRef(searchEl);
   });
+
+  const oldestRel = $derived(
+    bufferStats.oldest ? formatRelativeTime(bufferStats.oldest) : '',
+  );
+
+  const bucketTitle = $derived(
+    bucket === 'singbox' ? 'журнал sing-box' : 'журнал приложения',
+  );
 </script>
 
 <div class="toolbar">
-  <div class="row row-chips">
+  <div class="row row-bucket">
+    <span class="bucket-label">Источник</span>
+    <span class="chip-row" role="group" aria-label="Источник логов">
+      <button
+        type="button"
+        class="chip"
+        class:chip-active={bucket === 'app'}
+        aria-pressed={bucket === 'app'}
+        onclick={() => onBucketChange('app')}
+      >
+        Приложение
+      </button>
+      <button
+        type="button"
+        class="chip"
+        class:chip-active={bucket === 'singbox'}
+        aria-pressed={bucket === 'singbox'}
+        onclick={() => onBucketChange('singbox')}
+      >
+        Sing-box
+      </button>
+    </span>
+
+    <span class="divider" aria-hidden="true"></span>
+
     <span class="live-cell">
       {#if paused}
         <Badge variant="warning" size="sm">PAUSED</Badge>
@@ -127,8 +225,17 @@
       {/if}
     </span>
 
-    <span class="divider" aria-hidden="true"></span>
+    <span class="buffer-meta" title="Размер настраивается в Настройках">
+      <a class="buffer-link" href="/settings#logging">
+        {bufferStats.size}/{bufferStats.capacity}
+      </a>
+      {#if oldestRel}
+        <span class="buffer-oldest">· старейшая {oldestRel}</span>
+      {/if}
+    </span>
+  </div>
 
+  <div class="row row-chips">
     <span class="chip-row" role="group" aria-label="Фильтр по уровню">
       {#each ALL_LEVELS as lvl (lvl)}
         {@const active = filter.levels.includes(lvl)}
@@ -156,7 +263,7 @@
       >
         ALL
       </button>
-      {#each ALL_GROUPS as g (g)}
+      {#each groupOptions as g (g)}
         {@const active = filter.group === g}
         <button
           type="button"
@@ -165,11 +272,40 @@
           aria-pressed={active}
           onclick={() => selectGroup(g)}
         >
-          {GROUP_LABELS[g]}
+          {GROUP_LABELS[g] ?? g}
         </button>
       {/each}
     </span>
   </div>
+
+  {#if availableSubgroups.length > 0 && (filter.group || bucket === 'singbox')}
+    <div class="row row-subgroups">
+      <span class="sub-label">Подгруппа</span>
+      <span class="chip-row" role="group" aria-label="Фильтр по подгруппе">
+        <button
+          type="button"
+          class="chip chip-sub"
+          class:chip-active={!filter.subgroup}
+          aria-pressed={!filter.subgroup}
+          onclick={() => selectSubgroup('')}
+        >
+          ALL
+        </button>
+        {#each availableSubgroups as s (s)}
+          {@const active = filter.subgroup === s}
+          <button
+            type="button"
+            class="chip chip-sub"
+            class:chip-active={active}
+            aria-pressed={active}
+            onclick={() => selectSubgroup(s)}
+          >
+            {SUBGROUP_LABELS[s] ?? s}
+          </button>
+        {/each}
+      </span>
+    </div>
+  {/if}
 
   <div class="row row-actions">
     <input
@@ -180,6 +316,8 @@
       oninput={(e) => handleSearchInput((e.currentTarget as HTMLInputElement).value)}
       class="search"
     />
+
+    <span class="counter">{visibleEntries}/{totalEntries}</span>
 
     <span class="actions">
       <button type="button" class="chip" onclick={onTogglePause}>
@@ -200,15 +338,15 @@
 
 <Modal
   open={confirmClearOpen}
-  title="Очистить журнал"
+  title="Очистить {bucketTitle}"
   size="sm"
   onclose={() => (confirmClearOpen = false)}
 >
   <p class="confirm-text">
-    Удалить <strong>{totalEntries}</strong> {totalEntries === 1 ? 'запись' : (totalEntries < 5 ? 'записи' : 'записей')} из журнала? Это действие нельзя отменить.
+    Удалить <strong>{totalEntries}</strong> {totalEntries === 1 ? 'запись' : (totalEntries < 5 ? 'записи' : 'записей')} из {bucketTitle === 'журнал sing-box' ? 'журнала sing-box' : 'журнала приложения'}? Это действие нельзя отменить.
   </p>
   <p class="confirm-hint">
-    Логирование продолжится: новые события появятся по мере работы приложения.
+    Логирование продолжится: новые события появятся по мере работы.
   </p>
   {#snippet actions()}
     <Button variant="ghost" size="md" onclick={() => (confirmClearOpen = false)}>Отмена</Button>
@@ -243,6 +381,20 @@
     align-items: center;
     gap: 0.625rem;
     flex-wrap: wrap;
+  }
+
+  .row-subgroups .chip-sub {
+    font-size: 11px;
+    padding: 0.125rem 0.5rem;
+  }
+
+  .bucket-label,
+  .sub-label {
+    color: var(--color-text-muted);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
   }
 
   .live-cell {
@@ -287,6 +439,34 @@
   }
   .buffer-chip:hover { filter: brightness(1.1); }
 
+  .buffer-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .buffer-link {
+    color: var(--color-text-muted);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--color-border);
+  }
+  .buffer-link:hover {
+    color: var(--color-text-primary);
+  }
+  .buffer-oldest {
+    color: var(--color-text-muted);
+  }
+
+  .counter {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+    margin-right: 0.25rem;
+  }
+
   .search {
     flex: 1;
     min-width: 200px;
@@ -317,6 +497,9 @@
     .search {
       flex-basis: 100%;
       min-width: 0;
+    }
+    .buffer-meta {
+      margin-left: 0;
     }
   }
 </style>

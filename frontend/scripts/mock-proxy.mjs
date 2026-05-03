@@ -46,29 +46,125 @@ function send(res, status, body, contentType = 'application/json') {
 	res.end(typeof body === 'string' ? body : JSON.stringify(body));
 }
 
-const FAKE_SINGBOX_LOGS = [
-	{ group: 'singbox', subgroup: 'process',  action: 'stdout', level: 'info',  target: '', message: 'sing-box version 1.9.3 starting' },
-	{ group: 'singbox', subgroup: 'process',  action: 'stderr', level: 'error', target: '', message: 'FATAL: failed to bind tproxy: address already in use' },
-	{ group: 'singbox', subgroup: 'process',  action: 'stderr', level: 'warn',  target: '', message: 'WARN: deprecated config field "auto_detect_interface"' },
-	{ group: 'singbox', subgroup: 'runtime',  action: 'clash',  level: 'info',  target: '', message: '[Connection] tcp 192.168.1.50:54321 -> example.com:443' },
-	{ group: 'singbox', subgroup: 'inbound',  action: 'tproxy', level: 'info',  target: '', message: '[TPROXY] mark=0x1 fwmark applied to flow' },
-	{ group: 'singbox', subgroup: 'outbound', action: 'route',  level: 'info',  target: '', message: '[Outbound] selected: vless-server-1' },
-	{ group: 'singbox', subgroup: 'dns',      action: 'lookup', level: 'debug', target: '', message: '[DNS] resolve example.com via 1.1.1.1' },
-	{ group: 'singbox', subgroup: 'router',   action: 'match',  level: 'full',  target: '', message: '[Router] match rule "geo:RU" -> outbound: direct' },
+// ── Logs catalog (mock) ────────────────────────────────────────
+// Two independent buckets matching the backend split. Each bucket is a
+// rotating ring of pre-baked entries; the proxy injects fresh timestamps
+// on every call so the UI always sees recent activity. Pagination is
+// supported via ?offset/?limit; the static catalogs are large enough to
+// exercise the "Загрузить ещё" button.
+
+const APP_LOG_TEMPLATES = [
+	// tunnel
+	{ group: 'tunnel',  subgroup: 'lifecycle',   level: 'info',  action: 'create',   target: 'awg0',     message: 'Tunnel created' },
+	{ group: 'tunnel',  subgroup: 'lifecycle',   level: 'info',  action: 'start',    target: 'awg0',     message: 'Tunnel started' },
+	{ group: 'tunnel',  subgroup: 'lifecycle',   level: 'warn',  action: 'start',    target: 'awg1',     message: 'wg-quick: handshake timeout, retrying' },
+	{ group: 'tunnel',  subgroup: 'lifecycle',   level: 'error', action: 'start',    target: 'awg2',     message: 'Failed to bring up interface: address conflict' },
+	{ group: 'tunnel',  subgroup: 'ops',         level: 'info',  action: 'add-route',target: '10.0.0.0/8', message: 'Route added via awg0' },
+	{ group: 'tunnel',  subgroup: 'state',       level: 'info',  action: 'transition', target: 'awg0',  message: 'state running → stopped' },
+	{ group: 'tunnel',  subgroup: 'firewall',    level: 'info',  action: 'rule-add', target: 'awg0',     message: 'iptables FORWARD rule installed' },
+	{ group: 'tunnel',  subgroup: 'pingcheck',   level: 'warn',  action: 'fail',     target: 'awg0',     message: 'ping 8.8.8.8 timeout (3/3 lost)' },
+	{ group: 'tunnel',  subgroup: 'connectivity',level: 'debug', action: 'await-handshake', target: 'awg0', message: 'tunnel went running, waiting for handshake' },
+	{ group: 'tunnel',  subgroup: 'test',        level: 'info',  action: 'connectivity', target: 'awg0', message: 'TCP 1.1.1.1:443 reachable in 23ms' },
+	// routing
+	{ group: 'routing', subgroup: 'dns-route',   level: 'info',  action: 'apply',    target: 'youtube', message: 'List "youtube" applied (124 domains)' },
+	{ group: 'routing', subgroup: 'dns-route',   level: 'warn',  action: 'failover', target: 'youtube', message: 'Switched youtube → backup tunnel awg1' },
+	{ group: 'routing', subgroup: 'static-route',level: 'info',  action: 'add',      target: '8.8.8.8/32', message: 'static route via awg0' },
+	{ group: 'routing', subgroup: 'access-policy',level: 'info', action: 'create',   target: 'AwgPolicy0', message: 'Policy created with 2 interfaces' },
+	{ group: 'routing', subgroup: 'client-route',level: 'info',  action: 'apply',    target: '192.168.1.50', message: 'Per-client route to awg0 installed' },
+	{ group: 'routing', subgroup: 'singbox-router',level:'info', action: 'reload',   target: '',        message: 'sing-box router config reloaded (12 rules)' },
+	{ group: 'routing', subgroup: 'deviceproxy', level: 'info',  action: 'enable',   target: 'vless-1', message: 'Device proxy enabled on :1099 via vless-1' },
+	{ group: 'routing', subgroup: 'deviceproxy', level: 'info',  action: 'change-outbound', target: 'vless-2', message: 'Device proxy outbound switched to vless-2' },
+	{ group: 'routing', subgroup: 'hrneo',       level: 'info',  action: 'restart',  target: '',        message: 'neo restarted' },
+	{ group: 'routing', subgroup: 'hrneo',       level: 'info',  action: 'sync-geo', target: '',        message: 'sync geo files: 3 geoip + 5 geosite' },
+	{ group: 'routing', subgroup: 'hrneo',       level: 'warn',  action: 'download', target: 'https://example.com/geoip.dat', message: 'geoip: read tcp: i/o timeout' },
+	{ group: 'routing', subgroup: 'catalog',     level: 'warn',  action: 'snapshot-section', target: 'staticRoutes', message: 'failed to load static routes section' },
+	// server
+	{ group: 'server',  subgroup: 'managed',     level: 'info',  action: 'create',   target: 'wg-server-1', message: 'Managed WG server provisioned' },
+	{ group: 'server',  subgroup: 'managed',     level: 'warn',  action: 'sync',     target: 'wg-server-1', message: 'Peer count drift: storage=12 ndms=11' },
+	// system
+	{ group: 'system',  subgroup: 'boot',        level: 'info',  action: 'startup',  target: '',        message: 'awg-manager v2.9.9.3 started' },
+	{ group: 'system',  subgroup: 'auth',        level: 'info',  action: 'login',    target: 'admin',   message: 'Login successful' },
+	{ group: 'system',  subgroup: 'auth',        level: 'warn',  action: 'login',    target: '',        message: 'Login failed: bad credentials (192.168.1.50)' },
+	{ group: 'system',  subgroup: 'settings',    level: 'info',  action: 'logging',  target: '',        message: 'Logging enabled' },
+	{ group: 'system',  subgroup: 'update',      level: 'info',  action: 'check',    target: '',        message: 'Update check: latest=2.9.9.3, current=2.9.9.3' },
+	{ group: 'system',  subgroup: 'wan',         level: 'info',  action: 'detect',   target: 'ppp0',    message: 'WAN interface ppp0 detected' },
+	{ group: 'system',  subgroup: 'system-tunnels', level:'info', action: 'sync',    target: 'Wireguard0', message: 'System NWG tunnel imported' },
+	{ group: 'system',  subgroup: 'dnscheck',    level: 'info',  action: 'start',    target: '192.168.1.50', message: 'DNS check started' },
+	{ group: 'system',  subgroup: 'dnscheck',    level: 'info',  action: 'complete', target: '192.168.1.50', message: 'DNS check completed: all checks passed' },
+	{ group: 'system',  subgroup: 'connections', level: 'warn',  action: 'read-conntrack', target: '', message: 'open /proc/net/nf_conntrack: permission denied' },
+	{ group: 'system',  subgroup: 'traffic',     level: 'warn',  action: 'read-counters', target: 'awg0', message: 'sysfs awg0: stat file disappeared' },
+	{ group: 'system',  subgroup: 'diagnostics', level: 'info',  action: 'run',      target: '',        message: 'Diagnostics complete in 1832ms (14 tests)' },
+	{ group: 'system',  subgroup: 'cleanup',     level: 'info',  action: 'sweep',    target: '',        message: 'startup sweep: removed 2 orphan rules' },
+	{ group: 'system',  subgroup: 'rci',         level: 'debug', action: 'GET',      target: '/show/interface', message: '200 in 12ms' },
+	{ group: 'system',  subgroup: 'rci',         level: 'debug', action: 'POST',     target: '/',       message: '200 in 45ms' },
+	{ group: 'system',  subgroup: 'ndms',        level: 'debug', action: 'GET',      target: '/show/ip/route', message: '200 in 8ms' },
+	{ group: 'system',  subgroup: 'ndms',        level: 'debug', action: 'POST',     target: '/',       message: '200 in 67ms' },
 ];
 
-function buildFakeSingboxEntries() {
+const SINGBOX_LOG_TEMPLATES = [
+	{ group: 'singbox', subgroup: 'process',  level: 'info',  action: 'stdout', target: '', message: 'sing-box version 1.9.3 starting' },
+	{ group: 'singbox', subgroup: 'process',  level: 'error', action: 'stderr', target: '', message: 'FATAL: failed to bind tproxy: address already in use' },
+	{ group: 'singbox', subgroup: 'process',  level: 'warn',  action: 'stderr', target: '', message: 'WARN: deprecated config field "auto_detect_interface"' },
+	{ group: 'singbox', subgroup: 'runtime',  level: 'info',  action: 'run',    target: 'sing-box',  message: 'started 8 inbounds, 6 outbounds' },
+	{ group: 'singbox', subgroup: 'runtime',  level: 'info',  action: 'clash',  target: '',          message: '[Connection] tcp 192.168.1.50:54321 -> example.com:443' },
+	{ group: 'singbox', subgroup: 'inbound',  level: 'info',  action: 'run',    target: 'tun-in',    message: '[TPROXY] mark=0x1 fwmark applied' },
+	{ group: 'singbox', subgroup: 'inbound',  level: 'full',  action: 'run',    target: 'mixed-in',  message: 'mixed: accepted connection from 192.168.1.10' },
+	{ group: 'singbox', subgroup: 'outbound', level: 'info',  action: 'run',    target: 'veesp',     message: 'outbound connection to www.gstatic.com:443' },
+	{ group: 'singbox', subgroup: 'outbound', level: 'info',  action: 'run',    target: 'veesp',     message: 'outbound connection to youtube.com:443' },
+	{ group: 'singbox', subgroup: 'outbound', level: 'info',  action: 'run',    target: 'prague',    message: 'outbound connection to api.example.com:443' },
+	{ group: 'singbox', subgroup: 'outbound', level: 'warn',  action: 'run',    target: 'prague',    message: 'connect to upstream: i/o timeout' },
+	{ group: 'singbox', subgroup: 'dns',      level: 'debug', action: 'run',    target: 'dns',       message: '[DNS] resolve example.com via 1.1.1.1' },
+	{ group: 'singbox', subgroup: 'dns',      level: 'info',  action: 'run',    target: 'dns',       message: '[DNS] cache miss for telegram.org (TTL=300)' },
+	{ group: 'singbox', subgroup: 'router',   level: 'full',  action: 'run',    target: 'router',    message: '[Router] match rule "geo:RU" -> outbound: direct' },
+	{ group: 'singbox', subgroup: 'router',   level: 'info',  action: 'run',    target: 'router',    message: '[Router] reload: 12 rules, 3 rule-sets' },
+];
+
+function expandTemplates(templates, copies, jitterMs) {
+	const out = [];
 	const nowMs = Date.now();
-	return FAKE_SINGBOX_LOGS.map((e, i) => ({
-		...e,
-		// Backend serializes time.Time as RFC3339; match that so the frontend
-		// formatTime helper renders correctly. Stagger by 1s per entry.
-		timestamp: new Date(nowMs - (FAKE_SINGBOX_LOGS.length - i) * 1000).toISOString(),
-	}));
+	for (let c = 0; c < copies; c++) {
+		for (let i = 0; i < templates.length; i++) {
+			const t = templates[i];
+			const offset = (c * templates.length + i) * jitterMs;
+			out.push({
+				...t,
+				timestamp: new Date(nowMs - offset).toISOString(),
+			});
+		}
+	}
+	// newest-first
+	return out.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 }
+
+function buildFakeAppEntries() {
+	// 4 copies × ~40 templates = ~160 entries — enough for 2 pages of 200? not quite,
+	// bump to 6 so pagination button appears on common page sizes.
+	return expandTemplates(APP_LOG_TEMPLATES, 6, 5_000);
+}
+
+function buildFakeSingboxEntries() {
+	// Sing-box is noisier — 30 copies × 15 templates = 450 entries.
+	return expandTemplates(SINGBOX_LOG_TEMPLATES, 30, 1_500);
+}
+
+const KNOWN_SUBGROUPS_MOCK = {
+	tunnel: ['lifecycle', 'ops', 'state', 'firewall', 'pingcheck', 'connectivity', 'test', 'signature'],
+	routing: ['dns-route', 'static-route', 'access-policy', 'client-route', 'singbox-router', 'deviceproxy', 'hrneo', 'catalog', 'awg-outbounds'],
+	server: ['managed'],
+	system: ['boot', 'auth', 'settings', 'update', 'wan', 'system-tunnels', 'cleanup', 'dnscheck', 'connections', 'traffic', 'diagnostics', 'rci', 'ndms'],
+	singbox: ['process', 'inbound', 'outbound', 'dns', 'router', 'runtime'],
+};
+
+const BUCKET_CAPACITY_MOCK = 5000;
+
+// In-memory clear state per bucket — Clear button hides everything
+// until next refresh of the static catalog.
+const bucketCleared = { app: false, singbox: false };
 
 function applyFilters(entries, qs) {
 	let out = entries;
+	const group = qs.get('group');
+	if (group) out = out.filter((e) => e.group === group);
 	const sub = qs.get('subgroup');
 	if (sub) out = out.filter((e) => e.subgroup === sub);
 	const lvl = qs.get('level');
@@ -84,6 +180,14 @@ function applyFilters(entries, qs) {
 		}
 	}
 	return out;
+}
+
+function paginate(entries, qs) {
+	const limit = Math.max(1, Math.min(10000, Number(qs.get('limit')) || 200));
+	const offset = Math.max(0, Number(qs.get('offset')) || 0);
+	const total = entries.length;
+	const slice = entries.slice(offset, offset + limit);
+	return { slice, total, limit, offset };
 }
 
 // ── Sing-box composite proxies (Feature 1) ─────────────────────
@@ -163,23 +267,48 @@ const server = http.createServer((req, res) => {
 	}
 
 	if (req.method === 'GET' && path === '/logs') {
-		const group = url.searchParams.get('group');
-		if (group === 'singbox') {
-			// Pure singbox view — bypass Prism entirely.
-			const fake = applyFilters(buildFakeSingboxEntries(), url.searchParams);
-			send(res, 200, { data: { enabled: true, logs: fake, total: fake.length }, success: true });
+		const bucket = url.searchParams.get('bucket') === 'singbox' ? 'singbox' : 'app';
+		const all = bucketCleared[bucket]
+			? []
+			: bucket === 'singbox' ? buildFakeSingboxEntries() : buildFakeAppEntries();
+		const filtered = applyFilters(all, url.searchParams);
+		const { slice, total } = paginate(filtered, url.searchParams);
+		const oldest = all.length > 0 ? all[all.length - 1].timestamp : undefined;
+		send(res, 200, {
+			data: {
+				enabled: true,
+				logs: slice,
+				total,
+				bucket,
+				bufferSize: all.length,
+				bufferCapacity: BUCKET_CAPACITY_MOCK,
+				oldestTimestamp: oldest,
+			},
+			success: true,
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/logs/clear') {
+		const raw = url.searchParams.get('bucket');
+		if (raw !== 'app' && raw !== 'singbox') {
+			send(res, 400, { success: false, error: 'invalid bucket', code: 'INVALID_BUCKET' });
 			return;
 		}
-		// Mixed view — pass through to Prism, then merge in singbox entries
-		// so the singbox chip lights up with content even from the all-groups view.
-		fetchJSON(req.url).then(({ status, body }) => {
-			if (body && typeof body === 'object' && body.data && Array.isArray(body.data.logs)) {
-				const fake = applyFilters(buildFakeSingboxEntries(), url.searchParams);
-				body.data.logs = body.data.logs.concat(fake);
-				body.data.total = (body.data.total ?? body.data.logs.length);
-			}
-			send(res, status, body);
-		});
+		bucketCleared[raw] = true;
+		console.log(`[mock-proxy] /logs/clear bucket=${raw}`);
+		send(res, 200, { success: true, data: { cleared: true, bucket: raw } });
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/logs/subgroups') {
+		const group = url.searchParams.get('group') ?? '';
+		if (!group) {
+			send(res, 400, { success: false, error: 'group required', code: 'MISSING_GROUP' });
+			return;
+		}
+		const subs = KNOWN_SUBGROUPS_MOCK[group] ?? [];
+		send(res, 200, { success: true, data: { group, subgroups: subs } });
 		return;
 	}
 

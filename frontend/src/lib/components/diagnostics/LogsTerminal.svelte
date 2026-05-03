@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { logEntries } from '$lib/stores/logs';
+  import { appLogEntries, singboxLogEntries, logStoreFor, type LogBucket, type LogStore } from '$lib/stores/logs';
   import { LoadingSpinner, EmptyState } from '$lib/components/layout';
   import { Button } from '$lib/components/ui';
   import { api } from '$lib/api/client';
@@ -12,11 +12,9 @@
   import type { LogsFilter } from './LogsToolbar.svelte';
   import type { LogEntry } from '$lib/types';
 
-  const enabledStore = logEntries.enabled;
-  const totalStore = logEntries.total;
-  const loadedStore = logEntries.loaded;
-
   const STORAGE_KEY = 'awgm.diagnostics.logsFilter';
+  const BUCKET_KEY = 'awgm.diagnostics.logsBucket';
+  const PAGE_SIZE = 200;
   const SCROLL_THRESHOLD = 80;
 
   function defaultFilter(): LogsFilter {
@@ -33,7 +31,6 @@
       if (Array.isArray(parsed.levels)) {
         levels = parsed.levels.filter((l: unknown): l is string => typeof l === 'string');
       } else if (typeof parsed.level === 'string' && parsed.level) {
-        // Migration from old cumulative single-level filter: keep all visible.
         levels = [...ALL_LEVELS];
       } else {
         levels = [...ALL_LEVELS];
@@ -54,7 +51,19 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(f));
   }
 
+  function loadBucket(): LogBucket {
+    if (typeof localStorage === 'undefined') return 'app';
+    const raw = localStorage.getItem(BUCKET_KEY);
+    return raw === 'singbox' ? 'singbox' : 'app';
+  }
+
+  function saveBucket(b: LogBucket) {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(BUCKET_KEY, b);
+  }
+
   let filter = $state<LogsFilter>(loadFilter());
+  let bucket = $state<LogBucket>(loadBucket());
   let paused = $state(false);
   let bufferCount = $state(0);
   let downloading = $state(false);
@@ -64,30 +73,86 @@
   let searchInput = $state<HTMLInputElement | null>(null);
   let initialFetchDone = $state(false);
   let prevLen = $state(0);
+  let pageOffset = $state(0);
+  let loadingMore = $state(false);
+  let availableSubgroups = $state<string[]>([]);
+  const subgroupCache = new Map<string, string[]>();
 
-  // Composite key including all fields so two entries with same timestamp
-  // (which CAN happen when several actions fire in the same goroutine tick)
-  // do not collide. The {#each ... (key)} requires global uniqueness.
+  const activeStore = $derived<LogStore>(logStoreFor(bucket));
+
+  // Reactive subscriptions to the active store. $derived re-runs each time
+  // the store identity changes (bucket toggle), so we re-subscribe naturally
+  // through reactive store-reads in the template ($activeStore, etc.).
+  const enabledStore = $derived(activeStore.enabled);
+  const totalStore = $derived(activeStore.total);
+  const loadedStore = $derived(activeStore.loaded);
+  const statsStore = $derived(activeStore.stats);
+
   function logKey(log: LogEntry, idx: number): string {
     return `${log.timestamp}|${log.level}|${log.group}|${log.subgroup}|${log.action}|${log.target}|${log.message.length}|${idx}`;
   }
 
-  onMount(async () => {
+  // Initial fetch + every bucket switch: replace the entire active store.
+  async function loadBucketFresh(b: LogBucket) {
+    const store = logStoreFor(b);
+    pageOffset = 0;
+    const groupParam = b === 'singbox' ? 'singbox' : (filter.group || undefined);
+    const subgroupParam = b === 'singbox'
+      ? (filter.group ? filter.group : (filter.subgroup || undefined))
+      : (filter.subgroup || undefined);
     try {
       const resp = await api.getLogs({
-        group: filter.group || undefined,
-        subgroup: filter.subgroup || undefined,
-        limit: 200,
+        bucket: b,
+        group: groupParam,
+        subgroup: subgroupParam,
+        limit: PAGE_SIZE,
+        offset: 0,
       });
-      logEntries.setEntries(resp.logs);
-      logEntries.setTotal(resp.total);
-      logEntries.setEnabled(resp.enabled);
+      store.setEntries(resp.logs);
+      store.setTotal(resp.total);
+      store.setEnabled(resp.enabled);
+      store.setStats({
+        size: resp.bufferSize,
+        capacity: resp.bufferCapacity,
+        oldest: resp.oldestTimestamp,
+      });
     } catch {
       notifications.error('Не удалось загрузить журнал');
     } finally {
-      logEntries.setLoaded(true);
-      setTimeout(() => (initialFetchDone = true), 100);
+      store.setLoaded(true);
     }
+  }
+
+  async function fetchSubgroups(group: string): Promise<string[]> {
+    if (!group) return [];
+    if (subgroupCache.has(group)) return subgroupCache.get(group)!;
+    try {
+      const resp = await api.getLogsSubgroups(group);
+      subgroupCache.set(group, resp.subgroups);
+      return resp.subgroups;
+    } catch {
+      return [];
+    }
+  }
+
+  async function refreshSubgroups() {
+    if (bucket === 'singbox') {
+      // Sing-box bucket flattens subgroups as the user-facing "groups" in the
+      // toolbar — no separate subgroup row needed.
+      availableSubgroups = [];
+      return;
+    }
+    if (!filter.group) {
+      availableSubgroups = [];
+      return;
+    }
+    availableSubgroups = await fetchSubgroups(filter.group);
+  }
+
+  onMount(async () => {
+    await loadBucketFresh(bucket);
+    await refreshSubgroups();
+    setTimeout(() => (initialFetchDone = true), 100);
     window.addEventListener('keydown', handleKeydown);
   });
 
@@ -107,7 +172,7 @@
   }
 
   $effect(() => {
-    const len = $logEntries.length;
+    const len = $activeStore.length;
     if (!initialFetchDone) {
       prevLen = len;
       return;
@@ -132,18 +197,36 @@
     bufferCount = 0;
   }
 
-  function applyFilter(f: LogsFilter) {
+  async function applyFilter(f: LogsFilter) {
     filter = f;
     saveFilter(f);
+    // Group changed → refresh subgroup catalog; subgroup change keeps catalog.
+    await refreshSubgroups();
+  }
+
+  async function setBucket(b: LogBucket) {
+    if (b === bucket) return;
+    bucket = b;
+    saveBucket(b);
+    // Reset filters on bucket switch — group sets are disjoint per bucket.
+    filter = { ...filter, group: '', subgroup: '' };
+    saveFilter(filter);
+    await loadBucketFresh(b);
+    await refreshSubgroups();
   }
 
   const displayLogs = $derived.by(() => {
-    let arr: LogEntry[] = $logEntries;
-    if (filter.group) arr = arr.filter((l) => l.group === filter.group);
-    if (filter.subgroup) arr = arr.filter((l) => l.subgroup === filter.subgroup);
+    let arr: LogEntry[] = $activeStore;
     if (filter.levels.length > 0 && filter.levels.length < ALL_LEVELS.length) {
       const set = new Set(filter.levels);
       arr = arr.filter((l) => set.has(l.level));
+    }
+    if (bucket === 'singbox') {
+      // sing-box bucket: filter.group is the SUBGROUP selector, filter.subgroup unused
+      if (filter.group) arr = arr.filter((l) => l.subgroup === filter.group);
+    } else {
+      if (filter.group) arr = arr.filter((l) => l.group === filter.group);
+      if (filter.subgroup) arr = arr.filter((l) => l.subgroup === filter.subgroup);
     }
     if (filter.search) {
       const q = filter.search.toLowerCase();
@@ -158,8 +241,14 @@
   });
 
   function handleClickScope(group: string, subgroup: string) {
-    filter = { ...filter, group, subgroup };
+    if (bucket === 'singbox') {
+      // For sing-box the "scope" click maps the subgroup into the group selector.
+      filter = { ...filter, group: subgroup, subgroup: '' };
+    } else {
+      filter = { ...filter, group, subgroup };
+    }
     saveFilter(filter);
+    refreshSubgroups();
   }
 
   function handleClickLevel(level: string) {
@@ -197,8 +286,9 @@
     downloading = true;
     try {
       const resp = await api.getLogs({
-        group: filter.group || undefined,
-        subgroup: filter.subgroup || undefined,
+        bucket,
+        group: bucket === 'singbox' ? 'singbox' : (filter.group || undefined),
+        subgroup: bucket === 'singbox' ? (filter.group || undefined) : (filter.subgroup || undefined),
         limit: $totalStore || 10000,
       });
       const text = resp.logs.map(formatLine).join('\n');
@@ -207,7 +297,7 @@
       const date = new Date().toISOString().slice(0, 10);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `awg-manager-logs-${date}.txt`;
+      a.download = `awg-manager-${bucket}-logs-${date}.txt`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -223,13 +313,44 @@
   async function handleClear() {
     clearing = true;
     try {
-      await api.clearLogs();
-      logEntries.clear();
+      await api.clearLogs(bucket);
+      activeStore.clear();
+      activeStore.setStats({
+        size: 0,
+        capacity: $statsStore.capacity,
+      });
       notifications.success('Логи очищены');
     } catch {
       notifications.error('Не удалось очистить логи');
     } finally {
       clearing = false;
+    }
+  }
+
+  async function loadMore() {
+    if (loadingMore) return;
+    loadingMore = true;
+    pageOffset += PAGE_SIZE;
+    try {
+      const resp = await api.getLogs({
+        bucket,
+        group: bucket === 'singbox' ? 'singbox' : (filter.group || undefined),
+        subgroup: bucket === 'singbox' ? (filter.group || undefined) : (filter.subgroup || undefined),
+        limit: PAGE_SIZE,
+        offset: pageOffset,
+      });
+      activeStore.appendPage(resp.logs);
+      activeStore.setTotal(resp.total);
+      activeStore.setStats({
+        size: resp.bufferSize,
+        capacity: resp.bufferCapacity,
+        oldest: resp.oldestTimestamp,
+      });
+    } catch {
+      notifications.error('Не удалось загрузить ещё');
+      pageOffset -= PAGE_SIZE;
+    } finally {
+      loadingMore = false;
     }
   }
 
@@ -239,6 +360,10 @@
       searchInput?.focus();
     }
   }
+
+  const remaining = $derived(Math.max(0, $totalStore - $activeStore.length));
+  const hasMore = $derived(remaining > 0);
+  const nextBatch = $derived(Math.min(PAGE_SIZE, remaining));
 </script>
 
 {#if !$loadedStore}
@@ -268,6 +393,8 @@
     <LogsToolbar
       bind:filter
       onFilterChange={applyFilter}
+      {bucket}
+      onBucketChange={setBucket}
       {paused}
       {bufferCount}
       onTogglePause={togglePause}
@@ -277,6 +404,8 @@
       onClear={handleClear}
       totalEntries={$totalStore}
       visibleEntries={displayLogs.length}
+      bufferStats={$statsStore}
+      {availableSubgroups}
       {downloading}
       {clearing}
       searchInputRef={(el) => (searchInput = el)}
@@ -302,6 +431,13 @@
       {/each}
       {#if displayLogs.length === 0}
         <div class="empty-feed">Нет записей по текущим фильтрам</div>
+      {/if}
+      {#if hasMore}
+        <div class="load-more-row">
+          <button type="button" class="chip load-more" onclick={loadMore} disabled={loadingMore}>
+            {loadingMore ? 'Загрузка…' : `Загрузить ещё ${nextBatch}`}
+          </button>
+        </div>
       {/if}
     </div>
   </div>
@@ -335,6 +471,17 @@
     padding: 3rem 1rem;
     text-align: center;
     font-family: var(--font-sans);
+  }
+
+  .load-more-row {
+    display: flex;
+    justify-content: center;
+    padding: 0.75rem 0 0.5rem;
+    font-family: var(--font-sans);
+  }
+
+  .load-more {
+    cursor: pointer;
   }
 
   .prompt-row {

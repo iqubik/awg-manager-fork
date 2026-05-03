@@ -36,9 +36,11 @@ type PingCheckSettingsDTO struct {
 
 // LoggingSettingsDTO mirrors frontend LoggingSettings.
 type LoggingSettingsDTO struct {
-	Enabled  bool   `json:"enabled" example:"true"`
-	MaxAge   int    `json:"maxAge" example:"7"`
-	LogLevel string `json:"logLevel" example:"info"`
+	Enabled           bool   `json:"enabled" example:"true"`
+	MaxAge            int    `json:"maxAge" example:"2"`
+	LogLevel          string `json:"logLevel" example:"info"`
+	AppMaxEntries     int    `json:"appMaxEntries" example:"5000"`
+	SingboxMaxEntries int    `json:"singboxMaxEntries" example:"5000"`
 }
 
 // UpdateSettingsDTO mirrors frontend UpdateSettings.
@@ -87,13 +89,14 @@ type PingCheckToggleService interface {
 
 // SettingsHandler handles settings API endpoints.
 type SettingsHandler struct {
-	store             *storage.SettingsStore
-	tunnels           *storage.AWGTunnelStore
-	pingCheck         PingCheckToggleService
-	pingCheckSnapshot func()
-	logsSnapshot      func()
-	log               *logging.ScopedLogger
-	bus               *events.Bus
+	store              *storage.SettingsStore
+	tunnels            *storage.AWGTunnelStore
+	pingCheck          PingCheckToggleService
+	pingCheckSnapshot  func()
+	logsSnapshot       func()
+	applyLogSettings   func()
+	log                *logging.ScopedLogger
+	bus                *events.Bus
 }
 
 // NewSettingsHandler creates a new settings handler.
@@ -119,6 +122,12 @@ func (h *SettingsHandler) SetPingCheckSnapshot(fn func()) { h.pingCheckSnapshot 
 
 // SetLogsSnapshot sets the function that publishes a logs snapshot.
 func (h *SettingsHandler) SetLogsSnapshot(fn func()) { h.logsSnapshot = fn }
+
+// SetApplyLoggingSettings sets the callback that re-applies logging
+// settings to the live buffers (MaxAge, MaxEntries) after a successful
+// settings update. Called once per Update with no arguments — the
+// callback re-reads the settings store itself.
+func (h *SettingsHandler) SetApplyLoggingSettings(fn func()) { h.applyLogSettings = fn }
 
 // SetEventBus wires the SSE bus so settings mutations broadcast a
 // resource:invalidated hint to all connected clients.
@@ -230,6 +239,13 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.Save(&merged); err != nil {
 		response.Error(w, err.Error(), "SETTINGS_SAVE_ERROR")
 		return
+	}
+
+	// Apply logging changes (MaxAge / per-bucket MaxEntries) to live
+	// buffers. Without this, the buffer keeps the previous cap until the
+	// next AppLog tick and the cleanup ticker (up to 5 min later).
+	if h.applyLogSettings != nil {
+		h.applyLogSettings()
 	}
 
 	// Handle ping check toggle AFTER settings are saved

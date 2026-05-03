@@ -6,7 +6,7 @@ import (
 )
 
 func TestLogBuffer_Add(t *testing.T) {
-	buf := NewLogBuffer()
+	buf := NewLogBuffer(BucketApp)
 	defer buf.Stop()
 
 	entry := LogEntry{
@@ -30,7 +30,7 @@ func TestLogBuffer_Add(t *testing.T) {
 }
 
 func TestLogBuffer_GetFiltered(t *testing.T) {
-	buf := NewLogBuffer()
+	buf := NewLogBuffer(BucketApp)
 	defer buf.Stop()
 
 	// Add mixed entries
@@ -79,7 +79,7 @@ func TestLogBuffer_GetFiltered(t *testing.T) {
 }
 
 func TestLogBuffer_GetPaginated(t *testing.T) {
-	buf := NewLogBuffer()
+	buf := NewLogBuffer(BucketApp)
 	defer buf.Stop()
 
 	// Add 5 entries
@@ -132,7 +132,7 @@ func TestLogBuffer_GetPaginated(t *testing.T) {
 }
 
 func TestLogBuffer_Clear(t *testing.T) {
-	buf := NewLogBuffer()
+	buf := NewLogBuffer(BucketApp)
 	defer buf.Stop()
 
 	buf.Add(LogEntry{Timestamp: time.Now(), Message: "test 1"})
@@ -147,7 +147,7 @@ func TestLogBuffer_Clear(t *testing.T) {
 }
 
 func TestLogBuffer_SetMaxAge(t *testing.T) {
-	buf := NewLogBuffer()
+	buf := NewLogBuffer(BucketApp)
 	defer buf.Stop()
 
 	buf.SetMaxAge(5)
@@ -161,7 +161,7 @@ func TestLogBuffer_SetMaxAge(t *testing.T) {
 }
 
 func TestLogBuffer_ManyEntries(t *testing.T) {
-	buf := NewLogBuffer()
+	buf := NewLogBuffer(BucketApp)
 	defer buf.Stop()
 
 	// Add many entries
@@ -176,7 +176,7 @@ func TestLogBuffer_ManyEntries(t *testing.T) {
 }
 
 func TestLogBuffer_OrderDescending(t *testing.T) {
-	buf := NewLogBuffer()
+	buf := NewLogBuffer(BucketApp)
 	defer buf.Stop()
 
 	// Add entries in order
@@ -199,7 +199,7 @@ func TestLogBuffer_OrderDescending(t *testing.T) {
 }
 
 func TestLogBuffer_AutoTimestamp(t *testing.T) {
-	buf := NewLogBuffer()
+	buf := NewLogBuffer(BucketApp)
 	defer buf.Stop()
 
 	// Add entry without timestamp
@@ -222,27 +222,73 @@ func TestLogBuffer_AutoTimestamp(t *testing.T) {
 }
 
 func TestLogBuffer_MaxEntries(t *testing.T) {
-	buf := NewLogBuffer()
+	buf := NewLogBuffer(BucketApp)
 	defer buf.Stop()
 
-	// Add more entries than maxEntries
-	for i := 0; i < maxEntries+100; i++ {
+	cap := defaultAppMaxEntries
+
+	// Add more entries than the cap
+	for i := 0; i < cap+100; i++ {
 		buf.Add(LogEntry{Timestamp: time.Now(), Target: "test"})
 	}
 
-	if buf.Len() != maxEntries {
-		t.Errorf("Len() = %d, want %d (maxEntries)", buf.Len(), maxEntries)
+	if buf.Len() != cap {
+		t.Errorf("Len() = %d, want %d (defaultAppMaxEntries)", buf.Len(), cap)
 	}
 
-	// Verify newest entries are preserved (not oldest)
 	logs := buf.GetAll()
-	if len(logs) != maxEntries {
-		t.Errorf("GetAll() len = %d, want %d", len(logs), maxEntries)
+	if len(logs) != cap {
+		t.Errorf("GetAll() len = %d, want %d", len(logs), cap)
+	}
+}
+
+func TestLogBuffer_BucketDefaults(t *testing.T) {
+	app := NewLogBuffer(BucketApp)
+	defer app.Stop()
+	sb := NewLogBuffer(BucketSingbox)
+	defer sb.Stop()
+
+	if app.Bucket() != BucketApp {
+		t.Errorf("Bucket() = %q, want %q", app.Bucket(), BucketApp)
+	}
+	if sb.Bucket() != BucketSingbox {
+		t.Errorf("Bucket() = %q, want %q", sb.Bucket(), BucketSingbox)
+	}
+}
+
+func TestLogBuffer_SetMaxEntries(t *testing.T) {
+	buf := NewLogBuffer(BucketApp)
+	defer buf.Stop()
+
+	for i := 0; i < 100; i++ {
+		buf.Add(LogEntry{Timestamp: time.Now(), Target: "x"})
+	}
+	buf.SetMaxEntries(20)
+	if got := buf.Len(); got != 20 {
+		t.Errorf("Len after SetMaxEntries(20) = %d, want 20", got)
+	}
+}
+
+func TestLogBuffer_Oldest(t *testing.T) {
+	buf := NewLogBuffer(BucketApp)
+	defer buf.Stop()
+
+	if !buf.Oldest().IsZero() {
+		t.Errorf("Oldest() on empty buffer should be zero, got %v", buf.Oldest())
+	}
+
+	base := time.Now()
+	buf.Add(LogEntry{Timestamp: base, Target: "first"})
+	buf.Add(LogEntry{Timestamp: base.Add(time.Second), Target: "second"})
+	buf.Add(LogEntry{Timestamp: base.Add(2 * time.Second), Target: "third"})
+
+	if !buf.Oldest().Equal(base) {
+		t.Errorf("Oldest() = %v, want %v", buf.Oldest(), base)
 	}
 }
 
 func TestLogBuffer_Len(t *testing.T) {
-	buf := NewLogBuffer()
+	buf := NewLogBuffer(BucketApp)
 	defer buf.Stop()
 
 	if buf.Len() != 0 {
@@ -258,7 +304,7 @@ func TestLogBuffer_Len(t *testing.T) {
 }
 
 func TestLogBuffer_LevelCumulative(t *testing.T) {
-	lb := NewLogBuffer()
+	lb := NewLogBuffer(BucketApp)
 	defer lb.Stop()
 
 	// Add entries at every level
@@ -314,7 +360,7 @@ func TestLogBuffer_LevelCumulative(t *testing.T) {
 }
 
 func TestLogBuffer_SinceFilter(t *testing.T) {
-	lb := NewLogBuffer()
+	lb := NewLogBuffer(BucketApp)
 	defer lb.Stop()
 
 	base := time.Now()

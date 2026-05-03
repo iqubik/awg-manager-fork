@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 )
 
@@ -63,6 +64,16 @@ type GeoDataStore struct {
 	entries     []GeoFileEntry
 	tagCache    map[string][]GeoTag // path → cached tags
 	progress    func(rawURL, fileType, phase string, downloaded, total int64, errMsg string)
+	appLog      *logging.ScopedLogger
+}
+
+// SetAppLogger wires the UI-visible logger into the store. Optional;
+// nil-safe. The store keeps the lazy-construction guarantee for tests
+// (NewGeoDataStore takes no logging dep).
+func (s *GeoDataStore) SetAppLogger(appLogger logging.AppLogger) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appLog = logging.NewScopedLogger(appLogger, logging.GroupRouting, logging.SubHrNeo)
 }
 
 // SetProgressReporter wires a callback that receives lifecycle events for
@@ -166,6 +177,7 @@ func (s *GeoDataStore) Download(fileType, rawURL string) (*GeoFileEntry, error) 
 	}
 	if _, err := downloadFile(rawURL, dest, bytesProgress); err != nil {
 		report("error", 0, 0, err.Error())
+		s.appLog.Warn("download", rawURL, fmt.Sprintf("%s: %v", fileType, err))
 		return nil, fmt.Errorf("download %s: %w", rawURL, err)
 	}
 
@@ -177,15 +189,18 @@ func (s *GeoDataStore) Download(fileType, rawURL string) (*GeoFileEntry, error) 
 	if err != nil {
 		os.Remove(dest)
 		report("error", 0, 0, err.Error())
+		s.appLog.Warn("validate", rawURL, fmt.Sprintf("%s: %v", fileType, err))
 		return nil, fmt.Errorf("validate %s: %w", dest, err)
 	}
 	if tagCount == 0 {
 		os.Remove(dest)
 		emsg := fmt.Sprintf("file has 0 %s entries — wrong type or corrupt download?", fileType)
 		report("error", size, size, emsg)
+		s.appLog.Warn("validate", rawURL, emsg)
 		return nil, fmt.Errorf("%s", emsg)
 	}
 	report("done", size, size, "")
+	s.appLog.Info("download", rawURL, fmt.Sprintf("%s downloaded: %d bytes, %d tags", fileType, size, tagCount))
 
 	entry := GeoFileEntry{
 		Type:     fileType,
