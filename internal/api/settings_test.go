@@ -127,3 +127,110 @@ func TestUpdateUsageLevelEmptyPreserves(t *testing.T) {
 		t.Errorf("UsageLevel = %q after omitted update, want expert (preserved)", got.UsageLevel)
 	}
 }
+
+// TestUpdate_PartialPayload_PreservesOmittedFields verifies the
+// post-refactor defense: a PATCH body containing only one sub-struct
+// must leave every other field of the saved settings untouched.
+func TestUpdate_PartialPayload_PreservesOmittedFields(t *testing.T) {
+	h, store := newSettingsHandlerForTest(t)
+
+	// Pre-seed with non-default values across multiple fields so we can
+	// detect any silent revert.
+	current, _ := store.Get()
+	seed := *current
+	seed.AuthEnabled = true
+	seed.ApiKey = "seeded-key"
+	seed.Server.Port = 3333
+	seed.UsageLevel = storage.UsageLevelExpert
+	if err := store.Save(&seed); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Patch only logging.
+	body := []byte(`{"logging":{"enabled":false,"maxAge":4,"logLevel":"warn"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	got, _ := store.Get()
+	if got.AuthEnabled != true {
+		t.Errorf("AuthEnabled = %v, want true (preserved)", got.AuthEnabled)
+	}
+	if got.ApiKey != "seeded-key" {
+		t.Errorf("ApiKey = %q, want seeded-key (preserved)", got.ApiKey)
+	}
+	if got.Server.Port != 3333 {
+		t.Errorf("Server.Port = %d, want 3333 (preserved)", got.Server.Port)
+	}
+	if got.UsageLevel != storage.UsageLevelExpert {
+		t.Errorf("UsageLevel = %q, want expert (preserved)", got.UsageLevel)
+	}
+	if got.Logging.Enabled != false || got.Logging.MaxAge != 4 || got.Logging.LogLevel != "warn" {
+		t.Errorf("Logging not applied as patched: %+v", got.Logging)
+	}
+}
+
+// TestUpdate_AuthEnabledFalse_NotReverted is the headline security
+// regression test. Before the refactor, top-level bool fields like
+// AuthEnabled could not be defended against partial payloads — an
+// explicit `false` was indistinguishable from "not sent" in a value-
+// typed DTO and would be silently reverted by the zero-value-restore
+// defense. After the refactor, an explicit false propagates correctly.
+func TestUpdate_AuthEnabledFalse_NotReverted(t *testing.T) {
+	h, store := newSettingsHandlerForTest(t)
+
+	// Pre-seed with AuthEnabled=true.
+	current, _ := store.Get()
+	seed := *current
+	seed.AuthEnabled = true
+	if err := store.Save(&seed); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Send patch with only authEnabled:false.
+	body := []byte(`{"authEnabled":false}`)
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	got, _ := store.Get()
+	if got.AuthEnabled != false {
+		t.Errorf("AuthEnabled = %v after explicit false patch, want false", got.AuthEnabled)
+	}
+}
+
+// TestUpdate_FullPayload_BehavesIdenticallyToBefore verifies backward
+// compatibility with the existing frontend payload pattern: every
+// field present in the request, ApplyPatch sets every field, save
+// matches the request payload (modulo computed/derived fields).
+func TestUpdate_FullPayload_BehavesIdenticallyToBefore(t *testing.T) {
+	h, store := newSettingsHandlerForTest(t)
+	current, _ := store.Get()
+	payload := *current
+	payload.AuthEnabled = true
+	payload.UsageLevel = storage.UsageLevelExpert
+	payload.Logging.Enabled = false
+	payload.Logging.MaxAge = 7
+	payload.Server.Port = 4444
+	body, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	got, _ := store.Get()
+	if got.AuthEnabled != true || got.UsageLevel != storage.UsageLevelExpert ||
+		got.Logging.Enabled != false || got.Logging.MaxAge != 7 ||
+		got.Server.Port != 4444 {
+		t.Errorf("full-payload identity merge failed: %+v", got)
+	}
+}
