@@ -1,11 +1,11 @@
 package internalpresets
 
 const sagerNetSiteRoot = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/"
-const sagerNetIPRoot = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/"
 
 type Preset struct {
 	ID        string     `json:"id"`
 	Name      string     `json:"name"`
+	Category  string     `json:"category,omitempty"`
 	IconSlug  string     `json:"iconSlug,omitempty"`
 	RuleSets  []RuleRef  `json:"ruleSets"`
 	Rules     []RuleLink `json:"rules"`
@@ -13,6 +13,23 @@ type Preset struct {
 	Featured  bool       `json:"featured,omitempty"`
 	Sensitive bool       `json:"sensitive,omitempty"`
 }
+
+// Category constants for presets.
+//
+// A preset with Category == "" is rendered outside the chip filter — it
+// shows in the Featured row at the top, or, for the Sensitive preset, is
+// hidden behind the existing Sensitive toggle. Featured: true and an
+// empty Category are independent: a future featured preset could carry a
+// category, but today none do.
+const (
+	CatSocial    = "social"
+	CatMedia     = "media"
+	CatAI        = "ai"
+	CatDeveloper = "developer"
+	CatCloud     = "cloud"
+	CatGaming    = "gaming"
+	CatBlock     = "block"
+)
 
 type RuleRef struct {
 	Tag string `json:"tag"`
@@ -25,51 +42,50 @@ type RuleLink struct {
 }
 
 func All() []Preset {
-	out := []Preset{
-		{
-			ID: "all-non-ru", Name: "Обход блокировок РФ (всё не-RU → VPN)",
-			IconSlug: "lucide-shield-check",
-			Featured: true,
-			RuleSets: []RuleRef{{Tag: "geosite-geolocation-!ru", URL: sagerNetSiteRoot + "geosite-geolocation-!ru.srs"}},
-			Rules:    []RuleLink{{RuleSetRef: "geosite-geolocation-!ru", ActionTarget: "tunnel"}},
-			Notice:   "Весь не-российский трафик через VPN. One-click сетап для обхода блокировок.",
-		},
-		{
-			ID: "geoip-ru-direct", Name: "Российский трафик → мимо VPN",
-			IconSlug: "lucide-globe",
-			Featured: true,
-			RuleSets: []RuleRef{{Tag: "geoip-ru", URL: sagerNetIPRoot + "geoip-ru.srs"}},
-			Rules:    []RuleLink{{RuleSetRef: "geoip-ru", ActionTarget: "direct"}},
-			Notice:   "Полезно когда final=tunnel (всё по умолчанию в VPN, а RU — мимо)",
-		},
-	}
+	out := []Preset{}
 
-	// Популярные соцсети / мессенджеры
+	// Соцсети / мессенджеры
 	out = append(out,
-		simpleGeosite("youtube", "YouTube", "youtube"),
-		simpleGeosite("google", "Google", "google"),
-		simpleGeosite("netflix", "Netflix", "netflix"),
-		simpleGeosite("discord", "Discord", "discord"),
-		simpleGeosite("telegram", "Telegram", "telegram"),
-		simpleGeosite("twitter", "Twitter / X", "x"),
-		simpleGeosite("facebook", "Facebook", "facebook"),
-		simpleGeosite("instagram", "Instagram", "instagram"),
-		simpleGeosite("tiktok", "TikTok", "tiktok"),
-		simpleGeosite("whatsapp", "WhatsApp", "whatsapp"),
-		simpleGeosite("signal", "Signal", "signal"),
-		simpleGeosite("reddit", "Reddit", "reddit"),
-		simpleGeosite("linkedin", "LinkedIn", "linkedin"),
-		simpleGeosite("pinterest", "Pinterest", "pinterest"),
+		simpleGeosite("youtube", "YouTube", CatSocial, "youtube"),
+		simpleGeosite("google", "Google", CatSocial, "google"),
+		simpleGeosite("discord", "Discord", CatSocial, "discord"),
+		simpleGeosite("telegram", "Telegram", CatSocial, "telegram"),
+		// twitter renamed to x — slug, name, icon all reflect the rebrand.
+		simpleGeosite("x", "X (Twitter)", CatSocial, "x"),
+		simpleGeosite("facebook", "Facebook", CatSocial, "facebook"),
+		simpleGeosite("instagram", "Instagram", CatSocial, "instagram"),
+		simpleGeosite("tiktok", "TikTok", CatSocial, "tiktok"),
+		simpleGeosite("whatsapp", "WhatsApp", CatSocial, "whatsapp"),
+		simpleGeosite("signal", "Signal", CatSocial, "signal"),
+		simpleGeosite("reddit", "Reddit", CatSocial, "reddit"),
 	)
 
-	// Стриминг/медиа
+	// Стриминг / медиа
 	out = append(out,
-		simpleGeosite("twitch", "Twitch", "twitch"),
-		simpleGeosite("spotify", "Spotify", "spotify"),
-		simpleGeosite("disney", "Disney+", "disney"),
-		simpleGeosite("hbo", "HBO", "hbo"),
+		simpleGeosite("netflix", "Netflix", CatMedia, "netflix"),
+		simpleGeosite("twitch", "Twitch", CatMedia, "twitch"),
+		simpleGeosite("spotify", "Spotify", CatMedia, "spotify"),
+		simpleGeosite("disney", "Disney+", CatMedia, "disney"),
+		simpleGeosite("hbo", "HBO", CatMedia, "hbo"),
+		// "wikimedia" is the SagerNet upstream rule-set slug; we display
+		// "Wikipedia" since that is what users recognise.
+		Preset{
+			ID: "wikimedia", Name: "Wikipedia",
+			Category: CatMedia,
+			IconSlug: "wikipedia",
+			RuleSets: []RuleRef{{Tag: "geosite-wikimedia", URL: sagerNetSiteRoot + "geosite-wikimedia.srs"}},
+			Rules:    []RuleLink{{RuleSetRef: "geosite-wikimedia", ActionTarget: "tunnel"}},
+		},
+		Preset{
+			ID: "bbc", Name: "BBC",
+			Category: CatMedia,
+			IconSlug: "bbc",
+			RuleSets: []RuleRef{{Tag: "geosite-bbc", URL: sagerNetSiteRoot + "geosite-bbc.srs"}},
+			Rules:    []RuleLink{{RuleSetRef: "geosite-bbc", ActionTarget: "tunnel"}},
+		},
 		Preset{
 			ID: "category-media", Name: "Всё медиа",
+			Category: CatMedia,
 			IconSlug: "lucide-film",
 			RuleSets: []RuleRef{{Tag: "geosite-category-media", URL: sagerNetSiteRoot + "geosite-category-media.srs"}},
 			Rules:    []RuleLink{{RuleSetRef: "geosite-category-media", ActionTarget: "tunnel"}},
@@ -79,13 +95,24 @@ func All() []Preset {
 
 	// AI
 	out = append(out,
-		simpleGeosite("openai", "OpenAI", "openai"),
-		simpleGeosite("anthropic", "Anthropic", "anthropic"),
-		simpleGeosite("gemini", "Gemini", "googlegemini"),
-		simpleGeosite("perplexity", "Perplexity", "perplexity"),
-		simpleGeosite("xai", "xAI / Grok", "xai"),
+		simpleGeosite("openai", "OpenAI", CatAI, "openai"),
+		// anthropic preset covers claude.ai too — no separate "claude"
+		// slot since SagerNet does not publish a geosite-claude.srs.
+		simpleGeosite("anthropic", "Anthropic / Claude", CatAI, "anthropic"),
+		// SagerNet upstream slug is "google-gemini"; our user-facing ID
+		// stays "gemini" so the URL path is the only place the dash
+		// appears.
+		Preset{
+			ID: "gemini", Name: "Gemini",
+			Category: CatAI,
+			IconSlug: "googlegemini",
+			RuleSets: []RuleRef{{Tag: "geosite-google-gemini", URL: sagerNetSiteRoot + "geosite-google-gemini.srs"}},
+			Rules:    []RuleLink{{RuleSetRef: "geosite-google-gemini", ActionTarget: "tunnel"}},
+		},
+		simpleGeosite("perplexity", "Perplexity", CatAI, "perplexity"),
 		Preset{
 			ID: "category-ai", Name: "Все AI сервисы",
+			Category: CatAI,
 			IconSlug: "lucide-sparkles",
 			RuleSets: []RuleRef{{Tag: "geosite-category-ai-!cn", URL: sagerNetSiteRoot + "geosite-category-ai-!cn.srs"}},
 			Rules:    []RuleLink{{RuleSetRef: "geosite-category-ai-!cn", ActionTarget: "tunnel"}},
@@ -95,55 +122,51 @@ func All() []Preset {
 
 	// Developer
 	out = append(out,
-		simpleGeosite("github", "GitHub", "github"),
-		simpleGeosite("gitlab", "GitLab", "gitlab"),
-		simpleGeosite("stackoverflow", "Stack Overflow", "stackoverflow"),
-		simpleGeosite("docker", "Docker", "docker"),
+		simpleGeosite("github", "GitHub", CatDeveloper, "github"),
+		simpleGeosite("gitlab", "GitLab", CatDeveloper, "gitlab"),
+		simpleGeosite("docker", "Docker", CatDeveloper, "docker"),
 	)
 
 	// Cloud / enterprise
 	out = append(out,
-		simpleGeosite("cloudflare", "Cloudflare", "cloudflare"),
-		simpleGeosite("akamai", "Akamai", "akamai"),
-		simpleGeosite("aws", "Amazon AWS", "amazonwebservices"),
-		simpleGeosite("apple", "Apple", "apple"),
-		simpleGeosite("microsoft", "Microsoft", "microsoft"),
+		simpleGeosite("cloudflare", "Cloudflare", CatCloud, "cloudflare"),
+		simpleGeosite("akamai", "Akamai", CatCloud, "akamai"),
+		simpleGeosite("aws", "Amazon AWS", CatCloud, "amazonwebservices"),
+		simpleGeosite("apple", "Apple", CatCloud, "apple"),
+		simpleGeosite("microsoft", "Microsoft", CatCloud, "microsoft"),
 	)
 
 	// Gaming
 	out = append(out,
 		Preset{
 			ID: "category-games", Name: "Все игры",
+			Category: CatGaming,
 			IconSlug: "lucide-gamepad-2",
 			RuleSets: []RuleRef{{Tag: "geosite-category-games", URL: sagerNetSiteRoot + "geosite-category-games.srs"}},
 			Rules:    []RuleLink{{RuleSetRef: "geosite-category-games", ActionTarget: "tunnel"}},
 			Notice:   "Steam, Epic, PlayStation, Xbox, Nintendo, Blizzard и другие",
 		},
-		simpleGeosite("steam", "Steam", "steam"),
-		simpleGeosite("epicgames", "Epic Games", "epicgames"),
-		simpleGeosite("playstation", "PlayStation", "playstation"),
-		simpleGeosite("xbox", "Xbox", "xbox"),
-		simpleGeosite("nintendo", "Nintendo", "nintendo"),
-		simpleGeosite("blizzard", "Blizzard", "blizzardentertainment"),
+		simpleGeosite("steam", "Steam", CatGaming, "steam"),
+		simpleGeosite("playstation", "PlayStation", CatGaming, "playstation"),
+		simpleGeosite("xbox", "Xbox", CatGaming, "xbox"),
+		simpleGeosite("roblox", "Roblox", CatGaming, "roblox"),
 	)
 
 	// Блокировка (action: reject)
 	out = append(out,
 		Preset{
 			ID: "ads", Name: "Реклама и трекеры",
+			Category: CatBlock,
 			IconSlug: "lucide-circle-slash",
 			RuleSets: []RuleRef{{Tag: "geosite-category-ads-all", URL: sagerNetSiteRoot + "geosite-category-ads-all.srs"}},
 			Rules:    []RuleLink{{RuleSetRef: "geosite-category-ads-all", ActionTarget: "reject"}},
 			Notice:   "Блокирует рекламу и трекеры через action:reject — выбор outbound не требуется",
 		},
-		// NOTE: presets `scam`, `cryptominers`, `tracking` removed —
-		// the corresponding SagerNet rule-set URLs return 404 (the
-		// sing-geosite repo no longer publishes those exact slugs).
-		// Until upstream provides equivalents, only `ads-all` is
-		// reliably reachable from the SagerNet root.
 	)
 
-	// Sensitive (hidden by default)
+	// Sensitive (hidden by default; Category empty since the gallery
+	// handles it through the existing Sensitive toggle, not through
+	// category filtering).
 	out = append(out, Preset{
 		ID: "porn", Name: "Adult content (18+)",
 		IconSlug:  "lucide-lock",
@@ -156,11 +179,12 @@ func All() []Preset {
 	return out
 }
 
-func simpleGeosite(slug, name, iconSlug string) Preset {
+func simpleGeosite(slug, name, category, iconSlug string) Preset {
 	tag := "geosite-" + slug
 	return Preset{
 		ID:       slug,
 		Name:     name,
+		Category: category,
 		IconSlug: iconSlug,
 		RuleSets: []RuleRef{{Tag: tag, URL: sagerNetSiteRoot + tag + ".srs"}},
 		Rules:    []RuleLink{{RuleSetRef: tag, ActionTarget: "tunnel"}},

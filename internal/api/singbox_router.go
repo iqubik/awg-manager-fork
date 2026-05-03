@@ -133,6 +133,7 @@ type SingboxRouterPresetRuleLinkDTO struct {
 type SingboxRouterPresetDTO struct {
 	ID        string                           `json:"id" example:"china-direct"`
 	Name      string                           `json:"name" example:"China Direct"`
+	Category  string                           `json:"category,omitempty" example:"social"`
 	IconSlug  string                           `json:"iconSlug,omitempty" example:"china"`
 	RuleSets  []SingboxRouterPresetRuleRefDTO  `json:"ruleSets"`
 	Rules     []SingboxRouterPresetRuleLinkDTO `json:"rules"`

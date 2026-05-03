@@ -7,6 +7,7 @@
 	import JsonConfigDrawer from './JsonConfigDrawer.svelte';
 	import RouteInspector from './RouteInspector.svelte';
 	import EngineSubTab from './EngineSubTab.svelte';
+	import PresetsSubTab from './PresetsSubTab.svelte';
 	import RulesSubTab from './RulesSubTab.svelte';
 	import RuleSetsSubTab from './RuleSetsSubTab.svelte';
 	import OutboundsSubTab from './OutboundsSubTab.svelte';
@@ -14,12 +15,30 @@
 	import DeviceProxySubTab from './DeviceProxySubTab.svelte';
 	import { ConnectionsSubTab } from '$lib/components/routing/singboxRouter';
 
-	type SubTab = 'engine' | 'rules' | 'rulesets' | 'outbounds' | 'dns' | 'deviceproxy' | 'connections';
+	type SubTab =
+		| 'engine'
+		| 'presets'
+		| 'rules'
+		| 'rulesets'
+		| 'outbounds'
+		| 'dns'
+		| 'deviceproxy'
+		| 'connections';
 
-	const order: SubTab[] = ['engine', 'rules', 'rulesets', 'outbounds', 'dns', 'deviceproxy', 'connections'];
+	const order: SubTab[] = [
+		'engine',
+		'presets',
+		'rules',
+		'rulesets',
+		'outbounds',
+		'dns',
+		'deviceproxy',
+		'connections',
+	];
 
 	const labels: Record<SubTab, string> = {
 		engine: 'Движок',
+		presets: 'Пресеты',
 		rules: 'Правила',
 		rulesets: 'Наборы',
 		outbounds: 'Outbounds',
@@ -84,6 +103,8 @@
 <section class="sub-content">
 	{#if active === 'engine'}
 		<EngineSubTab />
+	{:else if active === 'presets'}
+		<PresetsSubTab />
 	{:else if active === 'rules'}
 		<RulesSubTab />
 	{:else if active === 'rulesets'}

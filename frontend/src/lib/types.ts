@@ -1307,9 +1307,19 @@ export interface SingboxRouterPresetLink {
 	actionTarget: 'tunnel' | 'reject' | 'direct';
 }
 
+export type SingboxRouterPresetCategory =
+	| 'social'
+	| 'media'
+	| 'ai'
+	| 'developer'
+	| 'cloud'
+	| 'gaming'
+	| 'block';
+
 export interface SingboxRouterPreset {
 	id: string;
 	name: string;
+	category?: SingboxRouterPresetCategory;
 	iconSlug?: string;
 	ruleSets: Array<{ tag: string; url: string }>;
 	rules: SingboxRouterPresetLink[];
