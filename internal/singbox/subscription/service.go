@@ -15,6 +15,7 @@ import (
 // sing-box config. The real implementation lives in singbox.Operator.
 type ConfigMutator interface {
 	AllocListenPort() (uint16, error)
+	AllocProxyIndex(ctx context.Context) (int, error)
 	AddOutbound(tag string, jsonBody []byte) error
 	UpdateOutbound(tag string, jsonBody []byte) error
 	RemoveOutbound(tag string) error
@@ -22,6 +23,8 @@ type ConfigMutator interface {
 	RemoveInbound(tag string) error
 	AddRouteRule(jsonBody []byte) error
 	RemoveRouteRule(inboundTag, outboundTag string) error
+	EnsureProxy(ctx context.Context, idx, port int, description string) error
+	RemoveProxy(ctx context.Context, idx int) error
 	Reload(ctx context.Context) error
 }
 
@@ -68,6 +71,20 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Subscription, er
 		return nil, err
 	}
 
+	proxyIdx, err := s.mutator.AllocProxyIndex(ctx)
+	if err != nil {
+		s.store.Delete(sub.ID)
+		return nil, fmt.Errorf("subscription: alloc proxy index: %w", err)
+	}
+	if err := s.store.SetProxyIndex(sub.ID, proxyIdx); err != nil {
+		s.store.Delete(sub.ID)
+		return nil, err
+	}
+	if err := s.mutator.EnsureProxy(ctx, proxyIdx, int(port), sub.Label); err != nil {
+		s.store.Delete(sub.ID)
+		return nil, fmt.Errorf("subscription: register NDMS proxy: %w", err)
+	}
+
 	if _, err := s.refreshLocked(ctx, sub.ID); err != nil {
 		s.store.Delete(sub.ID)
 		return nil, fmt.Errorf("subscription: initial fetch failed: %w", err)
@@ -104,14 +121,14 @@ func (s *Service) refreshLocked(ctx context.Context, id string) (*RefreshResult,
 		return nil, err
 	}
 
-	newMembers := make([]string, 0, len(diff.New)+len(diff.Existing))
+	newMembers := make([]MemberInfo, 0, len(diff.New)+len(diff.Existing))
 	for _, n := range diff.New {
-		newMembers = append(newMembers, n.Tag)
+		newMembers = append(newMembers, toMemberInfo(n.Tag, n.Out))
 	}
 	for _, e := range diff.Existing {
-		newMembers = append(newMembers, e.Tag)
+		newMembers = append(newMembers, toMemberInfo(e.Tag, e.Out))
 	}
-	if err := s.store.SetMembership(id, newMembers, diff.Orphan); err != nil {
+	if err := s.store.SetMembers(id, newMembers, diff.Orphan); err != nil {
 		return nil, err
 	}
 
@@ -189,6 +206,12 @@ func (s *Service) Delete(ctx context.Context, id string, cascade bool) error {
 		for _, m := range sub.MemberTags {
 			s.mutator.RemoveOutbound(m)
 		}
+		if sub.ProxyIndex >= 0 {
+			if err := s.mutator.RemoveProxy(ctx, sub.ProxyIndex); err != nil {
+				// Log but don't block delete — orphan ProxyN is recoverable.
+				s.store.UpdateState(id, RefreshResult{When: time.Now(), Err: err})
+			}
+		}
 		if err := s.mutator.Reload(ctx); err != nil {
 			return fmt.Errorf("subscription: cascade delete reload: %w", err)
 		}
@@ -204,6 +227,35 @@ func replaceTag(raw []byte, tag string) []byte {
 	ob["tag"] = tag
 	out, _ := json.Marshal(ob)
 	return out
+}
+
+// toMemberInfo extracts user-facing metadata from a parsed outbound so the
+// UI can render protocol, server:port, transport, and security badges without
+// re-parsing the raw JSON on every render.
+func toMemberInfo(tag string, p vlink.ParsedOutbound) MemberInfo {
+	mi := MemberInfo{
+		Tag:      tag,
+		Protocol: p.Protocol,
+		Server:   p.Server,
+		Port:     p.Port,
+	}
+	var ob map[string]any
+	if json.Unmarshal(p.Outbound, &ob) != nil {
+		return mi
+	}
+	if tr, ok := ob["transport"].(map[string]any); ok {
+		if t, ok := tr["type"].(string); ok {
+			mi.Transport = t
+		}
+	}
+	if tls, ok := ob["tls"].(map[string]any); ok {
+		if _, hasReality := tls["reality"]; hasReality {
+			mi.Security = "reality"
+		} else if enabled, _ := tls["enabled"].(bool); enabled {
+			mi.Security = "tls"
+		}
+	}
+	return mi
 }
 
 // === Helpers used by REST handlers (B-Task 5) ===

@@ -61,6 +61,11 @@ let mockSubscriptions = [
 			'sub-demo0001-eeff0011',
 			'sub-demo0001-22334455',
 		],
+		members: [
+			{ tag: 'sub-demo0001-aabbccdd', protocol: 'vless', server: 'de01.demo.example', port: 443, transport: 'tcp', security: 'reality' },
+			{ tag: 'sub-demo0001-eeff0011', protocol: 'vless', server: 'nl02.demo.example', port: 443, transport: 'ws', security: 'tls' },
+			{ tag: 'sub-demo0001-22334455', protocol: 'trojan', server: 'fi03.demo.example', port: 443, transport: 'tcp', security: 'tls' },
+		],
 		orphanTags: [],
 		activeMember: 'sub-demo0001-aabbccdd',
 		enabled: true,
@@ -78,6 +83,9 @@ let mockSubscriptions = [
 		inboundTag: 'sub-demo0002-in',
 		listenPort: 11002,
 		memberTags: ['sub-demo0002-99887766'],
+		members: [
+			{ tag: 'sub-demo0002-99887766', protocol: 'shadowsocks', server: 'backup.example', port: 8388, transport: 'tcp', security: '' },
+		],
 		orphanTags: ['sub-demo0002-deadbeef'],
 		activeMember: 'sub-demo0002-99887766',
 		enabled: true,
@@ -90,6 +98,7 @@ function newSub(input) {
 	mockSubID++;
 	const id = `sub-${mockSubID.toString().padStart(8, '0')}`;
 	const shortID = id.slice(0, 8);
+	const memberTags = [`sub-${shortID}-aaaa`, `sub-${shortID}-bbbb`];
 	return {
 		id,
 		label: input.label || 'Test',
@@ -101,7 +110,15 @@ function newSub(input) {
 		selectorTag: `sub-${shortID}`,
 		inboundTag: `sub-${shortID}-in`,
 		listenPort: 11000 + mockSubID,
-		memberTags: [`sub-${shortID}-aaaa`, `sub-${shortID}-bbbb`],
+		memberTags,
+		members: memberTags.map((tag, i) => ({
+			tag,
+			protocol: i % 2 === 0 ? 'vless' : 'trojan',
+			server: `mock-${i + 1}.example`,
+			port: 443,
+			transport: 'tcp',
+			security: 'tls',
+		})),
 		orphanTags: [],
 		activeMember: `sub-${shortID}-aaaa`,
 		enabled: input.enabled,

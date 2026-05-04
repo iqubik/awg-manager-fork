@@ -18,6 +18,9 @@ type fakeMutator struct {
 	addedRules       int
 	removedRules     int
 	listenPort       uint16
+	proxyIndex       int
+	ensuredProxies   []int
+	removedProxies   []int
 }
 
 func (f *fakeMutator) AllocListenPort() (uint16, error) {
@@ -26,6 +29,10 @@ func (f *fakeMutator) AllocListenPort() (uint16, error) {
 	}
 	f.listenPort++
 	return f.listenPort, nil
+}
+func (f *fakeMutator) AllocProxyIndex(_ context.Context) (int, error) {
+	f.proxyIndex++
+	return f.proxyIndex, nil
 }
 func (f *fakeMutator) AddOutbound(tag string, jsonBody []byte) error {
 	f.addedOutbounds = append(f.addedOutbounds, tag)
@@ -53,6 +60,14 @@ func (f *fakeMutator) AddRouteRule(jsonBody []byte) error {
 }
 func (f *fakeMutator) RemoveRouteRule(inboundTag, outboundTag string) error {
 	f.removedRules++
+	return nil
+}
+func (f *fakeMutator) EnsureProxy(_ context.Context, idx, port int, description string) error {
+	f.ensuredProxies = append(f.ensuredProxies, idx)
+	return nil
+}
+func (f *fakeMutator) RemoveProxy(_ context.Context, idx int) error {
+	f.removedProxies = append(f.removedProxies, idx)
 	return nil
 }
 func (f *fakeMutator) Reload(ctx context.Context) error { return nil }
@@ -107,6 +122,47 @@ func TestService_Refresh_AddsNewMember(t *testing.T) {
 	updated, _ := store.Get(sub.ID)
 	if len(updated.MemberTags) != 2 {
 		t.Errorf("MemberTags after refresh=%d want 2", len(updated.MemberTags))
+	}
+}
+
+func TestService_Create_RegistersNDMSProxy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("vless://3a3b1c2e-9999-4321-aaaa-1234567890ab@example.com:443?security=tls&sni=h\n"))
+	}))
+	defer srv.Close()
+
+	store, _ := NewStore(filepath.Join(t.TempDir(), "sub.json"))
+	mutator := &fakeMutator{}
+	svc := NewService(store, mutator)
+
+	sub, err := svc.Create(context.Background(), CreateInput{Label: "test", URL: srv.URL, Enabled: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if len(mutator.ensuredProxies) != 1 {
+		t.Errorf("expected 1 EnsureProxy call, got %d", len(mutator.ensuredProxies))
+	}
+	if sub.ProxyIndex < 0 {
+		t.Errorf("ProxyIndex should be set, got %d", sub.ProxyIndex)
+	}
+}
+
+func TestService_Delete_RemovesProxy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("vless://3a3b1c2e-9999-4321-aaaa-1234567890ab@example.com:443?security=tls&sni=h\n"))
+	}))
+	defer srv.Close()
+
+	store, _ := NewStore(filepath.Join(t.TempDir(), "sub.json"))
+	mutator := &fakeMutator{}
+	svc := NewService(store, mutator)
+
+	sub, _ := svc.Create(context.Background(), CreateInput{Label: "test", URL: srv.URL, Enabled: true})
+	if err := svc.Delete(context.Background(), sub.ID, true); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if len(mutator.removedProxies) != 1 {
+		t.Errorf("expected 1 RemoveProxy call, got %d", len(mutator.removedProxies))
 	}
 }
 

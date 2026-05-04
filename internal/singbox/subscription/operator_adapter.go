@@ -35,6 +35,16 @@ type slotConfig struct {
 	Route     map[string]any           `json:"route"`
 }
 
+// ProxyRegistrar is the narrow interface for NDMS ProxyN management. The
+// real implementation is *singbox.ProxyManager. Using a local interface avoids
+// a circular import between the subscription sub-package and the parent singbox
+// package.
+type ProxyRegistrar interface {
+	NextFreeIndex(ctx context.Context, reserved map[int]bool) (int, error)
+	EnsureProxy(ctx context.Context, idx, port int, description string) error
+	RemoveProxy(ctx context.Context, idx int) error
+}
+
 // OperatorAdapter implements ConfigMutator by maintaining its own
 // config slot (40-subscriptions.json) written through the orchestrator.
 //
@@ -46,6 +56,7 @@ type slotConfig struct {
 // state reads and writes.
 type OperatorAdapter struct {
 	orch *orchestrator.Orchestrator
+	pm   ProxyRegistrar
 
 	mu  sync.Mutex
 	cfg slotConfig
@@ -55,10 +66,11 @@ type OperatorAdapter struct {
 // slot is registered via singboxorch.KnownSlots() before Bootstrap; in unit
 // tests the adapter registers it itself (Register is idempotent — duplicate
 // calls return ErrSlotAlreadyRegistered which is silently ignored here).
-func NewOperatorAdapter(orch *orchestrator.Orchestrator) *OperatorAdapter {
+func NewOperatorAdapter(orch *orchestrator.Orchestrator, pm ProxyRegistrar) *OperatorAdapter {
 	_ = orch.Register(SlotSubscriptionsMeta)
 	return &OperatorAdapter{
 		orch: orch,
+		pm:   pm,
 		cfg:  newEmptySlot(),
 	}
 }
@@ -327,6 +339,32 @@ func (a *OperatorAdapter) flush() error {
 	// when already enabled.
 	_ = a.orch.SetEnabled(orchestrator.SlotSubscriptions, true)
 	return nil
+}
+
+// AllocProxyIndex returns the next free NDMS Proxy slot index. Delegates to
+// ProxyRegistrar.NextFreeIndex with an empty reserved set (subscriptions are
+// created one at a time, so no batch allocation is needed here).
+func (a *OperatorAdapter) AllocProxyIndex(ctx context.Context) (int, error) {
+	if a.pm == nil {
+		return -1, fmt.Errorf("subscription adapter: ProxyRegistrar not configured")
+	}
+	return a.pm.NextFreeIndex(ctx, nil)
+}
+
+// EnsureProxy creates or refreshes the NDMS ProxyN interface at the given index.
+func (a *OperatorAdapter) EnsureProxy(ctx context.Context, idx, port int, description string) error {
+	if a.pm == nil {
+		return fmt.Errorf("subscription adapter: ProxyRegistrar not configured")
+	}
+	return a.pm.EnsureProxy(ctx, idx, port, description)
+}
+
+// RemoveProxy tears down the NDMS ProxyN interface at the given index.
+func (a *OperatorAdapter) RemoveProxy(ctx context.Context, idx int) error {
+	if a.pm == nil {
+		return fmt.Errorf("subscription adapter: ProxyRegistrar not configured")
+	}
+	return a.pm.RemoveProxy(ctx, idx)
 }
 
 // toAnyInt extracts an integer from json-decoded interface values (float64, int, int64).

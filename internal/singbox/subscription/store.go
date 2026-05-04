@@ -87,7 +87,9 @@ func (s *Store) Create(in CreateInput) (*Subscription, error) {
 		Enabled:      in.Enabled,
 		SelectorTag:  "sub-" + short,
 		InboundTag:   "sub-" + short + "-in",
+		ProxyIndex:   -1,
 		MemberTags:   []string{},
+		Members:      []MemberInfo{},
 		OrphanTags:   []string{},
 	}
 	s.mu.Lock()
@@ -173,6 +175,53 @@ func (s *Store) UpdateState(id string, res RefreshResult) error {
 	} else {
 		sub.LastError = ""
 	}
+	return s.saveLocked()
+}
+
+// SetMembers replaces the Members slice and mirrors tags into MemberTags so
+// existing consumers that iterate by tag still work. Also updates ActiveMember
+// when the current active is no longer present.
+func (s *Store) SetMembers(id string, members []MemberInfo, orphans []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sub, ok := s.data[id]
+	if !ok {
+		return fmt.Errorf("subscription %q not found", id)
+	}
+	sub.Members = members
+	tags := make([]string, len(members))
+	for i, m := range members {
+		tags[i] = m.Tag
+	}
+	sub.MemberTags = tags
+	sub.OrphanTags = orphans
+	if sub.ActiveMember == "" && len(tags) > 0 {
+		sub.ActiveMember = tags[0]
+	}
+	if sub.ActiveMember != "" {
+		found := false
+		for _, t := range tags {
+			if t == sub.ActiveMember {
+				found = true
+				break
+			}
+		}
+		if !found && len(tags) > 0 {
+			sub.ActiveMember = tags[0]
+		}
+	}
+	return s.saveLocked()
+}
+
+// SetProxyIndex persists the NDMS ProxyN index for this subscription.
+func (s *Store) SetProxyIndex(id string, idx int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sub, ok := s.data[id]
+	if !ok {
+		return fmt.Errorf("subscription %q not found", id)
+	}
+	sub.ProxyIndex = idx
 	return s.saveLocked()
 }
 

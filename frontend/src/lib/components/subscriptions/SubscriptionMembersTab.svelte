@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Subscription } from '$lib/types';
+	import type { Subscription, SubscriptionMember } from '$lib/types';
 	import { api } from '$lib/api/client';
 	import { Button } from '$lib/components/ui';
 	import SubscriptionMemberCard from './SubscriptionMemberCard.svelte';
@@ -13,6 +13,19 @@
 	let refreshing = $state(false);
 	let switching = $state<string | null>(null);
 	let lastError = $state('');
+
+	// Derive member list from members[] when available; fall back to stubs
+	// built from memberTags[] for subscriptions persisted before this change.
+	const memberList = $derived<SubscriptionMember[]>(
+		subscription.members && subscription.members.length > 0
+			? subscription.members
+			: subscription.memberTags.map((tag) => ({
+					tag,
+					protocol: '?',
+					server: tag,
+					port: 0,
+			  })),
+	);
 
 	async function refresh(): Promise<void> {
 		refreshing = true;
@@ -56,18 +69,18 @@
 	<div class="err">{lastError}</div>
 {/if}
 
-{#if subscription.memberTags.length === 0}
+{#if memberList.length === 0}
 	<div class="empty">Подписка ещё не загружена. Нажмите «Обновить сейчас».</div>
 {:else}
 	<div class="hint">Выберите активный сервер. Selector направит трафик в выбранный outbound.</div>
 	<div class="grid">
-		{#each subscription.memberTags as tag (tag)}
+		{#each memberList as member (member.tag)}
 			<SubscriptionMemberCard
-				{tag}
-				active={tag === subscription.activeMember}
-				switching={switching === tag}
+				{member}
+				active={member.tag === subscription.activeMember}
+				switching={switching === member.tag}
 				disabled={switching !== null}
-				onclick={() => pickActive(tag)}
+				onclick={() => pickActive(member.tag)}
 			/>
 		{/each}
 	</div>

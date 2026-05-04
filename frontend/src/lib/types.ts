@@ -1448,6 +1448,15 @@ export interface SubscriptionHeader {
 	value: string;
 }
 
+export interface SubscriptionMember {
+	tag: string;
+	protocol: string;
+	server: string;
+	port: number;
+	transport?: string;
+	security?: string;
+}
+
 export interface Subscription {
 	id: string;
 	label: string;
@@ -1460,6 +1469,7 @@ export interface Subscription {
 	inboundTag: string;
 	listenPort: number;
 	memberTags: string[];
+	members: SubscriptionMember[];
 	orphanTags: string[];
 	activeMember: string;
 	enabled: boolean;

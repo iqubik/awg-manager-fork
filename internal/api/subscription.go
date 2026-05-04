@@ -19,23 +19,34 @@ func NewSubscriptionHandler(svc *subscription.Service) *SubscriptionHandler {
 	return &SubscriptionHandler{svc: svc}
 }
 
+// SubscriptionMemberDTO carries per-member parsed metadata for the UI.
+type SubscriptionMemberDTO struct {
+	Tag       string `json:"tag" example:"sub-abc12345-aabbccdd"`
+	Protocol  string `json:"protocol" example:"vless"`
+	Server    string `json:"server" example:"de01.example.com"`
+	Port      int    `json:"port" example:"443"`
+	Transport string `json:"transport,omitempty" example:"ws"`
+	Security  string `json:"security,omitempty" example:"tls"`
+}
+
 // SubscriptionDTO mirrors subscription.Subscription for OpenAPI exposure.
 type SubscriptionDTO struct {
-	ID             string               `json:"id" example:"abc123"`
-	Label          string               `json:"label" example:"Provider X"`
-	URL            string               `json:"url" example:"https://prov.example/sub/a"`
-	Headers        []SubscriptionHeader `json:"headers"`
-	RefreshHours   int                  `json:"refreshHours" example:"24"`
-	LastFetched    string               `json:"lastFetched"`
-	LastError      string               `json:"lastError,omitempty"`
-	SelectorTag    string               `json:"selectorTag" example:"sub-abc12345"`
-	InboundTag     string               `json:"inboundTag" example:"sub-abc12345-in"`
-	ListenPort     int                  `json:"listenPort" example:"11080"`
-	MemberTags     []string             `json:"memberTags"`
-	OrphanTags     []string             `json:"orphanTags"`
-	ActiveMember   string               `json:"activeMember" example:"sub-abc-aaaa"`
-	Enabled        bool                 `json:"enabled"`
-	IsDefaultRoute bool                 `json:"isDefaultRoute"`
+	ID             string                  `json:"id" example:"abc123"`
+	Label          string                  `json:"label" example:"Provider X"`
+	URL            string                  `json:"url" example:"https://prov.example/sub/a"`
+	Headers        []SubscriptionHeader    `json:"headers"`
+	RefreshHours   int                     `json:"refreshHours" example:"24"`
+	LastFetched    string                  `json:"lastFetched"`
+	LastError      string                  `json:"lastError,omitempty"`
+	SelectorTag    string                  `json:"selectorTag" example:"sub-abc12345"`
+	InboundTag     string                  `json:"inboundTag" example:"sub-abc12345-in"`
+	ListenPort     int                     `json:"listenPort" example:"11080"`
+	MemberTags     []string                `json:"memberTags"`
+	Members        []SubscriptionMemberDTO `json:"members"`
+	OrphanTags     []string                `json:"orphanTags"`
+	ActiveMember   string                  `json:"activeMember" example:"sub-abc-aaaa"`
+	Enabled        bool                    `json:"enabled"`
+	IsDefaultRoute bool                    `json:"isDefaultRoute"`
 }
 
 // SubscriptionHeader is a single custom HTTP header for the fetch request.
@@ -95,13 +106,24 @@ func toSubscriptionDTO(s subscription.Subscription) SubscriptionDTO {
 	if !s.LastFetched.IsZero() {
 		last = s.LastFetched.Format("2006-01-02T15:04:05Z07:00")
 	}
-	members := s.MemberTags
-	if members == nil {
-		members = []string{}
+	memberTags := s.MemberTags
+	if memberTags == nil {
+		memberTags = []string{}
 	}
 	orphans := s.OrphanTags
 	if orphans == nil {
 		orphans = []string{}
+	}
+	memberDTOs := make([]SubscriptionMemberDTO, len(s.Members))
+	for i, m := range s.Members {
+		memberDTOs[i] = SubscriptionMemberDTO{
+			Tag:       m.Tag,
+			Protocol:  m.Protocol,
+			Server:    m.Server,
+			Port:      int(m.Port),
+			Transport: m.Transport,
+			Security:  m.Security,
+		}
 	}
 	return SubscriptionDTO{
 		ID:             s.ID,
@@ -114,7 +136,8 @@ func toSubscriptionDTO(s subscription.Subscription) SubscriptionDTO {
 		SelectorTag:    s.SelectorTag,
 		InboundTag:     s.InboundTag,
 		ListenPort:     int(s.ListenPort),
-		MemberTags:     members,
+		MemberTags:     memberTags,
+		Members:        memberDTOs,
 		OrphanTags:     orphans,
 		ActiveMember:   s.ActiveMember,
 		Enabled:        s.Enabled,
