@@ -14,6 +14,9 @@
 	import DnsSubTab from './DnsSubTab.svelte';
 	import DeviceProxySubTab from './DeviceProxySubTab.svelte';
 	import { ConnectionsSubTab } from '$lib/components/routing/singboxRouter';
+	import { WizardModal, WizardEntry } from './wizard';
+	import { singboxWizard } from '$lib/stores/singboxWizard';
+	import { singboxRouter } from '$lib/stores/singboxRouter';
 
 	type SubTab =
 		| 'engine'
@@ -85,6 +88,15 @@
 	const running = $derived(status?.running ?? false);
 	const version = $derived(status?.version ?? '—');
 	const tabsItems = $derived(order.map((id) => ({ id, label: labels[id] })));
+
+	const wizRulesStore = singboxRouter.rules;
+	const wizOutboundsStore = singboxRouter.outbounds;
+	const wizSettingsStore = singboxRouter.settings;
+	const isEmpty = $derived(
+		($wizRulesStore?.length ?? 0) === 0 &&
+		($wizOutboundsStore?.length ?? 0) === 0 &&
+		(!$wizSettingsStore?.policyName || $wizSettingsStore.policyName === '')
+	);
 </script>
 
 <header class="page-header">
@@ -93,10 +105,15 @@
 			<span class="status-dot"></span>
 			sing-box · {running ? `v${version}` : 'остановлен'}
 		</span>
+		<Button size="sm" variant="primary" onclick={() => singboxWizard.start()}>Мастер</Button>
 		<Button size="sm" variant="ghost" onclick={() => (inspectorOpen = true)}>Инспектор</Button>
 		<Button size="sm" variant="ghost" onclick={() => (drawerOpen = true)}>Конфиг</Button>
 	</div>
 </header>
+
+{#if isEmpty}
+	<WizardEntry />
+{/if}
 
 <Tabs tabs={tabsItems} active={active} onchange={(id) => setSub(id as SubTab)} />
 
@@ -122,6 +139,7 @@
 
 <JsonConfigDrawer open={drawerOpen} onClose={() => (drawerOpen = false)} />
 <RouteInspector open={inspectorOpen} onClose={() => (inspectorOpen = false)} />
+<WizardModal />
 
 <style>
 	.page-header {
