@@ -22,17 +22,6 @@ func Parse(link string) (*ParsedOutbound, error) {
 	}
 }
 
-// BatchError records which input line failed to parse.
-type BatchError struct {
-	Line  int
-	Input string
-	Err   error
-}
-
-func (e BatchError) Error() string {
-	return fmt.Sprintf("line %d: %v", e.Line, e.Err)
-}
-
 // ParseBatch parses multi-line text, one link per line. Blank lines ignored.
 func ParseBatch(text string) ([]*ParsedOutbound, []BatchError) {
 	var ok []*ParsedOutbound

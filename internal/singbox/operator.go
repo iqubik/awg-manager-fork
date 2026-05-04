@@ -18,6 +18,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
 	"github.com/hoaxisr/awg-manager/internal/singbox/installer"
 	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
+	"github.com/hoaxisr/awg-manager/internal/singbox/vlink"
 	"github.com/hoaxisr/awg-manager/internal/sys/ndmsinfo"
 )
 
@@ -748,8 +749,12 @@ func (o *Operator) GetTunnel(ctx context.Context, tag string) (json.RawMessage, 
 // AddTunnels parses one or more links and atomically adds them.
 // Returns successfully-added tunnels and parse errors.
 func (o *Operator) AddTunnels(ctx context.Context, linksText string) ([]TunnelInfo, []BatchError, error) {
-	parsed, parseErrs := ParseBatch(linksText)
-	if len(parsed) == 0 {
+	batchResult := vlink.ParseBatch(strings.Split(linksText, "\n"))
+	var parseErrs []BatchError
+	for _, pe := range batchResult.Errors {
+		parseErrs = append(parseErrs, BatchError{Line: pe.LineIdx + 1, Input: pe.Scheme, Err: fmt.Errorf("%s", pe.Message)})
+	}
+	if len(batchResult.Outbounds) == 0 {
 		return nil, parseErrs, nil
 	}
 
@@ -762,14 +767,14 @@ func (o *Operator) AddTunnels(ctx context.Context, linksText string) ([]TunnelIn
 	// is committed to NDMS.
 	reserved := make(map[int]bool)
 	var addedTags []string
-	for _, p := range parsed {
+	for _, p := range batchResult.Outbounds {
 		freeIdx, idxErr := o.proxyMgr.NextFreeIndex(ctx, reserved)
 		if idxErr != nil {
 			parseErrs = append(parseErrs, BatchError{Input: p.Tag, Err: fmt.Errorf("allocate proxy slot: %w", idxErr)})
 			continue
 		}
 		listenPort := firstPort + freeIdx
-		if err := cfg.AddTunnelWithListenPort(p.Tag, p.Protocol, p.Server, p.Port, listenPort, p.Outbound); err != nil {
+		if err := cfg.AddTunnelWithListenPort(p.Tag, p.Protocol, p.Server, int(p.Port), listenPort, p.Outbound); err != nil {
 			parseErrs = append(parseErrs, BatchError{Input: p.Tag, Err: err})
 			continue
 		}
