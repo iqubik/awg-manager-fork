@@ -1,6 +1,9 @@
 package singbox
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // TunnelInfo is the UI-facing summary of one sing-box tunnel.
 // Derived from config.json: outbound + matching inbound + route rule.
@@ -35,6 +38,17 @@ type ParsedOutbound struct {
 	Server   string
 	Port     int
 	Outbound json.RawMessage // sing-box outbound JSON, ready to splice into config
+}
+
+// BatchError records which input failed to parse or apply.
+type BatchError struct {
+	Line  int
+	Input string
+	Err   error
+}
+
+func (e BatchError) Error() string {
+	return fmt.Sprintf("line %d: %v", e.Line, e.Err)
 }
 
 // Status is the top-level process + install state.

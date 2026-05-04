@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/hoaxisr/awg-manager/internal/singbox/vlink"
 )
 
 func TestIntegration_ParseAddValidate(t *testing.T) {
@@ -19,11 +21,11 @@ func TestIntegration_ParseAddValidate(t *testing.T) {
 	}
 	cfg := NewConfig()
 	for _, link := range links {
-		p, err := Parse(link)
+		p, err := vlink.ParseLink(link)
 		if err != nil {
 			t.Fatalf("parse %s: %v", link, err)
 		}
-		if err := cfg.AddTunnel(p.Tag, p.Protocol, p.Server, p.Port, p.Outbound); err != nil {
+		if err := cfg.AddTunnel(p.Tag, p.Protocol, p.Server, int(p.Port), p.Outbound); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -48,8 +50,8 @@ func TestIntegration_ParseAddValidate(t *testing.T) {
 	if err := cfg.RemoveTunnel("Finland"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := Parse("vless://u@nl.tld:443#Netherlands")
-	cfg.AddTunnel(p.Tag, p.Protocol, p.Server, p.Port, p.Outbound)
+	p, _ := vlink.ParseLink("vless://u@nl.tld:443#Netherlands")
+	cfg.AddTunnel(p.Tag, p.Protocol, p.Server, int(p.Port), p.Outbound)
 	var nl TunnelInfo
 	for _, ti := range cfg.Tunnels() {
 		if ti.Tag == "Netherlands" {
