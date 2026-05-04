@@ -49,6 +49,7 @@ import type {
 	HydraRouteOversizedResponse,
 	IpsetUsage,
 	DnsCheckStartResponse,
+	PolicyDevice,
 	SingboxTunnel,
 	SingboxStatus,
 	SingboxImportResponse,
@@ -1105,6 +1106,10 @@ class ApiClient {
 		return this.request(`/access-policies/assign?mac=${encodeURIComponent(mac)}`, {
 			method: 'DELETE',
 		});
+	}
+
+	async listPolicyDevices(): Promise<PolicyDevice[]> {
+		return this.request<PolicyDevice[]>('/routing/policy-devices');
 	}
 
 	async setPolicyInterfaceUp(name: string, up: boolean): Promise<void> {
