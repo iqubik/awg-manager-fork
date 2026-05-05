@@ -76,7 +76,11 @@ import type {
 	SingboxProxiesListResponse,
 	SingboxProxiesSelectRequest,
 	SingboxProxiesTestRequest,
-	SingboxProxiesTestResponse
+	SingboxProxiesTestResponse,
+	Subscription,
+	SubscriptionHeader,
+	SubscriptionRefreshResult,
+	CreateSubscriptionInput
 } from '$lib/types';
 
 interface ApiResponse<T> {
@@ -1289,8 +1293,10 @@ class ApiClient {
 		onResult: (data: { phase: string; bandwidth: number; bytes: number; duration: number }) => void,
 		onDone: () => void,
 		onError: (error: string) => void,
+		iface?: string,
 	): EventSource {
-		const url = `${this.baseUrl}/singbox/tunnels/test/speed/stream?tag=${encodeURIComponent(tag)}&server=${encodeURIComponent(server)}&port=${port}`;
+		const ifaceParam = iface ? `&iface=${encodeURIComponent(iface)}` : '';
+		const url = `${this.baseUrl}/singbox/tunnels/test/speed/stream?tag=${encodeURIComponent(tag)}&server=${encodeURIComponent(server)}&port=${port}${ifaceParam}`;
 		const es = new EventSource(url);
 		es.addEventListener('phase', (e) => {
 			try { onPhase(JSON.parse((e as MessageEvent).data).phase); } catch { /* ignore */ }
@@ -1604,6 +1610,69 @@ class ApiClient {
 			method: 'POST',
 			body: JSON.stringify(req),
 		});
+	}
+
+	// #endregion
+
+	// #region Subscriptions
+
+	async listSubscriptions(): Promise<Subscription[]> {
+		return this.request<Subscription[]>('/singbox/subscriptions');
+	}
+
+	async createSubscription(in_: CreateSubscriptionInput): Promise<Subscription> {
+		return this.request<Subscription>('/singbox/subscriptions/create', {
+			method: 'POST',
+			body: JSON.stringify(in_),
+		});
+	}
+
+	async getSubscription(id: string): Promise<Subscription> {
+		return this.request<Subscription>(
+			`/singbox/subscriptions/get?id=${encodeURIComponent(id)}`,
+		);
+	}
+
+	async updateSubscription(
+		id: string,
+		patch: Partial<CreateSubscriptionInput>,
+	): Promise<Subscription> {
+		return this.request<Subscription>(
+			`/singbox/subscriptions/update?id=${encodeURIComponent(id)}`,
+			{
+				method: 'PUT',
+				body: JSON.stringify(patch),
+			},
+		);
+	}
+
+	async deleteSubscription(id: string): Promise<void> {
+		const url = `/singbox/subscriptions/delete?id=${encodeURIComponent(id)}`;
+		await this.request(url, { method: 'DELETE' });
+	}
+
+	async refreshSubscription(id: string): Promise<SubscriptionRefreshResult> {
+		return this.request<SubscriptionRefreshResult>(
+			`/singbox/subscriptions/refresh?id=${encodeURIComponent(id)}`,
+			{ method: 'POST' },
+		);
+	}
+
+	async setSubscriptionActiveMember(id: string, memberTag: string): Promise<void> {
+		await this.request(
+			`/singbox/subscriptions/active-member?id=${encodeURIComponent(id)}`,
+			{
+				method: 'POST',
+				body: JSON.stringify({ memberTag }),
+			},
+		);
+	}
+
+	async deleteSubscriptionOrphans(id: string): Promise<void> {
+		await this.request(
+			`/singbox/subscriptions/orphans/delete?id=${encodeURIComponent(id)}`,
+			{ method: 'POST' },
+		);
 	}
 
 	// #endregion

@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // AWGTunnelInfo is the projection of one managed AWG tunnel that the
@@ -105,6 +106,15 @@ func (s *ServiceImpl) enumerate(ctx context.Context) ([]AWGEntry, error) {
 				continue
 			}
 			if managedSet[t.InterfaceName] {
+				continue
+			}
+			// Defense-in-depth: an awg-manager-created server interface is
+			// always tagged with description "AWGM ..." (see
+			// internal/managed/types.go::ManagedServerDescription). If the
+			// managedSet check above missed it (e.g., legacy storage entry
+			// without InterfaceName populated), fall back to description
+			// prefix match.
+			if strings.HasPrefix(t.Description, "AWGM") {
 				continue
 			}
 			seen[t.InterfaceName] = true

@@ -50,6 +50,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/singbox/installer"
 	singboxorch "github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/singbox/router"
+	"github.com/hoaxisr/awg-manager/internal/singbox/subscription"
 	"github.com/hoaxisr/awg-manager/internal/staticroute"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/sys/kmod"
@@ -643,6 +644,22 @@ func main() {
 		_ = sbOrch.SetEnabled(singboxorch.SlotRouter, curSettings.SingboxRouter.Enabled)
 	}
 
+	// Subscription service — owns 40-subscriptions.json in config.d.
+	// NewOperatorAdapter registers the slot into sbOrch (must happen before
+	// Bootstrap so Bootstrap can scan the file). LoadFromDisk reads any
+	// existing 40-subscriptions.json so the in-memory state is consistent.
+	subStorePath := filepath.Join(*dataDir, "subscriptions.json")
+	subStore, err := subscription.NewStore(subStorePath)
+	if err != nil {
+		log.Errorf("subscription store: %v", err)
+	}
+	subProxyMgr := singbox.NewProxyManager(ndmsQueries, ndmsCommands)
+	subAdapter := subscription.NewOperatorAdapter(sbOrch, subProxyMgr, singboxOp.Clash())
+	if err := subAdapter.LoadFromDisk(singboxConfigDir); err != nil {
+		log.Warnf("subscription adapter: load from disk: %v", err)
+	}
+	subSvc := subscription.NewService(subStore, subAdapter)
+
 	// Wire orchestrator into Operator so ApplyConfig writes 10-tunnels.json
 	// through SlotTunnels rather than an in-place write that bypasses
 	// the orchestrator's validate / debounced reload.
@@ -682,7 +699,11 @@ func main() {
 		}
 	}
 
-	delayChecker := singbox.NewDelayChecker(singboxOp.Clash(), singboxOp, eventBus)
+	delayChecker := singbox.NewDelayChecker(
+		singboxOp.Clash(),
+		&singboxAndSubLister{op: singboxOp, sub: subSvc},
+		eventBus,
+	)
 	singboxHandler := api.NewSingboxHandler(singboxOp, eventBus, delayChecker, testService)
 	clashProxy := api.NewClashProxy(singboxOp)
 	singboxConnsHandler := api.NewSingboxConnectionsHandler(ndmsQueries.Hotspot)
@@ -906,6 +927,16 @@ func main() {
 		nil,
 	)
 	srv.SetSingboxProxiesHandler(proxiesHandler)
+
+	// Wire subscription handler + start refresh scheduler.
+	// subSvc and subAdapter are constructed earlier (after sbOrch.Bootstrap).
+	subSched := subscription.NewScheduler(subStore, func(ctx context.Context, id string) error {
+		_, err := subSvc.Refresh(ctx, id)
+		return err
+	})
+	subSched.Start(context.Background())
+	srv.SetSubscriptionHandler(api.NewSubscriptionHandler(subSvc))
+	srv.AddShutdownHook(subSched.Stop)
 
 	// Boot status: 0 = booting, 1 = done. Used by /api/system/info.
 	var bootDone int32
@@ -1647,6 +1678,13 @@ func (s *monitoringSystemTunnelAdapter) List(ctx context.Context) ([]monitoring.
 	}
 	out := make([]monitoring.SystemTunnelInfo, 0, len(list))
 	for _, t := range list {
+		// Skip awg-manager's own server interface (tagged with the
+		// ManagedServerDescription prefix "AWGM ..."; see
+		// internal/managed/types.go::ManagedServerDescription). Server-side
+		// WG is not a client tunnel and must not appear in monitoring.
+		if strings.HasPrefix(t.Description, "AWGM") {
+			continue
+		}
 		out = append(out, monitoring.SystemTunnelInfo{
 			ID:            t.ID,
 			InterfaceName: t.InterfaceName,
@@ -1670,4 +1708,21 @@ func (l *operatorLifecycle) Stop(ctx context.Context) error {
 
 func (l *operatorLifecycle) Start(ctx context.Context) error {
 	return l.op.Control(ctx, "start")
+}
+
+// singboxAndSubLister satisfies singbox.tunnelLister by combining the regular
+// sing-box tunnel list with the active outbound tags of enabled subscriptions.
+// This lets DelayChecker probe subscription active members with the same
+// periodic clash latency test it runs for regular sing-box tunnels.
+type singboxAndSubLister struct {
+	op  *singbox.Operator
+	sub *subscription.Service
+}
+
+func (l *singboxAndSubLister) ListTunnels(ctx context.Context) ([]singbox.TunnelInfo, error) {
+	return l.op.ListTunnels(ctx)
+}
+
+func (l *singboxAndSubLister) ListSubActiveTags() []string {
+	return l.sub.ListActiveMemberTags()
 }

@@ -90,6 +90,18 @@ type fakeDelayLister struct {
 func (f *fakeDelayLister) ListTunnels(ctx context.Context) ([]TunnelInfo, error) {
 	return f.tunnels, nil
 }
+func (f *fakeDelayLister) ListSubActiveTags() []string { return nil }
+
+// combinedListerStub satisfies the extended tunnelLister interface for tests.
+type combinedListerStub struct {
+	tunnels []TunnelInfo
+	subTags []string
+}
+
+func (l *combinedListerStub) ListTunnels(ctx context.Context) ([]TunnelInfo, error) {
+	return l.tunnels, nil
+}
+func (l *combinedListerStub) ListSubActiveTags() []string { return l.subTags }
 
 func TestDelayChecker_Check_AllTunnels(t *testing.T) {
 	clash := &fakeClash{delays: map[string]int{"A": 10, "B": 20}}
@@ -103,6 +115,37 @@ func TestDelayChecker_Check_AllTunnels(t *testing.T) {
 	d.Check(context.Background())
 	if len(pub.events) != 2 {
 		t.Errorf("events: %d want 2", len(pub.events))
+	}
+}
+
+func TestDelayChecker_TicksTunnelsAndSubActiveTags(t *testing.T) {
+	clash := &fakeClash{delays: map[string]int{
+		"awg-vpn0":         50,
+		"sub-AAA-bbbbcccc": 120,
+	}}
+	lister := &combinedListerStub{
+		tunnels: []TunnelInfo{{Tag: "awg-vpn0"}},
+		subTags: []string{"sub-AAA-bbbbcccc"},
+	}
+	pub := &fakeDelayPublisher{}
+	dc := NewDelayChecker(clash, lister, pub)
+	dc.Check(context.Background())
+
+	if len(pub.events) != 2 {
+		t.Fatalf("expected 2 publish events (tunnel + sub-active), got %d", len(pub.events))
+	}
+	got := map[string]int{}
+	for _, e := range pub.events {
+		data, _ := e.data.(map[string]any)
+		tag, _ := data["tag"].(string)
+		delay, _ := data["delay"].(int)
+		got[tag] = delay
+	}
+	if got["awg-vpn0"] != 50 {
+		t.Errorf("awg-vpn0 delay = %d, want 50", got["awg-vpn0"])
+	}
+	if got["sub-AAA-bbbbcccc"] != 120 {
+		t.Errorf("sub-AAA-bbbbcccc delay = %d, want 120", got["sub-AAA-bbbbcccc"])
 	}
 }
 

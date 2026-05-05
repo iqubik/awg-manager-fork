@@ -39,6 +39,93 @@ const VALID = new Set(['basic', 'advanced', 'expert']);
 let usageLevel = 'expert';
 let singboxInstallShouldFail = process.env.MOCK_SINGBOX_INSTALL_FAIL === '1';
 
+// ── Subscriptions mock state ───────────────────────────────────
+// Pre-populated for visual testing — shows non-empty list state, selector with members.
+let mockSubscriptions = [
+	{
+		id: 'sub-demo0001',
+		label: 'Provider Demo',
+		url: 'https://demo-provider.example/sub/aaa',
+		headers: [
+			{ name: 'User-Agent', value: 'Happ/4.6.0/ios/2603181556604' },
+			{ name: 'X-Device-OS', value: 'iOS' },
+		],
+		refreshHours: 24,
+		lastFetched: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
+		lastError: '',
+		selectorTag: 'sub-demo0001',
+		inboundTag: 'sub-demo0001-in',
+		listenPort: 11001,
+		proxyIndex: 11,
+		memberTags: [
+			'sub-demo0001-aabbccdd',
+			'sub-demo0001-eeff0011',
+			'sub-demo0001-22334455',
+		],
+		members: [
+			{ tag: 'sub-demo0001-aabbccdd', protocol: 'vless', server: 'de01.demo.example', port: 443, transport: 'tcp', security: 'reality' },
+			{ tag: 'sub-demo0001-eeff0011', protocol: 'vless', server: 'nl02.demo.example', port: 443, transport: 'ws', security: 'tls' },
+			{ tag: 'sub-demo0001-22334455', protocol: 'trojan', server: 'fi03.demo.example', port: 443, transport: 'tcp', security: 'tls' },
+		],
+		orphanTags: [],
+		activeMember: 'sub-demo0001-aabbccdd',
+		enabled: true,
+	},
+	{
+		id: 'sub-demo0002',
+		label: 'Backup Provider',
+		url: 'https://backup.example/sub/bbb',
+		headers: [],
+		refreshHours: 0,
+		lastFetched: new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(),
+		lastError: 'fetch: HTTP 503',
+		selectorTag: 'sub-demo0002',
+		inboundTag: 'sub-demo0002-in',
+		listenPort: 11002,
+		proxyIndex: 12,
+		memberTags: ['sub-demo0002-99887766'],
+		members: [
+			{ tag: 'sub-demo0002-99887766', protocol: 'shadowsocks', server: 'backup.example', port: 8388, transport: 'tcp', security: '' },
+		],
+		orphanTags: ['sub-demo0002-deadbeef'],
+		activeMember: 'sub-demo0002-99887766',
+		enabled: true,
+	},
+];
+let mockSubID = 2;
+
+function newSub(input) {
+	mockSubID++;
+	const id = `sub-${mockSubID.toString().padStart(8, '0')}`;
+	const shortID = id.slice(0, 8);
+	const memberTags = [`sub-${shortID}-aaaa`, `sub-${shortID}-bbbb`];
+	return {
+		id,
+		label: input.label || 'Test',
+		url: input.url || 'https://test',
+		headers: input.headers || [],
+		refreshHours: input.refreshHours || 0,
+		lastFetched: new Date().toISOString(),
+		lastError: '',
+		selectorTag: `sub-${shortID}`,
+		inboundTag: `sub-${shortID}-in`,
+		listenPort: 11000 + mockSubID,
+		proxyIndex: 10 + mockSubID,
+		memberTags,
+		members: memberTags.map((tag, i) => ({
+			tag,
+			protocol: i % 2 === 0 ? 'vless' : 'trojan',
+			server: `mock-${i + 1}.example`,
+			port: 443,
+			transport: 'tcp',
+			security: 'tls',
+		})),
+		orphanTags: [],
+		activeMember: `sub-${shortID}-aaaa`,
+		enabled: input.enabled,
+	};
+}
+
 // ── Wizard mock state ──────────────────────────────────────────
 let mockEngineRunning = false;
 let mockSBPolicyExists = false;
@@ -458,20 +545,37 @@ const server = http.createServer(async (req, res) => {
 				const payload = JSON.parse(raw || '{}');
 				const group = typeof payload.group === 'string' ? payload.group : '';
 				const g = mockProxies[group];
-				if (!g) {
+				if (g) {
+					// Known proxy group — use the randomised delay table.
+					randomizeDelays();
+					const delays = {};
+					for (const memberTag of g.all) {
+						delays[memberTag] = mockProxyDelays[memberTag] ?? 0;
+					}
+					send(res, 200, { success: true, data: { delays } });
+					console.log(`[mock-proxy] proxies.test ${group} → ${JSON.stringify(delays)}`);
+					return;
+				}
+				// Subscription selector group — synthesize per-tag delays via hash.
+				const sub = mockSubscriptions.find((s) => s.selectorTag === group);
+				if (!sub) {
 					send(res, 404, {
 						success: false,
 						error: { code: 'PROXY_GROUP_NOT_FOUND', message: `group ${group} not found` },
 					});
 					return;
 				}
-				randomizeDelays();
 				const delays = {};
-				for (const memberTag of g.all) {
-					delays[memberTag] = mockProxyDelays[memberTag] ?? 0;
+				for (const tag of sub.memberTags) {
+					// Stable hash of the tag → base latency 30..400 ms, plus jitter.
+					let h = 0;
+					for (let i = 0; i < tag.length; i++) h = ((h << 5) - h + tag.charCodeAt(i)) | 0;
+					const base = Math.abs(h) % 370 + 30;
+					const jitter = Math.floor(Math.random() * 40) - 20;
+					delays[tag] = Math.max(1, base + jitter);
 				}
 				send(res, 200, { success: true, data: { delays } });
-				console.log(`[mock-proxy] proxies.test ${group} → ${JSON.stringify(delays)}`);
+				console.log(`[mock-proxy] proxies.test sub ${group} → ${JSON.stringify(delays)}`);
 			} catch (e) {
 				send(res, 400, {
 					success: false,
@@ -689,6 +793,153 @@ const server = http.createServer(async (req, res) => {
 		send(res, 200, {
 			success: true,
 			data: [{ tag: 'awg-vpn0', label: 'DE Frankfurt', kind: 'managed', iface: 't2s0' }],
+		});
+		return;
+	}
+
+	// === Subscriptions mock overrides ===
+
+	if (req.method === 'GET' && path === '/singbox/subscriptions') {
+		send(res, 200, { success: true, data: mockSubscriptions });
+		return;
+	}
+
+	// Mock subscription "external" URL — return a Clash YAML body.
+	// Used by the mock-Create code path: when CreateInput.URL points at this,
+	// the mock backend pretends the upstream provider returned this YAML.
+	if (req.method === 'GET' && path === '/__mock__/clash-subscription.yaml') {
+		res.writeHead(200, {
+			'Content-Type': 'application/x-yaml',
+			'Access-Control-Allow-Origin': '*',
+		});
+		res.end(`proxies:
+  - name: "🇺🇸 LA-1 (mock)"
+    type: vless
+    server: la1.mock.local
+    port: 443
+    uuid: 3a3b1c2e-9999-4321-aaaa-1234567890ab
+    tls: true
+    servername: la1.mock.local
+    network: ws
+    ws-opts:
+      path: /v
+      headers:
+        Host: la1.mock.local
+  - name: "🇩🇪 FRA-1 (mock)"
+    type: vless
+    server: fra1.mock.local
+    port: 443
+    uuid: 4a4b1c2e-9999-4321-aaaa-1234567890ab
+    tls: true
+    servername: fra1.mock.local
+  - name: "🇯🇵 TYO-1 (mock)"
+    type: trojan
+    server: tyo1.mock.local
+    port: 443
+    password: trpass
+    sni: tyo1.mock.local
+`);
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/subscriptions/create') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const body = JSON.parse(raw || '{}');
+				const sub = newSub(body);
+				if (String(body.url || '').endsWith('/__mock__/clash-subscription.yaml')) {
+					const shortID = sub.id.slice(0, 8);
+					const tags = [`sub-${shortID}-c001`, `sub-${shortID}-c002`, `sub-${shortID}-c003`];
+					sub.memberTags = tags;
+					sub.members = [
+						{ tag: tags[0], label: '🇺🇸 LA-1 (mock)', protocol: 'vless', server: 'la1.mock.local', port: 443, transport: 'ws', security: 'tls' },
+						{ tag: tags[1], label: '🇩🇪 FRA-1 (mock)', protocol: 'vless', server: 'fra1.mock.local', port: 443, transport: 'tcp', security: 'tls' },
+						{ tag: tags[2], label: '🇯🇵 TYO-1 (mock)', protocol: 'trojan', server: 'tyo1.mock.local', port: 443, transport: 'tcp', security: 'tls' },
+					];
+					sub.activeMember = '';
+					sub.orphanTags = [];
+				}
+				mockSubscriptions.push(sub);
+				send(res, 200, { success: true, data: sub });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/singbox/subscriptions/get') {
+		const id = new URL(req.url, 'http://x').searchParams.get('id');
+		const sub = mockSubscriptions.find((s) => s.id === id);
+		if (!sub) {
+			send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'no such id' } });
+			return;
+		}
+		send(res, 200, { success: true, data: sub });
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/subscriptions/refresh') {
+		const id = new URL(req.url, 'http://x').searchParams.get('id');
+		const sub = mockSubscriptions.find((s) => s.id === id);
+		if (sub) sub.lastFetched = new Date().toISOString();
+		send(res, 200, {
+			success: true,
+			data: {
+				when: new Date().toISOString(),
+				added: 0,
+				updated: 2,
+				orphaned: 0,
+				skippedVmess: 1,
+				skippedOther: 0,
+			},
+		});
+		return;
+	}
+
+	if (req.method === 'DELETE' && path === '/singbox/subscriptions/delete') {
+		const id = new URL(req.url, 'http://x').searchParams.get('id');
+		mockSubscriptions = mockSubscriptions.filter((s) => s.id !== id);
+		send(res, 200, { success: true, data: { ok: true } });
+		return;
+	}
+
+	if (req.method === 'PUT' && path === '/singbox/subscriptions/update') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const body = JSON.parse(raw || '{}');
+				const id = new URL(req.url, 'http://x').searchParams.get('id');
+				const sub = mockSubscriptions.find((s) => s.id === id);
+				if (!sub) {
+					send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'no such id' } });
+					return;
+				}
+				Object.assign(sub, body);
+				send(res, 200, { success: true, data: sub });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/subscriptions/active-member') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const body = JSON.parse(raw || '{}');
+				const id = new URL(req.url, 'http://x').searchParams.get('id');
+				const sub = mockSubscriptions.find((s) => s.id === id);
+				if (sub) sub.activeMember = body.memberTag;
+				send(res, 200, { success: true, data: { ok: true } });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
 		});
 		return;
 	}

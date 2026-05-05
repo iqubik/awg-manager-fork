@@ -80,7 +80,7 @@
 				onclick={() => pick(t.tag)}
 			>
 				<span class="mark"></span>
-				<div>
+				<div class="rad-body">
 					<div class="rad-name">{t.tag}</div>
 					{#if t.label}<div class="rad-meta mono">{t.label}</div>{/if}
 				</div>
@@ -147,8 +147,26 @@
 		background: var(--color-accent);
 		box-shadow: inset 0 0 0 3px var(--color-bg-secondary);
 	}
-	.rad-name { color: var(--color-text-primary); }
-	.rad-meta { font-size: 0.75rem; color: var(--color-text-muted); }
+	.rad-body {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		min-width: 0;
+		flex: 1;
+	}
+	.rad-name {
+		color: var(--color-text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.rad-meta {
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	.mono { font-family: var(--font-mono, ui-monospace, monospace); }
 	.input {
 		display: block;

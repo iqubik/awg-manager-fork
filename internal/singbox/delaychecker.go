@@ -19,6 +19,11 @@ type clashAPI interface {
 // tunnelLister returns current tunnel tags.
 type tunnelLister interface {
 	ListTunnels(ctx context.Context) ([]TunnelInfo, error)
+	// ListSubActiveTags returns active outbound tags of enabled
+	// subscriptions. The DelayChecker treats each tag identically
+	// to a tunnel tag for the purpose of periodic latency tests.
+	// Empty slice is fine if no subscriptions are configured.
+	ListSubActiveTags() []string
 }
 
 const (
@@ -88,16 +93,31 @@ func (d *DelayChecker) CheckOne(ctx context.Context, tag string) (int, error) {
 	return delay, nil
 }
 
-// Check runs a delay test against every known tunnel tag, concurrently.
-// Non-blocking per-tag: slow tunnels do not delay others.
+// Check runs a delay test against every known tunnel tag and every active
+// subscription outbound tag, concurrently. Non-blocking per-tag: slow
+// tunnels do not delay others.
 func (d *DelayChecker) Check(ctx context.Context) {
 	tunnels, err := d.lister.ListTunnels(ctx)
 	if err != nil {
 		return
 	}
-	var wg sync.WaitGroup
+	tags := make([]string, 0, len(tunnels)+8)
+	seen := make(map[string]bool, len(tunnels)+8)
 	for _, t := range tunnels {
-		tag := t.Tag
+		if t.Tag != "" && !seen[t.Tag] {
+			seen[t.Tag] = true
+			tags = append(tags, t.Tag)
+		}
+	}
+	for _, tag := range d.lister.ListSubActiveTags() {
+		if tag != "" && !seen[tag] {
+			seen[tag] = true
+			tags = append(tags, tag)
+		}
+	}
+	var wg sync.WaitGroup
+	for _, tag := range tags {
+		tag := tag
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

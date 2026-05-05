@@ -110,6 +110,7 @@
 				phase = 'error';
 				errorMsg = err;
 			},
+			kernelInterface,
 		);
 	}
 

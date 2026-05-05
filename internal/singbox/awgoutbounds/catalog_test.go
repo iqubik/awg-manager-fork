@@ -187,6 +187,31 @@ func TestEnumerate_ManagedServersNilFilter(t *testing.T) {
 	}
 }
 
+func TestEnumerate_SkipsAWGMDescriptionPrefix(t *testing.T) {
+	// Validates the description-prefix fallback filter: a system tunnel whose
+	// description starts with "AWGM" (the ManagedServerDescription prefix in
+	// internal/managed/types.go) must be excluded even when ManagedServers is
+	// nil (i.e., the interface-name set is empty / stale).
+	root := makeIfacePresent(t, "Wireguard1")
+	s := &ServiceImpl{
+		deps: Deps{
+			AWGTunnels: &fakeAWGStore{},
+			SystemTunnels: &fakeSystemStore{tunnels: []SystemTunnelInfo{
+				{ID: "Wireguard1", InterfaceName: "Wireguard1", Description: "AWGM WG Server"},
+			}},
+			ManagedServers: nil, // confirm fallback alone catches it
+		},
+		sysClassNet: root,
+	}
+	out, err := s.enumerate(context.Background())
+	if err != nil {
+		t.Fatalf("enumerate: %v", err)
+	}
+	if len(out) != 0 {
+		t.Errorf("expected 0 entries (server-side WG must be filtered by description prefix), got %d: %+v", len(out), out)
+	}
+}
+
 func TestEnumerate_DedupBySystemAlsoManaged(t *testing.T) {
 	root := makeIfacePresent(t, "nwg0")
 	s := &ServiceImpl{

@@ -431,6 +431,7 @@ func (h *SingboxHandler) SpeedTestStream(w http.ResponseWriter, r *http.Request)
 	tag := r.URL.Query().Get("tag")
 	server := r.URL.Query().Get("server")
 	portStr := r.URL.Query().Get("port")
+	ifaceOverride := r.URL.Query().Get("iface")
 	if tag == "" || server == "" || portStr == "" {
 		response.BadRequest(w, "tag, server, port required")
 		return
@@ -449,22 +450,28 @@ func (h *SingboxHandler) SpeedTestStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Resolve tag -> kernel interface via sing-box tunnel list.
-	tunnels, err := h.op.ListTunnels(r.Context())
-	if err != nil {
-		response.InternalError(w, err.Error())
-		return
-	}
-	iface := ""
-	for _, t := range tunnels {
-		if t.Tag == tag {
-			iface = t.KernelInterface
-			break
-		}
-	}
+	// When iface is supplied, the caller already knows the kernel TUN
+	// (e.g. SubscriptionActiveCard derives it from sub.proxyIndex). Skip
+	// the tag-to-tunnel lookup in that case — selector outbounds (used by
+	// subscriptions) are filtered out of ListTunnels so a tag lookup
+	// would otherwise 404 on every subscription speedtest attempt.
+	iface := ifaceOverride
 	if iface == "" {
-		response.ErrorWithStatus(w, http.StatusNotFound, "tunnel tag not found or no kernel interface", "NOT_FOUND")
-		return
+		tunnels, err := h.op.ListTunnels(r.Context())
+		if err != nil {
+			response.InternalError(w, err.Error())
+			return
+		}
+		for _, t := range tunnels {
+			if t.Tag == tag {
+				iface = t.KernelInterface
+				break
+			}
+		}
+		if iface == "" {
+			response.ErrorWithStatus(w, http.StatusNotFound, "tunnel tag not found or no kernel interface", "NOT_FOUND")
+			return
+		}
 	}
 
 	flusher, ok := w.(http.Flusher)

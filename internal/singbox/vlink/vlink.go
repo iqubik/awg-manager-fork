@@ -18,6 +18,7 @@ type ParsedOutbound struct {
 	Server   string
 	Port     uint16
 	Outbound json.RawMessage // sing-box outbound JSON
+	Label    string          // human-readable name (Clash "name" field), empty for share-links
 }
 
 // ParseError describes a single failed link in ParseBatch.

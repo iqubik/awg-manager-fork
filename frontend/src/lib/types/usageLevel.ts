@@ -17,6 +17,7 @@ export type Section =
 	| 'systemTunnels'
 	| 'singboxTunnels'
 	| 'servers'
+	| 'subscriptions'
 	| 'routing'
 	| 'monitoring'
 	| 'diagnostics'
@@ -38,6 +39,7 @@ const SECTION_MIN_LEVEL: Record<Section, UsageLevel> = {
 	settings: 'basic',
 	singboxTunnels: 'advanced',
 	servers: 'advanced',
+	subscriptions: 'advanced',
 	routing: 'advanced',
 	monitoring: 'advanced',
 	terminal: 'advanced',
@@ -69,6 +71,7 @@ export function pathToSection(pathname: string): Section | null {
 	if (pathname.startsWith('/system-tunnels')) return 'systemTunnels';
 	if (pathname.startsWith('/singbox')) return 'singboxTunnels';
 	if (pathname.startsWith('/servers')) return 'servers';
+	if (pathname.startsWith('/subscriptions')) return 'subscriptions';
 	if (pathname.startsWith('/routing')) return 'routing';
 	if (
 		pathname.startsWith('/monitoring') ||
@@ -87,6 +90,7 @@ export const SECTION_LABELS: Record<Section, string> = {
 	systemTunnels: 'Системные туннели',
 	singboxTunnels: 'Sing-box',
 	servers: 'Серверы',
+	subscriptions: 'Подписки',
 	routing: 'Маршрутизация',
 	monitoring: 'Мониторинг',
 	diagnostics: 'Диагностика',

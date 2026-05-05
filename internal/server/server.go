@@ -99,8 +99,9 @@ type Server struct {
 	singboxConnsHandler   *api.SingboxConnectionsHandler
 	singboxRouterHandler  *api.SingboxRouterHandler
 	singboxConfigHandler  *api.SingboxConfigHandler
-	singboxProxiesHandler *api.SingboxProxiesHandler
-	awgOutboundsHandler  *api.AWGOutboundsHandler
+	singboxProxiesHandler   *api.SingboxProxiesHandler
+	awgOutboundsHandler     *api.AWGOutboundsHandler
+	subscriptionHandler     *api.SubscriptionHandler
 	clashProxy          *api.ClashProxy
 	singboxOp           *singbox.Operator
 	deviceProxySvc      *deviceproxy.Service
@@ -279,6 +280,12 @@ func (s *Server) SetSingboxConfigHandler(h *api.SingboxConfigHandler) {
 // (for the upstream URL) are constructed late.
 func (s *Server) SetSingboxProxiesHandler(h *api.SingboxProxiesHandler) {
 	s.singboxProxiesHandler = h
+}
+
+// SetSubscriptionHandler wires the VPN subscription CRUD handler so the
+// /api/singbox/subscriptions/* routes can be registered.
+func (s *Server) SetSubscriptionHandler(h *api.SubscriptionHandler) {
+	s.subscriptionHandler = h
 }
 
 // generateInstanceID creates a random 16-byte hex string (32 chars).
@@ -988,6 +995,18 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	if s.awgOutboundsHandler != nil {
 		mux.HandleFunc("/api/singbox/awg-outbounds/tags", guarded(s.awgOutboundsHandler.ServeHTTP))
+	}
+
+	if s.subscriptionHandler != nil {
+		sh := s.subscriptionHandler
+		mux.HandleFunc("/api/singbox/subscriptions", guarded(sh.List))
+		mux.HandleFunc("/api/singbox/subscriptions/create", guarded(sh.Create))
+		mux.HandleFunc("/api/singbox/subscriptions/get", guarded(sh.Get))
+		mux.HandleFunc("/api/singbox/subscriptions/update", guarded(sh.Update))
+		mux.HandleFunc("/api/singbox/subscriptions/delete", guarded(sh.Delete))
+		mux.HandleFunc("/api/singbox/subscriptions/refresh", guarded(sh.Refresh))
+		mux.HandleFunc("/api/singbox/subscriptions/active-member", guarded(sh.ActiveMember))
+		mux.HandleFunc("/api/singbox/subscriptions/orphans/delete", guarded(sh.OrphansDelete))
 	}
 
 	// Static files (SPA) - must be last

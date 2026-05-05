@@ -14,8 +14,13 @@
 	import { feedTraffic } from '$lib/stores/traffic';
 	import { usageLevel } from '$lib/stores/settings';
 	import { isSectionVisible } from '$lib/types/usageLevel';
+	import { subscriptionsStore } from '$lib/stores/subscriptions';
+	import SubscriptionList from '$lib/components/subscriptions/SubscriptionList.svelte';
+	import SubscriptionCreateModal from '$lib/components/subscriptions/SubscriptionCreateModal.svelte';
+	import SubscriptionActiveCard from '$lib/components/subscriptions/SubscriptionActiveCard.svelte';
+	import type { Subscription, SubscriptionMember } from '$lib/types';
 
-	type TunnelTab = 'awg' | 'singbox';
+	type TunnelTab = 'awg' | 'singbox' | 'subscriptions';
 
 	// Polling-store subscription: first subscriber triggers the fetch,
 	// the last unsubscribe stops polling. `$tunnels` yields a
@@ -170,6 +175,23 @@
 
 	let singboxTunnelsList = $derived($singboxTunnels.data ?? []);
 
+	let unsubSubs: (() => void) | undefined;
+	onMount(() => { unsubSubs = subscriptionsStore.subscribe(() => {}); });
+	onDestroy(() => unsubSubs?.());
+
+	let subscriptionsList = $derived($subscriptionsStore.data ?? []);
+	let createModalOpen = $state(false);
+
+	const subscriptionsActiveCards = $derived(
+		($subscriptionsStore.data ?? [])
+			.filter((s) => s.enabled && s.activeMember)
+			.map((s) => {
+				const m = s.members?.find((mm) => mm.tag === s.activeMember);
+				return m ? { subscription: s, activeMember: m } : null;
+			})
+			.filter((x): x is { subscription: Subscription; activeMember: SubscriptionMember } => x !== null),
+	);
+
 	// Tabs
 	let activeTab = $state<TunnelTab>('awg');
 
@@ -178,6 +200,9 @@
 			{ id: 'awg', label: 'AWG', badge: awgList.length + systemList.length },
 			isSectionVisible($usageLevel, 'singboxTunnels')
 				? { id: 'singbox', label: 'Sing-box', badge: singboxTunnelsList.length }
+				: null,
+			isSectionVisible($usageLevel, 'singboxTunnels')
+				? { id: 'subscriptions', label: 'Подписки', badge: subscriptionsList.length }
 				: null,
 		].filter((t): t is { id: string; label: string; badge: number } => t !== null),
 	);
@@ -193,12 +218,12 @@
 		// URL query wins over sessionStorage — lets other pages
 		// (e.g. /singbox/new) land the user on the right tab after an action.
 		const fromQuery = $page.url.searchParams.get('tab');
-		if (fromQuery === 'awg' || fromQuery === 'singbox') {
+		if (fromQuery === 'awg' || fromQuery === 'singbox' || fromQuery === 'subscriptions') {
 			activeTab = fromQuery;
 			return;
 		}
 		const stored = sessionStorage.getItem('tunnelsTab');
-		if (stored === 'awg' || stored === 'singbox') {
+		if (stored === 'awg' || stored === 'singbox' || stored === 'subscriptions') {
 			activeTab = stored;
 		}
 	});
@@ -518,9 +543,20 @@
 			</div>
 		{/if}
 		{/if}
+		{:else if activeTab === 'subscriptions'}
+			<div class="tunnels-toolbar">
+				<span class="tunnel-count">
+					{subscriptionsList.length}
+					{subscriptionsList.length === 1 ? 'подписка' : subscriptionsList.length < 5 ? 'подписки' : 'подписок'}
+				</span>
+				<div class="toolbar-actions">
+					<Button variant="primary" size="md" onclick={() => (createModalOpen = true)}>+ Добавить подписку</Button>
+				</div>
+			</div>
+			<SubscriptionList subscriptions={subscriptionsList} onAdd={() => (createModalOpen = true)} />
 		{:else}
 			<SingboxInstallBanner />
-			{#if singboxTunnelsList.length === 0}
+			{#if singboxTunnelsList.length === 0 && subscriptionsActiveCards.length === 0}
 				<SingboxGhostTerminal />
 				<div class="info-card">
 					<h3 class="info-title">О Sing-box</h3>
@@ -542,7 +578,7 @@
 						</div>
 					</div>
 				</div>
-			{:else}
+			{:else if singboxTunnelsList.length > 0}
 				<div class="tunnels-toolbar">
 					<span class="tunnel-count">
 						{singboxTunnelsList.length}
@@ -555,6 +591,17 @@
 				<div class="tunnel-grid">
 					{#each singboxTunnelsList as tunnel (tunnel.tag)}
 						<SingboxTunnelCard {tunnel} />
+					{/each}
+				</div>
+			{/if}
+			{#if subscriptionsActiveCards.length > 0}
+				<h3 class="section-head">Подписки — активные ({subscriptionsActiveCards.length})</h3>
+				<div class="active-grid">
+					{#each subscriptionsActiveCards as card (card.subscription.id)}
+						<SubscriptionActiveCard
+							subscription={card.subscription}
+							activeMember={card.activeMember}
+						/>
 					{/each}
 				</div>
 			{/if}
@@ -593,6 +640,8 @@
 	tunnelName={referencedTunnelName}
 	onclose={() => { referencedDetails = null; referencedTunnelName = ''; }}
 />
+
+<SubscriptionCreateModal bind:open={createModalOpen} />
 
 {#if detailId}
 	{@const managed = awgList.find((x) => x.id === detailId)}
@@ -968,5 +1017,18 @@
 		font-weight: 600;
 		color: var(--text-secondary);
 		margin-bottom: 1rem;
+	}
+
+	.section-head {
+		margin: 1.5rem 0 0.75rem;
+		font-size: 0.85rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--color-text-muted);
+	}
+	.active-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+		gap: 0.75rem;
 	}
 </style>
