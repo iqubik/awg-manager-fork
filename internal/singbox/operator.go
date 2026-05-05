@@ -531,13 +531,11 @@ func patchBaseClashPort(basePath string) {
 //	sing-box 1.14.0
 //
 // Without the resolver, sing-box refuses to start and the user sees only
-// the FATAL line in /logs. Adds route.default_domain_resolver = "dns-bootstrap"
-// when missing; idempotent on already-correct files.
-//
-// Only fires when a route block already exists. A user who deleted the
-// route block entirely is honoured — we don't materialise it just to
-// inject a key. Old freshBaseConfig versions always wrote route, so
-// legacy installs are still covered.
+// the FATAL line in /logs. Always materialises the route block + the
+// resolver key when missing — sing-box 1.13+ won't start without it, so
+// the "user intentionally deleted route block" interpretation does not
+// apply: the program is unusable without this key, period. A user-set
+// custom resolver value is preserved.
 func patchBaseDomainResolver(basePath string) {
 	data, err := os.ReadFile(basePath)
 	if err != nil {
@@ -549,7 +547,8 @@ func patchBaseDomainResolver(basePath string) {
 	}
 	route, _ := m["route"].(map[string]any)
 	if route == nil {
-		return
+		route = map[string]any{}
+		m["route"] = route
 	}
 	if _, has := route["default_domain_resolver"]; has {
 		return

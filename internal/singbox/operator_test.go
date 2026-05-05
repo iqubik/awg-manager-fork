@@ -148,10 +148,20 @@ func TestEnsureBaseConfig_Idempotent(t *testing.T) {
 	if err := os.WriteFile(basePath, []byte(existing), 0644); err != nil {
 		t.Fatal(err)
 	}
+	// First call applies surgical heals (e.g. route.default_domain_resolver
+	// for sing-box 1.13+). Second call must be a no-op — same bytes.
 	ensureBaseConfig(configDir)
-	raw, _ := os.ReadFile(basePath)
-	if string(raw) != existing {
-		t.Errorf("existing base must not be overwritten, got %s", raw)
+	first, _ := os.ReadFile(basePath)
+	ensureBaseConfig(configDir)
+	second, _ := os.ReadFile(basePath)
+	if string(first) != string(second) {
+		t.Errorf("ensureBaseConfig not idempotent: first=%s second=%s", first, second)
+	}
+	// User-chosen log.level must be preserved across both runs.
+	var m map[string]any
+	_ = json.Unmarshal(second, &m)
+	if m["log"].(map[string]any)["level"] != "debug" {
+		t.Errorf("log.level must be preserved, got %v", m["log"])
 	}
 }
 
@@ -194,6 +204,8 @@ func TestEnsureBaseConfig_NoClashApiBlockUntouched(t *testing.T) {
 	_ = os.MkdirAll(configDir, 0755)
 	// User explicitly removed clash_api — respect that, don't re-add.
 	// log.level is "debug" so the log-level heal also leaves it alone.
+	// route.default_domain_resolver IS materialised because sing-box 1.13+
+	// FATALs without it; that injection is unrelated to clash_api.
 	custom := `{"log":{"level":"debug"}}`
 	basePath := filepath.Join(configDir, "00-base.json")
 	if err := os.WriteFile(basePath, []byte(custom), 0644); err != nil {
@@ -201,8 +213,22 @@ func TestEnsureBaseConfig_NoClashApiBlockUntouched(t *testing.T) {
 	}
 	ensureBaseConfig(configDir)
 	raw, _ := os.ReadFile(basePath)
-	if string(raw) != custom {
-		t.Errorf("file without clash_api block must not be touched, got %s", raw)
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, has := m["experimental"]; has {
+		t.Errorf("experimental block must NOT be re-added, got %s", raw)
+	}
+	if m["log"].(map[string]any)["level"] != "debug" {
+		t.Errorf("log.level must be preserved, got %v", m["log"])
+	}
+	route, ok := m["route"].(map[string]any)
+	if !ok {
+		t.Fatalf("route block must be materialised for sing-box 1.13+, got %s", raw)
+	}
+	if route["default_domain_resolver"] != "dns-bootstrap" {
+		t.Errorf("default_domain_resolver want dns-bootstrap, got %v", route["default_domain_resolver"])
 	}
 }
 
@@ -294,22 +320,37 @@ func TestEnsureBaseConfig_RespectsExistingDomainResolver(t *testing.T) {
 	}
 }
 
-func TestEnsureBaseConfig_NoRouteBlockUntouched(t *testing.T) {
+func TestEnsureBaseConfig_MaterialisesMissingRouteBlock(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config.d")
 	_ = os.MkdirAll(configDir, 0755)
-	// User explicitly removed route block. We don't materialise it just
-	// to inject the resolver — old installs always had route, so the
-	// "missing route block" case can only be a deliberate user edit.
-	custom := `{"log":{"level":"trace"},"experimental":{"clash_api":{"external_controller":"127.0.0.1:9099"}}}`
+	// Real-world shape: legacy 00-base.json from a pre-route-fix awg-manager
+	// build. The file has no route block at all. sing-box 1.13+ FATALs on
+	// this — we materialise the route block + resolver unconditionally.
+	stale := `{"dns":{"final":"dns-doh","servers":[{"server":"1.1.1.1","tag":"dns-bootstrap","type":"udp"}],"strategy":"ipv4_only"},"experimental":{"clash_api":{"external_controller":"127.0.0.1:9099"}},"log":{"level":"trace","timestamp":true}}`
 	basePath := filepath.Join(configDir, "00-base.json")
-	if err := os.WriteFile(basePath, []byte(custom), 0644); err != nil {
+	if err := os.WriteFile(basePath, []byte(stale), 0644); err != nil {
 		t.Fatal(err)
 	}
 	ensureBaseConfig(configDir)
 	raw, _ := os.ReadFile(basePath)
-	if string(raw) != custom {
-		t.Errorf("file without route block must not be touched, got %s", raw)
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	route, ok := m["route"].(map[string]any)
+	if !ok {
+		t.Fatalf("route block must be materialised, got %s", raw)
+	}
+	if route["default_domain_resolver"] != "dns-bootstrap" {
+		t.Errorf("default_domain_resolver want dns-bootstrap, got %v", route["default_domain_resolver"])
+	}
+	// Other blocks preserved.
+	if m["dns"].(map[string]any)["strategy"] != "ipv4_only" {
+		t.Errorf("dns block lost: %v", m["dns"])
+	}
+	if m["log"].(map[string]any)["level"] != "trace" {
+		t.Errorf("log.level lost: %v", m["log"])
 	}
 }
 
