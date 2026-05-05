@@ -58,7 +58,9 @@ func TestMapClashHysteria2_UpAsString(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 	var ob map[string]any
-	json.Unmarshal(got.Outbound, &ob)
+	if err := json.Unmarshal(got.Outbound, &ob); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if upN, _ := asInt(ob["up_mbps"]); upN != 50 {
 		t.Errorf("up_mbps=%v want 50", ob["up_mbps"])
 	}

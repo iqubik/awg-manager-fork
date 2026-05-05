@@ -65,3 +65,24 @@ func TestMapClashTrojan_MissingServer(t *testing.T) {
 		t.Errorf("want server error, got %v", err)
 	}
 }
+
+func TestMapClashTrojan_MissingPort(t *testing.T) {
+	_, err := mapClashTrojan(map[string]any{
+		"server":   "h",
+		"password": "p",
+	})
+	if err == nil || !strings.Contains(err.Error(), "port") {
+		t.Errorf("want port error, got %v", err)
+	}
+}
+
+func TestMapClashTrojan_InvalidPortString(t *testing.T) {
+	_, err := mapClashTrojan(map[string]any{
+		"server":   "h",
+		"port":     "not-a-number",
+		"password": "p",
+	})
+	if err == nil || !strings.Contains(err.Error(), "port") {
+		t.Errorf("want port error, got %v", err)
+	}
+}
