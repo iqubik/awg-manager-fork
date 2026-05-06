@@ -42,7 +42,6 @@ import (
 	ndmstransport "github.com/hoaxisr/awg-manager/internal/ndms/transport"
 	"github.com/hoaxisr/awg-manager/internal/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/pingcheck"
-	"github.com/hoaxisr/awg-manager/internal/rci"
 	"github.com/hoaxisr/awg-manager/internal/routing"
 	"github.com/hoaxisr/awg-manager/internal/server"
 	"github.com/hoaxisr/awg-manager/internal/singbox"
@@ -259,9 +258,7 @@ func main() {
 	operator := ops.NewOperator(ndmsQueries, ndmsCommands, wgClient, backendImpl, firewallMgr, log)
 
 	// Create NativeWG operator
-	rciClient := rci.New()
-	rciClient.SetAppLogger(loggingService)
-	nwgOp := nwg.NewOperator(log, ndmsQueries, ndmsCommands, ndmsTransportClient, rciClient, loggingService)
+	nwgOp := nwg.NewOperator(log, ndmsQueries, ndmsCommands, ndmsTransportClient, loggingService)
 
 	// Load awg_proxy.ko if firmware < 5.1 Alpha 4
 	if !ndmsinfo.SupportsWireguardASC() {
@@ -1569,8 +1566,8 @@ func runCleanup(dataDir string) {
 	})
 
 	operator := ops.NewOperator(cleanupNDMSQueries, cleanupNDMSCommands, wgClient, backendImpl, firewallMgr, log)
-	cleanupRCI := rci.New()
-	nwgOp := nwg.NewOperator(log, cleanupNDMSQueries, cleanupNDMSCommands, cleanupNDMSTransport, cleanupRCI, nil)
+
+	nwgOp := nwg.NewOperator(log, cleanupNDMSQueries, cleanupNDMSCommands, cleanupNDMSTransport, nil)
 	tunnelService := service.New(awgStore, nwgOp, operator, stateMgr, log, wan.NewModel(), nil)
 
 	// Wire orchestrator for lifecycle operations (Delete needs it)
