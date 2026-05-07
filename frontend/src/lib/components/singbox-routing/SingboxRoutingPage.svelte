@@ -71,10 +71,12 @@
 	// Subscribe to the cold-tier sing-box status polling store so the
 	// header badge reflects real running/version state. The store is
 	// shared with the rest of the app — subscribing here just keeps it
-	// hot while this page is open.
+	// hot while this page is open. Also kick off router-status reload
+	// so the badge has both inputs available on first paint.
 	let unsubStatus: (() => void) | undefined;
 	onMount(() => {
 		unsubStatus = singboxStatus.subscribe(() => {});
+		singboxRouter.reloadStatus();
 	});
 	onDestroy(() => {
 		unsubStatus?.();
@@ -84,9 +86,61 @@
 		active = readSubFromURL();
 	});
 
-	const status = $derived($singboxStatus.data);
+	const statusState = $derived($singboxStatus);
+	const status = $derived(statusState.data);
+	const statusReady = $derived(statusState.lastFetchedAt > 0 || statusState.status === 'error');
+	const singboxInstalled = $derived(status?.installed ?? false);
 	const running = $derived(status?.running ?? false);
 	const version = $derived(status?.version ?? '—');
+	const singboxLastError = $derived(status?.lastError?.trim() ?? '');
+
+	const routerStatusStore = singboxRouter.status;
+	const routerStatus = $derived($routerStatusStore);
+	const routerNetfilterReady = $derived(routerStatus?.netfilterAvailable ?? false);
+	const routerNetfilterName = $derived(routerStatus?.netfilterComponentName ?? 'Компонент netfilter');
+	const routerEnabled = $derived(routerStatus?.enabled ?? false);
+	const routerPolicyOK = $derived(routerStatus?.policyExists ?? false);
+	const routerIssuesCount = $derived((routerStatus?.issues ?? []).length);
+
+	type HeaderState = 'loading' | 'ready' | 'warn' | 'error';
+	const headerState = $derived.by<HeaderState>(() => {
+		if (!statusReady) return 'loading';
+		if (!singboxInstalled) return 'error';
+		if (!running) return 'error';
+		if (!routerEnabled) return 'warn';
+		if (!routerNetfilterReady || !routerPolicyOK || routerIssuesCount > 0) return 'warn';
+		return 'ready';
+	});
+	const headerLabel = $derived.by(() => {
+		if (!statusReady) return 'получение данных…';
+		if (!singboxInstalled) return 'не установлен';
+		if (!running) return `v${version} · остановлен`;
+		if (!routerEnabled) return `v${version} · роутинг выключен`;
+		if (!routerPolicyOK) return `v${version} · нет policy`;
+		if (!routerNetfilterReady) return `v${version} · нет netfilter`;
+		if (routerIssuesCount > 0) {
+			const word =
+				routerIssuesCount === 1
+					? 'проблема'
+					: routerIssuesCount < 5
+						? 'проблемы'
+						: 'проблем';
+			return `v${version} · ${routerIssuesCount} ${word}`;
+		}
+		return `v${version} · готов`;
+	});
+	const headerReason = $derived.by(() => {
+		if (!statusReady) return '';
+		if (singboxLastError) return singboxLastError;
+		if (!singboxInstalled) return 'Базовый sing-box не установлен.';
+		if (!running) return 'Процесс sing-box не запущен.';
+		if (!routerEnabled) return 'Модуль маршрутизации выключен.';
+		if (!routerPolicyOK) return 'Не настроена/не найдена policy для маршрутизации.';
+		if (!routerNetfilterReady) return `Недоступен компонент: ${routerNetfilterName}.`;
+		if (routerIssuesCount > 0) return routerStatus?.issues?.[0]?.message ?? '';
+		return '';
+	});
+
 	const tabsItems = $derived(order.map((id) => ({ id, label: labels[id] })));
 
 	const wizRulesStore = singboxRouter.rules;
@@ -101,9 +155,16 @@
 
 <header class="page-header">
 	<div class="header-right">
-		<span class="status-badge" class:running>
+		<span
+			class="status-badge"
+			class:loading={headerState === 'loading'}
+			class:running={headerState === 'ready'}
+			class:warn={headerState === 'warn'}
+			class:error={headerState === 'error'}
+			title={headerReason}
+		>
 			<span class="status-dot"></span>
-			sing-box · {running ? `v${version}` : 'остановлен'}
+			sing-box · {headerLabel}
 		</span>
 		<Button size="sm" variant="primary" onclick={() => singboxWizard.start()}>Мастер</Button>
 		<Button size="sm" variant="ghost" onclick={() => (inspectorOpen = true)}>Инспектор</Button>
@@ -166,12 +227,29 @@
 		width: 7px;
 		height: 7px;
 		border-radius: 999px;
-		background: var(--color-error);
-		box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 22%, transparent);
+		background: var(--color-text-muted);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+	}
+	.status-badge.loading .status-dot {
+		background: var(--color-accent, #6ea8ff);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent, #6ea8ff) 25%, transparent);
+		animation: status-pulse 1.15s ease-in-out infinite;
 	}
 	.status-badge.running .status-dot {
 		background: var(--color-success);
 		box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 28%, transparent);
+	}
+	.status-badge.warn .status-dot {
+		background: var(--color-warning);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning) 28%, transparent);
+	}
+	.status-badge.error .status-dot {
+		background: var(--color-error);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 28%, transparent);
+	}
+	@keyframes status-pulse {
+		0%, 100% { opacity: 0.55; }
+		50% { opacity: 1; }
 	}
 	.sub-content {
 		margin-top: 1rem;
