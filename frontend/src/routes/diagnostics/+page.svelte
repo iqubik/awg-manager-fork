@@ -2,7 +2,8 @@
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
-	import type { TunnelListItem } from '$lib/types';
+	import type { TunnelListItem, SingboxTunnel, Subscription } from '$lib/types';
+	import type { DiagnosticsTargetSeed } from '$lib/stores/diagnostics';
 	import { PageContainer, PageHeader } from '$lib/components/layout';
 	import { Tabs } from '$lib/components/ui';
 	import { LogsTerminal } from '$lib/components/diagnostics';
@@ -12,7 +13,7 @@
 	type ActiveTab = 'logs' | 'connections' | 'checks';
 
 	let activeTab = $state<ActiveTab>('logs');
-	let tunnels = $state<TunnelListItem[]>([]);
+	let tunnels = $state<DiagnosticsTargetSeed[]>([]);
 
 	const diagnosticsTabs = [
 		{ id: 'logs', label: 'Журнал' },
@@ -35,14 +36,50 @@
 	});
 
 	onMount(async () => {
-		// Use /api/tunnels/all to get the partitioned snapshot — we want
-		// only `tunnels` (regular AWG / managed tunnels), excluding
-		// `system` (system NativeWG servers) and `external` (adopted
-		// external tunnels). Diagnostics checks must not run against
-		// managed servers or system Wireguard servers.
+		// Combine three target sources for the diagnostics rail:
+		//   1. AWG/managed tunnels (snap.tunnels) — system NativeWG and external
+		//      adopted tunnels are excluded; diagnostics must not run against them.
+		//   2. Sing-box tunnels (one row per outbound).
+		//   3. Active+enabled subscription members (sing-box prefixed).
+		// Failures in optional sources degrade silently to empty list.
 		try {
-			const snap = await api.getTunnelsAll();
-			tunnels = snap.tunnels ?? [];
+			const [snap, singboxTunnels, subscriptions] = await Promise.all([
+				api.getTunnelsAll(),
+				api.singboxListTunnels().catch(() => [] as SingboxTunnel[]),
+				api.listSubscriptions().catch(() => [] as Subscription[]),
+			]);
+
+			const awg: DiagnosticsTargetSeed[] = (snap.tunnels ?? []).map((t: TunnelListItem) => ({
+				id: t.id,
+				name: t.name,
+				status: t.status,
+			}));
+
+			const singbox: DiagnosticsTargetSeed[] = singboxTunnels.map((t) => ({
+				id: `singbox:${t.tag}`,
+				name: t.tag,
+				status: t.running ? 'running' : 'stopped',
+			}));
+
+			const subscriptionMembers: DiagnosticsTargetSeed[] = [];
+			for (const sub of subscriptions) {
+				if (!sub.enabled) continue;
+				for (const m of sub.members ?? []) {
+					subscriptionMembers.push({
+						id: `singbox:${m.tag}`,
+						name: m.label || m.tag,
+						// Members are checked through the sing-box process,
+						// so default to 'running' for rail visibility.
+						status: 'running',
+					});
+				}
+			}
+
+			const uniq = new Map<string, DiagnosticsTargetSeed>();
+			for (const t of [...awg, ...singbox, ...subscriptionMembers]) {
+				if (!uniq.has(t.id)) uniq.set(t.id, t);
+			}
+			tunnels = Array.from(uniq.values());
 		} catch {
 			tunnels = [];
 		}

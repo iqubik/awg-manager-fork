@@ -11,6 +11,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
 	"github.com/hoaxisr/awg-manager/internal/ndms/transport"
 	"github.com/hoaxisr/awg-manager/internal/pingcheck"
+	"github.com/hoaxisr/awg-manager/internal/singbox"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/sys/kmod"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/backend"
@@ -312,6 +313,10 @@ var testLevels = map[string]string{
 	"dns_leak_check":              LevelDetailed,
 	"proxy_health":                LevelBasic,
 	"pingcheck_health":            LevelBasic,
+	"direct_connectivity":         LevelBasic,
+	"singbox_runtime":             LevelBasic,
+	"singbox_tunnel_state":        LevelBasic,
+	"singbox_tunnel_connectivity": LevelBasic,
 }
 
 func testLevel(name string) string {
@@ -340,18 +345,42 @@ type PingCheckForDiag interface {
 	GetStatus() []pingcheck.TunnelStatus
 }
 
+// SingboxForDiag is the subset of singbox.Operator used by diagnostics.
+type SingboxForDiag interface {
+	GetStatus(ctx context.Context) singbox.Status
+	ListTunnels(ctx context.Context) ([]singbox.TunnelInfo, error)
+}
+
+// SingboxSubMember is a subscription member view used by diagnostics.
+// Only active+enabled members are probed; the rest surface as Skip so
+// the UI can explain why no test ran. ActiveKnown=false signals that
+// active-member detection itself failed and diagnostics must not guess.
+type SingboxSubMember struct {
+	Tag string
+	// ListenPort is the subscription's mixed-inbound port (one per
+	// subscription, shared by all members via the selector). Same value
+	// is propagated to every SingboxSubMember of the same subscription;
+	// only meaningful for probing the currently-active member.
+	ListenPort  int
+	Enabled     bool
+	Active      bool
+	ActiveKnown bool
+}
+
 // Deps holds all dependencies needed by the diagnostics runner.
 type Deps struct {
-	TunnelService   TunnelServiceForDiag
-	NDMSQueries     *query.Queries
-	NDMSTransport   *transport.Client
-	Backend         backend.Backend
-	KmodLoader      *kmod.Loader
-	TunnelStore     *storage.AWGTunnelStore
-	LogService      LogServiceForDiag
-	AppVersion      string
-	PingCheckFacade PingCheckForDiag
-	AppLogger       logging.AppLogger
+	TunnelService     TunnelServiceForDiag
+	NDMSQueries       *query.Queries
+	NDMSTransport     *transport.Client
+	Backend           backend.Backend
+	KmodLoader        *kmod.Loader
+	TunnelStore       *storage.AWGTunnelStore
+	LogService        LogServiceForDiag
+	AppVersion        string
+	PingCheckFacade   PingCheckForDiag
+	Singbox           SingboxForDiag
+	SingboxSubMembers func() []SingboxSubMember
+	AppLogger         logging.AppLogger
 }
 
 // Runner executes diagnostic runs.

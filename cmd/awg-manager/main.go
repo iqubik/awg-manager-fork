@@ -785,6 +785,23 @@ func main() {
 			ClashProxy:          clashProxy,
 			SingboxConnsHandler: singboxConnsHandler,
 			MonitoringService:   monitoringService,
+			SingboxSubMembers: func() []diagnostics.SingboxSubMember {
+				subs := subSvc.List()
+				out := make([]diagnostics.SingboxSubMember, 0, len(subs)*2)
+				for _, sub := range subs {
+					activeKnown := sub.ActiveMember != ""
+					for _, tag := range sub.MemberTags {
+						out = append(out, diagnostics.SingboxSubMember{
+							Tag:         tag,
+							ListenPort:  int(sub.ListenPort),
+							Enabled:     sub.Enabled,
+							Active:      activeKnown && sub.ActiveMember == tag,
+							ActiveKnown: activeKnown,
+						})
+					}
+				}
+				return out
+			},
 		},
 	)
 
