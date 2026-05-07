@@ -1075,7 +1075,8 @@ func (h *SingboxRouterHandler) handleErr(w http.ResponseWriter, action string, e
 		response.Error(w, err.Error(), "CONFLICT")
 	case errors.Is(err, router.ErrRuleIndexOutOfRange),
 		errors.Is(err, router.ErrDNSRuleIndexOutOfRange),
-		errors.Is(err, router.ErrDNSServerNotFound):
+		errors.Is(err, router.ErrDNSServerNotFound),
+		errors.Is(err, router.ErrRuleSetNotFound):
 		response.Error(w, err.Error(), "NOT_FOUND")
 	case errors.Is(err, router.ErrInvalidMatchers),
 		errors.Is(err, router.ErrDNSInvalidServer):

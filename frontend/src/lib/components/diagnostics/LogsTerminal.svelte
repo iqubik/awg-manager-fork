@@ -429,7 +429,7 @@
         </div>
       {/if}
       {#each displayLogs as log (logKey(log))}
-        {@const k = logKey(log)}
+        {@const k = logKey(log) /* WeakMap returns the same id; reuse for expanded[] */}
         <LogRow
           {log}
           expanded={expanded[k] ?? false}
