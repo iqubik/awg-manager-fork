@@ -50,7 +50,11 @@
 				name: m.description || m.interfaceName,
 				iface: m.interfaceName,
 				listenPort: m.listenPort,
-				status: stats?.status === 'running' ? 'running' : 'stopped',
+				// Backend ManagedServerStats.Status mirrors NDMS interface state
+				// ("up"/"down"), not the layer-state word "running" that NDMS
+				// hooks emit. Comparing against "running" never matched and
+				// flagged the rail item as stopped even on healthy servers.
+				status: stats?.status === 'up' ? 'running' : 'stopped',
 				peerActive: statsPeers.filter((p) => p.online).length,
 				peerCount: mPeers.length,
 				kind: 'managed',
