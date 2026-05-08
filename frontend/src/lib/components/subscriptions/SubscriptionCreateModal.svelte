@@ -3,7 +3,7 @@
 	import { Modal, Button, Dropdown } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import HeadersTextarea from './HeadersTextarea.svelte';
-	import { parseHeadersText } from './headersParser';
+	import { DEFAULT_PRESET, parseHeadersText } from './headersParser';
 
 	interface Props {
 		open: boolean;
@@ -12,7 +12,7 @@
 
 	let label = $state('');
 	let url = $state('');
-	let headersText = $state('');
+	let headersText = $state(DEFAULT_PRESET);
 	let refreshHoursStr = $state('24');
 	let refreshHours = $state(24);
 	let enabled = $state(true);
@@ -35,7 +35,7 @@
 	function reset(): void {
 		label = '';
 		url = '';
-		headersText = '';
+		headersText = DEFAULT_PRESET;
 		refreshHoursStr = '24';
 		refreshHours = 24;
 		enabled = true;

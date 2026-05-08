@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { HAPP_PRESET, MIHOMO_PRESET } from './headersParser';
+	import { DEFAULT_PRESET, HAPP_PRESET } from './headersParser';
 	import { Dropdown } from '$lib/components/ui';
 
 	interface Props {
@@ -24,12 +24,12 @@
 		<Dropdown
 			placeholder="Подставить пресет"
 			options={[
-				{ value: 'mihomo', label: 'Clash / mihomo (пустой)' },
-				{ value: 'happ', label: 'Happ iOS' },
+				{ value: 'default', label: 'По умолчанию (Clash / mihomo)' },
+				{ value: 'happ', label: 'Happ iOS (если требует провайдер)' },
 			]}
 			onchange={(v) => {
 				if (v === 'happ') applyPreset(HAPP_PRESET);
-				else if (v === 'mihomo') applyPreset(MIHOMO_PRESET);
+				else if (v === 'default') applyPreset(DEFAULT_PRESET);
 			}}
 		/>
 	</div>
@@ -62,7 +62,7 @@
 	id="hdr"
 	class="textarea"
 	bind:value
-	placeholder={'# Пример:\nUser-Agent: Happ/4.6.0/ios/2603181556604\nX-Device-OS: iOS'}
+	placeholder={'# Пример:\nUser-Agent: mihomo/v1.19.20'}
 	rows="8"
 ></textarea>
 
