@@ -618,6 +618,14 @@ func main() {
 		}
 	})
 	for _, meta := range singboxorch.KnownSlots() {
+		// SlotTunnels is AlwaysOn but only counts as "active work" when
+		// the user has defined sing-box tunnels — wire HasContent so
+		// the daemon stops running for an empty 10-tunnels.json.
+		if meta.Slot == singboxorch.SlotTunnels {
+			meta.HasContent = func() bool {
+				return singboxOp.HasUserTunnels()
+			}
+		}
 		if err := sbOrch.Register(meta); err != nil {
 			log.Errorf("singbox orchestrator register %s: %v", meta.Slot, err)
 		}
@@ -625,13 +633,11 @@ func main() {
 	if err := sbOrch.Bootstrap(); err != nil {
 		log.Errorf("singbox orchestrator bootstrap: %v", err)
 	}
-	// Reflect Settings into orchestrator slot enabled-state. tunnels /
-	// awg are content-only (the producers handle empty content safely),
-	// so they're always-on. Router follows Settings.SingboxRouter.Enabled.
-	// deviceproxy follows the deviceproxy storage Config.Enabled and is
+	// Reflect Settings into orchestrator slot enabled-state. router /
+	// deviceproxy / subscriptions are content-driven; tunnels / awg
+	// are AlwaysOn (registered as such above) and cannot be toggled
+	// here — Register already marked them enabled. deviceproxy is
 	// reflected after deviceProxySvc is constructed below.
-	_ = sbOrch.SetEnabled(singboxorch.SlotTunnels, true)
-	_ = sbOrch.SetEnabled(singboxorch.SlotAwg, true)
 	if curSettings, err := settingsStore.Load(); err == nil && curSettings != nil {
 		_ = sbOrch.SetEnabled(singboxorch.SlotRouter, curSettings.SingboxRouter.Enabled)
 	}

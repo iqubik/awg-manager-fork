@@ -181,6 +181,73 @@ func (p *fakeProc) Reload() error {
 	return nil
 }
 
+func TestReloadDoesNotStartForAlwaysOnCatalogSlot(t *testing.T) {
+	// Regression: tunnels + awg are AlwaysOn catalog slots. On a fresh
+	// install with no router, no deviceproxy, no subscriptions and an
+	// empty 10-tunnels.json, the daemon must NOT be started just because
+	// these slots are enabled by virtue of being AlwaysOn.
+	fp := &fakeProc{}
+	dir := t.TempDir()
+	o := New(dir, fp)
+	_ = o.Register(SlotMeta{Slot: SlotBase, Filename: "00-base.json", AlwaysOn: true})
+	_ = o.Register(SlotMeta{
+		Slot:       SlotTunnels,
+		Filename:   "10-tunnels.json",
+		AlwaysOn:   true,
+		HasContent: func() bool { return false }, // empty tunnels file
+	})
+	_ = o.Register(SlotMeta{Slot: SlotAwg, Filename: "15-awg.json", AlwaysOn: true})
+	if err := o.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Save(SlotBase, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Save(SlotTunnels, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Save(SlotAwg, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if fp.starts != 0 {
+		t.Errorf("expected 0 starts (no consumers, no tunnels), got %d", fp.starts)
+	}
+}
+
+func TestReloadStartsWhenAlwaysOnSlotHasContent(t *testing.T) {
+	// As soon as the user defines at least one sing-box tunnel, the
+	// AlwaysOn SlotTunnels HasContent flips true and the daemon must
+	// be brought up — even if no other consumer slot is enabled.
+	fp := &fakeProc{}
+	dir := t.TempDir()
+	o := New(dir, fp)
+	_ = o.Register(SlotMeta{Slot: SlotBase, Filename: "00-base.json", AlwaysOn: true})
+	_ = o.Register(SlotMeta{
+		Slot:       SlotTunnels,
+		Filename:   "10-tunnels.json",
+		AlwaysOn:   true,
+		HasContent: func() bool { return true },
+	})
+	if err := o.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Save(SlotBase, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Save(SlotTunnels, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if fp.starts != 1 {
+		t.Errorf("expected 1 start (tunnel content present), got %d", fp.starts)
+	}
+}
+
 func TestReloadStartsWhenSlotEnabled(t *testing.T) {
 	fp := &fakeProc{}
 	dir := t.TempDir()

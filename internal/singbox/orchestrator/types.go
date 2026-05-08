@@ -26,10 +26,21 @@ const (
 
 // SlotMeta describes a producer's contract with the orchestrator.
 // AlwaysOn slots cannot be disabled via SetEnabled.
+//
+// HasContent is consulted only for AlwaysOn slots and reports whether
+// the slot has user-relevant content that justifies keeping the
+// sing-box daemon running. AlwaysOn catalog slots (e.g. SlotAwg, which
+// emits direct outbounds for use by other slots) leave it nil — they
+// are infrastructure for consumers, not a reason to start the daemon
+// on their own. Without this distinction a fresh install with no
+// sing-box tunnels, no router, no device-proxy and no subscriptions
+// would still keep sing-box running just to host an unused outbound
+// catalog.
 type SlotMeta struct {
-	Slot     Slot
-	Filename string // bare filename, e.g. "20-router.json"
-	AlwaysOn bool
+	Slot       Slot
+	Filename   string // bare filename, e.g. "20-router.json"
+	AlwaysOn   bool
+	HasContent func() bool
 }
 
 // SlotState is what Snapshot returns per registered slot.
@@ -41,12 +52,17 @@ type SlotState struct {
 	Bytes    int  // size of current JSON, 0 if absent
 }
 
-// KnownSlots returns the closed set of slots, in load order.
+// KnownSlots returns the closed set of slots, in load order. tunnels
+// and awg are AlwaysOn — their files always live in config.d/ so that
+// CRUD by their producers (and merge by sing-box) is trivial. They do
+// NOT activate the daemon on their own; tunnels gets a HasContent
+// callback wired in main.go so it counts as "active work" only when
+// the user has actually defined sing-box tunnels.
 func KnownSlots() []SlotMeta {
 	return []SlotMeta{
 		{Slot: SlotBase, Filename: "00-base.json", AlwaysOn: true},
-		{Slot: SlotTunnels, Filename: "10-tunnels.json"},
-		{Slot: SlotAwg, Filename: "15-awg.json"},
+		{Slot: SlotTunnels, Filename: "10-tunnels.json", AlwaysOn: true},
+		{Slot: SlotAwg, Filename: "15-awg.json", AlwaysOn: true},
 		{Slot: SlotRouter, Filename: "20-router.json"},
 		{Slot: SlotDeviceProxy, Filename: "30-deviceproxy.json"},
 		{Slot: SlotSubscriptions, Filename: "40-subscriptions.json"},

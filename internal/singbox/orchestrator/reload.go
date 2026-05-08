@@ -76,8 +76,19 @@ func (o *Orchestrator) Reload() error {
 	return err
 }
 
-// hasActiveWorkLocked reports whether any non-AlwaysOn slot is enabled
-// — i.e. whether sing-box has anything to do besides base config.
+// hasActiveWorkLocked reports whether sing-box has anything to do
+// beyond hosting base + catalog slots. Two activation paths:
+//
+//   - any non-AlwaysOn slot is enabled (router / deviceproxy /
+//     subscriptions) — its mere presence is the signal;
+//   - an AlwaysOn slot whose meta.HasContent returns true (currently
+//     SlotTunnels, when the user has defined at least one sing-box
+//     tunnel).
+//
+// AlwaysOn catalog slots without HasContent (SlotBase, SlotAwg) never
+// activate the daemon on their own — they are infrastructure for
+// other slots, not a reason to keep sing-box running.
+//
 // Caller MUST hold o.mu.
 func (o *Orchestrator) hasActiveWorkLocked() bool {
 	for slot, enabled := range o.enabled {
@@ -88,9 +99,13 @@ func (o *Orchestrator) hasActiveWorkLocked() bool {
 		if !ok {
 			continue
 		}
-		if !meta.AlwaysOn {
-			return true
+		if meta.AlwaysOn {
+			if meta.HasContent != nil && meta.HasContent() {
+				return true
+			}
+			continue
 		}
+		return true
 	}
 	return false
 }

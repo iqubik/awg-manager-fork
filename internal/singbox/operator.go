@@ -1272,6 +1272,18 @@ func (o *Operator) loadConfig() (*Config, error) {
 	return LoadConfig(o.tunnelsFile())
 }
 
+// HasUserTunnels reports whether 10-tunnels.json defines at least one
+// user-managed sing-box tunnel. Wired into orchestrator.SlotTunnels
+// HasContent so an empty tunnels file does not, by itself, keep the
+// daemon running.
+func (o *Operator) HasUserTunnels() bool {
+	cfg, err := o.loadConfig()
+	if err != nil {
+		return false
+	}
+	return len(cfg.Tunnels()) > 0
+}
+
 // ApplyConfig runs the full Save + Validate + Promote + Reload sequence
 // on an externally-mutated Config. deviceproxy.Service uses this after
 // it has inserted its inbound/outbound/rule into the current config.
