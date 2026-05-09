@@ -67,7 +67,7 @@
 				onchange={() => onselect?.()}
 			/>
 		{/if}
-		<ServiceIcon name={route.name} size={36} />
+		<ServiceIcon name={route.name} iconUrl={route.iconUrl} size={36} />
 		<div class="card-info">
 			<div class="card-title">
 				<span
