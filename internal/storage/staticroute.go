@@ -13,10 +13,10 @@ type StaticRouteList struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name"`
 	TunnelID  string   `json:"tunnelID"`
-	Subnets  []string `json:"subnets"`
-	Fallback string   `json:"fallback,omitempty"` // "" = auto (default), "reject" = kill switch
-	IconURL  string   `json:"iconUrl,omitempty"`  // optional URL of custom icon for this rule (e.g. Qure CDN PNG or user-supplied)
-	Enabled  bool     `json:"enabled"`
+	Subnets   []string `json:"subnets"`
+	Fallback  string   `json:"fallback,omitempty"` // "" = auto (default), "reject" = kill switch
+	IconURL   string   `json:"iconUrl,omitempty"`  // optional URL of custom icon for this rule (e.g. Qure CDN PNG or user-supplied)
+	Enabled   bool     `json:"enabled"`
 	CreatedAt string   `json:"createdAt"`
 	UpdatedAt string   `json:"updatedAt"`
 }
