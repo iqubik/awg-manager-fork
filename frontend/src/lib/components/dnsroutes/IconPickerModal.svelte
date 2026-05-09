@@ -24,6 +24,10 @@
 	let selectedQure = $state<string | null>(null);
 	let customUrl = $state('');
 
+	// Cached Qure match by ruleName — used by both init effect and the hint.
+	let autoMatch = $derived(iconUrl ? null : qureMatchByName(ruleName));
+	let trimmedUrl = $derived(customUrl.trim());
+
 	// Initialize state when the modal opens, based on current iconUrl + ruleName.
 	$effect(() => {
 		if (!open) return;
@@ -45,7 +49,7 @@
 			// No iconUrl — try auto-match by rule name
 			tab = 'catalog';
 			customUrl = '';
-			selectedQure = qureMatchByName(ruleName);
+			selectedQure = autoMatch;
 		}
 	});
 
@@ -57,15 +61,15 @@
 
 	let canApply = $derived(
 		(tab === 'catalog' && selectedQure !== null) ||
-		(tab === 'url' && customUrl.trim() !== '')
+		(tab === 'url' && trimmedUrl !== '')
 	);
 
 	function handleApply() {
 		let url: string | null = null;
 		if (tab === 'catalog' && selectedQure) {
 			url = qureIconUrl(selectedQure);
-		} else if (tab === 'url' && customUrl.trim()) {
-			url = customUrl.trim();
+		} else if (tab === 'url' && trimmedUrl) {
+			url = trimmedUrl;
 		}
 		onapply(url);
 	}
@@ -76,8 +80,7 @@
 
 	let autoMatchHint = $derived.by(() => {
 		if (iconUrl) return null;
-		const m = qureMatchByName(ruleName);
-		return m && tab === 'catalog' && selectedQure === m
+		return autoMatch && tab === 'catalog' && selectedQure === autoMatch
 			? `Авто-найдено по имени правила «${ruleName}»`
 			: null;
 	});
@@ -85,12 +88,14 @@
 
 <Modal {open} {onclose} title="Выбрать иконку" size="lg">
 	<div class="picker">
-		<div class="tabs">
+		<div class="tabs" role="tablist" aria-label="Источник иконки">
 			<button
 				class="tab"
 				class:active={tab === 'catalog'}
 				onclick={() => (tab = 'catalog')}
 				type="button"
+				role="tab"
+				aria-selected={tab === 'catalog'}
 			>
 				Каталог Qure
 			</button>
@@ -99,6 +104,8 @@
 				class:active={tab === 'url'}
 				onclick={() => (tab = 'url')}
 				type="button"
+				role="tab"
+				aria-selected={tab === 'url'}
 			>
 				Свой URL
 			</button>
@@ -110,6 +117,7 @@
 					type="text"
 					class="search-input"
 					placeholder="Поиск (telegram, netflix, github...)"
+					aria-label="Поиск иконки"
 					bind:value={search}
 				/>
 				<span class="count">
@@ -148,12 +156,12 @@
 				<p class="url-hint">
 					Принимаются PNG/JPG/WebP/SVG; рекомендуем квадратные иконки 32-128px.
 				</p>
-				{#if customUrl.trim()}
+				{#if trimmedUrl}
 					<div class="url-preview">
 						<div class="preview-img">
-							<img src={customUrl.trim()} alt="" />
+							<img src={trimmedUrl} alt="" />
 						</div>
-						<span class="preview-url">{customUrl.trim()}</span>
+						<span class="preview-url">{trimmedUrl}</span>
 					</div>
 				{/if}
 			</div>
