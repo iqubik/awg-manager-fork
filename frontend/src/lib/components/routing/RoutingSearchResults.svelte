@@ -66,12 +66,7 @@
             <div class="results-group-title">IP-правила</div>
             {#each ipResults as rule}
                 <button class="result-card" onclick={() => onRuleClick?.(rule.id, rule.type)}>
-                    <div class="result-icon-box result-icon-ip">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                            <rect x="2" y="2" width="20" height="20" rx="2"/>
-                            <path d="M7 8h10M7 12h10M7 16h6"/>
-                        </svg>
-                    </div>
+                    <ServiceIcon name={rule.name} iconUrl={rule.iconUrl} size={32} />
                     <div class="result-body">
                         <div class="result-title">
                             <span class="result-led" class:led-on={rule.enabled} class:led-off={!rule.enabled}></span>
@@ -115,16 +110,7 @@
             {#if resolveMatch.rules.length > 0}
                 {#each resolveMatch.rules as rule}
                     <button class="result-card" onclick={() => onRuleClick?.(rule.id, rule.type)}>
-                        {#if rule.type === 'dns'}
-                            <ServiceIcon name={rule.name} iconUrl={rule.iconUrl} size={32} />
-                        {:else}
-                            <div class="result-icon-box result-icon-ip">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                                    <rect x="2" y="2" width="20" height="20" rx="2"/>
-                                    <path d="M7 8h10M7 12h10M7 16h6"/>
-                                </svg>
-                            </div>
-                        {/if}
+                        <ServiceIcon name={rule.name} iconUrl={rule.iconUrl} size={32} />
                         <div class="result-body">
                             <div class="result-title">
                                 <span class="result-led" class:led-on={rule.enabled} class:led-off={!rule.enabled}></span>
@@ -254,21 +240,6 @@
     .result-card:focus-visible {
         outline: 2px solid var(--accent);
         outline-offset: -2px;
-    }
-
-    .result-icon-box {
-        width: 32px;
-        height: 32px;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-    }
-
-    .result-icon-ip {
-        background: rgba(34,197,94,0.12);
-        color: var(--success, #22c55e);
     }
 
     .result-body {

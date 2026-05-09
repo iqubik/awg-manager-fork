@@ -1257,3 +1257,30 @@ label {
 .subgroup-pill[data-family="system"]          { color: var(--family-system-fg);          background: var(--family-system-bg);          border-color: var(--family-system-bd); }
 .subgroup-pill[data-family="feature"]         { color: var(--family-feature-fg);         background: var(--family-feature-bg);         border-color: var(--family-feature-bd); }
 .subgroup-pill[data-family="singbox-runtime"] { color: var(--family-singbox-runtime-fg); background: var(--family-singbox-runtime-bg); border-color: var(--family-singbox-runtime-bd); }
+
+/* Shared icon-row field (used in DnsRouteEditModal, IpRouteEditModal). */
+.icon-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 10px;
+	background: var(--bg-primary);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+}
+.icon-meta {
+	flex: 1;
+	min-width: 0;
+}
+.icon-src {
+	font-size: 0.8125rem;
+	color: var(--text-primary);
+}
+.icon-hint {
+	font-size: 0.6875rem;
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	margin-top: 2px;
+}

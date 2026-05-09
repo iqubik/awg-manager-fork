@@ -339,7 +339,7 @@
 		border: 1px solid transparent;
 		border-radius: 8px;
 		cursor: pointer;
-		transition: border-color 0.15s, transform 0.15s;
+		transition: border-color 0.15s;
 		display: flex;
 		align-items: center;
 		justify-content: center;

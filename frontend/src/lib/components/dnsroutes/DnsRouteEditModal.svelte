@@ -859,29 +859,4 @@
 		border-color: var(--color-accent);
 	}
 
-	.icon-row {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		padding: 10px;
-		background: var(--bg-primary);
-		border: 1px solid var(--border);
-		border-radius: 6px;
-	}
-	.icon-meta {
-		flex: 1;
-		min-width: 0;
-	}
-	.icon-src {
-		font-size: 0.8125rem;
-		color: var(--text-primary);
-	}
-	.icon-hint {
-		font-size: 0.6875rem;
-		color: var(--text-muted);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		margin-top: 2px;
-	}
 </style>
