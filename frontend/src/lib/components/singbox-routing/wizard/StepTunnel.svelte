@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
 	import { api } from '$lib/api/client';
 	import type { AWGTagInfo } from '$lib/types';
 	import { singboxWizard } from '$lib/stores/singboxWizard';
+	import { singboxRouter } from '$lib/stores/singboxRouter';
 
 	interface Props {
 		onAdvance: () => void;
@@ -10,29 +11,51 @@
 	let { onAdvance }: Props = $props();
 
 	const wizardState = singboxWizard.state;
+	const optionsStore = singboxRouter.options;
 
-	let tags = $state<AWGTagInfo[]>([]);
-	let loading = $state(true);
+	// Filter out "Специальные" group: 'direct' makes no sense for "through
+	// which tunnel?". The wizard only offers actual outbounds.
+	const groups = $derived(
+		$optionsStore.filter((g) => g.group !== 'Специальные'),
+	);
+
+	const totalCount = $derived(
+		groups.reduce((sum, g) => sum + g.items.length, 0),
+	);
+
+	const selected = $derived($wizardState.tunnelTag);
+
+	// Empty-state import flow — still uses api.getAWGTags() to detect the
+	// post-import tunnel and advance automatically.
 	let importContent = $state('');
 	let importName = $state('');
 	let importing = $state(false);
 	let importError = $state('');
 
-	onMount(async () => {
-		try {
-			tags = await api.getAWGTags();
-		} catch {
-			tags = [];
-		}
-		loading = false;
-		if (tags.length === 1) {
-			singboxWizard.setTunnelTag(tags[0].tag);
-			setTimeout(onAdvance, 500);
-		}
+	// Auto-pick when exactly 1 outbound exists across all groups.
+	// Guards on selected via untrack so this effect doesn't re-fire after
+	// it sets the tag (which would loop with onAdvance call). Effect re-runs
+	// only when groups/totalCount change.
+	$effect(() => {
+		if (totalCount !== 1) return;
+		if (untrack(() => selected)) return;
+		const only = groups.flatMap((g) => g.items)[0];
+		if (!only) return;
+		singboxWizard.setTunnelTag(only.value);
+		setTimeout(onAdvance, 500);
 	});
 
-	function pick(tag: string): void {
-		singboxWizard.setTunnelTag(tag);
+	function pick(value: string): void {
+		singboxWizard.setTunnelTag(value);
+	}
+
+	function primaryLabel(label: string): string {
+		// Strip ` · <tag>` and ` (<tag>)` to extract human-friendly part.
+		const subBreak = label.indexOf(' · ');
+		if (subBreak > 0) return label.slice(0, subBreak);
+		const parenBreak = label.indexOf(' (');
+		if (parenBreak > 0) return label.slice(0, parenBreak);
+		return label;
 	}
 
 	async function importTunnel(): Promise<void> {
@@ -45,8 +68,8 @@
 		importError = '';
 		try {
 			const tunnel = await api.importConfig(content, importName || undefined, 'kernel');
-			tags = await api.getAWGTags();
-			const newTag = tags.find((t) => t.tag === tunnel.id || t.tag.includes(tunnel.id))?.tag;
+			const tags = await api.getAWGTags();
+			const newTag = tags.find((t: AWGTagInfo) => t.tag === tunnel.id || t.tag.includes(tunnel.id))?.tag;
 			if (newTag) {
 				singboxWizard.setTunnelTag(newTag);
 				onAdvance();
@@ -59,43 +82,46 @@
 			importing = false;
 		}
 	}
-
-	const selected = $derived($wizardState.tunnelTag);
 </script>
 
 <div class="title">Через какой туннель пускать трафик?</div>
 
-{#if loading}
-	<div class="hint">Загрузка...</div>
-{:else if tags.length === 1}
-	<div class="toast">Используем туннель <b>{tags[0].label || tags[0].tag}</b>. Шаг проскакивается автоматически.</div>
-{:else if tags.length > 1}
-	<div class="hint">Выберите AWG-туннель, через который пойдут выбранные пресеты.</div>
-	<div class="radio-list">
-		{#each tags as t (t.tag)}
-			{@const checked = selected === t.tag}
-			<label class="option" class:checked>
-				<input
-					type="radio"
-					name="wizard-tunnel-tag"
-					value={t.tag}
-					{checked}
-					onchange={() => pick(t.tag)}
-				/>
-				<span class="option-content">
-					<span class="option-name">{t.label || t.tag}</span>
-					{#if t.label && t.tag !== t.label}
-						<span class="option-meta">{t.tag}</span>
-					{/if}
-				</span>
-				<span class="option-check" aria-hidden="true">
-					{#if checked}
-						<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-							<polyline points="20 6 9 17 4 12"/>
-						</svg>
-					{/if}
-				</span>
-			</label>
+{#if totalCount === 1}
+	{@const only = groups.flatMap((g) => g.items)[0]}
+	<div class="toast">Используем <b>{primaryLabel(only.label)}</b>. Шаг проскакивается автоматически.</div>
+{:else if totalCount > 1}
+	<div class="hint">Выберите outbound, через который пойдут выбранные пресеты.</div>
+	<div class="groups">
+		{#each groups as g (g.group)}
+			<div class="group-head">{g.group}</div>
+			<div class="radio-list">
+				{#each g.items as item (item.value)}
+					{@const checked = selected === item.value}
+					{@const human = primaryLabel(item.label)}
+					<label class="option" class:checked>
+						<input
+							type="radio"
+							name="wizard-tunnel-tag"
+							value={item.value}
+							{checked}
+							onchange={() => pick(item.value)}
+						/>
+						<span class="option-content">
+							<span class="option-name">{human}</span>
+							{#if item.value !== human}
+								<span class="option-meta">{item.value}</span>
+							{/if}
+						</span>
+						<span class="option-check" aria-hidden="true">
+							{#if checked}
+								<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+									<polyline points="20 6 9 17 4 12"/>
+								</svg>
+							{/if}
+						</span>
+					</label>
+				{/each}
+			</div>
 		{/each}
 	</div>
 {:else}
@@ -236,4 +262,17 @@
 		cursor: pointer;
 	}
 	.primary:disabled { opacity: 0.6; cursor: wait; }
+
+	.groups {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+	.group-head {
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--color-text-muted);
+		padding: 0.25rem 0;
+	}
 </style>
