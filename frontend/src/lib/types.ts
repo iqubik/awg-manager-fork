@@ -1268,6 +1268,12 @@ export interface SingboxRouterOutbound {
 	tolerance?: number;
 	default?: string;
 	strategy?: string;
+	/**
+	 * Which orchestrator slot owns this outbound. "router" entries are
+	 * editable from the UI; "subscription" entries are managed by the
+	 * subscription service and shown read-only.
+	 */
+	source?: 'router' | 'subscription';
 }
 
 /**

@@ -141,6 +141,9 @@
 					<span class="chevron" class:open={isOpen}>›</span>
 					<span class={badgeCls(o.type)}>{o.type.toUpperCase()}</span>
 					<span class="tag mono">{o.tag}</span>
+					{#if o.source === 'subscription'}
+						<span class="badge-managed" title="Управляется подпиской — редактирование заблокировано">из подписки</span>
+					{/if}
 					{#if live}
 						<span class="now">now: <span class="now-tag mono">{live.now}</span></span>
 						{#if !isOpen}
@@ -154,8 +157,10 @@
 					{/if}
 				</button>
 				<div class="card-actions">
-					<button class="icon-btn" onclick={() => (editTag = o.tag)} aria-label="Редактировать">✎</button>
-					<button class="icon-btn danger" onclick={() => requestDelete(o.tag)} aria-label="Удалить">✕</button>
+					{#if o.source !== 'subscription'}
+						<button class="icon-btn" onclick={() => (editTag = o.tag)} aria-label="Редактировать">✎</button>
+						<button class="icon-btn danger" onclick={() => requestDelete(o.tag)} aria-label="Удалить">✕</button>
+					{/if}
 				</div>
 			</div>
 			<div class="card-body">
@@ -496,5 +501,13 @@
 	}
 	.delay-muted {
 		color: var(--color-text-muted, var(--muted-text));
+	}
+	.badge-managed {
+		background: rgba(120, 130, 200, 0.18);
+		color: var(--text-muted);
+		font-size: 0.6875rem;
+		padding: 0.125rem 0.5rem;
+		border-radius: var(--radius-pill);
+		margin-left: 0.375rem;
 	}
 </style>
