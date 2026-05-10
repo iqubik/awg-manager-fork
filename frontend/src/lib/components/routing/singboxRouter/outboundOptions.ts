@@ -1,4 +1,4 @@
-import type { AWGTagInfo, SingboxRouterOutbound, SingboxTunnel } from '$lib/types';
+import type { AWGTagInfo, SingboxRouterOutbound, SingboxTunnel, Subscription } from '$lib/types';
 
 export interface OutboundGroup {
 	group: string;
@@ -10,6 +10,7 @@ export function buildOutboundOptions(
 	phase1Tunnels: SingboxTunnel[] | undefined | null,
 	composite: SingboxRouterOutbound[] | undefined | null,
 	includeSpecial = true,
+	subscriptions: Subscription[] | undefined | null = null,
 ): OutboundGroup[] {
 	// Stores may yield undefined before initial load completes; treat as empty
 	// to avoid breaking the dropdown render. Same pattern as defensive `?? []`
@@ -61,12 +62,18 @@ export function buildOutboundOptions(
 	}
 
 	if (composites.length > 0) {
+		const subs = subscriptions ?? [];
 		groups.push({
 			group: 'Composite outbounds',
-			items: composites.map((o) => ({
-				value: o.tag,
-				label: `${o.tag} (${o.type})`,
-			})),
+			items: composites.map((o) => {
+				if (o.source === 'subscription' && subs.length > 0) {
+					const sub = subs.find((s) => s.selectorTag === o.tag);
+					if (sub) {
+						return { value: o.tag, label: `${sub.label} · ${o.tag}` };
+					}
+				}
+				return { value: o.tag, label: `${o.tag} (${o.type})` };
+			}),
 		});
 	}
 
