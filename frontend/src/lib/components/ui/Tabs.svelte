@@ -51,8 +51,14 @@
         } else {
             url.searchParams.set(urlParam, id);
         }
-        const target = url.pathname + (url.searchParams.toString() ? `?${url.searchParams}` : '') + url.hash;
-        if (target === $page.url.pathname + $page.url.search + $page.url.hash) return;
+        const nextSearch = url.searchParams.toString();
+        const currentSearch = $page.url.searchParams.toString();
+        if (
+            url.pathname === $page.url.pathname &&
+            nextSearch === currentSearch &&
+            url.hash === $page.url.hash
+        ) return;
+        const target = url.pathname + (nextSearch ? `?${nextSearch}` : '') + url.hash;
         void goto(target, { replaceState: true, keepFocus: true, noScroll: true });
     }
 
