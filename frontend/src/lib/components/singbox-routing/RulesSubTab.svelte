@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { singboxRouter } from '$lib/stores/singboxRouter';
@@ -12,7 +14,7 @@
 		ConfirmModal,
 	} from '$lib/components/ui';
 	import type { StatTile } from '$lib/components/ui';
-	import type { AWGTagInfo, SingboxRouterRule, SingboxTunnel } from '$lib/types';
+	import type { AWGTagInfo, SingboxRouterRule, SingboxRouterRuleSet, SingboxTunnel } from '$lib/types';
 	import {
 		buildOutboundOptions,
 		RuleEditModal,
@@ -20,11 +22,13 @@
 
 	const statusStore = singboxRouter.status;
 	const rulesStore = singboxRouter.rules;
+	const ruleSetsStore = singboxRouter.ruleSets;
 	const outboundsStore = singboxRouter.outbounds;
 	const phase1Store = singboxTunnels;
 
 	const status = $derived($statusStore);
 	const rules = $derived($rulesStore);
+	const ruleSets = $derived<SingboxRouterRuleSet[]>($ruleSetsStore);
 	const outbounds = $derived($outboundsStore);
 	const phase1Tunnels = $derived(($phase1Store.data ?? []) as SingboxTunnel[]);
 
@@ -44,6 +48,22 @@
 
 	onMount(() => {
 		loadAWGTags();
+	});
+
+	// Deep-link: ?newRuleSet=<tag> opens add-modal with that tag preselected.
+	// Triggered by the "+ Правило" button on RuleSetsSubTab cards via
+	// goto(?sub=rules&newRuleSet=<tag>). Cleans the URL after consumption so
+	// the param doesn't linger or re-trigger on re-renders.
+	$effect(() => {
+		const t = $page.url.searchParams.get('newRuleSet');
+		if (!t) return;
+		if (untrack(() => addMode || editIndex !== null)) return;
+		prefillRuleSet = t;
+		addMode = true;
+		const sp = new URLSearchParams($page.url.search);
+		sp.delete('newRuleSet');
+		const url = $page.url.pathname + (sp.toString() ? '?' + sp : '') + $page.url.hash;
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	});
 
 	const outboundOptions = $derived(
@@ -107,6 +127,7 @@
 
 	let editIndex = $state<number | null>(null);
 	let addMode = $state(false);
+	let prefillRuleSet = $state<string | null>(null);
 	let deleteIndex = $state<number | null>(null);
 	let deletingBusy = $state(false);
 
@@ -234,11 +255,14 @@
 
 {#if addMode}
 	<RuleEditModal
+		rule={prefillRuleSet ? { action: 'route', rule_set: [prefillRuleSet] } : undefined}
 		{outboundOptions}
-		onClose={() => (addMode = false)}
+		availableRuleSets={ruleSets}
+		onClose={() => { addMode = false; prefillRuleSet = null; }}
 		onSave={async (rule) => {
 			await api.singboxRouterAddRule(rule);
 			addMode = false;
+			prefillRuleSet = null;
 			await refresh();
 		}}
 	/>
@@ -249,6 +273,7 @@
 	<RuleEditModal
 		rule={rules[idx]}
 		{outboundOptions}
+		availableRuleSets={ruleSets}
 		onClose={() => (editIndex = null)}
 		onSave={async (rule) => {
 			await api.singboxRouterUpdateRule(idx, rule);

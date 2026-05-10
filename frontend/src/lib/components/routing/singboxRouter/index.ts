@@ -1,9 +1,7 @@
 export { default as NetfilterMissingBanner } from './NetfilterMissingBanner.svelte';
 export { default as EngineStatusCard } from './EngineStatusCard.svelte';
 export { default as RefreshSettingsModal } from './RefreshSettingsModal.svelte';
-export { default as RulesList } from './RulesList.svelte';
 export { default as RuleEditModal } from './RuleEditModal.svelte';
-export { default as RuleSetsList } from './RuleSetsList.svelte';
 export { default as RuleSetAddModal } from './RuleSetAddModal.svelte';
 export { default as CompositeOutboundsList } from './CompositeOutboundsList.svelte';
 export { default as CompositeOutboundEditModal } from './CompositeOutboundEditModal.svelte';
