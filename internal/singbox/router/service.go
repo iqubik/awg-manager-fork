@@ -23,6 +23,8 @@ type Service interface {
 	GetSettings(ctx context.Context) (storage.SingboxRouterSettings, error)
 	UpdateSettings(ctx context.Context, s storage.SingboxRouterSettings) error
 
+	SetRouteFinal(ctx context.Context, tag string) error
+
 	ListRules(ctx context.Context) ([]Rule, error)
 	AddRule(ctx context.Context, rule Rule) error
 	UpdateRule(ctx context.Context, index int, rule Rule) error
@@ -686,6 +688,50 @@ func (s *ServiceImpl) DeleteRule(ctx context.Context, index int) error {
 
 func (s *ServiceImpl) MoveRule(ctx context.Context, from, to int) error {
 	return s.withConfig(ctx, "rules", func(c *RouterConfig) error { return c.MoveRule(from, to) })
+}
+
+func (s *ServiceImpl) SetRouteFinal(ctx context.Context, tag string) error {
+	return s.withConfig(ctx, "route", func(c *RouterConfig) error {
+		if !s.isKnownOutboundTag(ctx, tag, c) {
+			return fmt.Errorf("unknown outbound tag %q for route.final", tag)
+		}
+		return c.SetRouteFinal(tag)
+	})
+}
+
+// isKnownOutboundTag returns true if tag is a sing-box built-in or matches
+// an outbound from any known catalog (router composites, AWG, sing-box tunnels).
+func (s *ServiceImpl) isKnownOutboundTag(ctx context.Context, tag string, cfg *RouterConfig) bool {
+	if tag == "direct" || tag == "block" || tag == "dns" {
+		return true
+	}
+	// Router-managed composites
+	for _, o := range cfg.Outbounds {
+		if o.Tag == tag {
+			return true
+		}
+	}
+	// AWG-direct outbounds (managed + system)
+	if s.deps.AWGTags != nil {
+		if tags, err := s.deps.AWGTags.ListTags(ctx); err == nil {
+			for _, t := range tags {
+				if t.Tag == tag {
+					return true
+				}
+			}
+		}
+	}
+	// Sing-box tunnels (10-tunnels.json)
+	if s.deps.SingboxTunnels != nil {
+		if tags, err := s.deps.SingboxTunnels.ListTunnelTags(ctx); err == nil {
+			for _, t := range tags {
+				if t == tag {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (s *ServiceImpl) ListRuleSets(ctx context.Context) ([]RuleSet, error) {

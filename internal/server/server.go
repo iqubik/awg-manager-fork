@@ -1003,6 +1003,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 				rh.PutDNSGlobals(w, r)
 			}
 		}))
+		mux.HandleFunc("/api/singbox/router/route/final", guarded(rh.SetRouteFinal))
 		mux.HandleFunc("/api/singbox/router/inspect", guarded(rh.Inspect))
 	}
 

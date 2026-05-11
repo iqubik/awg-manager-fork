@@ -21,6 +21,7 @@ func NewEmptyConfig() *RouterConfig {
 		Route: Route{
 			RuleSet: []RuleSet{},
 			Rules:   []Rule{},
+			Final:   "direct",
 		},
 	}
 }
@@ -182,6 +183,9 @@ func (c *RouterConfig) MoveRule(from, to int) error {
 }
 
 func (c *RouterConfig) EnsureSystemRules() {
+	if c.Route.Final == "" {
+		c.Route.Final = "direct"
+	}
 	hasSniff := false
 	hasHijack := false
 	for _, r := range c.Route.Rules {
@@ -202,6 +206,17 @@ func (c *RouterConfig) EnsureSystemRules() {
 	if len(prepend) > 0 {
 		c.Route.Rules = append(prepend, c.Route.Rules...)
 	}
+}
+
+// SetRouteFinal updates route.final. Caller must validate the tag refers
+// to a known outbound (or sing-box built-in: "direct", "block").
+// Setting to "" is rejected — use "direct" for default fallback.
+func (c *RouterConfig) SetRouteFinal(tag string) error {
+	if tag == "" {
+		return fmt.Errorf("route final cannot be empty (use 'direct' for default)")
+	}
+	c.Route.Final = tag
+	return nil
 }
 
 func (c *RouterConfig) AddCompositeOutbound(o Outbound) error {

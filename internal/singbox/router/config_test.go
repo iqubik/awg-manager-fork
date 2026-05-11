@@ -84,6 +84,38 @@ func TestSaveProducesValidJSON(t *testing.T) {
 	}
 }
 
+func TestNewEmptyConfig_FinalIsDirect(t *testing.T) {
+	cfg := NewEmptyConfig()
+	if cfg.Route.Final != "direct" {
+		t.Errorf("expected Final='direct', got %q", cfg.Route.Final)
+	}
+}
+
+func TestEnsureSystemRules_EnforcesFinal(t *testing.T) {
+	cfg := NewEmptyConfig()
+	cfg.Route.Final = ""
+	cfg.EnsureSystemRules()
+	if cfg.Route.Final != "direct" {
+		t.Errorf("EnsureSystemRules should set Final='direct' when empty, got %q", cfg.Route.Final)
+	}
+}
+
+func TestEnsureSystemRules_PreservesCustomFinal(t *testing.T) {
+	cfg := NewEmptyConfig()
+	cfg.Route.Final = "my-vpn"
+	cfg.EnsureSystemRules()
+	if cfg.Route.Final != "my-vpn" {
+		t.Errorf("EnsureSystemRules should preserve non-empty Final, got %q", cfg.Route.Final)
+	}
+}
+
+func TestSetRouteFinal_RejectsEmpty(t *testing.T) {
+	cfg := NewEmptyConfig()
+	if err := cfg.SetRouteFinal(""); err == nil {
+		t.Error("expected SetRouteFinal('') to error")
+	}
+}
+
 func TestStripLegacyAWGDirect(t *testing.T) {
 	in := []Outbound{
 		{Type: "direct", Tag: "legacy-a", BindInterface: "t2s0"},

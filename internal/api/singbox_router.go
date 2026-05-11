@@ -1048,6 +1048,42 @@ func (h *SingboxRouterHandler) UnbindDevice(w http.ResponseWriter, r *http.Reque
 	response.Success(w, map[string]bool{"ok": true})
 }
 
+// SingboxRouterRouteFinalRequest is the body for POST /singbox/router/route/final.
+type SingboxRouterRouteFinalRequest struct {
+	Final string `json:"final" example:"direct"`
+}
+
+// SetRouteFinal updates route.final.
+//
+//	@Summary		Set route.final outbound
+//	@Description	Updates the route.final fallback outbound. Use "direct" for default sing-box direct, or the tag of any existing outbound (composite, AWG, sing-box tunnel).
+//	@Tags			singbox-router
+//	@Accept			json
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Param			body	body		SingboxRouterRouteFinalRequest	true	"New final outbound tag"
+//	@Success		200		{object}	OkResponse
+//	@Failure		400		{object}	APIErrorEnvelope
+//	@Failure		405		{object}	APIErrorEnvelope
+//	@Failure		500		{object}	APIErrorEnvelope
+//	@Router			/singbox/router/route/final [post]
+func (h *SingboxRouterHandler) SetRouteFinal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.MethodNotAllowed(w)
+		return
+	}
+	var req SingboxRouterRouteFinalRequest
+	if err := decodeBody(r, &req); err != nil {
+		response.BadRequest(w, err.Error())
+		return
+	}
+	if err := h.svc.SetRouteFinal(r.Context(), req.Final); err != nil {
+		h.handleErr(w, "route-final", err)
+		return
+	}
+	response.Success(w, map[string]bool{"ok": true})
+}
+
 func decodeBody(r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(nil, r.Body, 1<<20)
 	defer r.Body.Close()
