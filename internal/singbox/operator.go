@@ -164,6 +164,7 @@ func NewOperator(d OperatorDeps) *Operator {
 
 	ensureBaseConfig(configPath)
 	ensureLegacyConfigMigrated(dir)
+	patchTunnelsSlotStripBaseDNS(filepath.Join(configPath, "10-tunnels.json"))
 
 	op := &Operator{
 		log:           log,
@@ -670,6 +671,74 @@ func patchBaseCacheFilePath(basePath string) {
 		return
 	}
 	_ = writeJSONFile(basePath, m)
+}
+
+// patchTunnelsSlotStripBaseDNS self-heals 10-tunnels.json files polluted
+// by a pre-fix bootstrap. Older NewConfig() emitted log/dns/experimental
+// into the fresh skeleton — when AddTunnels (operator.go AddTunnels →
+// loadOrInitConfig) created 10-tunnels.json for the first time, those
+// base-owned blocks landed in the tunnels slot. The cross-slot validator
+// then rejects every subsequent reload with "duplicate-dns: dns-bootstrap
+// (also declared in [base])", blocking subscription saves and any other
+// reload-triggering write.
+//
+// This patcher reads the slot file, runs dns.servers through
+// filterOutOurDNSServers (drops dns-bootstrap / dns-doh, keeps custom
+// user resolvers), and rewrites the file. The `dns` key is removed
+// entirely when nothing user-relevant remains, restoring the canonical
+// slot shape (no DNS in 10-tunnels.json).
+//
+// Idempotent: no-op when the file is missing, when there is no `dns`
+// key, or when the dns block has no servers from the owned-set. Safe to
+// run on every NewOperator. Does NOT touch `log` / `experimental` blocks
+// that pre-fix NewConfig() also emitted — the cross-slot validator
+// (orchestrator/validate.go) only inspects inbounds/outbounds/dns.servers
+// tags, so duplicate log/experimental keys in 10-tunnels.json are
+// harmless noise that sing-box merges over. Kept out of scope to keep
+// this targeted fix narrow.
+func patchTunnelsSlotStripBaseDNS(tunnelsPath string) {
+	data, err := os.ReadFile(tunnelsPath)
+	if err != nil {
+		return
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return
+	}
+	dns, ok := m["dns"].(map[string]any)
+	if !ok {
+		return
+	}
+	servers, _ := dns["servers"].([]any)
+	filtered := filterOutOurDNSServers(servers)
+
+	// Detect whether anything user-relevant remains. The dns block can be
+	// dropped entirely only when servers came back empty AND no user
+	// rules/final/strategy were customized beyond what 00-base provides.
+	rulesArr, _ := dns["rules"].([]any)
+	hasUserRules := len(rulesArr) > 0
+	if len(filtered) == 0 && !hasUserRules {
+		delete(m, "dns")
+	} else {
+		if len(filtered) == 0 {
+			delete(dns, "servers")
+		} else {
+			dns["servers"] = filtered
+		}
+		// Strip final/strategy keys that mirror 00-base defaults — they
+		// would otherwise persist as zombie config noise after the
+		// owned-set servers vanish.
+		if final, _ := dns["final"].(string); final == "dns-doh" || final == "dns-bootstrap" {
+			delete(dns, "final")
+		}
+		if strategy, _ := dns["strategy"].(string); strategy == "ipv4_only" {
+			delete(dns, "strategy")
+		}
+		if len(dns) == 0 {
+			delete(m, "dns")
+		}
+	}
+	_ = writeJSONFile(tunnelsPath, m)
 }
 
 // freshBaseConfig returns the canonical base sing-box config. Single

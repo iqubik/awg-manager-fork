@@ -526,3 +526,233 @@ func TestPatchBaseCacheFilePath_PreservesUserCustomPath(t *testing.T) {
 		t.Errorf("path=%q want %q (custom path should be preserved)", got, custom)
 	}
 }
+
+// TestPatchTunnelsSlotStripBaseDNS_RemovesPollutedDNSBlock covers the
+// exact shape of pollution observed in the wild: 10-tunnels.json with
+// the full NewConfig() dns block (dns-bootstrap + dns-doh, no user
+// rules). After patching, the dns key must be gone entirely so the
+// cross-slot validator no longer reports duplicate-dns.
+func TestPatchTunnelsSlotStripBaseDNS_RemovesPollutedDNSBlock(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "10-tunnels.json")
+	polluted := `{
+		"inbounds": [{"type":"mixed","tag":"DE-in","listen":"127.0.0.1","listen_port":1080}],
+		"outbounds": [{"type":"vless","tag":"DE","server":"de.tld","server_port":443}],
+		"route": {"rules":[{"inbound":"DE-in","outbound":"DE"}]},
+		"dns": {
+			"strategy": "ipv4_only",
+			"servers": [
+				{"tag":"dns-bootstrap","type":"udp","server":"1.1.1.1"},
+				{"tag":"dns-doh","type":"https","server":"cloudflare-dns.com","domain_resolver":"dns-bootstrap"}
+			],
+			"final": "dns-doh"
+		}
+	}`
+	if err := os.WriteFile(p, []byte(polluted), 0644); err != nil {
+		t.Fatal(err)
+	}
+	patchTunnelsSlotStripBaseDNS(p)
+
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := m["dns"]; present {
+		t.Errorf("dns key must be removed entirely after patch, got: %s", raw)
+	}
+	// Tunnels content must survive untouched.
+	if inbounds, _ := m["inbounds"].([]any); len(inbounds) != 1 {
+		t.Errorf("inbounds: %v", inbounds)
+	}
+	if outbounds, _ := m["outbounds"].([]any); len(outbounds) != 1 {
+		t.Errorf("outbounds: %v", outbounds)
+	}
+}
+
+// TestPatchTunnelsSlotStripBaseDNS_PreservesUserCustomDNS keeps any
+// dns server NOT in the owned set. A user who manually added e.g. a
+// quad9 resolver via hand-edited json must keep it after self-heal.
+func TestPatchTunnelsSlotStripBaseDNS_PreservesUserCustomDNS(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "10-tunnels.json")
+	mixed := `{
+		"inbounds": [],
+		"outbounds": [],
+		"route": {"rules":[]},
+		"dns": {
+			"servers": [
+				{"tag":"dns-bootstrap","type":"udp","server":"1.1.1.1"},
+				{"tag":"dns-quad9","type":"udp","server":"9.9.9.9"}
+			]
+		}
+	}`
+	if err := os.WriteFile(p, []byte(mixed), 0644); err != nil {
+		t.Fatal(err)
+	}
+	patchTunnelsSlotStripBaseDNS(p)
+
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	dns, ok := m["dns"].(map[string]any)
+	if !ok {
+		t.Fatalf("dns must remain (custom server present): %s", raw)
+	}
+	servers, _ := dns["servers"].([]any)
+	if len(servers) != 1 {
+		t.Fatalf("want 1 surviving server, got %d: %v", len(servers), servers)
+	}
+	srv := servers[0].(map[string]any)
+	if srv["tag"] != "dns-quad9" {
+		t.Errorf("surviving server tag=%v want dns-quad9", srv["tag"])
+	}
+}
+
+// TestPatchTunnelsSlotStripBaseDNS_IdempotentOnClean is the steady-state
+// case: a clean slot file (no dns block) must round-trip unchanged.
+func TestPatchTunnelsSlotStripBaseDNS_IdempotentOnClean(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "10-tunnels.json")
+	clean := `{
+  "inbounds": [],
+  "outbounds": [],
+  "route": {
+    "rules": []
+  }
+}`
+	if err := os.WriteFile(p, []byte(clean), 0644); err != nil {
+		t.Fatal(err)
+	}
+	patchTunnelsSlotStripBaseDNS(p)
+
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := m["dns"]; present {
+		t.Errorf("dns must remain absent on clean file: %s", raw)
+	}
+}
+
+// TestPatchTunnelsSlotStripBaseDNS_MissingFile must be a silent no-op.
+// First boot before any tunnel-add has no 10-tunnels.json; the patcher
+// runs every NewOperator and must not error.
+func TestPatchTunnelsSlotStripBaseDNS_MissingFile(t *testing.T) {
+	dir := t.TempDir()
+	patchTunnelsSlotStripBaseDNS(filepath.Join(dir, "10-tunnels.json"))
+	// No assertion — just confirm no panic.
+}
+
+// TestPatchTunnelsSlotStripBaseDNS_StripsDanglingFinalReference covers
+// the combination case: user has a custom server (so dns block survives)
+// AND `final` still points at one of the owned-set tags that just got
+// removed. The patcher must strip that dangling reference along with
+// the polluted servers, otherwise tunnels-slot dns.final = "dns-doh"
+// references a tag whose owner now lives only in 00-base.
+func TestPatchTunnelsSlotStripBaseDNS_StripsDanglingFinalReference(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "10-tunnels.json")
+	mixed := `{
+		"inbounds": [],
+		"outbounds": [],
+		"route": {"rules":[]},
+		"dns": {
+			"strategy": "ipv4_only",
+			"final": "dns-doh",
+			"servers": [
+				{"tag":"dns-bootstrap","type":"udp","server":"1.1.1.1"},
+				{"tag":"dns-doh","type":"https","server":"cloudflare-dns.com","domain_resolver":"dns-bootstrap"},
+				{"tag":"dns-quad9","type":"udp","server":"9.9.9.9"}
+			]
+		}
+	}`
+	if err := os.WriteFile(p, []byte(mixed), 0644); err != nil {
+		t.Fatal(err)
+	}
+	patchTunnelsSlotStripBaseDNS(p)
+
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	dns, ok := m["dns"].(map[string]any)
+	if !ok {
+		t.Fatalf("dns must remain (custom server present): %s", raw)
+	}
+	if _, present := dns["final"]; present {
+		t.Errorf("final must be stripped (dangling reference to removed dns-doh): %s", raw)
+	}
+	if _, present := dns["strategy"]; present {
+		t.Errorf("strategy=ipv4_only must be stripped (mirrors base default): %s", raw)
+	}
+	servers, _ := dns["servers"].([]any)
+	if len(servers) != 1 {
+		t.Fatalf("want 1 surviving server (dns-quad9), got %d: %v", len(servers), servers)
+	}
+	if tag, _ := servers[0].(map[string]any)["tag"].(string); tag != "dns-quad9" {
+		t.Errorf("surviving server tag=%q want dns-quad9", tag)
+	}
+}
+
+// TestPatchTunnelsSlotStripBaseDNS_PreservesUserDNSRules keeps the dns
+// block alive when servers got filtered to zero but the user has rules
+// pointing at base-owned tags (dns rules reference, but don't own,
+// server tags — sing-box merges across slots).
+func TestPatchTunnelsSlotStripBaseDNS_PreservesUserDNSRules(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "10-tunnels.json")
+	mixed := `{
+		"inbounds": [],
+		"outbounds": [],
+		"route": {"rules":[]},
+		"dns": {
+			"servers": [
+				{"tag":"dns-bootstrap","type":"udp","server":"1.1.1.1"}
+			],
+			"rules": [
+				{"domain":["example.com"],"server":"dns-doh"}
+			]
+		}
+	}`
+	if err := os.WriteFile(p, []byte(mixed), 0644); err != nil {
+		t.Fatal(err)
+	}
+	patchTunnelsSlotStripBaseDNS(p)
+
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	dns, ok := m["dns"].(map[string]any)
+	if !ok {
+		t.Fatalf("dns must remain (user rule present): %s", raw)
+	}
+	if _, hasServers := dns["servers"]; hasServers {
+		t.Errorf("servers must be removed (only owned-set was present): %s", raw)
+	}
+	rules, _ := dns["rules"].([]any)
+	if len(rules) != 1 {
+		t.Errorf("want 1 surviving rule, got %d", len(rules))
+	}
+}

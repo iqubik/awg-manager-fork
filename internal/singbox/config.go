@@ -22,50 +22,15 @@ type Config struct {
 	raw map[string]any
 }
 
+// NewConfig returns the empty slot-shape skeleton for 10-tunnels.json:
+// inbounds + outbounds + route only. log/dns/experimental are intentionally
+// omitted — those keys belong to 00-base.json (owned by ensureBaseConfig).
+// Emitting them here used to pollute 10-tunnels.json on first tunnel-add
+// with dns-bootstrap/dns-doh tags that 00-base owns, tripping the
+// orchestrator's cross-slot duplicate-tag validator.
 func NewConfig() *Config {
 	return &Config{
 		raw: map[string]any{
-			"log": map[string]any{"level": "info", "timestamp": true},
-			"dns": map[string]any{
-				"strategy": "ipv4_only",
-				"servers": []any{
-					// sing-box 1.13+ native schema: when `type` is set,
-					// the server is addressed via `server` + optional
-					// `server_port`/`path`, NOT the legacy `address`
-					// field (that was the 1.11/1.12 shape). `address`
-					// is rejected with "unknown field" once a type is
-					// declared.
-					// Bootstrap omits `detour` intentionally: sing-box
-					// 1.13 flags "detour to an empty direct outbound
-					// makes no sense" and FATALs at startup. With
-					// route.final = "direct" the DNS query ends up at
-					// the same place anyway. When M2+ routes traffic
-					// through a tunnel, we'll add an explicit route
-					// rule pinning bootstrap UDP/53 to direct so the
-					// chicken-and-egg stays broken.
-					map[string]any{
-						"type":   "udp",
-						"tag":    "dns-bootstrap",
-						"server": "1.1.1.1",
-					},
-					map[string]any{
-						"type":            "https",
-						"tag":             "dns-doh",
-						"server":          "cloudflare-dns.com",
-						"domain_resolver": "dns-bootstrap",
-					},
-				},
-				"final": "dns-doh",
-			},
-			"experimental": map[string]any{
-				// Port 9099 (not the default 9090) so a user-managed
-				// sing-box instance already bound to 9090 doesn't steal
-				// our log/traffic streams — we'd otherwise forward the
-				// user's tunnels into our UI and miss our own events.
-				"clash_api": map[string]any{
-					"external_controller": "127.0.0.1:9099",
-				},
-			},
 			"inbounds":  []any{},
 			"outbounds": []any{},
 			"route": map[string]any{
