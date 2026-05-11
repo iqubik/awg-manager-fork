@@ -19,7 +19,7 @@ export interface OrchestratorApi {
 	singboxRouterAddDNSRule(rule: SingboxRouterDNSRule): Promise<void>;
 	singboxRouterUpdateDNSRule(index: number, rule: SingboxRouterDNSRule): Promise<void>;
 	singboxRouterEnable(): Promise<void>;
-	singboxRouterStatus(): Promise<{ running: boolean }>;
+	singboxDaemonStatus(): Promise<{ running: boolean }>;
 }
 
 export interface OrchestratorOptions {
@@ -72,8 +72,12 @@ async function step<T>(
 async function waitForRunning(api: OrchestratorApi, timeoutMs: number): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
-		const status = await api.singboxRouterStatus();
-		if (status.running) return;
+		try {
+			const status = await api.singboxDaemonStatus();
+			if (status.running) return;
+		} catch {
+			// transient — keep polling
+		}
 		await new Promise((r) => setTimeout(r, 250));
 	}
 	throw new Error('sing-box не подтвердил запуск за отведённое время');
@@ -84,7 +88,7 @@ export async function runWizard(
 	opts: OrchestratorOptions,
 ): Promise<WizardResult> {
 	const { api, presets, onProgress } = opts;
-	const timeoutMs = opts.statusTimeoutMs ?? 5000;
+	const timeoutMs = opts.statusTimeoutMs ?? 30_000;
 
 	if (!state.tunnelTag) throw new WizardError('precondition', 'tunnel not selected');
 	if (state.presetIds.length === 0) throw new WizardError('precondition', 'no presets selected');

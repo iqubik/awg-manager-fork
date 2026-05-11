@@ -30,7 +30,7 @@ const fakeApi = () => ({
 	singboxRouterAddDNSRule: vi.fn().mockResolvedValue(undefined),
 	singboxRouterUpdateDNSRule: vi.fn().mockResolvedValue(undefined),
 	singboxRouterEnable: vi.fn().mockResolvedValue(undefined),
-	singboxRouterStatus: vi.fn().mockResolvedValue({ running: true }),
+	singboxDaemonStatus: vi.fn().mockResolvedValue({ running: true }),
 });
 
 const presets = [
@@ -115,7 +115,7 @@ describe('runWizard', () => {
 	});
 
 	it('throws if status never returns running:true within timeout', async () => {
-		api.singboxRouterStatus.mockResolvedValue({ running: false });
+		api.singboxDaemonStatus.mockResolvedValue({ running: false });
 		await expect(runWizard(baseState(), { api, presets, onProgress: vi.fn(), statusTimeoutMs: 50 }))
 			.rejects.toMatchObject({ phase: 'enableEngine', message: expect.stringContaining('подтвердил') });
 	});
