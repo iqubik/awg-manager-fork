@@ -100,6 +100,12 @@ type Service interface {
 
 	// MigrateEmptyBackend sets Backend="kernel" on all tunnels with empty Backend field.
 	MigrateEmptyBackend()
+
+	// HealStaleActiveWAN clears stored.ActiveWAN values that don't name a real
+	// kernel interface. Repairs storage written by the old (buggy) resolver
+	// that occasionally persisted NDMS logical labels (e.g. "ISP") instead
+	// of kernel names. Called once at startup.
+	HealStaleActiveWAN()
 }
 
 // TunnelWithStatus combines stored tunnel data with live status.

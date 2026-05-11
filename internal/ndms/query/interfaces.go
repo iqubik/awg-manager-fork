@@ -28,6 +28,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -37,6 +38,47 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/ndms"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/wan"
 )
+
+// looksLikeKernelIfname reports whether s is a syntactically valid Linux
+// network interface name. Linux kernel names use a constrained set
+// (lowercase a-z, digits, ".", "_", "-") and fit in IFNAMSIZ-1 = 15 bytes.
+// NDMS-style identifiers ("Wireguard0", "GigabitEthernet1", "ISP", "PPPoE0")
+// contain upper-case letters and are rejected — they are not kernel device
+// names and using them for SO_BINDTODEVICE / curl --interface fails with
+// ENODEV. Used as the first-line filter in wireToInterface and as part of
+// the trust-cache check in ResolveSystemName.
+func looksLikeKernelIfname(s string) bool {
+	if s == "" || len(s) > 15 {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			// OK
+		case r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+			if i == 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// kernelIfaceExists reports whether a network interface with the given
+// name is present in the running kernel. Defends against firmware quirks
+// where NDMS list response populates `interface-name` with a logical NDMS
+// label (e.g. "ISP" for a physical port) that may pass the syntactic
+// filter but isn't a real kernel device. Overridable for tests via the
+// package-level variable.
+var kernelIfaceExists = func(name string) bool {
+	if name == "" {
+		return false
+	}
+	_, err := os.Stat("/sys/class/net/" + name)
+	return err == nil
+}
 
 // InterfaceStore is the event-sourced cache of NDMS interfaces.
 type InterfaceStore struct {
@@ -241,11 +283,17 @@ func (s *InterfaceStore) HasIPv6Global(ctx context.Context, name string) bool {
 // name=Wireguard0` returns the kernel name `"nwg0"`. The resolver is
 // the only authoritative source.
 //
-// We treat the cached SystemName as garbage when it's empty OR when
-// it equals the NDMS id (which signals NDMS handed us its own input
-// back). Garbage triggers a one-shot resolver probe, memoised on the
-// cached entry. The resolver does not 404 on missing names (returns
-// an empty string), so no router-syslog noise is added.
+// We treat the cached SystemName as garbage when ANY of these hold:
+//   - empty
+//   - equals the NDMS id (NDMS echoed our input back)
+//   - fails the syntactic kernel-name shape check (covers logical NDMS
+//     labels like "ISP" that NDMS occasionally writes into the
+//     `interface-name` field of physical ports)
+//   - passes the shape check but no such device exists in /sys/class/net
+//
+// Garbage triggers a one-shot resolver probe, memoised on the cached
+// entry. The resolver does not 404 on missing names (returns an empty
+// string), so no router-syslog noise is added.
 func (s *InterfaceStore) ResolveSystemName(ctx context.Context, ndmsName string) string {
 	if ndmsName == "" {
 		return ""
@@ -260,9 +308,14 @@ func (s *InterfaceStore) ResolveSystemName(ctx context.Context, ndmsName string)
 	}
 	s.mu.RUnlock()
 
-	// Trustworthy cached value: non-empty AND distinct from the NDMS
-	// id we'd otherwise be querying for.
-	if sysName != "" && sysName != ndmsName {
+	// Trustworthy cached value: non-empty, distinct from NDMS id, looks
+	// like a kernel name, AND exists in the running kernel. The last
+	// check defends against firmware quirks where the parser filter has
+	// already nominally accepted a value but the device is missing
+	// (hotplug races, label-typed values that happen to be lowercase).
+	if sysName != "" && sysName != ndmsName &&
+		looksLikeKernelIfname(sysName) &&
+		kernelIfaceExists(sysName) {
 		return sysName
 	}
 
@@ -681,9 +734,20 @@ func wireToInterface(w ifaceWire) ndms.Interface {
 	if confLayer == "" {
 		confLayer = w.Summary.Layer.Conf
 	}
+	// Drop interface-name values that are not syntactically kernel names.
+	// On some Keenetic firmwares the list response sets `interface-name`
+	// to a logical NDMS label (e.g. "ISP" for a physical port) rather than
+	// the actual kernel device — that value would otherwise poison the
+	// cache and slip past the ResolveSystemName echo-check. Leaving it
+	// empty here forces ResolveSystemName to fall back to the dedicated
+	// /show/interface/system-name resolver.
+	sysName := w.InterfaceName
+	if !looksLikeKernelIfname(sysName) {
+		sysName = ""
+	}
 	return ndms.Interface{
 		ID:            w.ID,
-		SystemName:    w.InterfaceName,
+		SystemName:    sysName,
 		Type:          w.Type,
 		Description:   w.Description,
 		State:         w.State,

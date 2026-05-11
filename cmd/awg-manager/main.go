@@ -1092,6 +1092,9 @@ func main() {
 
 			// Migrate legacy NDMS ID values to kernel names (one-time after model is populated).
 			tunnelService.MigrateISPInterfaceToKernel()
+			// Clear stored.ActiveWAN entries that don't name a real kernel iface
+			// (legacy garbage from the pre-hardened resolver, e.g. "ISP").
+			tunnelService.HealStaleActiveWAN()
 
 			// Detect actual WAN state.
 			if _, err := ndmsQueries.Routes.GetDefaultGatewayInterface(shutdownCtx); err != nil {
@@ -1116,6 +1119,9 @@ func main() {
 
 		// Migrate legacy NDMS ID values to kernel names (one-time after model is populated).
 		tunnelService.MigrateISPInterfaceToKernel()
+		// Clear stored.ActiveWAN entries that don't name a real kernel iface
+		// (legacy garbage from the pre-hardened resolver, e.g. "ISP").
+		tunnelService.HealStaleActiveWAN()
 
 		bootLog.Info("startup", "",
 			"Daemon restart detected — reconnecting to running tunnels")

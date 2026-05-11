@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,21 @@ import (
 )
 
 const ifaceListPath = "/show/interface/"
+
+// TestMain installs a permissive kernelIfaceExists for the whole package.
+// Test fixtures use synthetic kernel names ("nwg0", "br0", "ppp0", "eth3")
+// that don't exist on the dev machine; without an override the production
+// /sys/class/net check would reject all of them and the trust-cache path
+// in ResolveSystemName would never be exercised. Individual tests that
+// specifically want to exercise the kernel-missing rejection path
+// override the hook locally.
+func TestMain(m *testing.M) {
+	orig := kernelIfaceExists
+	kernelIfaceExists = func(name string) bool { return name != "" }
+	code := m.Run()
+	kernelIfaceExists = orig
+	os.Exit(code)
+}
 
 // sample /show/interface/ response with two interfaces — one running
 // Wireguard with full set of fields and uptime, plus a Bridge.
@@ -347,6 +363,109 @@ func TestInterfaceStore_ResolveSystemName_FallbackObjectShape(t *testing.T) {
 
 	if got := s.ResolveSystemName(context.Background(), "Wireguard0"); got != "nwg0" {
 		t.Errorf("object-form resolver: want nwg0, got %q", got)
+	}
+}
+
+// Regression for the production bug observed on Keenetic OS 5.x KN-1010:
+// `/show/interface/` for a physical port (id="GigabitEthernet1") returns
+// `interface-name: "ISP"` — the NDMS logical WAN label, not the kernel
+// device. Bootstrap previously cached SystemName="ISP", and the
+// trust-cache path returned "ISP" because it differs from the id and
+// the simple echo-check did not catch it. SO_BINDTODEVICE("ISP") then
+// failed with ENODEV when AWG-Manager tried to wire up a new tunnel.
+//
+// After the fix the parser drops the non-kernel-shaped value, and
+// ResolveSystemName falls back to /show/interface/system-name?name=X
+// which on this firmware correctly returns "eth3".
+func TestInterfaceStore_ResolveSystemName_DropsNonKernelInterfaceName(t *testing.T) {
+	fg := newFakeGetter()
+	fg.SetJSON(ifaceListPath, `{
+		"GigabitEthernet1": {"id":"GigabitEthernet1","interface-name":"ISP","type":"GigabitEthernet","state":"up","link":"up"}
+	}`)
+	fg.SetRaw("/show/interface/system-name?name=GigabitEthernet1", []byte(`"eth3"`))
+
+	s := NewInterfaceStore(fg, NopLogger())
+	got := s.ResolveSystemName(context.Background(), "GigabitEthernet1")
+	if got != "eth3" {
+		t.Errorf("non-kernel interface-name must fall back to resolver: want eth3, got %q", got)
+	}
+
+	// Cached entry should have SystemName="" after parse (filtered by the
+	// shape check), then memoised to "eth3" after the resolver probe.
+	iface, _ := s.Get(context.Background(), "GigabitEthernet1")
+	if iface == nil || iface.SystemName != "eth3" {
+		t.Errorf("after resolve+memoise: want SystemName=eth3, got %#v", iface)
+	}
+}
+
+// Belt-and-suspenders: even if a lowercase-looking value slips past the
+// parser shape filter (e.g. a label that happens to be lowercase), the
+// kernelIfaceExists check rejects it and the resolver fallback takes over.
+func TestInterfaceStore_ResolveSystemName_RejectsMissingKernelIface(t *testing.T) {
+	orig := kernelIfaceExists
+	kernelIfaceExists = func(name string) bool { return name == "eth3" }
+	defer func() { kernelIfaceExists = orig }()
+
+	fg := newFakeGetter()
+	// interface-name="ghost0" — syntactically a kernel name, but the
+	// override above says it does NOT exist in /sys/class/net.
+	fg.SetJSON(ifaceListPath, `{
+		"WeirdPort": {"id":"WeirdPort","interface-name":"ghost0","type":"Ethernet","state":"up"}
+	}`)
+	fg.SetRaw("/show/interface/system-name?name=WeirdPort", []byte(`"eth3"`))
+
+	s := NewInterfaceStore(fg, NopLogger())
+	if got := s.ResolveSystemName(context.Background(), "WeirdPort"); got != "eth3" {
+		t.Errorf("missing-kernel-iface must fall back to resolver: want eth3, got %q", got)
+	}
+}
+
+// Unit test for the syntactic helper: kernel-style names accepted,
+// NDMS-style identifiers and obvious junk rejected.
+func TestLooksLikeKernelIfname(t *testing.T) {
+	good := []string{"eth0", "eth3", "eth2.3", "ppp0", "wlan0", "br0", "nwg0",
+		"awgm10", "lo", "tun0", "dummy0", "sit0", "ip6tnl0", "usb0", "opkgtun10"}
+	for _, s := range good {
+		if !looksLikeKernelIfname(s) {
+			t.Errorf("looksLikeKernelIfname(%q) = false, want true", s)
+		}
+	}
+	bad := []string{
+		"",               // empty
+		"ISP",            // upper-case
+		"Wireguard0",     // NDMS id
+		"PPPoE0",         // NDMS id
+		"GigabitEthernet1", // 16 chars AND upper-case
+		"AccessPoint",    // upper-case
+		"0eth",           // starts with digit
+		".eth",           // starts with punctuation
+		"eth/0",          // forbidden char
+		"a b",            // space
+		"thisifnametoolong1", // 18 chars > IFNAMSIZ-1
+	}
+	for _, s := range bad {
+		if looksLikeKernelIfname(s) {
+			t.Errorf("looksLikeKernelIfname(%q) = true, want false", s)
+		}
+	}
+}
+
+// Sanity: wireToInterface drops a non-kernel `interface-name` so the
+// cached SystemName is empty, which lets ResolveSystemName fall through
+// to the resolver. Verifies the parse-side leg of the fix in isolation.
+func TestInterfaceStore_Bootstrap_DropsNonKernelInterfaceName(t *testing.T) {
+	fg := newFakeGetter()
+	fg.SetJSON(ifaceListPath, `{
+		"GigabitEthernet1": {"id":"GigabitEthernet1","interface-name":"ISP","type":"GigabitEthernet","state":"up"}
+	}`)
+	s := NewInterfaceStore(fg, NopLogger())
+
+	got, err := s.Get(context.Background(), "GigabitEthernet1")
+	if err != nil || got == nil {
+		t.Fatalf("Get: err=%v got=%v", err, got)
+	}
+	if got.SystemName != "" {
+		t.Errorf("non-kernel interface-name must be filtered at parse: got SystemName=%q", got.SystemName)
 	}
 }
 

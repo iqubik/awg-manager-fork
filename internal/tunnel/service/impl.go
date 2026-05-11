@@ -1034,6 +1034,48 @@ func (s *ServiceImpl) MigrateISPInterfaceToKernel() {
 	}
 }
 
+// HealStaleActiveWAN clears stored.ActiveWAN entries that are not real
+// kernel interface names. NativeWG tunnels persist ResolveActiveWAN's
+// return value into storage; on certain Keenetic firmwares the resolver
+// used to short-circuit on a cached `interface-name` field that held a
+// logical NDMS label (e.g. "ISP") instead of the kernel device. The
+// resolver itself is now hardened, but historical garbage stays in
+// storage until next successful resolve — which never happens for
+// disabled tunnels. UI labels and tunnel chaining (resolves via
+// parent.ActiveWAN) keep seeing the stale value.
+//
+// Called once at startup. The next ResolveActiveWAN call after Heal
+// will populate the empty field with the correct kernel name.
+func (s *ServiceImpl) HealStaleActiveWAN() {
+	tunnels, err := s.store.List()
+	if err != nil {
+		return
+	}
+	for _, t := range tunnels {
+		if t.ActiveWAN == "" || tunnel.IsTunnelRoute(t.ActiveWAN) {
+			continue
+		}
+		if kernelIfaceExists(t.ActiveWAN) {
+			continue
+		}
+		s.logInfo("migrate", t.ID, fmt.Sprintf("Clearing stale ActiveWAN=%q (not a kernel interface)", t.ActiveWAN))
+		t.ActiveWAN = ""
+		_ = s.store.Save(&t)
+	}
+}
+
+// kernelIfaceExists reports whether a Linux network interface with the
+// given name is present in the running kernel. Kept inline (rather than
+// shared with internal/ndms/query) because the dependency is one syscall;
+// a separate helper package would be premature.
+func kernelIfaceExists(name string) bool {
+	if name == "" {
+		return false
+	}
+	_, err := os.Stat("/sys/class/net/" + name)
+	return err == nil
+}
+
 // isNativeWG returns true if the tunnel uses the NativeWG backend.
 func (s *ServiceImpl) isNativeWG(stored *storage.AWGTunnel) bool {
 	return stored.Backend == "nativewg"
