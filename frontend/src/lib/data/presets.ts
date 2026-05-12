@@ -204,6 +204,34 @@ export const SERVICE_PRESETS: ServicePreset[] = [
 		],
 	},
 	{
+		id: 'dev-tools',
+		name: 'Dev Tools',
+		covers: ['github'],
+		domains: [
+			// GitHub / Cursor / AI tooling
+			'applicationinsights.io', 'context7.com', 'cursor-cdn.com', 'cursor.com',
+			'cursor.sh', 'cursorapi.com', 'exp-tas.com', 'github.com',
+			'githubcopilot.com', 'githubusercontent.com', 'wakatime.com',
+			// Atlassian / Bitbucket
+			'atl-paas.net', 'atlassian-dev.net', 'atlassian.com', 'atlassian.net',
+			'bitbucket.io', 'bitbucket.org', 'jira.com', 'ss-inf.net', 'statuspage.io',
+			// Languages / package registries
+			'awg.go', 'bootstrap.pypa.io', 'bun.sh', 'crates.io', 'deno.land',
+			'golang.org', 'gradle.org', 'maven.org', 'npm.community',
+			'npmjs.com', 'npmjs.org', 'nuget.org', 'packagist.org', 'pkg.go.dev',
+			'pypi.org', 'pythonhosted.org', 'react.com',
+			'rubygems.global.ssl.fastly.net', 'rubygems.org', 'yarnpkg.com',
+			// Containers / infra
+			'compose-spec.io', 'docker.com', 'docker.io', 'dockerstatic.com',
+			'gcr.io', 'ghcr.io', 'hashicorp.com', 'helm.sh', 'k8s.io',
+			'kubernetes.io', 'mcr.microsoft.com', 'quay.io',
+			'registry.terraform.io', 'storage.googleapis.com',
+			// UI / assets / misc
+			'cdn.jsdelivr.net', 'coolors.co', 'mui.com', 'suno.com',
+		],
+		notice: 'Включает dev-сервисы, package registries и служебные хосты. Здесь есть shared-платформы вроде jsDelivr и Statuspage, поэтому часть сторонних сайтов на этих платформах тоже может попасть под это правило.',
+	},
+	{
 		id: 'roblox',
 		name: 'Roblox',
 		domains: [
@@ -360,8 +388,21 @@ export const SERVICE_PRESETS: ServicePreset[] = [
 			'kion.ru', 'wink.ru', 'more.tv',
 			// Карты / навигация / справочники
 			'gismeteo.ru', '2gis.ru', '2gis.com',
+			// Домены
+			'ru', 'su', 'ru.com', 'xn--p1ai',
 		],
 		notice: 'Основной источник — itdoginfo/allow-domains (Russia outside-raw). Дополнительно включены домены банков, госуслуг, Yandex/VK, WB/Ozon и операторов связи — для обхода VPN на российских сервисах, блокирующих иностранные IP.',
+	},
+	{
+		id: 'samsung',
+		name: 'Samsung',
+		domains: [
+			"samsung", "samsung.com", "galaxyappstore.com", "galaxymobile.jp", "game-platform.net", 
+			"knoxemm.com", "ospserver.net", "samsungads.com", "samsungapps.com", 
+			"samsungcloud.com", "samsungconsent.com", "samsungdm.com", "samsungeshop.com.cn", 
+			"samsunggalaxyfriends.com", "samsunghealth.com", "samsungiotcloud.com", "samsungiots.com", 
+			"samsungknox.com", "samsungosp.com", "samsungqbe.com", "samsungrs.com", "smartthings.com",
+		],
 	},
 	{
 		id: 'ip-checkers',

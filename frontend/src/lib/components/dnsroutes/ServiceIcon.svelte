@@ -33,7 +33,7 @@
 	});
 
 	let inlineIcon = $derived(getServiceIcon(name));
-	let innerSize = $derived(Math.round(size * 0.56));
+	let innerSize = $derived(Math.round(size * (inlineIcon.scale ?? 0.56)));
 </script>
 
 {#if renderUrl}
