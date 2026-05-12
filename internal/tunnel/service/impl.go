@@ -1067,8 +1067,9 @@ func (s *ServiceImpl) HealStaleActiveWAN() {
 // kernelIfaceExists reports whether a Linux network interface with the
 // given name is present in the running kernel. Kept inline (rather than
 // shared with internal/ndms/query) because the dependency is one syscall;
-// a separate helper package would be premature.
-func kernelIfaceExists(name string) bool {
+// a separate helper package would be premature. Stored as a package-level
+// variable so tests can override it without touching /sys/class/net.
+var kernelIfaceExists = func(name string) bool {
 	if name == "" {
 		return false
 	}

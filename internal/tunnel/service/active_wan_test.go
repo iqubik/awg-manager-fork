@@ -275,3 +275,114 @@ func TestActiveWAN_ResolveWAN_ChainedTunnel_ParentNotRunning(t *testing.T) {
 		t.Fatal("resolveWAN() should return error when parent not running")
 	}
 }
+
+// === HealStaleActiveWAN ===
+
+// withKernelIfaceExists temporarily replaces the package-level
+// kernelIfaceExists hook for the duration of a test. Returns a cleanup
+// closure (use with t.Cleanup or defer).
+func withKernelIfaceExists(fn func(string) bool) func() {
+	orig := kernelIfaceExists
+	kernelIfaceExists = fn
+	return func() { kernelIfaceExists = orig }
+}
+
+// TestHealStaleActiveWAN_ClearsInvalidName verifies the heal sweep
+// resets stored.ActiveWAN to "" when the persisted value is not a real
+// kernel interface (e.g. NDMS logical label "ISP" left by the old
+// resolver). This is the primary case the function was written for.
+func TestHealStaleActiveWAN_ClearsInvalidName(t *testing.T) {
+	t.Cleanup(withKernelIfaceExists(func(name string) bool {
+		// Only "eth3" exists on this fake host.
+		return name == "eth3"
+	}))
+
+	svc, store, _, _ := testService(t)
+	saveTunnel(t, store, "awg10", func(tun *storage.AWGTunnel) {
+		tun.ActiveWAN = "ISP" // NDMS label, NOT a kernel iface
+	})
+
+	svc.HealStaleActiveWAN()
+
+	got, err := store.Get("awg10")
+	if err != nil {
+		t.Fatalf("store.Get: %v", err)
+	}
+	if got.ActiveWAN != "" {
+		t.Errorf("HealStaleActiveWAN: want ActiveWAN cleared, got %q", got.ActiveWAN)
+	}
+}
+
+// TestHealStaleActiveWAN_KeepsValidName verifies the heal sweep does
+// NOT touch stored.ActiveWAN when the value names a real kernel iface.
+func TestHealStaleActiveWAN_KeepsValidName(t *testing.T) {
+	t.Cleanup(withKernelIfaceExists(func(name string) bool {
+		return name == "eth3"
+	}))
+
+	svc, store, _, _ := testService(t)
+	saveTunnel(t, store, "awg10", func(tun *storage.AWGTunnel) {
+		tun.ActiveWAN = "eth3"
+	})
+
+	svc.HealStaleActiveWAN()
+
+	got, err := store.Get("awg10")
+	if err != nil {
+		t.Fatalf("store.Get: %v", err)
+	}
+	if got.ActiveWAN != "eth3" {
+		t.Errorf("HealStaleActiveWAN: valid name must be preserved, got %q", got.ActiveWAN)
+	}
+}
+
+// TestHealStaleActiveWAN_SkipsTunnelRoute verifies values of the form
+// "tunnel:<id>" (chain refs from per-client routing) are skipped — they
+// are not kernel device names by design.
+func TestHealStaleActiveWAN_SkipsTunnelRoute(t *testing.T) {
+	// kernelIfaceExists must NOT be called for tunnel:* values; if it
+	// were, the test would still pass because the override returns
+	// false for everything, but the explicit refusal in HealStaleActiveWAN
+	// is what we want to guard against accidental future regression.
+	t.Cleanup(withKernelIfaceExists(func(name string) bool {
+		t.Errorf("kernelIfaceExists must not be called for tunnel:* values, got %q", name)
+		return false
+	}))
+
+	svc, store, _, _ := testService(t)
+	saveTunnel(t, store, "awg10", func(tun *storage.AWGTunnel) {
+		tun.ActiveWAN = "tunnel:awg20"
+	})
+
+	svc.HealStaleActiveWAN()
+
+	got, err := store.Get("awg10")
+	if err != nil {
+		t.Fatalf("store.Get: %v", err)
+	}
+	if got.ActiveWAN != "tunnel:awg20" {
+		t.Errorf("HealStaleActiveWAN: tunnel:* must be preserved, got %q", got.ActiveWAN)
+	}
+}
+
+// TestHealStaleActiveWAN_SkipsEmpty verifies tunnels with no ActiveWAN
+// short-circuit without invoking kernelIfaceExists at all.
+func TestHealStaleActiveWAN_SkipsEmpty(t *testing.T) {
+	t.Cleanup(withKernelIfaceExists(func(name string) bool {
+		t.Errorf("kernelIfaceExists must not be called for empty ActiveWAN, got %q", name)
+		return false
+	}))
+
+	svc, store, _, _ := testService(t)
+	saveTunnel(t, store, "awg10") // ActiveWAN defaults to ""
+
+	svc.HealStaleActiveWAN()
+
+	got, err := store.Get("awg10")
+	if err != nil {
+		t.Fatalf("store.Get: %v", err)
+	}
+	if got.ActiveWAN != "" {
+		t.Errorf("HealStaleActiveWAN: empty must stay empty, got %q", got.ActiveWAN)
+	}
+}
