@@ -219,14 +219,9 @@
 	});
 </script>
 
-<div
-	class="card border-{borderState}"
-	class:view-compact={view === 'compact'}
-	class:view-list={view === 'list'}
->
-	<!-- Header -->
-	<div class="header">
-		<div class="head-left">
+{#if view === 'list'}
+	<div class="card list-card border-{borderState}">
+		<div class="list-cell list-cell-primary">
 			<div class="title-line">
 				<button
 					type="button"
@@ -249,14 +244,23 @@
 					<VersionBadge kind="awg" value={tunnel.awgVersion} />
 				{/if}
 			</div>
+			<div class="list-note">
+				{addresses.ipv4 || '—'}
+				{#if connectionDisplay}
+					<span class="list-note-sep">·</span>
+					{connectionDisplay}
+				{/if}
+			</div>
 		</div>
 
-		<div class="head-right">
-			<div class="led-toggle">
+		<div class="list-cell list-cell-status">
+			<span class="list-label">Статус</span>
+			<div class="list-status-main">
 				<span
 					class="led led-{ledColor}"
 					class:led-pulse={ledPulse}
 				></span>
+				<span class="list-status-text">{listStatusText}</span>
 				<span title={tunnel.hasAddressConflict ? 'Конфликт адресов — другой туннель с таким же IP уже запущен' : undefined}>
 					<Toggle
 						checked={isOn}
@@ -268,7 +272,7 @@
 				</span>
 			</div>
 			{#if statusHint}
-				<span class="status-hint">{statusHint}</span>
+				<div class="list-note">{statusHint}</div>
 			{/if}
 			{#if tunnel.status === 'running' || tunnel.status === 'broken'}
 				<div class="connectivity-row">
@@ -307,128 +311,301 @@
 				</div>
 			{/if}
 		</div>
-	</div>
 
-	<!-- Details -->
-	<div class="details">
-		<div class="kv-row">
-			<div class="kv kv-grow">
-				<span class="kv-label">Сервер</span>
-				<span class="kv-endpoint">
-					<span class="kv-value truncate" title={showEndpoint ? serverHost : ''}>{showEndpoint ? (serverHost || '—') : '•••••••••'}</span>
-					<button
-						class="eye-btn"
-						onclick={() => showEndpoint = !showEndpoint}
-						title={showEndpoint ? 'Скрыть' : 'Показать'}
-					>
-						{#if showEndpoint}
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-						{:else}
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-						{/if}
-					</button>
-				</span>
+		<div class="list-cell list-cell-endpoint">
+			<span class="list-label">Endpoint</span>
+			<div class="kv-endpoint">
+				<span class="kv-value truncate" title={showEndpoint ? serverHost : ''}>{showEndpoint ? (serverHost || '—') : '•••••••••'}</span>
+				<button
+					class="eye-btn"
+					onclick={() => showEndpoint = !showEndpoint}
+					title={showEndpoint ? 'Скрыть' : 'Показать'}
+				>
+					{#if showEndpoint}
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+					{:else}
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+					{/if}
+				</button>
+				<span class="list-port">:{serverPort || '—'}</span>
 			</div>
-			<div class="kv kv-shrink">
-				<span class="kv-label">Порт</span>
-				<span class="kv-value">{serverPort || '—'}</span>
+			<div class="list-note">
+				IPv4 {addresses.ipv4 || '—'}
+				{#if addresses.ipv6}
+					<span class="list-note-sep">·</span>
+					IPv6 <span title={addresses.ipv6}>{ipv6Display}</span>
+				{/if}
 			</div>
 		</div>
 
-		{#if tunnel.resolvedIspInterface || tunnel.ispInterface}
-			{@const iface = tunnel.resolvedIspInterface || tunnel.ispInterface}
-			{@const label = tunnel.resolvedIspInterfaceLabel || tunnel.ispInterfaceLabel || ''}
+		<div class="list-cell list-cell-traffic">
+			<span class="list-label">Трафик</span>
+			{#if tunnel.status === 'running'}
+				<div class="list-traffic-chart">
+					<TrafficChart
+						{rxRates}
+						{txRates}
+						rxTotal={tunnel.rxBytes ?? 0}
+						txTotal={tunnel.txBytes ?? 0}
+						height={36}
+						onclick={() => ondetail?.(tunnel.id)}
+					/>
+				</div>
+			{:else}
+				<div class="list-traffic-empty">Нет данных</div>
+			{/if}
+			<div class="list-note">↓ {formatBytes(tunnel.rxBytes ?? 0)} · ↑ {formatBytes(tunnel.txBytes ?? 0)}</div>
+		</div>
+
+		<div class="list-cell list-cell-stats">
+			<span class="list-label">Активность</span>
+			<div class="list-stat-row">
+				<span>Handshake</span>
+				<strong>{tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}</strong>
+			</div>
+			<div class="list-stat-row">
+				<span>Uptime</span>
+				<strong>{tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}</strong>
+			</div>
+		</div>
+
+		<div class="list-cell list-cell-actions">
+			<div class="actions list-actions">
+				<a class="action-btn" href="/tunnels/{tunnel.id}">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+					Изменить
+				</a>
+				<a class="action-btn" href="/tunnels/{tunnel.id}/test">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+					Тест
+				</a>
+				<button
+					class="action-btn action-danger"
+					disabled={deleteLoading}
+					onclick={() => ondelete?.()}
+					title="Удалить туннель"
+				>
+					{#if deleteLoading}
+						<span class="action-spinner"></span>
+					{:else}
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+					{/if}
+					Удалить
+				</button>
+			</div>
+		</div>
+	</div>
+{:else}
+	<div
+		class="card border-{borderState}"
+		class:view-compact={view === 'compact'}
+	>
+		<!-- Header -->
+		<div class="header">
+			<div class="head-left">
+				<div class="title-line">
+					<button
+						type="button"
+						class="tunnel-name"
+						title={tunnel.name}
+						onclick={() => ondetail?.(tunnel.id)}
+					>
+						{tunnel.name}
+					</button>
+					{#if tunnel.defaultRoute}
+						<Badge variant="accent" size="sm">default</Badge>
+					{/if}
+				</div>
+				<div class="meta-line">
+					<span class="iface-name">{tunnel.interfaceName || tunnel.id}</span>
+					{#if tunnel.backend}
+						<VersionBadge kind="backend" value={tunnel.backend} />
+					{/if}
+					{#if tunnel.awgVersion}
+						<VersionBadge kind="awg" value={tunnel.awgVersion} />
+					{/if}
+				</div>
+			</div>
+
+			<div class="head-right">
+				<div class="led-toggle">
+					<span
+						class="led led-{ledColor}"
+						class:led-pulse={ledPulse}
+					></span>
+					<span title={tunnel.hasAddressConflict ? 'Конфликт адресов — другой туннель с таким же IP уже запущен' : undefined}>
+						<Toggle
+							checked={isOn}
+							onchange={() => onToggleOnOff?.()}
+							loading={toggleLoading}
+							disabled={toggleDisabled}
+							variant="flip"
+						/>
+					</span>
+				</div>
+				{#if statusHint}
+					<span class="status-hint">{statusHint}</span>
+				{/if}
+				{#if tunnel.status === 'running' || tunnel.status === 'broken'}
+					<div class="connectivity-row">
+						{#if !isCheckDisabled && connectivity === 'connected' && latencyMs !== null}
+							<span class="latency-value">{latencyMs}ms</span>
+						{/if}
+						<button
+							class="connectivity-gear"
+							onclick={() => connectivitySettingsOpen = true}
+							title="Настройки проверки связности"
+						>
+							<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" /></svg>
+						</button>
+						{#if !isCheckDisabled}
+							<button
+								class="connectivity-btn"
+								class:connected={connectivity === 'connected'}
+								class:disconnected={connectivity === 'disconnected'}
+								class:checking={manualChecking}
+								onclick={checkConnectivityManual}
+								title={connectivity === 'connected'
+									? 'Связь OK'
+									: connectivity === 'disconnected'
+										? 'Нет связи. Нажмите для проверки'
+										: 'Проверка связи...'}
+							>
+								{#if manualChecking}
+									<span class="connectivity-spinner"></span>
+								{:else if connectivity === 'connected'}
+									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>
+								{:else}
+									<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.82a15 15 0 0 1 4.17-2.65"/><path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76"/></svg>
+								{/if}
+							</button>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
+
+		<!-- Details -->
+		<div class="details">
+			<div class="kv-row">
+				<div class="kv kv-grow">
+					<span class="kv-label">Сервер</span>
+					<span class="kv-endpoint">
+						<span class="kv-value truncate" title={showEndpoint ? serverHost : ''}>{showEndpoint ? (serverHost || '—') : '•••••••••'}</span>
+						<button
+							class="eye-btn"
+							onclick={() => showEndpoint = !showEndpoint}
+							title={showEndpoint ? 'Скрыть' : 'Показать'}
+						>
+							{#if showEndpoint}
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+							{:else}
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+							{/if}
+						</button>
+					</span>
+				</div>
+				<div class="kv kv-shrink">
+					<span class="kv-label">Порт</span>
+					<span class="kv-value">{serverPort || '—'}</span>
+				</div>
+			</div>
+
+			{#if tunnel.resolvedIspInterface || tunnel.ispInterface}
+				{@const iface = tunnel.resolvedIspInterface || tunnel.ispInterface}
+				{@const label = tunnel.resolvedIspInterfaceLabel || tunnel.ispInterfaceLabel || ''}
+				<div class="kv-row">
+					<div class="kv">
+						<span class="kv-label">Подключение</span>
+						<span class="kv-value">
+							{#if label}
+								{label} <span class="kv-secondary">({iface})</span>
+							{:else}
+								{iface}
+							{/if}
+						</span>
+					</div>
+				</div>
+			{/if}
+
 			<div class="kv-row">
 				<div class="kv">
-					<span class="kv-label">Подключение</span>
-					<span class="kv-value">
-						{#if label}
-							{label} <span class="kv-secondary">({iface})</span>
-						{:else}
-							{iface}
-						{/if}
-					</span>
+					<span class="kv-label">IPv4</span>
+					<span class="kv-value">{addresses.ipv4 || '—'}</span>
 				</div>
+				{#if addresses.ipv6}
+					<div class="kv">
+						<span class="kv-label">IPv6</span>
+						<span class="kv-value cursor-help" title={addresses.ipv6}>{ipv6Display}</span>
+					</div>
+				{/if}
 			</div>
-		{/if}
 
-		<div class="kv-row">
-			<div class="kv">
-				<span class="kv-label">IPv4</span>
-				<span class="kv-value">{addresses.ipv4 || '—'}</span>
-			</div>
-			{#if addresses.ipv6}
-				<div class="kv">
-					<span class="kv-label">IPv6</span>
-					<span class="kv-value cursor-help" title={addresses.ipv6}>{ipv6Display}</span>
+			{#if tunnel.status === 'running'}
+				<hr class="divider" />
+				<div class="kv-row stats-row">
+					<div class="kv kv-grow">
+						<span class="kv-label">Uptime</span>
+						<span class="kv-value">
+							{tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
+						</span>
+					</div>
+					<div class="kv kv-grow kv-right">
+						<span class="kv-label">Handshake</span>
+						<span class="kv-value" title={tunnel.lastHandshake || ''}>
+							{tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
+						</span>
+					</div>
 				</div>
 			{/if}
 		</div>
 
-		{#if tunnel.status === 'running'}
-			<hr class="divider" />
-			<div class="kv-row stats-row">
-				<div class="kv kv-grow">
-					<span class="kv-label">Uptime</span>
-					<span class="kv-value">
-						{tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
-					</span>
-				</div>
-				<div class="kv kv-grow kv-right">
-					<span class="kv-label">Handshake</span>
-					<span class="kv-value" title={tunnel.lastHandshake || ''}>
-						{tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
-					</span>
-				</div>
-			</div>
-		{/if}
-	</div>
-
-	<!-- Actions -->
-	<div class="actions">
-		<a class="action-btn" href="/tunnels/{tunnel.id}">
-			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-			Изменить
-		</a>
-		<a class="action-btn" href="/tunnels/{tunnel.id}/test">
-			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
-			Тест
-		</a>
-		<button
-			class="action-btn action-danger"
-			disabled={deleteLoading}
-			onclick={() => ondelete?.()}
-			title="Удалить туннель"
-		>
-			{#if deleteLoading}
-				<span class="action-spinner"></span>
-			{:else}
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-			{/if}
-			Удалить
-		</button>
-	</div>
-
-	<!-- Traffic chart (running only) -->
-	{#if tunnel.status === 'running'}
-		<div class="chart-section">
-			<button type="button" class="chart-header" onclick={toggleChart}>
-				<span class="chart-label">Трафик</span>
-				<span class="chart-chevron" class:expanded={chartExpanded}>▾</span>
+		<!-- Actions -->
+		<div class="actions">
+			<a class="action-btn" href="/tunnels/{tunnel.id}">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+				Изменить
+			</a>
+			<a class="action-btn" href="/tunnels/{tunnel.id}/test">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+				Тест
+			</a>
+			<button
+				class="action-btn action-danger"
+				disabled={deleteLoading}
+				onclick={() => ondelete?.()}
+				title="Удалить туннель"
+			>
+				{#if deleteLoading}
+					<span class="action-spinner"></span>
+				{:else}
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+				{/if}
+				Удалить
 			</button>
-			<div class="chart-body" class:expanded={chartExpanded}>
-				<TrafficChart
-					{rxRates}
-					{txRates}
-					rxTotal={tunnel.rxBytes ?? 0}
-					txTotal={tunnel.txBytes ?? 0}
-					height={chartHeight}
-					onclick={() => ondetail?.(tunnel.id)}
-				/>
-			</div>
 		</div>
-	{/if}
-</div>
+
+		<!-- Traffic chart (running only) -->
+		{#if tunnel.status === 'running'}
+			<div class="chart-section">
+				<button type="button" class="chart-header" onclick={toggleChart}>
+					<span class="chart-label">Трафик</span>
+					<span class="chart-chevron" class:expanded={chartExpanded}>▾</span>
+				</button>
+				<div class="chart-body" class:expanded={chartExpanded}>
+					<TrafficChart
+						{rxRates}
+						{txRates}
+						rxTotal={tunnel.rxBytes ?? 0}
+						txTotal={tunnel.txBytes ?? 0}
+						height={chartHeight}
+						onclick={() => ondetail?.(tunnel.id)}
+					/>
+				</div>
+			</div>
+		{/if}
+	</div>
+{/if}
 
 <ConnectivitySettingsModal
 	bind:open={connectivitySettingsOpen}
@@ -454,6 +631,97 @@
 	.card.border-broken { border-color: var(--color-broken-border); }
 	.card.border-transitional { border-color: var(--color-warning-border); }
 	.card.border-disabled { border-color: var(--color-text-muted); }
+
+	.list-card {
+		display: grid;
+		grid-template-columns: minmax(220px, 1.35fr) minmax(170px, 0.95fr) minmax(220px, 1.2fr) minmax(180px, 1fr) minmax(150px, 0.9fr) auto;
+		gap: 14px;
+		align-items: center;
+		padding: 12px 14px;
+	}
+
+	.list-cell {
+		min-width: 0;
+	}
+
+	.list-cell-primary,
+	.list-cell-status,
+	.list-cell-endpoint,
+	.list-cell-traffic,
+	.list-cell-stats {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.list-label {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--color-text-muted);
+	}
+
+	.list-note {
+		font-size: 11px;
+		color: var(--color-text-muted);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.list-note-sep {
+		padding: 0 4px;
+	}
+
+	.list-status-main {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.list-status-text {
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--color-text-primary);
+	}
+
+	.list-port {
+		font-size: 12px;
+		font-family: var(--font-mono);
+		color: var(--color-text-muted);
+		flex-shrink: 0;
+	}
+
+	.list-traffic-chart {
+		min-height: 36px;
+		padding: 2px 0;
+	}
+
+	.list-traffic-empty {
+		font-size: 12px;
+		color: var(--color-text-muted);
+		padding: 8px 0;
+	}
+
+	.list-stat-row {
+		display: flex;
+		justify-content: space-between;
+		gap: 10px;
+		font-size: 11px;
+		color: var(--color-text-muted);
+	}
+
+	.list-stat-row strong {
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--color-text-secondary);
+		white-space: nowrap;
+	}
+
+	.list-actions {
+		flex-direction: column;
+		align-items: stretch;
+	}
 
 	.card.view-compact {
 		gap: 10px;
@@ -878,6 +1146,20 @@
 	}
 
 	@media (max-width: 1080px) {
+		.list-card {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		}
+
+		.list-cell-actions {
+			grid-column: 1 / -1;
+		}
+
+		.list-actions {
+			flex-direction: row;
+			flex-wrap: wrap;
+			justify-content: flex-end;
+		}
+
 		.card.view-list {
 			grid-template-columns: minmax(0, 1fr);
 		}
@@ -886,6 +1168,12 @@
 			flex-direction: row;
 			flex-wrap: wrap;
 			justify-content: flex-end;
+		}
+	}
+
+	@media (max-width: 720px) {
+		.list-card {
+			grid-template-columns: minmax(0, 1fr);
 		}
 	}
 </style>

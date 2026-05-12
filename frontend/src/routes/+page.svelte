@@ -8,22 +8,36 @@
 	import { api } from '$lib/api/client';
 	import { TunnelCard, ExternalTunnelCard, AdoptTunnelDialog, SystemTunnelCard, TunnelReferencedModal } from '$lib/components/tunnels';
 	import { PageContainer, LoadingSpinner, WelcomeBanner } from '$lib/components/layout';
-	import { Modal, StoreStatusBadge, TrafficChartModal, Button, Badge, Tabs } from '$lib/components/ui';
+	import {
+		Modal,
+		StoreStatusBadge,
+		TrafficChartModal,
+		TrafficSparkline,
+		Button,
+		Badge,
+		Tabs,
+		Toggle,
+		StatusDot,
+		Stat,
+		StatStrip,
+	} from '$lib/components/ui';
 	import { singboxStatus, singboxTunnels } from '$lib/stores/singbox';
 	import { SingboxInstallBanner, SingboxTunnelCard } from '$lib/components/singbox';
-	import { feedTraffic } from '$lib/stores/traffic';
+	import { feedTraffic, getTrafficRates, subscribeTraffic } from '$lib/stores/traffic';
 	import { usageLevel } from '$lib/stores/settings';
 	import { isSectionVisible } from '$lib/types/usageLevel';
 	import { subscriptionsStore } from '$lib/stores/subscriptions';
 	import SubscriptionList from '$lib/components/subscriptions/SubscriptionList.svelte';
 	import AddTunnelWizard from '$lib/components/subscriptions/AddTunnelWizard.svelte';
 	import SubscriptionActiveCard from '$lib/components/subscriptions/SubscriptionActiveCard.svelte';
-	import type { Subscription, SubscriptionMember } from '$lib/types';
+	import type { ExternalTunnel, Subscription, SubscriptionMember, SystemTunnel, TunnelListItem } from '$lib/types';
+	import { formatBitRate, formatBytes, formatDuration, formatRelativeTime, secondsSince } from '$lib/utils/format';
 
 	type TunnelTab = 'awg' | 'singbox' | 'subscriptions';
 	type AwgTunnelViewMode = 'cards' | 'compact' | 'list';
 
 	const AWG_TUNNEL_VIEW_STORAGE_KEY = 'awg_tunnel_view_mode';
+	const AWG_MOBILE_VIEW_MAX_WIDTH = 760;
 
 	// Polling-store subscription: first subscriber triggers the fetch,
 	// the last unsubscribe stops polling. `$tunnels` yields a
@@ -31,6 +45,15 @@
 	let unsubTunnels: (() => void) | undefined;
 	onMount(() => { unsubTunnels = tunnels.subscribe(() => {}); });
 	onDestroy(() => unsubTunnels?.());
+
+	let trafficTick = $state(0);
+	let unsubTraffic: (() => void) | undefined;
+	onMount(() => {
+		unsubTraffic = subscribeTraffic(() => {
+			trafficTick += 1;
+		});
+	});
+	onDestroy(() => unsubTraffic?.());
 
 	let sysInfo = $derived($systemInfoStore.data);
 	let tunnelSnap = $derived($tunnels);
@@ -289,8 +312,10 @@
 
 	// Tabs
 	let activeTab = $state<TunnelTab>('awg');
-	let awgViewMode = $state<AwgTunnelViewMode>('cards');
+	let awgViewMode = $state<AwgTunnelViewMode>('compact');
 	let awgViewModeReady = false;
+	let isAwgMobile = $state(false);
+	let awgEffectiveViewMode = $derived<AwgTunnelViewMode>(isAwgMobile ? 'compact' : awgViewMode);
 
 	function isAwgTunnelViewMode(value: string | null): value is AwgTunnelViewMode {
 		return value === 'cards' || value === 'compact' || value === 'list';
@@ -321,6 +346,17 @@
 			awgViewMode = stored;
 		}
 		awgViewModeReady = true;
+	});
+
+	onMount(() => {
+		const media = window.matchMedia(`(max-width: ${AWG_MOBILE_VIEW_MAX_WIDTH}px)`);
+		const sync = (event?: MediaQueryList | MediaQueryListEvent) => {
+			isAwgMobile = event ? event.matches : media.matches;
+		};
+
+		sync(media);
+		media.addEventListener('change', sync);
+		return () => media.removeEventListener('change', sync);
 	});
 
 	$effect(() => {
@@ -515,6 +551,194 @@
 		return `${sysInfo.version}  ·  ${sysInfo.goArch}  ·  ${count} ${word}`;
 	});
 
+	let visibleSystemList = $derived(
+		systemList.filter((st) =>
+			!awgList.some((mt) =>
+				(mt.ndmsName && mt.ndmsName === st.id) ||
+				(mt.interfaceName && mt.interfaceName === st.id)
+			)
+		),
+	);
+
+	function tunnelStatusBucket(status: string): 'running' | 'broken' | 'starting' | 'stopped' | 'disabled' | 'other' {
+		switch (status) {
+			case 'running':
+				return 'running';
+			case 'broken':
+				return 'broken';
+			case 'starting':
+			case 'needs_stop':
+				return 'starting';
+			case 'needs_start':
+			case 'stopped':
+				return 'stopped';
+			case 'disabled':
+				return 'disabled';
+			default:
+				return 'other';
+		}
+	}
+
+	function isManagedTunnelOn(tunnel: TunnelListItem): boolean {
+		return ['running', 'starting', 'broken'].includes(tunnel.status);
+	}
+
+	function managedStatusVariant(tunnel: TunnelListItem): 'success' | 'error' | 'warning' | 'muted' {
+		if (tunnel.hasAddressConflict) return 'error';
+		switch (tunnelStatusBucket(tunnel.status)) {
+			case 'running':
+				return tunnel.pingCheck.status === 'recovering' ? 'warning' : 'success';
+			case 'broken':
+				return 'error';
+			case 'starting':
+				return 'warning';
+			default:
+				return 'muted';
+		}
+	}
+
+	function managedStatusLabel(tunnel: TunnelListItem): string {
+		if (tunnel.hasAddressConflict) return 'Конфликт IP';
+		switch (tunnel.status) {
+			case 'running':
+				return tunnel.pingCheck.status === 'recovering' ? 'Восстанавливается' : 'Активен';
+			case 'broken':
+				return 'Ошибка';
+			case 'starting':
+				return 'Запускается';
+			case 'needs_stop':
+				return 'Останавливается';
+			case 'needs_start':
+				return 'Остановлен';
+			case 'disabled':
+				return 'Выключен';
+			default:
+				return tunnel.status || '—';
+		}
+	}
+
+	function managedStatusMeta(tunnel: TunnelListItem): string {
+		if (tunnel.hasAddressConflict) {
+			return 'Дублирует адрес уже запущенного туннеля';
+		}
+		const route = tunnel.resolvedIspInterfaceLabel || tunnel.resolvedIspInterface || tunnel.ispInterfaceLabel || tunnel.ispInterface;
+		if (route) return route;
+		if (tunnel.pingCheck.status === 'recovering') return 'Проверка связи восстанавливается';
+		if (tunnel.defaultRoute) return 'Туннель по умолчанию';
+		return tunnel.interfaceName || tunnel.id;
+	}
+
+	function systemStatusVariant(tunnel: SystemTunnel): 'success' | 'muted' {
+		return tunnel.status === 'up' ? 'success' : 'muted';
+	}
+
+	function systemStatusLabel(tunnel: SystemTunnel): string {
+		if (tunnel.status !== 'up') return 'Выключен';
+		return tunnel.peer?.online ? 'Активен' : 'Без handshake';
+	}
+
+	function externalStatusVariant(tunnel: ExternalTunnel): 'success' | 'muted' {
+		return tunnel.lastHandshake ? 'success' : 'muted';
+	}
+
+	function externalStatusLabel(tunnel: ExternalTunnel): string {
+		return tunnel.lastHandshake ? 'Подключён' : 'Неактивен';
+	}
+
+	function latestRate(id: string): { rx: number; tx: number } {
+		void trafficTick;
+		const rates = getTrafficRates(id);
+		return {
+			rx: rates.rx.length > 0 ? rates.rx[rates.rx.length - 1] : 0,
+			tx: rates.tx.length > 0 ? rates.tx[rates.tx.length - 1] : 0,
+		};
+	}
+
+	function sparklineData(id: string): number[] {
+		void trafficTick;
+		const rates = getTrafficRates(id);
+		const rx = rates.rx.slice(-28);
+		const tx = rates.tx.slice(-28);
+		return rx.map((value, index) => value + (tx[index] ?? 0));
+	}
+
+	let awgSummaryTotal = $derived(awgList.length + visibleSystemList.length + externalList.length);
+	let awgSummaryActive = $derived(
+		awgList.filter((t) => isManagedTunnelOn(t)).length +
+		visibleSystemList.filter((t) => t.status === 'up').length +
+		externalList.filter((t) => !!t.lastHandshake).length,
+	);
+
+	let awgSummaryPeak = $derived.by(() => {
+		let rate = 0;
+		let name = '—';
+
+		for (const tunnel of awgList) {
+			if (!isManagedTunnelOn(tunnel)) continue;
+			const latest = latestRate(tunnel.id);
+			const combined = latest.rx + latest.tx;
+			if (combined > rate) {
+				rate = combined;
+				name = tunnel.name;
+			}
+		}
+
+		for (const tunnel of visibleSystemList) {
+			if (tunnel.status !== 'up') continue;
+			const latest = latestRate(tunnel.id);
+			const combined = latest.rx + latest.tx;
+			if (combined > rate) {
+				rate = combined;
+				name = tunnel.description || tunnel.interfaceName;
+			}
+		}
+
+		return { rate, name };
+	});
+
+	let awgSummaryRx = $derived(
+		awgList.reduce((sum, tunnel) => sum + (tunnel.rxBytes ?? 0), 0) +
+		visibleSystemList.reduce((sum, tunnel) => sum + (tunnel.peer?.rxBytes ?? 0), 0) +
+		externalList.reduce((sum, tunnel) => sum + tunnel.rxBytes, 0),
+	);
+
+	let awgSummaryTx = $derived(
+		awgList.reduce((sum, tunnel) => sum + (tunnel.txBytes ?? 0), 0) +
+		visibleSystemList.reduce((sum, tunnel) => sum + (tunnel.peer?.txBytes ?? 0), 0) +
+		externalList.reduce((sum, tunnel) => sum + tunnel.txBytes, 0),
+	);
+
+	let awgTrafficLeader = $derived.by(() => {
+		let bytes = 0;
+		let name = '—';
+
+		for (const tunnel of awgList) {
+			const total = (tunnel.rxBytes ?? 0) + (tunnel.txBytes ?? 0);
+			if (total > bytes) {
+				bytes = total;
+				name = tunnel.name;
+			}
+		}
+
+		for (const tunnel of visibleSystemList) {
+			const total = (tunnel.peer?.rxBytes ?? 0) + (tunnel.peer?.txBytes ?? 0);
+			if (total > bytes) {
+				bytes = total;
+				name = tunnel.description || tunnel.interfaceName;
+			}
+		}
+
+		for (const tunnel of externalList) {
+			const total = tunnel.rxBytes + tunnel.txBytes;
+			if (total > bytes) {
+				bytes = total;
+				name = tunnel.interfaceName;
+			}
+		}
+
+		return { bytes, name };
+	});
+
 
 </script>
 
@@ -658,126 +882,401 @@
 		</div>
 
 		{:else}
-			{@const totalCount = awgList.length + systemList.length}
+			{@const totalCount = awgSummaryTotal}
 			<div class="tunnels-toolbar">
 				<div class="count-group">
 					<span class="tunnel-count">{totalCount} {totalCount === 1 ? 'туннель' : totalCount < 5 ? 'туннеля' : 'туннелей'}</span>
 					<StoreStatusBadge store={tunnels} />
 				</div>
 				<div class="toolbar-actions">
-					<div class="view-mode-switch" role="group" aria-label="Вид карточек туннелей">
-						<button
-							type="button"
-							class="view-mode-btn"
-							class:active={awgViewMode === 'cards'}
-							aria-pressed={awgViewMode === 'cards'}
-							aria-label="Большие карточки"
-							title="Большие карточки"
-							onclick={() => (awgViewMode = 'cards')}
-						>
-							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-								<rect x="4" y="5" width="16" height="14" rx="2" />
-								<path d="M7 9h10" />
-								<path d="M7 13h6" />
-							</svg>
-						</button>
-						<button
-							type="button"
-							class="view-mode-btn"
-							class:active={awgViewMode === 'compact'}
-							aria-pressed={awgViewMode === 'compact'}
-							aria-label="Компактные карточки"
-							title="Компактные карточки"
-							onclick={() => (awgViewMode = 'compact')}
-						>
-							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-								<rect x="4" y="5" width="7" height="6" rx="1.5" />
-								<rect x="13" y="5" width="7" height="6" rx="1.5" />
-								<rect x="4" y="13" width="7" height="6" rx="1.5" />
-								<rect x="13" y="13" width="7" height="6" rx="1.5" />
-							</svg>
-						</button>
-						<button
-							type="button"
-							class="view-mode-btn"
-							class:active={awgViewMode === 'list'}
-							aria-pressed={awgViewMode === 'list'}
-							aria-label="Список"
-							title="Список"
-							onclick={() => (awgViewMode = 'list')}
-						>
-							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-								<path d="M9 7h11" />
-								<path d="M9 12h11" />
-								<path d="M9 17h11" />
-								<circle cx="5" cy="7" r="1.2" fill="currentColor" stroke="none" />
-								<circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none" />
-								<circle cx="5" cy="17" r="1.2" fill="currentColor" stroke="none" />
-							</svg>
-						</button>
-					</div>
+					{#if !isAwgMobile}
+						<div class="view-mode-switch" role="group" aria-label="Вид карточек туннелей">
+							<button
+								type="button"
+								class="view-mode-btn"
+								class:active={awgEffectiveViewMode === 'cards'}
+								aria-pressed={awgEffectiveViewMode === 'cards'}
+								aria-label="Большие карточки"
+								title="Большие карточки"
+								onclick={() => (awgViewMode = 'cards')}
+							>
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+									<rect x="4" y="5" width="16" height="14" rx="2" />
+									<path d="M7 9h10" />
+									<path d="M7 13h6" />
+								</svg>
+							</button>
+							<button
+								type="button"
+								class="view-mode-btn"
+								class:active={awgEffectiveViewMode === 'compact'}
+								aria-pressed={awgEffectiveViewMode === 'compact'}
+								aria-label="Компактные карточки"
+								title="Компактные карточки"
+								onclick={() => (awgViewMode = 'compact')}
+							>
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+									<rect x="4" y="5" width="7" height="6" rx="1.5" />
+									<rect x="13" y="5" width="7" height="6" rx="1.5" />
+									<rect x="4" y="13" width="7" height="6" rx="1.5" />
+									<rect x="13" y="13" width="7" height="6" rx="1.5" />
+								</svg>
+							</button>
+							<button
+								type="button"
+								class="view-mode-btn"
+								class:active={awgViewMode === 'list'}
+								aria-pressed={awgViewMode === 'list'}
+								aria-label="Список"
+								title="Список"
+								onclick={() => (awgViewMode = 'list')}
+							>
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+									<path d="M9 7h11" />
+									<path d="M9 12h11" />
+									<path d="M9 17h11" />
+									<circle cx="5" cy="7" r="1.2" fill="currentColor" stroke="none" />
+									<circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+									<circle cx="5" cy="17" r="1.2" fill="currentColor" stroke="none" />
+								</svg>
+							</button>
+						</div>
+					{/if}
 					<Button variant="secondary" size="md" onclick={handleExportAll} disabled={exporting} iconBefore={exportIcon}>
 						Экспорт
 					</Button>
 					<Button variant="primary" size="md" href="/tunnels/new">+ Создать</Button>
 				</div>
 			</div>
-			<div
-				class="tunnel-grid"
-				class:tunnel-grid--compact={awgViewMode === 'compact'}
-				class:tunnel-grid--list={awgViewMode === 'list'}
-			>
-				{#each awgList as tunnel, i (tunnel.id)}
-					<TunnelCard
-						{tunnel}
-						view={awgViewMode}
-						toggleLoading={toggleLoading[tunnel.id] ?? false}
-						deleteLoading={deleteLoading[tunnel.id] ?? false}
-						autoConnectivityNonce={awgAutoConnectivityNonce}
-						autoConnectivityDelayMs={i * 180}
-						onToggleOnOff={() => handleToggleOnOff(tunnel.id)}
-						ondelete={() => requestDelete(tunnel.id)}
-						ondetail={(id) => openDetail(id)}
-					/>
-				{/each}
-				{#each systemList.filter((st) =>
-					// Defense against backend dedup races: if a managed tunnel
-					// already claims this NDMS name, don't render the system
-					// card (it would be a ghost duplicate). System tunnel id
-					// is the NDMS name ("WireguardN"), so we compare against
-					// the managed tunnel's ndmsName.
-					!awgList.some((mt) =>
-						(mt.ndmsName && mt.ndmsName === st.id) ||
-						(mt.interfaceName && mt.interfaceName === st.id)
-					)
-				) as tunnel (tunnel.id)}
-					<SystemTunnelCard
-						{tunnel}
-						view={awgViewMode}
-						onMarkServer={markAsServer}
-						ondetail={(id) => openDetail(id)}
-					/>
-				{/each}
-			</div>
+			{#if awgEffectiveViewMode === 'list'}
+				<div class="awg-summary-row">
+					<StatStrip>
+						<Stat
+							value={`${awgSummaryActive}/${awgSummaryTotal}`}
+							label="Активные туннели"
+							sub={`AWG ${awgList.length} · system ${visibleSystemList.length} · external ${externalList.length}`}
+						/>
+						<Stat
+							value={formatBitRate(awgSummaryPeak.rate)}
+							label="Пиковая скорость"
+							sub={awgSummaryPeak.name}
+						/>
+						<Stat
+							value={formatBytes(awgSummaryRx + awgSummaryTx)}
+							label="Суммарный обмен"
+							sub={`↓ ${formatBytes(awgSummaryRx)} · ↑ ${formatBytes(awgSummaryTx)}`}
+						/>
+						<Stat
+							value={awgTrafficLeader.bytes > 0 ? formatBytes(awgTrafficLeader.bytes) : '—'}
+							label="Лидер по трафику"
+							sub={awgTrafficLeader.name}
+						/>
+					</StatStrip>
+				</div>
 
-			{#if externalList.length > 0}
-			<div class="external-section">
-				<h2 class="section-title">Внешние туннели</h2>
+				<div class="awg-list-table">
+					<div class="awg-list-row awg-list-row--head">
+						<span></span>
+						<span>Туннель</span>
+						<span>Статус</span>
+						<span>Endpoint</span>
+						<span>Throughput</span>
+						<span>Handshake</span>
+						<span>Uptime</span>
+						<span class="awg-list-head-actions">Действия</span>
+					</div>
+
+					{#each awgList as tunnel (tunnel.id)}
+						{@const rate = latestRate(tunnel.id)}
+						{@const spark = sparklineData(tunnel.id)}
+						<div class="awg-list-row">
+							<div class="awg-list-cell awg-list-cell-toggle" data-label="Старт">
+								<Toggle
+									checked={isManagedTunnelOn(tunnel)}
+									size="sm"
+									loading={toggleLoading[tunnel.id] ?? false}
+									onchange={() => handleToggleOnOff(tunnel.id)}
+								/>
+							</div>
+							<div class="awg-list-cell awg-list-cell-name" data-label="Туннель">
+								<div class="awg-list-name-line">
+									<button
+										type="button"
+										class="awg-list-name-button"
+										title={tunnel.name}
+										onclick={() => openDetail(tunnel.id)}
+									>
+										{tunnel.name}
+									</button>
+									{#if tunnel.defaultRoute}
+										<Badge variant="accent" size="sm">default</Badge>
+									{/if}
+									{#if tunnel.backend}
+										<span class="awg-inline-badge">{tunnel.backend}</span>
+									{/if}
+									{#if tunnel.awgVersion}
+										<span class="awg-inline-badge awg-inline-badge--muted">{tunnel.awgVersion}</span>
+									{/if}
+								</div>
+								<div class="awg-list-sub">
+									{tunnel.address || '—'}
+									<span class="awg-list-dot">·</span>
+									{tunnel.interfaceName || tunnel.id}
+									<span class="awg-list-dot">·</span>
+									MTU {tunnel.mtu ?? '—'}
+								</div>
+							</div>
+							<div class="awg-list-cell awg-list-cell-status" data-label="Статус">
+								<div class="awg-list-status-line">
+									<StatusDot
+										variant={managedStatusVariant(tunnel)}
+										pulse={tunnel.status === 'running' && tunnel.pingCheck.status === 'recovering'}
+										ariaLabel={managedStatusLabel(tunnel)}
+									/>
+									<span class="awg-list-status-text">{managedStatusLabel(tunnel)}</span>
+								</div>
+								<div class="awg-list-sub">{managedStatusMeta(tunnel)}</div>
+							</div>
+							<div class="awg-list-cell" data-label="Endpoint">
+								<div class="awg-list-kv-primary awg-list-mono">{tunnel.endpoint || '—'}</div>
+								<div class="awg-list-sub">
+									{tunnel.resolvedIspInterfaceLabel || tunnel.resolvedIspInterface || tunnel.ispInterfaceLabel || tunnel.ispInterface || 'Маршрут не указан'}
+								</div>
+							</div>
+							<div class="awg-list-cell awg-list-cell-rate" data-label="Throughput">
+								<button
+									type="button"
+									class="awg-rate-button"
+									onclick={() => openDetail(tunnel.id)}
+									title="Открыть детали туннеля"
+								>
+									<TrafficSparkline
+										data={spark}
+										color={isManagedTunnelOn(tunnel) ? 'var(--color-accent)' : 'var(--color-border-hover)'}
+									/>
+									<div class="awg-list-rate-text awg-list-mono">
+										<div>↓ {formatBitRate(rate.rx)}</div>
+										<div>↑ {formatBitRate(rate.tx)}</div>
+									</div>
+								</button>
+							</div>
+							<div class="awg-list-cell awg-list-cell-mono" data-label="Handshake">
+								{tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
+							</div>
+							<div class="awg-list-cell awg-list-cell-mono" data-label="Uptime">
+								{tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
+							</div>
+							<div class="awg-list-cell awg-list-cell-actions" data-label="Действия">
+								<a class="awg-action-btn" href="/tunnels/{tunnel.id}">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+									Изменить
+								</a>
+								<a class="awg-action-btn" href="/tunnels/{tunnel.id}/test">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+									Тест
+								</a>
+								<button
+									type="button"
+									class="awg-action-btn awg-action-danger"
+									disabled={deleteLoading[tunnel.id] ?? false}
+									onclick={() => requestDelete(tunnel.id)}
+									title="Удалить туннель"
+								>
+									{#if deleteLoading[tunnel.id] ?? false}
+										<span class="awg-action-spinner"></span>
+									{:else}
+										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+									{/if}
+									Удалить
+								</button>
+							</div>
+						</div>
+					{/each}
+
+					{#if visibleSystemList.length > 0}
+						<div class="awg-list-row awg-list-row--section">
+							<div class="awg-list-section-title">Системные · {visibleSystemList.length}</div>
+						</div>
+						{#each visibleSystemList as tunnel (tunnel.id)}
+							{@const rate = latestRate(tunnel.id)}
+							{@const spark = sparklineData(tunnel.id)}
+							<div class="awg-list-row">
+								<div class="awg-list-cell awg-list-cell-toggle" data-label="Тип">
+									<span class="awg-row-placeholder">SYS</span>
+								</div>
+								<div class="awg-list-cell awg-list-cell-name" data-label="Туннель">
+									<div class="awg-list-name-line">
+										<button
+											type="button"
+											class="awg-list-name-button"
+											title={tunnel.description || tunnel.id}
+											onclick={() => openDetail(tunnel.id)}
+										>
+											{tunnel.description || tunnel.id}
+										</button>
+										<span class="awg-inline-badge awg-inline-badge--muted">system</span>
+									</div>
+									<div class="awg-list-sub">
+										{tunnel.interfaceName}
+										{#if tunnel.address}
+											<span class="awg-list-dot">·</span>
+											{tunnel.address}
+										{/if}
+										<span class="awg-list-dot">·</span>
+										MTU {tunnel.mtu}
+									</div>
+								</div>
+								<div class="awg-list-cell awg-list-cell-status" data-label="Статус">
+									<div class="awg-list-status-line">
+										<StatusDot
+											variant={systemStatusVariant(tunnel)}
+											ariaLabel={systemStatusLabel(tunnel)}
+										/>
+										<span class="awg-list-status-text">{systemStatusLabel(tunnel)}</span>
+									</div>
+									<div class="awg-list-sub">{tunnel.peer?.via || 'Маршрут не определён'}</div>
+								</div>
+								<div class="awg-list-cell" data-label="Endpoint">
+									<div class="awg-list-kv-primary awg-list-mono">{tunnel.peer?.endpoint || '—'}</div>
+									<div class="awg-list-sub">{tunnel.address || '—'}</div>
+								</div>
+								<div class="awg-list-cell awg-list-cell-rate" data-label="Throughput">
+									<button
+										type="button"
+										class="awg-rate-button"
+										onclick={() => openDetail(tunnel.id)}
+										title="Открыть детали туннеля"
+									>
+										<TrafficSparkline
+											data={spark}
+											color={tunnel.status === 'up' ? 'var(--color-accent)' : 'var(--color-border-hover)'}
+										/>
+										<div class="awg-list-rate-text awg-list-mono">
+											<div>↓ {formatBitRate(rate.rx)}</div>
+											<div>↑ {formatBitRate(rate.tx)}</div>
+										</div>
+									</button>
+								</div>
+								<div class="awg-list-cell awg-list-cell-mono" data-label="Handshake">
+									{tunnel.peer?.lastHandshake ? formatRelativeTime(tunnel.peer.lastHandshake) : '—'}
+								</div>
+								<div class="awg-list-cell awg-list-cell-mono" data-label="Uptime">
+									{tunnel.status === 'up' && tunnel.uptime ? formatDuration(tunnel.uptime) : '—'}
+								</div>
+								<div class="awg-list-cell awg-list-cell-actions" data-label="Действия">
+									<Button variant="ghost" size="sm" href="/system-tunnels/{tunnel.id}">Изменить</Button>
+									<Button variant="ghost" size="sm" href="/system-tunnels/{tunnel.id}/test">Тест</Button>
+									<Button variant="ghost" size="sm" onclick={() => markAsServer(tunnel.id)}>В серверы</Button>
+								</div>
+							</div>
+						{/each}
+					{/if}
+
+					{#if externalList.length > 0}
+						<div class="awg-list-row awg-list-row--section">
+							<div class="awg-list-section-title">Внешние · {externalList.length}</div>
+						</div>
+						{#each externalList as tunnel (tunnel.interfaceName)}
+							<div class="awg-list-row">
+								<div class="awg-list-cell awg-list-cell-toggle" data-label="Тип">
+									<span class="awg-row-placeholder">ext</span>
+								</div>
+								<div class="awg-list-cell awg-list-cell-name" data-label="Туннель">
+									<div class="awg-list-name-line">
+										<span class="awg-list-name-static">{tunnel.interfaceName}</span>
+										<span class="awg-inline-badge awg-inline-badge--muted">external</span>
+										{#if tunnel.isAWG}
+											<span class="awg-inline-badge">AWG</span>
+										{/if}
+									</div>
+									<div class="awg-list-sub">
+										{#if tunnel.publicKey}
+											{tunnel.publicKey.slice(0, 16)}…
+											<span class="awg-list-dot">·</span>
+										{/if}
+										#{tunnel.tunnelNumber}
+									</div>
+								</div>
+								<div class="awg-list-cell awg-list-cell-status" data-label="Статус">
+									<div class="awg-list-status-line">
+										<StatusDot
+											variant={externalStatusVariant(tunnel)}
+											ariaLabel={externalStatusLabel(tunnel)}
+										/>
+										<span class="awg-list-status-text">{externalStatusLabel(tunnel)}</span>
+									</div>
+									<div class="awg-list-sub">Не управляется AWG Manager</div>
+								</div>
+								<div class="awg-list-cell" data-label="Endpoint">
+									<div class="awg-list-kv-primary awg-list-mono">{tunnel.endpoint || '—'}</div>
+									<div class="awg-list-sub">WG интерфейс</div>
+								</div>
+								<div class="awg-list-cell awg-list-cell-rate" data-label="Throughput">
+									<TrafficSparkline data={[]} color="var(--color-border-hover)" />
+									<div class="awg-list-rate-text awg-list-mono">
+										<div>↓ {formatBytes(tunnel.rxBytes)}</div>
+										<div>↑ {formatBytes(tunnel.txBytes)}</div>
+									</div>
+								</div>
+								<div class="awg-list-cell awg-list-cell-mono" data-label="Handshake">
+									{tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
+								</div>
+								<div class="awg-list-cell awg-list-cell-mono" data-label="Uptime">—</div>
+								<div class="awg-list-cell awg-list-cell-actions" data-label="Действия">
+									<Button variant="primary" size="sm" onclick={() => handleAdoptClick(tunnel.interfaceName)}>
+										Взять под управление
+									</Button>
+								</div>
+							</div>
+						{/each}
+					{/if}
+				</div>
+			{:else}
 				<div
 					class="tunnel-grid"
-					class:tunnel-grid--compact={awgViewMode === 'compact'}
-					class:tunnel-grid--list={awgViewMode === 'list'}
+					class:tunnel-grid--compact={awgEffectiveViewMode === 'compact'}
 				>
-					{#each externalList as extTunnel (extTunnel.interfaceName)}
-						<ExternalTunnelCard
-							tunnel={extTunnel}
-							view={awgViewMode}
-							onadopt={(name) => handleAdoptClick(name)}
+					{#each awgList as tunnel, i (tunnel.id)}
+						<TunnelCard
+							{tunnel}
+							view={awgEffectiveViewMode}
+							toggleLoading={toggleLoading[tunnel.id] ?? false}
+							deleteLoading={deleteLoading[tunnel.id] ?? false}
+							autoConnectivityNonce={awgAutoConnectivityNonce}
+							autoConnectivityDelayMs={i * 180}
+							onToggleOnOff={() => handleToggleOnOff(tunnel.id)}
+							ondelete={() => requestDelete(tunnel.id)}
+							ondetail={(id) => openDetail(id)}
+						/>
+					{/each}
+					{#each visibleSystemList as tunnel (tunnel.id)}
+						<SystemTunnelCard
+							{tunnel}
+							view={awgEffectiveViewMode}
+							onMarkServer={markAsServer}
+							ondetail={(id) => openDetail(id)}
 						/>
 					{/each}
 				</div>
-			</div>
-		{/if}
+
+				{#if externalList.length > 0}
+					<div class="external-section">
+						<h2 class="section-title">Внешние туннели</h2>
+						<div
+							class="tunnel-grid"
+							class:tunnel-grid--compact={awgEffectiveViewMode === 'compact'}
+						>
+							{#each externalList as extTunnel (extTunnel.interfaceName)}
+								<ExternalTunnelCard
+									tunnel={extTunnel}
+									view={awgEffectiveViewMode}
+									onadopt={(name) => handleAdoptClick(name)}
+								/>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			{/if}
 		{/if}
 		{:else if activeTab === 'subscriptions'}
 			{#if subscriptionsInitialLoading}
@@ -1097,6 +1596,352 @@
 	:global(.tunnel-grid--list) {
 		grid-template-columns: minmax(0, 1fr);
 		gap: 10px;
+	}
+
+	.awg-summary-row {
+		margin-bottom: 0.75rem;
+	}
+
+	.awg-list-table {
+		border: 1px solid var(--color-border);
+		border-radius: 12px;
+		background: var(--color-bg-secondary);
+		overflow-x: auto;
+		overflow-y: hidden;
+	}
+
+	.awg-list-row {
+		display: grid;
+		grid-template-columns:
+			40px
+			minmax(220px, 1.7fr)
+			minmax(150px, 1fr)
+			minmax(180px, 1.15fr)
+			minmax(210px, 1.3fr)
+			110px
+			90px
+			minmax(240px, 1.2fr);
+		gap: 14px;
+		align-items: center;
+		padding: 0.875rem 1rem;
+		border-bottom: 1px solid var(--color-border);
+		min-width: 1180px;
+	}
+
+	.awg-list-row:last-child {
+		border-bottom: none;
+	}
+
+	.awg-list-row--head {
+		padding-top: 0.75rem;
+		padding-bottom: 0.75rem;
+		background: var(--color-bg-tertiary);
+		font-size: 0.6875rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--color-text-muted);
+	}
+
+	.awg-list-row--section {
+		grid-template-columns: minmax(0, 1fr);
+		background: var(--color-bg-tertiary);
+		padding-top: 0.625rem;
+		padding-bottom: 0.625rem;
+		min-width: 100%;
+	}
+
+	.awg-list-head-actions {
+		text-align: right;
+	}
+
+	.awg-list-section-title {
+		font-size: 0.6875rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--color-text-muted);
+	}
+
+	.awg-list-cell {
+		min-width: 0;
+	}
+
+	.awg-list-cell-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.awg-list-cell-toggle :global(.toggle-spinner-slot) {
+		display: none;
+	}
+
+	.awg-list-name-line {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.375rem;
+	}
+
+	.awg-list-name-button,
+	.awg-list-name-static {
+		font: inherit;
+		font-size: 0.9375rem;
+		font-weight: 600;
+		color: var(--color-text-primary);
+		background: none;
+		border: none;
+		padding: 0;
+		margin: 0;
+		cursor: pointer;
+		text-align: left;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.awg-list-name-static {
+		cursor: default;
+	}
+
+	.awg-list-name-button:hover {
+		color: var(--color-accent);
+	}
+
+	.awg-list-sub {
+		margin-top: 0.25rem;
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.awg-list-dot {
+		padding: 0 0.25rem;
+	}
+
+	.awg-inline-badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.125rem 0.375rem;
+		border-radius: 999px;
+		background: var(--color-accent-tint);
+		color: var(--color-accent);
+		font-size: 0.625rem;
+		font-family: var(--font-mono);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.awg-inline-badge--muted {
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-muted);
+	}
+
+	.awg-list-status-line {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.awg-list-status-text {
+		font-size: 0.8125rem;
+		font-weight: 600;
+		color: var(--color-text-secondary);
+	}
+
+	.awg-list-kv-primary {
+		font-size: 0.8125rem;
+		color: var(--color-text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.awg-list-cell-rate {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		width: 100%;
+	}
+
+	.awg-rate-button {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		width: 100%;
+		padding: 0;
+		margin: 0;
+		border: none;
+		background: transparent;
+		color: inherit;
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.awg-rate-button:hover .awg-list-rate-text,
+	.awg-rate-button:hover :global(svg) {
+		opacity: 0.9;
+	}
+
+	.awg-rate-button:focus-visible {
+		outline: 2px solid var(--color-accent);
+		outline-offset: 2px;
+		border-radius: 6px;
+	}
+
+	.awg-list-rate-text {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1875rem;
+		font-size: 0.6875rem;
+		color: var(--color-text-secondary);
+		margin-left: auto;
+		text-align: right;
+	}
+
+	.awg-list-cell-mono {
+		font-size: 0.75rem;
+		color: var(--color-text-secondary);
+	}
+
+	.awg-list-mono,
+	.awg-list-cell-mono {
+		font-family: var(--font-mono);
+	}
+
+	.awg-list-cell-actions {
+		display: flex;
+		justify-content: flex-end;
+		flex-wrap: nowrap;
+		gap: 0.375rem;
+	}
+
+	.awg-action-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 0.375rem 0.5rem;
+		border-radius: 6px;
+		border: none;
+		background: transparent;
+		color: var(--color-text-muted);
+		font: inherit;
+		font-size: 0.75rem;
+		text-decoration: none;
+		cursor: pointer;
+		white-space: nowrap;
+		transition: background var(--t-fast) ease, color var(--t-fast) ease;
+	}
+
+	.awg-action-btn:hover:not(:disabled) {
+		background: var(--color-bg-hover);
+		color: var(--color-text-primary);
+	}
+
+	.awg-action-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.awg-action-btn:focus-visible {
+		outline: 2px solid var(--color-accent);
+		outline-offset: 2px;
+	}
+
+	.awg-action-danger:hover:not(:disabled) {
+		color: var(--color-error);
+		background: var(--color-error-tint);
+	}
+
+	.awg-action-spinner {
+		width: 12px;
+		height: 12px;
+		border: 2px solid currentColor;
+		border-top-color: transparent;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	.awg-row-placeholder {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 2rem;
+		padding: 0.125rem 0.375rem;
+		border-radius: 999px;
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-muted);
+		font-size: 0.625rem;
+		font-family: var(--font-mono);
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+
+	@media (max-width: 1280px) {
+		.awg-list-row {
+			grid-template-columns:
+				40px
+				minmax(200px, 1.6fr)
+				minmax(140px, 0.9fr)
+				minmax(160px, 1fr)
+				minmax(180px, 1.15fr)
+				100px
+				84px
+				minmax(220px, 1fr);
+			gap: 12px;
+			min-width: 1080px;
+		}
+	}
+
+	@media (max-width: 1120px) {
+		.awg-list-row {
+			grid-template-columns:
+				36px
+				minmax(180px, 1.45fr)
+				minmax(132px, 0.9fr)
+				minmax(145px, 1fr)
+				minmax(170px, 1.05fr)
+				92px
+				78px
+				minmax(190px, 0.95fr);
+			padding: 0.8125rem 0.875rem;
+			gap: 10px;
+			min-width: 1180px;
+		}
+
+		.awg-list-name-button,
+		.awg-list-name-static {
+			font-size: 0.875rem;
+		}
+
+		.awg-list-sub,
+		.awg-list-kv-primary,
+		.awg-list-status-text,
+		.awg-list-cell-mono {
+			font-size: 0.71875rem;
+		}
+
+		.awg-action-btn {
+			padding: 0.3125rem 0.4375rem;
+			font-size: 0.6875rem;
+		}
+	}
+
+	@media (max-width: 760px) {
+		.awg-list-table {
+			overflow: hidden;
+		}
 	}
 
 	/* Empty-state ghost terminal — page-specific */
