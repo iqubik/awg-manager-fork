@@ -3,7 +3,7 @@
 	import { api } from "$lib/api/client";
 	import { notifications } from "$lib/stores/notifications";
 	import { singboxStatus } from "$lib/stores/singbox";
-	import { PageContainer, LoadingSpinner } from "$lib/components/layout";
+	import { PageContainer, PageHeader, LoadingSpinner } from "$lib/components/layout";
 	import { Toggle, Modal, Button } from "$lib/components/ui";
 	import {
 		SystemInfoGrid,
@@ -311,7 +311,8 @@
 	<title>Настройки - AWG Manager</title>
 </svelte:head>
 
-<PageContainer>
+<PageContainer width="full">
+	<PageHeader title="Настройки" />
 	{#if loading}
 		<div class="flex justify-center py-8">
 			<LoadingSpinner size="md" />

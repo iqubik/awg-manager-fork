@@ -192,7 +192,7 @@
     <title>Маршрутизация - AWG Manager</title>
 </svelte:head>
 
-<PageContainer>
+<PageContainer width="full">
     <PageHeader title="Маршрутизация">
         {#snippet actions()}
             <Button

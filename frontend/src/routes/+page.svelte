@@ -7,7 +7,7 @@
 	import { notifications } from '$lib/stores/notifications';
 	import { api } from '$lib/api/client';
 	import { TunnelCard, ExternalTunnelCard, AdoptTunnelDialog, SystemTunnelCard, TunnelReferencedModal } from '$lib/components/tunnels';
-	import { PageContainer, LoadingSpinner, WelcomeBanner } from '$lib/components/layout';
+	import { PageContainer, PageHeader, LoadingSpinner, WelcomeBanner } from '$lib/components/layout';
 	import {
 		Modal,
 		StoreStatusBadge,
@@ -315,7 +315,10 @@
 	let awgViewMode = $state<AwgTunnelViewMode>('compact');
 	let awgViewModeReady = false;
 	let isAwgMobile = $state(false);
-	let awgEffectiveViewMode = $derived<AwgTunnelViewMode>(isAwgMobile ? 'compact' : awgViewMode);
+	let showAwgListViewOption = $derived($usageLevel !== 'basic');
+	let awgEffectiveViewMode = $derived<AwgTunnelViewMode>(
+		isAwgMobile || (!showAwgListViewOption && awgViewMode === 'list') ? 'compact' : awgViewMode
+	);
 
 	function isAwgTunnelViewMode(value: string | null): value is AwgTunnelViewMode {
 		return value === 'cards' || value === 'compact' || value === 'list';
@@ -747,6 +750,7 @@
 </svelte:head>
 
 <PageContainer width="full">
+	<PageHeader title="Туннели" />
 	<WelcomeBanner />
 	{#if loading}
 		<div class="py-12">
@@ -890,7 +894,7 @@
 				</div>
 				<div class="toolbar-actions">
 					{#if !isAwgMobile}
-						<div class="view-mode-switch" role="group" aria-label="Вид карточек туннелей">
+						<div class="view-mode-switch" role="group" aria-label="Вид туннелей">
 							<button
 								type="button"
 								class="view-mode-btn"
@@ -922,24 +926,26 @@
 									<rect x="13" y="13" width="7" height="6" rx="1.5" />
 								</svg>
 							</button>
-							<button
-								type="button"
-								class="view-mode-btn"
-								class:active={awgViewMode === 'list'}
-								aria-pressed={awgViewMode === 'list'}
-								aria-label="Список"
-								title="Список"
-								onclick={() => (awgViewMode = 'list')}
-							>
-								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-									<path d="M9 7h11" />
-									<path d="M9 12h11" />
-									<path d="M9 17h11" />
-									<circle cx="5" cy="7" r="1.2" fill="currentColor" stroke="none" />
-									<circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none" />
-									<circle cx="5" cy="17" r="1.2" fill="currentColor" stroke="none" />
-								</svg>
-							</button>
+							{#if showAwgListViewOption}
+								<button
+									type="button"
+									class="view-mode-btn"
+									class:active={awgViewMode === 'list'}
+									aria-pressed={awgViewMode === 'list'}
+									aria-label="Список"
+									title="Список"
+									onclick={() => (awgViewMode = 'list')}
+								>
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+										<path d="M9 7h11" />
+										<path d="M9 12h11" />
+										<path d="M9 17h11" />
+										<circle cx="5" cy="7" r="1.2" fill="currentColor" stroke="none" />
+										<circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+										<circle cx="5" cy="17" r="1.2" fill="currentColor" stroke="none" />
+									</svg>
+								</button>
+							{/if}
 						</div>
 					{/if}
 					<Button variant="secondary" size="md" onclick={handleExportAll} disabled={exporting} iconBefore={exportIcon}>
