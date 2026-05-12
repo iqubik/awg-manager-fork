@@ -3,7 +3,7 @@
 // - Forwards all other requests transparently.
 // - Optional: simulate /singbox/install failure via env MOCK_SINGBOX_INSTALL_FAIL=1
 //   or runtime POST /__mock/singbox-install-fail body {"enabled": true|false}.
-// - Streams /events normally (Prism handles SSE shape).
+// - Overrides /events with deterministic SSE for AWG + sing-box traffic.
 // - Injects 8 fake singbox log entries into GET /logs (covers all 6 subgroups
 //   and 4 levels). Honors group/subgroup/level filter query params.
 // - Sing-box composite proxies (Feature 1): stateful stubs for
@@ -38,6 +38,433 @@ const VALID = new Set(['basic', 'advanced', 'expert']);
 // realistic case for development against the redesigned routing page.
 let usageLevel = 'expert';
 let singboxInstallShouldFail = process.env.MOCK_SINGBOX_INSTALL_FAIL === '1';
+
+const NOW = () => Date.now();
+
+const MOCK_AWG_TUNNELS = [
+	{
+		id: 'awg-demo-1',
+		name: 'DE Frankfurt',
+		type: 'amneziawg',
+		status: 'running',
+		enabled: true,
+		defaultRoute: true,
+		resolvedIspInterface: 'PPPoE0',
+		resolvedIspInterfaceLabel: 'Домашний провайдер',
+		endpoint: 'de-fra.demo.example:51820',
+		address: '10.8.0.2/32, fd00:8::2/128',
+		interfaceName: 'awg0',
+		ndmsName: 'Wireguard0',
+		rxBytes: 142_320_120,
+		txBytes: 38_442_331,
+		lastHandshake: new Date(Date.now() - 45_000).toISOString(),
+		awgVersion: 'awg2.0',
+		mtu: 1420,
+		startedAt: new Date(Date.now() - 3_600_000).toISOString(),
+		backend: 'kernel',
+		connectivityCheck: { method: 'http' },
+		pingCheck: { status: 'alive', restartCount: 0, failCount: 0, failThreshold: 3 },
+	},
+	{
+		id: 'awg-demo-2',
+		name: 'NL Amsterdam',
+		type: 'amneziawg',
+		status: 'running',
+		enabled: true,
+		defaultRoute: false,
+		resolvedIspInterface: 'ISP0',
+		resolvedIspInterfaceLabel: 'Резервный WAN',
+		endpoint: 'nl-ams.demo.example:51820',
+		address: '10.9.0.2/32',
+		interfaceName: 'awg1',
+		ndmsName: 'Wireguard1',
+		rxBytes: 88_201_442,
+		txBytes: 22_781_930,
+		lastHandshake: new Date(Date.now() - 120_000).toISOString(),
+		awgVersion: 'awg1.5',
+		mtu: 1380,
+		startedAt: new Date(Date.now() - 1_800_000).toISOString(),
+		backend: 'nativewg',
+		connectivityCheck: { method: 'http' },
+		pingCheck: { status: 'recovering', restartCount: 1, failCount: 1, failThreshold: 3 },
+	},
+];
+
+const MOCK_SYSTEM_TUNNELS = [
+	{
+		id: 'Wireguard3',
+		interfaceName: 'nwg0',
+		description: 'US New York (system)',
+		status: 'down',
+		connected: true,
+		mtu: 1420,
+		address: '10.20.0.2',
+		mask: '255.255.255.255',
+		uptime: 4_200,
+		peer: {
+			publicKey: mockPubkey(91),
+			endpoint: '198.51.100.20:51820',
+			via: 'ISP0',
+			rxBytes: 42_881_221,
+			txBytes: 18_223_554,
+			lastHandshake: new Date(Date.now() - 90_000).toISOString(),
+			online: true,
+		},
+	},
+];
+
+const MOCK_EXTERNAL_TUNNELS = [
+	{
+		interfaceName: 'Wireguard9',
+		tunnelNumber: 9,
+		isAWG: true,
+		publicKey: mockPubkey(81),
+		endpoint: 'ext.demo.example:51820',
+		lastHandshake: '2 мин назад',
+		rxBytes: 12_200_000,
+		txBytes: 3_400_000,
+	},
+	{
+		interfaceName: 'Wireguard10',
+		tunnelNumber: 10,
+		isAWG: false,
+		publicKey: mockPubkey(82),
+		endpoint: 'backup.demo.example:51820',
+		lastHandshake: '',
+		rxBytes: 1_200_000,
+		txBytes: 640_000,
+	},
+];
+
+const MOCK_SINGBOX_TUNNELS = [
+	{
+		tag: 'vless-de-main',
+		protocol: 'vless',
+		server: 'de01.demo.example',
+		port: 443,
+		security: 'reality',
+		transport: 'tcp',
+		listenPort: 11011,
+		proxyInterface: 't2s0',
+		kernelInterface: 'sb0',
+		sni: 'cdn.cloudflare.com',
+		fingerprint: 'chrome',
+		connectivity: { connected: true, latency: 86 },
+		running: true,
+	},
+	{
+		tag: 'vless-nl-ws',
+		protocol: 'vless',
+		server: 'nl02.demo.example',
+		port: 443,
+		security: 'tls',
+		transport: 'grpc',
+		listenPort: 11012,
+		proxyInterface: 't2s1',
+		kernelInterface: 'sb1',
+		sni: 'static.example.org',
+		fingerprint: 'safari',
+		connectivity: { connected: true, latency: 121 },
+		running: true,
+	},
+	{
+		tag: 'naive-us-edge',
+		protocol: 'naive',
+		server: 'us03.demo.example',
+		port: 443,
+		security: 'tls',
+		transport: 'https',
+		listenPort: 11013,
+		proxyInterface: 't2s2',
+		kernelInterface: 'sb2',
+		username: 'demo-user',
+		sni: 'www.bing.com',
+		connectivity: { connected: false, latency: null },
+		running: true,
+	},
+];
+
+const TRAFFIC_PROFILES = {
+	'awg-demo-1': {
+		baseRx: 220_000,
+		baseTx: 72_000,
+		waveRx: 36_000,
+		waveTx: 12_000,
+		driftRx: 18_000,
+		driftTx: 7_000,
+		rxStep: 170_000,
+		txStep: 54_000,
+		jitterRx: 14_000,
+		jitterTx: 5_000,
+		burstEvery: 0,
+		burstRx: 0,
+		burstTx: 0,
+	},
+	'awg-demo-2': {
+		baseRx: 110_000,
+		baseTx: 38_000,
+		waveRx: 72_000,
+		waveTx: 24_000,
+		driftRx: 22_000,
+		driftTx: 8_000,
+		rxStep: 105_000,
+		txStep: 41_000,
+		jitterRx: 22_000,
+		jitterTx: 8_000,
+		burstEvery: 6,
+		burstRx: 210_000,
+		burstTx: 66_000,
+	},
+	'awg-demo-3': {
+		baseRx: 24_000,
+		baseTx: 8_000,
+		waveRx: 10_000,
+		waveTx: 3_000,
+		driftRx: 5_000,
+		driftTx: 2_000,
+		rxStep: 12_000,
+		txStep: 4_000,
+		jitterRx: 2_000,
+		jitterTx: 1_000,
+		burstEvery: 0,
+		burstRx: 0,
+		burstTx: 0,
+	},
+	'vless-de-main': {
+		baseRx: 260_000,
+		baseTx: 96_000,
+		waveRx: 42_000,
+		waveTx: 16_000,
+		driftRx: 20_000,
+		driftTx: 7_000,
+		rxStep: 240_000,
+		txStep: 88_000,
+		jitterRx: 20_000,
+		jitterTx: 8_000,
+		burstEvery: 0,
+		burstRx: 0,
+		burstTx: 0,
+	},
+	'vless-nl-ws': {
+		baseRx: 150_000,
+		baseTx: 58_000,
+		waveRx: 64_000,
+		waveTx: 20_000,
+		driftRx: 28_000,
+		driftTx: 11_000,
+		rxStep: 175_000,
+		txStep: 67_000,
+		jitterRx: 24_000,
+		jitterTx: 10_000,
+		burstEvery: 5,
+		burstRx: 140_000,
+		burstTx: 42_000,
+	},
+	'naive-us-edge': {
+		baseRx: 62_000,
+		baseTx: 25_000,
+		waveRx: 44_000,
+		waveTx: 18_000,
+		driftRx: 16_000,
+		driftTx: 6_000,
+		rxStep: 84_000,
+		txStep: 33_000,
+		jitterRx: 18_000,
+		jitterTx: 7_000,
+		burstEvery: 8,
+		burstRx: 260_000,
+		burstTx: 90_000,
+	},
+};
+
+function trafficProfile(id) {
+	return TRAFFIC_PROFILES[id] ?? {
+		baseRx: 160_000,
+		baseTx: 54_000,
+		waveRx: 48_000,
+		waveTx: 14_000,
+		driftRx: 22_000,
+		driftTx: 8_000,
+		rxStep: 140_000,
+		txStep: 42_000,
+		jitterRx: 18_000,
+		jitterTx: 8_000,
+		burstEvery: 0,
+		burstRx: 0,
+		burstTx: 0,
+	};
+}
+
+const awgTrafficCounters = new Map(
+	MOCK_AWG_TUNNELS
+		.filter((t) => t.status === 'running')
+		.map((t, i) => [
+			t.id,
+			{
+				eventId: t.ndmsName || t.interfaceName || t.id,
+				profileId: t.id,
+				rxBytes: t.rxBytes ?? 0,
+				txBytes: t.txBytes ?? 0,
+				rxStep: trafficProfile(t.id).rxStep,
+				txStep: trafficProfile(t.id).txStep,
+				tick: i * 2,
+				lastHandshake: t.lastHandshake,
+				startedAt: t.startedAt,
+			},
+		]),
+);
+
+const singboxTrafficCounters = new Map(
+	MOCK_SINGBOX_TUNNELS.map((t, i) => [
+		t.tag,
+		{
+			tag: t.tag,
+			download: 64_000_000 + i * 10_000_000,
+			upload: 12_000_000 + i * 4_000_000,
+			downloadStep: trafficProfile(t.tag).rxStep,
+			uploadStep: trafficProfile(t.tag).txStep,
+			profileId: t.tag,
+			tick: i * 3,
+		},
+	]),
+);
+
+function buildAwgSnapshot() {
+	return {
+		tunnels: MOCK_AWG_TUNNELS.map((t) => {
+			const live = awgTrafficCounters.get(t.id);
+			return live
+				? {
+					...t,
+					rxBytes: live.rxBytes,
+					txBytes: live.txBytes,
+					lastHandshake: live.lastHandshake,
+					startedAt: live.startedAt,
+				}
+				: { ...t };
+		}),
+		external: MOCK_EXTERNAL_TUNNELS.map((t) => ({ ...t })),
+		system: MOCK_SYSTEM_TUNNELS.map((t) => ({ ...t, peer: t.peer ? { ...t.peer } : undefined })),
+	};
+}
+
+function buildTrafficPoints(id, period) {
+	const count = period === '24h' ? 144 : 72;
+	const stepMs = period === '24h' ? 10 * 60_000 : 60_000;
+	const now = NOW();
+	const points = [];
+	const profile = trafficProfile(id);
+	for (let i = count - 1; i >= 0; i--) {
+		const tick = count - i;
+		const wave = Math.sin((tick + id.length) / 4.5);
+		const drift = Math.cos((tick + id.length) / 8);
+		const burst = profile.burstEvery > 0 && tick % profile.burstEvery === 0;
+		const pointRx = Math.max(
+			18_000,
+			Math.round(
+				profile.baseRx +
+				wave * profile.waveRx +
+				drift * profile.driftRx +
+				(burst ? profile.burstRx : 0),
+			),
+		);
+		const pointTx = Math.max(
+			8_000,
+			Math.round(
+				profile.baseTx +
+				wave * profile.waveTx +
+				drift * profile.driftTx +
+				(burst ? profile.burstTx : 0),
+			),
+		);
+		points.push({
+			t: Math.floor((now - i * stepMs) / 1000),
+			rx: pointRx,
+			tx: pointTx,
+		});
+	}
+	return points;
+}
+
+function buildTrafficResponse(id, period) {
+	const points = buildTrafficPoints(id, period);
+	const avgRx = points.reduce((sum, p) => sum + p.rx, 0) / points.length;
+	const avgTx = points.reduce((sum, p) => sum + p.tx, 0) / points.length;
+	const current = points[points.length - 1];
+	const peakRate = Math.max(...points.map((p) => Math.max(p.rx, p.tx)));
+	return {
+		success: true,
+		data: {
+			points,
+			stats: {
+				points: points.length,
+				peakRate,
+				avgRx,
+				avgTx,
+				currentRx: current?.rx ?? 0,
+				currentTx: current?.tx ?? 0,
+			},
+		},
+	};
+}
+
+function tickAwgTraffic() {
+	const events = [];
+	for (const traffic of awgTrafficCounters.values()) {
+		const profile = trafficProfile(traffic.profileId);
+		traffic.tick += 1;
+		const burst = profile.burstEvery > 0 && traffic.tick % profile.burstEvery === 0;
+		traffic.rxBytes +=
+			traffic.rxStep +
+			Math.round(Math.sin(traffic.tick / 3) * profile.waveRx * 0.25) +
+			Math.floor(Math.random() * profile.jitterRx) +
+			(burst ? profile.burstRx : 0);
+		traffic.txBytes +=
+			traffic.txStep +
+			Math.round(Math.cos(traffic.tick / 4) * profile.waveTx * 0.25) +
+			Math.floor(Math.random() * profile.jitterTx) +
+			(burst ? profile.burstTx : 0);
+		traffic.lastHandshake = new Date(Date.now() - (20_000 + Math.floor(Math.random() * 70_000))).toISOString();
+		events.push({
+			id: traffic.eventId,
+			rxBytes: traffic.rxBytes,
+			txBytes: traffic.txBytes,
+			lastHandshake: traffic.lastHandshake,
+			startedAt: traffic.startedAt,
+		});
+	}
+	return events;
+}
+
+function tickSingboxTraffic() {
+	return Array.from(singboxTrafficCounters.values(), (traffic) => {
+		const profile = trafficProfile(traffic.profileId);
+		traffic.tick += 1;
+		const burst = profile.burstEvery > 0 && traffic.tick % profile.burstEvery === 0;
+		traffic.download +=
+			traffic.downloadStep +
+			Math.round(Math.sin(traffic.tick / 3.2) * profile.waveRx * 0.35) +
+			Math.floor(Math.random() * profile.jitterRx) +
+			(burst ? profile.burstRx : 0);
+		traffic.upload +=
+			traffic.uploadStep +
+			Math.round(Math.cos(traffic.tick / 4.1) * profile.waveTx * 0.35) +
+			Math.floor(Math.random() * profile.jitterTx) +
+			(burst ? profile.burstTx : 0);
+		return {
+			tag: traffic.tag,
+			download: traffic.download,
+			upload: traffic.upload,
+		};
+	});
+}
+
+function currentSingboxDelays() {
+	return MOCK_SINGBOX_TUNNELS.map((t, i) => ({
+		tag: t.tag,
+		delay: 70 + i * 35 + Math.floor(Math.random() * 45),
+	}));
+}
 
 // ── Subscriptions mock state ───────────────────────────────────
 // Pre-populated for visual testing — shows non-empty list state, selector with members.
@@ -498,6 +925,57 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'GET' && path === '/tunnels/all') {
+		send(res, 200, { success: true, data: buildAwgSnapshot() });
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/tunnels/traffic') {
+		const id = url.searchParams.get('id') ?? '';
+		const period = url.searchParams.get('period') === '24h' ? '24h' : '1h';
+		send(res, 200, buildTrafficResponse(id || 'awg-demo-1', period));
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/events') {
+		res.writeHead(200, {
+			'Content-Type': 'text/event-stream',
+			'Cache-Control': 'no-cache',
+			'Connection': 'keep-alive',
+			'X-Accel-Buffering': 'no',
+		});
+
+		const sendEvent = (event, data) => {
+			res.write(`event: ${event}\n`);
+			res.write(`data: ${JSON.stringify(data)}\n\n`);
+		};
+
+		sendEvent('connected', { ok: true });
+		for (const event of tickAwgTraffic()) {
+			sendEvent('tunnel:traffic', event);
+		}
+		sendEvent('singbox:traffic', tickSingboxTraffic());
+		for (const delay of currentSingboxDelays()) {
+			sendEvent('singbox:delay', delay);
+		}
+
+		const interval = setInterval(() => {
+			for (const event of tickAwgTraffic()) {
+				sendEvent('tunnel:traffic', event);
+			}
+			sendEvent('singbox:traffic', tickSingboxTraffic());
+			for (const delay of currentSingboxDelays()) {
+				sendEvent('singbox:delay', delay);
+			}
+		}, 1500);
+
+		const cleanup = () => clearInterval(interval);
+		req.on('close', cleanup);
+		req.on('error', cleanup);
+		res.on('close', cleanup);
+		return;
+	}
+
 	if (req.method === 'GET' && path === '/logs') {
 		const bucket = url.searchParams.get('bucket') === 'singbox' ? 'singbox' : 'app';
 		const all = bucketCleared[bucket]
@@ -775,6 +1253,30 @@ const server = http.createServer(async (req, res) => {
 				body.data.pid = 0;
 			}
 			send(res, status, body);
+		});
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/singbox/status') {
+		send(res, 200, {
+			success: true,
+			data: {
+				installed: true,
+				version: '1.13.11',
+				running: true,
+				pid: 4242,
+				tunnelCount: MOCK_SINGBOX_TUNNELS.length,
+				proxyComponent: true,
+				features: ['with_gvisor', 'with_quic', 'with_naive_outbound'],
+			},
+		});
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/singbox/tunnels') {
+		send(res, 200, {
+			success: true,
+			data: MOCK_SINGBOX_TUNNELS.map((t) => ({ ...t })),
 		});
 		return;
 	}
