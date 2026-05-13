@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hoaxisr/awg-manager/internal/events"
@@ -83,14 +84,17 @@ func TestService_SaveConfig_AppliesToSingbox(t *testing.T) {
 }
 
 type fakeSingboxOperator struct {
-	running       bool
-	tags          []string
-	tunnelInfos   []TunnelOutboundInfo
-	lastSpec      *ExternalSpec
-	lastSpecNR    *ExternalSpec // ApplyDeviceProxyNoReload call
-	lastSelector  string
-	lastMember    string
-	runtimeActive string // what GetSelectorActive returns
+	running             bool
+	tags                []string
+	tunnelInfos         []TunnelOutboundInfo
+	lastSpec            *ExternalSpec
+	lastSpecNR          *ExternalSpec // ApplyDeviceProxyNoReload call
+	lastSelector        string
+	lastMember          string
+	runtimeActive       string // what GetSelectorActive returns
+	lastInstanceSpecs   []ExternalInstanceSpec // last ApplyDeviceProxyInstances call payload
+	applyInstancesCalls int                    // number of ApplyDeviceProxyInstances invocations
+	applyInstancesErr   error                  // error to return from ApplyDeviceProxyInstances (nil = succeed)
 }
 
 func (f *fakeSingboxOperator) ApplyDeviceProxy(_ context.Context, spec ExternalSpec) error {
@@ -118,8 +122,11 @@ func (f *fakeSingboxOperator) GetSelectorActive(_ context.Context, _ string) (st
 }
 
 func (f *fakeSingboxOperator) ApplyDeviceProxyInstances(_ context.Context, specs []ExternalInstanceSpec) error {
-	// For tests, we don't need to do anything. Just return nil.
-	// Optionally store specs for assertions if needed.
+	f.applyInstancesCalls++
+	if f.applyInstancesErr != nil {
+		return f.applyInstancesErr
+	}
+	f.lastInstanceSpecs = append([]ExternalInstanceSpec(nil), specs...)
 	return nil
 }
 
@@ -391,6 +398,104 @@ func TestService_SaveConfig_EnableToggle_Reloads(t *testing.T) {
 	}
 }
 
+func TestService_SaveInstance_FailureRollbackReappliesSingbox(t *testing.T) {
+	sb := &fakeSingboxOperator{running: true}
+	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
+	s := NewService(Deps{Store: store, Singbox: sb})
+
+	// Save initial valid instance A — succeeds, first apply.
+	instA := Instance{
+		ID: "a", Name: "A",
+		Enabled: true, ListenAll: true, Port: 1099,
+		SelectedOutbound: "direct",
+	}
+	if err := s.SaveInstance(context.Background(), instA); err != nil {
+		t.Fatalf("save A: %v", err)
+	}
+	firstApplyCount := sb.applyInstancesCalls
+	if firstApplyCount != 1 {
+		t.Fatalf("expected 1 apply after save A, got %d", firstApplyCount)
+	}
+
+	// Save instance B but make sing-box adapter fail on next apply.
+	sb.applyInstancesErr = errors.New("simulated singbox apply failure")
+	instB := Instance{
+		ID: "b", Name: "B",
+		Enabled: true, ListenAll: true, Port: 1100,
+		SelectedOutbound: "direct",
+	}
+	err := s.SaveInstance(context.Background(), instB)
+	if err == nil {
+		t.Fatalf("expected save B to fail because apply errored")
+	}
+
+	// After failure: applyInstancesCalls should be 3:
+	//   call #1 = initial save A
+	//   call #2 = failed save B (during apply)
+	//   call #3 = rollback re-apply with restored snapshot
+	if sb.applyInstancesCalls != 3 {
+		t.Errorf("expected 3 apply calls (initial + failed save + rollback reapply), got %d", sb.applyInstancesCalls)
+	}
+
+	// Storage should contain A and the default instance (B rolled back).
+	snap := store.Snapshot()
+	if len(snap.Instances) != 2 {
+		t.Errorf("expected 2 instances (default + a), got %d: %v", len(snap.Instances), snap.Instances)
+	}
+	hasA := false
+	hasDefault := false
+	for _, inst := range snap.Instances {
+		if inst.ID == "a" {
+			hasA = true
+		}
+		if inst.ID == "default" {
+			hasDefault = true
+		}
+	}
+	if !hasA || !hasDefault {
+		t.Errorf("storage should contain 'a' and 'default' after rollback, got %v", snap.Instances)
+	}
+
+	// Verify B was deleted from storage (should not appear in instances).
+	hasB := false
+	for _, inst := range snap.Instances {
+		if inst.ID == "b" {
+			hasB = true
+		}
+	}
+	if hasB {
+		t.Errorf("instance B should not be in storage after rollback, but found it")
+	}
+
+	// Reapply must use the rolled-back snapshot (without B).
+	// Note: the reapply just happened above with applyInstancesErr still set,
+	// so lastInstanceSpecs is NOT populated for it (the fake returns error
+	// and skips the populate). To verify the reapply payload, clear the
+	// error and trigger another save that succeeds — its lastInstanceSpecs
+	// will reflect the (now-rolled-back) storage state.
+	sb.applyInstancesErr = nil
+	if err := s.SaveInstance(context.Background(), instA); err != nil {
+		t.Fatalf("re-save A after clearing error: %v", err)
+	}
+	// Final payload should contain default and a (but not b).
+	if len(sb.lastInstanceSpecs) != 2 {
+		t.Errorf("expected 2 instance specs in final apply (default + a), got %d: %v", len(sb.lastInstanceSpecs), sb.lastInstanceSpecs)
+	}
+	hasFinalA := false
+	hasFinalDefault := false
+	for _, spec := range sb.lastInstanceSpecs {
+		if spec.ID == "a" {
+			hasFinalA = true
+		}
+		if spec.ID == "default" {
+			hasFinalDefault = true
+		}
+	}
+	if !hasFinalA || !hasFinalDefault {
+		t.Errorf("final apply should contain 'default' and 'a' specs, got %v", sb.lastInstanceSpecs)
+	}
+}
+
 func TestService_Reconcile_MissingTargetDisables(t *testing.T) {
 	sb := &fakeSingboxOperator{running: true}
 	ndms := &fakeNDMSQuery{addr: "10.10.10.1"}
@@ -435,4 +540,51 @@ func TestService_Reconcile_MissingTargetDisables(t *testing.T) {
 			return
 		}
 	}
+}
+
+func TestService_SaveInstance_PortCollisionAcrossInstances(t *testing.T) {
+	sb := &fakeSingboxOperator{running: true}
+	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
+	s := NewService(Deps{Store: store, Singbox: sb})
+
+	// Save instance A on port 1099 (enabled).
+	instA := Instance{
+		ID: "a", Name: "A",
+		Enabled: true, ListenAll: true, Port: 1099,
+		SelectedOutbound: "direct",
+	}
+	if err := s.SaveInstance(context.Background(), instA); err != nil {
+		t.Fatalf("save A: %v", err)
+	}
+
+	// Try to save instance B with same port (enabled) → should fail.
+	instB := Instance{
+		ID: "b", Name: "B",
+		Enabled: true, ListenAll: true, Port: 1099,
+		SelectedOutbound: "direct",
+	}
+	err := s.SaveInstance(context.Background(), instB)
+	if err == nil {
+		t.Fatalf("expected port-collision error for B, got nil")
+	}
+	if !contains(err.Error(), "port 1099") || !contains(err.Error(), "another") {
+		t.Errorf("error should mention port and another instance, got: %v", err)
+	}
+
+	// Disabled B with same port → should succeed (disabled instances don't collide).
+	instBDisabled := instB
+	instBDisabled.Enabled = false
+	if err := s.SaveInstance(context.Background(), instBDisabled); err != nil {
+		t.Fatalf("save disabled B: %v", err)
+	}
+
+	// Re-saving A with same port (self) → should succeed (excluded by ID).
+	if err := s.SaveInstance(context.Background(), instA); err != nil {
+		t.Fatalf("re-save A: %v", err)
+	}
+}
+
+// contains is a tiny helper for substring assertions.
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }

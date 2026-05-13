@@ -169,23 +169,32 @@ func (s *Service) SaveInstance(ctx context.Context, in Instance) error {
 
 	s.mu.Lock()
 	portFn := s.tunnelPorts
+	prev := s.d.Store.Snapshot()
 	s.mu.Unlock()
 
+	// Build list of OTHER instances (exclude the one being saved by ID).
+	others := make([]Instance, 0, len(prev.Instances))
+	for _, ins := range prev.Instances {
+		if ins.ID != in.ID {
+			others = append(others, ins)
+		}
+	}
+
 	cfg := instanceToConfig(in)
-	if err := validateConfigRaw(cfg, portFn); err != nil {
+	if err := validateConfigRaw(cfg, portFn, others); err != nil {
 		return err
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	prev := s.d.Store.Snapshot()
+	prev = s.d.Store.Snapshot()
 
 	if err := s.d.Store.SaveInstance(in); err != nil {
 		return err
 	}
 	if err := s.applyInstancesLocked(ctx); err != nil {
-		_ = s.restoreSnapshot(prev)
+		_ = s.restoreSnapshot(ctx, prev)
 		return err
 	}
 	return nil
@@ -207,7 +216,7 @@ func (s *Service) DeleteInstance(ctx context.Context, id string) error {
 		return err
 	}
 	if err := s.applyInstancesLocked(ctx); err != nil {
-		_ = s.restoreSnapshot(prev)
+		_ = s.restoreSnapshot(ctx, prev)
 		return err
 	}
 	return nil
@@ -275,10 +284,12 @@ func (s *Service) applyInstancesLocked(ctx context.Context) error {
 	return nil
 }
 
-// restoreSnapshot attempts to roll the Store back to a previous snapshot.
-// It deletes any extra instances and restores missing ones. Best-effort:
-// errors during rollback are logged via appLog but not returned.
-func (s *Service) restoreSnapshot(snap Snapshot) error {
+// restoreSnapshot attempts to roll the Store back to a previous snapshot
+// and re-apply the restored snapshot to sing-box so the runtime matches
+// storage. Best-effort: errors during rollback (storage or reapply) are
+// logged via appLog but not returned — the caller already has the
+// original error from the failed mutation.
+func (s *Service) restoreSnapshot(ctx context.Context, snap Snapshot) error {
 	current := s.d.Store.Snapshot()
 
 	// Delete instances present in current but missing in previous.
@@ -306,6 +317,12 @@ func (s *Service) restoreSnapshot(snap Snapshot) error {
 		}
 	}
 
+	// Re-apply restored snapshot to sing-box so runtime matches storage.
+	// Best-effort: if this also fails, log via appLog — there's nothing
+	// more we can do at this layer, the next Reconcile will retry.
+	if err := s.applyInstancesLocked(ctx); err != nil {
+		s.appLog.Warn("rollback", "reapply", fmt.Sprintf("post-rollback reapply failed: %v", err))
+	}
 	return nil
 }
 
@@ -323,9 +340,12 @@ func (s *Service) withTunnelInboundPorts(ports []int) {
 }
 
 // validateConfigRaw contains the stateless validation rules that both
-// ValidateConfig (public, takes the mutex) and validateLocked
-// (internal, caller holds the mutex) share.
-func validateConfigRaw(cfg Config, tunnelPorts TunnelInboundPortsFn) error {
+// ValidateConfig (public, takes the mutex), validateLocked (internal,
+// caller holds the mutex), and SaveInstance share. otherInstances may
+// be nil for legacy single-config call sites; multi-instance callers
+// pass the snapshot's other instances (excluding the one being saved)
+// so port collisions across instances are caught at validation time.
+func validateConfigRaw(cfg Config, tunnelPorts TunnelInboundPortsFn, otherInstances []Instance) error {
 	if !cfg.Enabled {
 		return nil
 	}
@@ -337,6 +357,11 @@ func validateConfigRaw(cfg Config, tunnelPorts TunnelInboundPortsFn) error {
 			if p == cfg.Port {
 				return fmt.Errorf("port %d is used by a sing-box tunnel inbound", cfg.Port)
 			}
+		}
+	}
+	for _, other := range otherInstances {
+		if other.Enabled && other.Port == cfg.Port {
+			return fmt.Errorf("port %d is used by another device-proxy instance %q", cfg.Port, other.ID)
 		}
 	}
 	if cfg.Auth.Enabled {
@@ -360,7 +385,7 @@ func (s *Service) ValidateConfig(cfg Config) error {
 	s.mu.Lock()
 	portFn := s.tunnelPorts
 	s.mu.Unlock()
-	return validateConfigRaw(cfg, portFn)
+	return validateConfigRaw(cfg, portFn, nil)
 }
 
 // SaveConfig validates, applies to sing-box, and persists cfg.
@@ -500,7 +525,7 @@ func onlySelectedOutboundChanged(oldCfg, newCfg Config) bool {
 // avoid a nested Lock(). ValidateConfig (the public form) still works
 // standalone for API-layer input checking.
 func (s *Service) validateLocked(cfg Config) error {
-	return validateConfigRaw(cfg, s.tunnelPorts)
+	return validateConfigRaw(cfg, s.tunnelPorts, nil)
 }
 
 func (s *Service) buildSpec(ctx context.Context, cfg Config) (ExternalSpec, error) {
