@@ -83,14 +83,17 @@ func TestService_SaveConfig_AppliesToSingbox(t *testing.T) {
 }
 
 type fakeSingboxOperator struct {
-	running       bool
-	tags          []string
-	tunnelInfos   []TunnelOutboundInfo
-	lastSpec      *ExternalSpec
-	lastSpecNR    *ExternalSpec // ApplyDeviceProxyNoReload call
-	lastSelector  string
-	lastMember    string
-	runtimeActive string // what GetSelectorActive returns
+	running             bool
+	tags                []string
+	tunnelInfos         []TunnelOutboundInfo
+	lastSpec            *ExternalSpec
+	lastSpecNR          *ExternalSpec // ApplyDeviceProxyNoReload call
+	lastSelector        string
+	lastMember          string
+	runtimeActive       string // what GetSelectorActive returns
+	lastInstanceSpecs   []ExternalInstanceSpec // last ApplyDeviceProxyInstances call payload
+	applyInstancesCalls int                    // number of ApplyDeviceProxyInstances invocations
+	applyInstancesErr   error                  // error to return from ApplyDeviceProxyInstances (nil = succeed)
 }
 
 func (f *fakeSingboxOperator) ApplyDeviceProxy(_ context.Context, spec ExternalSpec) error {
@@ -118,8 +121,11 @@ func (f *fakeSingboxOperator) GetSelectorActive(_ context.Context, _ string) (st
 }
 
 func (f *fakeSingboxOperator) ApplyDeviceProxyInstances(_ context.Context, specs []ExternalInstanceSpec) error {
-	// For tests, we don't need to do anything. Just return nil.
-	// Optionally store specs for assertions if needed.
+	f.applyInstancesCalls++
+	if f.applyInstancesErr != nil {
+		return f.applyInstancesErr
+	}
+	f.lastInstanceSpecs = append([]ExternalInstanceSpec(nil), specs...)
 	return nil
 }
 
