@@ -25,8 +25,33 @@
 	let wasOpen = $state(false);
 	let showEndpointHint = $state(false);
 
+	// Track initial state for this modal opening to determine isDirty correctly.
+	// Updated synchronously on modal open, and again when API returns suggested values.
+	let initialAddress = $state('10.0.0.1');
+	let initialMask = $state('24');
+	let initialListenPort = $state(51820);
+	let initialDescription = $state('');
+	let initialEndpoint = $state('');
+	let initialMtu = $state(1376);
+
 	$effect(() => {
 		if (open && !wasOpen) {
+			// Reset to defaults on modal open
+			address = '10.0.0.1';
+			mask = '24';
+			addressDirty = false;
+			maskDirty = false;
+			listenPort = 51820;
+			description = '';
+			endpoint = '';
+			mtu = 1376;
+			initialAddress = '10.0.0.1';
+			initialMask = '24';
+			initialListenPort = 51820;
+			initialDescription = '';
+			initialEndpoint = '';
+			initialMtu = 1376;
+
 			wanIP = '';
 			loadingWanIP = true;
 			api.getWANIP().then(ip => {
@@ -35,12 +60,27 @@
 			}).catch(() => wanIP = '').finally(() => loadingWanIP = false);
 
 			api.suggestManagedServerAddress().then(s => {
-				if (!addressDirty) address = s.address;
-				if (!maskDirty) mask = s.mask;
+				if (!addressDirty) {
+					address = s.address;
+					initialAddress = s.address;
+				}
+				if (!maskDirty) {
+					mask = s.mask;
+					initialMask = s.mask;
+				}
 			}).catch(() => { /* keep defaults */ });
 		}
 		wasOpen = open;
 	});
+
+	const isDirty = $derived(
+		address !== initialAddress ||
+		mask !== initialMask ||
+		listenPort !== initialListenPort ||
+		description !== initialDescription ||
+		endpoint !== initialEndpoint ||
+		mtu !== initialMtu
+	);
 
 	function isValidEndpoint(val: string): boolean {
 		if (!val) return true;
@@ -75,7 +115,7 @@
 	}
 </script>
 
-<Modal {open} title="Создать WireGuard сервер" size="sm" {onclose}>
+<Modal {open} title="Создать WireGuard сервер" size="sm" {onclose} hasUnsavedChanges={() => isDirty}>
 	<div class="form-fields">
 		<div class="wan-info">
 			<span class="wan-label">Внешний IP (WAN)</span>

@@ -33,6 +33,12 @@
 		wasOpen = open;
 	});
 
+	const isDirty = $derived(
+		description !== peer.description ||
+		tunnelIP !== peer.tunnelIP ||
+		dns !== (peer.dns || '')
+	);
+
 	async function handleSave() {
 		saving = true;
 		try {
@@ -49,7 +55,7 @@
 	}
 </script>
 
-<Modal {open} title="Редактировать клиента" size="sm" {onclose}>
+<Modal {open} title="Редактировать клиента" size="sm" {onclose} hasUnsavedChanges={() => isDirty}>
 	<div class="form-fields">
 		<div class="form-group">
 			<label class="label" for="emp-desc">Имя / описание</label>

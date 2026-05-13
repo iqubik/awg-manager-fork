@@ -22,15 +22,32 @@
 	let adding = $state(false);
 	let wasOpen = $state(false);
 
+	// Track initial state for this modal opening
+	let initialDescription = $state('');
+	let initialTunnelIP = $state('');
+	let initialDns = $state('');
+	let initialUseRouterDNS = $state(false);
+
 	$effect(() => {
 		if (open && !wasOpen) {
 			description = '';
+			initialDescription = '';
 			tunnelIP = suggestNextIP();
+			initialTunnelIP = tunnelIP;
 			dns = '';
+			initialDns = '';
 			useRouterDNS = false;
+			initialUseRouterDNS = false;
 		}
 		wasOpen = open;
 	});
+
+	const isDirty = $derived(
+		description !== initialDescription ||
+		tunnelIP !== initialTunnelIP ||
+		dns !== initialDns ||
+		useRouterDNS !== initialUseRouterDNS
+	);
 
 	function suggestNextIP(): string {
 		const parts = server.address.split('.');
@@ -62,7 +79,7 @@
 	}
 </script>
 
-<Modal {open} title="Добавить клиента" size="sm" {onclose}>
+<Modal {open} title="Добавить клиента" size="sm" {onclose} hasUnsavedChanges={() => isDirty}>
 	<div class="form-fields">
 		<div class="form-group">
 			<label class="label" for="amp-desc">Имя / описание</label>

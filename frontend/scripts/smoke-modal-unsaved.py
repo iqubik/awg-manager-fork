@@ -51,6 +51,28 @@ SCENARIOS: list[Scenario] = [
     ),
 ]
 
+# Extend with three new modal scenarios
+SCENARIOS.extend([
+    Scenario(
+        name="CreateManagedServerModal",
+        navigate=lambda p: goto(p, "/servers"),
+        trigger=lambda p: p.locator('button:has-text("Новый сервер")').first.click(timeout=4000),
+        input_selector='.modal-card input[type="text"]',
+    ),
+    Scenario(
+        name="AddManagedPeerModal",
+        navigate=lambda p: goto(p, "/servers"),
+        trigger=lambda p: p.locator('button:has-text("Добавить")').last.click(timeout=4000),
+        input_selector='.modal-card input[type="text"]',
+    ),
+    Scenario(
+        name="EditManagedPeerModal",
+        navigate=lambda p: goto(p, "/servers"),
+        trigger=lambda p: p.locator('.peer-row').first.locator('.peer-action-btn').nth(1).click(timeout=4000),
+        input_selector='#emp-desc',
+    ),
+])
+
 
 def goto(page: Page, path: str):
     page.goto(f"{BASE}{path}")
