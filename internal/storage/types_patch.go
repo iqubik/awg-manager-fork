@@ -29,4 +29,5 @@ type SettingsPatch struct {
 	ManagedServer       *ManagedServer         `json:"managedServer,omitempty"`
 	ManagedPolicies     *[]string              `json:"managedPolicies,omitempty"`
 	SingboxRouter       *SingboxRouterSettings `json:"singboxRouter,omitempty"`
+	SingboxManuallyStopped *bool               `json:"singboxManuallyStopped,omitempty"`
 }

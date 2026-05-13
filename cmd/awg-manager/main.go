@@ -654,6 +654,18 @@ func main() {
 		Queries:   ndmsQueries,
 		Commands:  ndmsCommands,
 		AppLogger: loggingService,
+		// Seed the sticky-stop flag from disk so the watchdog respects
+		// a user-pressed Stop across awgm restarts. SetManuallyStopped
+		// writes the new intent back through the same store.
+		InitialManuallyStopped: settings.SingboxManuallyStopped,
+		SetManuallyStopped: func(v bool) error {
+			cur, err := settingsStore.Load()
+			if err != nil {
+				return err
+			}
+			cur.SingboxManuallyStopped = v
+			return settingsStore.Save(cur)
+		},
 	})
 
 	// config.d orchestrator — the single writer of slot files (00-base /
@@ -677,6 +689,10 @@ func main() {
 		}
 	})
 	sbOrch.SetValidator(&orchValidatorAdapter{v: singbox.NewValidator(installer.DefaultBinaryPath)})
+	// Propagate the sticky-stop intent so reload-triggered cold-starts
+	// (slot-file writes from router/deviceproxy/subscriptions) respect a
+	// user-pressed Stop in the same way the watchdog does.
+	sbOrch.SetShouldRun(func() bool { return !singboxOp.IsManuallyStopped() })
 	for _, meta := range singboxorch.KnownSlots() {
 		// SlotTunnels is AlwaysOn but only counts as "active work" when
 		// the user has defined sing-box tunnels — wire HasContent so

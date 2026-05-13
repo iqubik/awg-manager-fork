@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/events"
@@ -125,6 +126,19 @@ type Operator struct {
 	versionProbeValue    string
 	versionProbeFeatures []string
 	versionProbeAt       time.Time
+
+	// manuallyStopped is the sticky-stop intent: true means Control("stop")
+	// was called and Reconcile must skip starting the daemon until
+	// Control("start") or Control("restart") clears it. Mirrors
+	// Settings.SingboxManuallyStopped in memory so the watchdog hot path
+	// avoids hitting storage on every tick.
+	manuallyStopped atomic.Bool
+
+	// persistManualStop writes the intent through to settings.json. nil
+	// in unit tests; production wires a closure that updates the storage
+	// settings. Called BEFORE proc transitions so a persistence error
+	// short-circuits the action instead of leaving an unpersisted intent.
+	persistManualStop func(bool) error
 }
 
 // OperatorDeps are external dependencies for DI.
@@ -140,6 +154,14 @@ type OperatorDeps struct {
 	// Binary is the absolute path to the sing-box binary. Defaults to
 	// installer.DefaultBinaryPath when empty.
 	Binary string
+	// InitialManuallyStopped seeds the sticky-stop flag from persisted
+	// settings on construction. Watchdog and Reconcile honour it from
+	// the first tick after awgm boots.
+	InitialManuallyStopped bool
+	// SetManuallyStopped is invoked by Control("stop"/"start"/"restart")
+	// to persist the new intent to settings.json. Optional — when nil,
+	// the in-memory flag still works but does not survive an awgm restart.
+	SetManuallyStopped func(bool) error
 }
 
 func NewOperator(d OperatorDeps) *Operator {
@@ -169,17 +191,19 @@ func NewOperator(d OperatorDeps) *Operator {
 	stripStrayDirectPlaceholder(configPath)
 
 	op := &Operator{
-		log:           log,
-		dir:           dir,
-		binary:        binary,
-		configPath:    configPath,
-		pidPath:       pidPath,
-		proc:          NewProcess(binary, configPath, pidPath),
-		validator:     NewValidator(binary),
-		proxyMgr:      NewProxyManager(d.Queries, d.Commands),
-		clash:         NewClashClient(clashAPIAddr),
-		processLogger: logging.NewScopedLogger(d.AppLogger, logging.GroupSingbox, logging.SubSBProcess),
+		log:               log,
+		dir:               dir,
+		binary:            binary,
+		configPath:        configPath,
+		pidPath:           pidPath,
+		proc:              NewProcess(binary, configPath, pidPath),
+		validator:         NewValidator(binary),
+		proxyMgr:          NewProxyManager(d.Queries, d.Commands),
+		clash:             NewClashClient(clashAPIAddr),
+		processLogger:     logging.NewScopedLogger(d.AppLogger, logging.GroupSingbox, logging.SubSBProcess),
+		persistManualStop: d.SetManuallyStopped,
 	}
+	op.manuallyStopped.Store(d.InitialManuallyStopped)
 	op.proc.OnStderrLine = op.handleStderrLine
 	op.proc.OnStdoutLine = op.handleStdoutLine
 	op.proc.OnExit = op.handleExit
@@ -1250,7 +1274,12 @@ func (o *Operator) UpdateTunnel(ctx context.Context, tag string, outbound json.R
 }
 
 // Reconcile: ensure process is running if config has tunnels; ensure Proxies are up.
+// Honours the sticky-stop intent — when the user pressed Stop, watchdog/Reconcile
+// must not bring sing-box back up. Cleared only by Control("start"/"restart").
 func (o *Operator) Reconcile(ctx context.Context) error {
+	if o.manuallyStopped.Load() {
+		return nil
+	}
 	cfg, err := o.loadConfig()
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -1272,9 +1301,14 @@ func (o *Operator) Reconcile(ctx context.Context) error {
 
 // Control starts/stops/restarts the sing-box daemon. Mirrors the shape of
 // hydraroute.Service.Control so the API handler can dispatch by action
-// name. "start" is a no-op when already running; "stop" is a no-op when
-// already stopped; "restart" is stop + start regardless of current state.
-// Errors only on actual transition failures.
+// name. "start" is a no-op for the process when already running; "stop" is
+// a no-op for the process when already stopped; "restart" is stop + start
+// regardless of current state. Errors only on actual transition failures.
+//
+// All three actions persist the sticky-stop intent BEFORE touching the
+// process: "stop" sets it to true, "start" and "restart" clear it. The
+// intent persists across awgm restarts (settings.json) so the watchdog
+// never resurrects a daemon the user shut down.
 func (o *Operator) Control(ctx context.Context, action string) error {
 	if installed, _ := o.IsInstalled(); !installed {
 		return fmt.Errorf("sing-box is not installed")
@@ -1282,16 +1316,25 @@ func (o *Operator) Control(ctx context.Context, action string) error {
 	running, _ := o.IsRunningPublic()
 	switch action {
 	case "start":
+		if err := o.setManualStop(false); err != nil {
+			return err
+		}
 		if running {
 			return nil
 		}
 		return o.startAndWait(ctx)
 	case "stop":
+		if err := o.setManualStop(true); err != nil {
+			return err
+		}
 		if !running {
 			return nil
 		}
 		return o.proc.Stop()
 	case "restart":
+		if err := o.setManualStop(false); err != nil {
+			return err
+		}
 		if running {
 			if err := o.proc.Stop(); err != nil {
 				return fmt.Errorf("stop: %w", err)
@@ -1301,6 +1344,32 @@ func (o *Operator) Control(ctx context.Context, action string) error {
 	default:
 		return fmt.Errorf("unknown action: %s", action)
 	}
+}
+
+// IsManuallyStopped reports whether the user-pressed-Stop sticky flag
+// is currently set. Read-only view of the in-memory atomic mirror of
+// Settings.SingboxManuallyStopped; cheap enough to hit on every reload
+// or watchdog tick. Used to plumb the intent into orchestrator.SetShouldRun.
+func (o *Operator) IsManuallyStopped() bool {
+	return o.manuallyStopped.Load()
+}
+
+// setManualStop updates the in-memory sticky-stop flag and persists it
+// through to settings.json. The in-memory flag is updated FIRST so the
+// watchdog sees the new value immediately; persistence happens second so
+// a storage error is surfaced before any irreversible process action.
+// On persistence error the in-memory flag is rolled back to keep memory
+// and disk consistent.
+func (o *Operator) setManualStop(v bool) error {
+	prev := o.manuallyStopped.Swap(v)
+	if o.persistManualStop == nil {
+		return nil
+	}
+	if err := o.persistManualStop(v); err != nil {
+		o.manuallyStopped.Store(prev)
+		return fmt.Errorf("persist manual-stop intent: %w", err)
+	}
+	return nil
 }
 
 // startAndWait launches sing-box and blocks until Clash API responds or

@@ -24,6 +24,11 @@ type Settings struct {
 	ManagedServer          *ManagedServer    `json:"managedServer,omitempty"`
 	ManagedPolicies        []string          `json:"managedPolicies,omitempty"`
 	SingboxRouter          SingboxRouterSettings `json:"singboxRouter"`
+	// SingboxManuallyStopped is the sticky-stop intent: when true, the
+	// daemon stays down even though tunnels are configured. Watchdog
+	// reconciles only when this is false. Cleared by Control("start")
+	// and Control("restart"); set by Control("stop").
+	SingboxManuallyStopped bool                  `json:"singboxManuallyStopped,omitempty"`
 }
 
 type SingboxRouterSettings struct {

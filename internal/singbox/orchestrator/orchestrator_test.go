@@ -533,3 +533,103 @@ func TestBootstrap_LeavesPendingFileIntact(t *testing.T) {
 		t.Errorf("HasDraft should be true after Bootstrap")
 	}
 }
+
+// shouldRun=false must suppress the cold-start branch of Reload — this
+// is what makes a user-pressed Stop "sticky" against reload triggers
+// from slot writes. SIGHUP and stop branches remain unaffected; only
+// `needRunning && !running` is gated.
+func TestReloadColdStartSuppressedByShouldRun(t *testing.T) {
+	fp := &fakeProc{}
+	dir := t.TempDir()
+	o := New(dir, fp)
+	_ = o.Register(SlotMeta{Slot: SlotBase, Filename: "00-base.json", AlwaysOn: true})
+	_ = o.Register(SlotMeta{Slot: SlotRouter, Filename: "20-router.json"})
+	if err := o.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Save(SlotBase, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Save(SlotRouter, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.SetEnabled(SlotRouter, true); err != nil {
+		t.Fatal(err)
+	}
+	o.SetShouldRun(func() bool { return false }) // sticky-stop intent
+
+	if err := o.Reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if fp.starts != 0 {
+		t.Errorf("cold-start must be suppressed; got starts=%d", fp.starts)
+	}
+	if fp.running {
+		t.Errorf("daemon must remain stopped")
+	}
+}
+
+// When shouldRun returns true, the legacy cold-start path runs — proves
+// the predicate doesn't break the happy path.
+func TestReloadColdStartProceedsWhenShouldRunTrue(t *testing.T) {
+	fp := &fakeProc{}
+	dir := t.TempDir()
+	o := New(dir, fp)
+	_ = o.Register(SlotMeta{Slot: SlotBase, Filename: "00-base.json", AlwaysOn: true})
+	_ = o.Register(SlotMeta{Slot: SlotRouter, Filename: "20-router.json"})
+	if err := o.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Save(SlotBase, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Save(SlotRouter, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.SetEnabled(SlotRouter, true); err != nil {
+		t.Fatal(err)
+	}
+	o.SetShouldRun(func() bool { return true })
+
+	if err := o.Reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if fp.starts != 1 {
+		t.Errorf("expected 1 start, got %d", fp.starts)
+	}
+}
+
+// SIGHUP and stop branches must ignore shouldRun: the predicate only
+// gates cold-start. Verified by enabling a slot, marking the proc as
+// already running, calling Reload with shouldRun=false, and asserting
+// the running daemon got SIGHUP rather than nothing.
+func TestReloadShouldRunOnlyGatesColdStart(t *testing.T) {
+	fp := &fakeProc{running: true} // already alive
+	dir := t.TempDir()
+	o := New(dir, fp)
+	_ = o.Register(SlotMeta{Slot: SlotBase, Filename: "00-base.json", AlwaysOn: true})
+	_ = o.Register(SlotMeta{Slot: SlotRouter, Filename: "20-router.json"})
+	if err := o.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Save(SlotBase, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Save(SlotRouter, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.SetEnabled(SlotRouter, true); err != nil {
+		t.Fatal(err)
+	}
+	o.SetShouldRun(func() bool { return false }) // would block cold-start
+
+	if err := o.Reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if fp.reloads != 1 {
+		t.Errorf("SIGHUP must still fire when already running; reloads=%d", fp.reloads)
+	}
+	if fp.starts != 0 {
+		t.Errorf("must not cold-start when already running; starts=%d", fp.starts)
+	}
+}

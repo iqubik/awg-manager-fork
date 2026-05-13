@@ -53,6 +53,13 @@ type Orchestrator struct {
 	// For T4 reload coalescing.
 	reloadTimer *time.Timer
 	reloading   bool
+
+	// shouldRun, when non-nil and returning false, suppresses cold-start
+	// of sing-box during Reload. Used by Operator to enforce the
+	// user-pressed-Stop sticky intent so config-change-triggered reloads
+	// don't resurrect the daemon. SIGHUP (already running) and stop
+	// transitions remain unaffected.
+	shouldRun func() bool
 }
 
 // SetLogger registers a sink for orchestrator-level log lines.
@@ -61,6 +68,17 @@ func (o *Orchestrator) SetLogger(fn func(level string, msg string)) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.logf = fn
+}
+
+// SetShouldRun registers a predicate consulted before Reload starts a
+// stopped sing-box. fn returning false suppresses the cold-start branch;
+// fn returning true (or nil predicate) preserves the legacy "always
+// start when needed" behaviour. Used to plumb the manual-stop intent
+// from Operator into orchestrator-triggered reloads.
+func (o *Orchestrator) SetShouldRun(fn func() bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.shouldRun = fn
 }
 
 // log emits via logf if set. Caller may or may not hold the lock.

@@ -48,6 +48,7 @@ func (o *Orchestrator) Reload() error {
 	}
 	needRunning := o.hasActiveWorkLocked()
 	proc := o.proc
+	shouldRun := o.shouldRun
 	o.mu.Unlock()
 
 	var err error
@@ -57,6 +58,14 @@ func (o *Orchestrator) Reload() error {
 		running, _ := proc.IsRunning()
 		switch {
 		case needRunning && !running:
+			// Honour the sticky-stop intent: if the user pressed Stop,
+			// shouldRun returns false and we must not resurrect the
+			// daemon merely because a slot file changed. SIGHUP and
+			// stop branches stay unaffected — they don't cold-start.
+			if shouldRun != nil && !shouldRun() {
+				o.log("info", "orchestrator: cold-start suppressed by manual-stop intent")
+				break
+			}
 			o.log("info", "orchestrator: starting sing-box (active slots present)")
 			err = proc.Start()
 		case needRunning && running:
