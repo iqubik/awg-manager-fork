@@ -45,6 +45,15 @@
 		wasOpen = open;
 	});
 
+	const isDirty = $derived(
+		address !== server.address ||
+		mask !== dotToPrefix(server.mask) ||
+		listenPort !== server.listenPort ||
+		description !== (server.description ?? '') ||
+		endpoint !== (server.endpoint ?? '') ||
+		mtu !== (server.mtu || 1376)
+	);
+
 	function dotToPrefix(m: string): string {
 		if (/^\d+$/.test(m)) return m;
 		const parts = m.split('.').map(Number);
@@ -98,7 +107,7 @@
 	}
 </script>
 
-<Modal {open} title="Настройки сервера" size="sm" {onclose}>
+<Modal {open} title="Настройки сервера" size="sm" {onclose} hasUnsavedChanges={() => isDirty}>
 	<div class="form-fields">
 		<div class="form-group">
 			<label class="label" for="ems-description">Название</label>

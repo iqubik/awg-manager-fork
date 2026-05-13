@@ -31,8 +31,24 @@ class Scenario:
     typed_value: str = "x"
 
 
+def _open_edit_managed_server(p: Page):
+    """Open EditManagedServerModal from /servers via the cog icon on a server card."""
+    # The server detail card shows a settings cog icon button with aria-label="Настройки"
+    loc = p.locator('button[aria-label="Настройки"]').first
+    if loc.count() > 0:
+        loc.click(timeout=4000)
+        return
+    raise RuntimeError("could not find cog icon to open EditManagedServerModal")
+
+
 SCENARIOS: list[Scenario] = [
-    # populated by per-modal tasks below
+    Scenario(
+        name="EditManagedServerModal",
+        navigate=lambda p: goto(p, "/servers"),
+        trigger=_open_edit_managed_server,
+        # First text input in the open modal — usually the name (description) field
+        input_selector='.modal-card input[type="text"]',
+    ),
 ]
 
 
