@@ -8,6 +8,13 @@
         onclose: () => void;
         children: Snippet;
         actions?: Snippet;
+        /**
+         * Close the modal when the user clicks the dimmed backdrop.
+         * Disable for forms with unsaved input where an accidental
+         * outside click would lose state — pair with an explicit
+         * cancel button + Esc handling (Esc stays enabled regardless).
+         */
+        closeOnBackdrop?: boolean;
     }
 
     let {
@@ -16,7 +23,8 @@
         size = 'md',
         onclose,
         children,
-        actions
+        actions,
+        closeOnBackdrop = true,
     }: Props = $props();
 
     const sizeClasses = {
@@ -30,6 +38,26 @@
         if (e.key === 'Escape') {
             onclose();
         }
+    }
+
+    // Tracks whether the current pointer gesture started on the backdrop.
+    // Without this, a drag that begins inside .modal-card (text selection,
+    // slider, etc.) and releases on the dimmed area would close the modal
+    // — a classic accidental-dismiss bug. We require BOTH pointerdown and
+    // click to land on the backdrop element itself.
+    let backdropEl: HTMLElement | null = $state(null);
+    let pointerDownOnBackdrop = false;
+
+    function handleBackdropPointerDown(e: PointerEvent) {
+        pointerDownOnBackdrop = e.target === backdropEl;
+    }
+
+    function handleBackdropClick(e: MouseEvent) {
+        if (!closeOnBackdrop) return;
+        if (e.target !== backdropEl) return;
+        if (!pointerDownOnBackdrop) return;
+        pointerDownOnBackdrop = false;
+        onclose();
     }
 
     // Portal action: moves the backdrop to <body> so it escapes any
@@ -51,12 +79,15 @@
 {#if open}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
+        bind:this={backdropEl}
         use:portal
         class="modal-backdrop"
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
         tabindex="-1"
+        onpointerdown={handleBackdropPointerDown}
+        onclick={handleBackdropClick}
     >
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
         <div
@@ -102,6 +133,7 @@
         padding: 1rem;
         background: rgba(0, 0, 0, 0.5);
         overflow-y: auto;
+        cursor: pointer;
     }
 
     .modal-card {
@@ -109,6 +141,7 @@
         border: 1px solid var(--border);
         border-radius: var(--radius);
         width: 100%;
+        cursor: auto;
         /* min-width: 0 + box-sizing keeps the card from being inflated
            past its size-class max-width by an intrinsic min-content child
            (long URL placeholder, monospace text without break-points). */
