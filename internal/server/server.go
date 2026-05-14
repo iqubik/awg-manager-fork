@@ -87,6 +87,7 @@ type Server struct {
 	staticRouteService  api.StaticRouteService
 	systemTunnelService systemtunnel.Service
 	managedService      managed.ManagedServerService
+	managedServiceImpl  *managed.Service
 	nwgOp               *nwg.OperatorNativeWG
 	terminalManager     terminal.Manager
 	accessPolicyService accesspolicy.Service
@@ -154,6 +155,7 @@ type Deps struct {
 	StaticRouteService  api.StaticRouteService
 	SystemTunnelService systemtunnel.Service
 	ManagedService      managed.ManagedServerService
+	ManagedServiceImpl  *managed.Service
 	NwgOp               *nwg.OperatorNativeWG
 	TerminalManager     terminal.Manager
 	AccessPolicySvc     accesspolicy.Service
@@ -195,6 +197,7 @@ func New(cfg Config, deps Deps) *Server {
 		staticRouteService:  deps.StaticRouteService,
 		systemTunnelService: deps.SystemTunnelService,
 		managedService:      deps.ManagedService,
+		managedServiceImpl:  deps.ManagedServiceImpl,
 		nwgOp:               deps.NwgOp,
 		terminalManager:     deps.TerminalManager,
 		accessPolicyService: deps.AccessPolicySvc,
@@ -778,6 +781,14 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	managedHandler := api.NewManagedServerHandler(s.managedService)
 	mux.HandleFunc("/api/managed-servers", guarded(managedHandler.Collection))
 	mux.HandleFunc("/api/managed-servers/", guarded(managedHandler.Subtree))
+
+	if s.managedServiceImpl != nil {
+		managedBackupHandler := api.NewManagedServerBackupHandler(s.managedServiceImpl)
+		mux.HandleFunc("/api/managed/export", guarded(managedBackupHandler.Export))
+		mux.HandleFunc("/api/managed/import", guarded(managedBackupHandler.Import))
+		mux.HandleFunc("/api/managed/drift", guarded(managedBackupHandler.Drift))
+		mux.HandleFunc("/api/managed/restore-drift", guarded(managedBackupHandler.RestoreDrift))
+	}
 
 	// Signature capture (protected + boot guarded)
 	mux.HandleFunc("/api/signature/capture", guarded(signatureHandler.Capture))

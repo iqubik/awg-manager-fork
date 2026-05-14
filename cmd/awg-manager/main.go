@@ -878,6 +878,7 @@ func main() {
 			StaticRouteService:  staticRouteService,
 			SystemTunnelService: systemTunnelSvc,
 			ManagedService:      managedService,
+			ManagedServiceImpl:  managedService,
 			NwgOp:               nwgOp,
 			TerminalManager:     terminalManager,
 			AccessPolicySvc:     accessPolicySvc,
