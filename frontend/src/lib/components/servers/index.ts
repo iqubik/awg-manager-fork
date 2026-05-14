@@ -13,3 +13,4 @@ export { default as ServerRail } from './ServerRail.svelte';
 export type { RailItem } from './ServerRail.svelte';
 export { default as ManagedServerBackupToolbar } from './ManagedServerBackupToolbar.svelte';
 export { default as ManagedServerImportModal } from './ManagedServerImportModal.svelte';
+export { default as ManagedServerDriftBanner } from './ManagedServerDriftBanner.svelte';

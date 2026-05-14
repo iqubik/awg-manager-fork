@@ -15,6 +15,7 @@
 		CreateManagedServerModal,
 		ServerRail,
 		ManagedServerBackupToolbar,
+		ManagedServerDriftBanner,
 		type RailItem,
 	} from '$lib/components/servers';
 	import { dedupBy } from '$lib/utils/dedupBy';
@@ -145,6 +146,8 @@
 			<StoreStatusBadge store={servers} />
 		{/snippet}
 	</PageHeader>
+
+	<ManagedServerDriftBanner />
 
 	{#if loading}
 		<div class="flex justify-center py-8">
