@@ -160,7 +160,7 @@
             title="Несохранённые изменения"
             message="Вы внесли изменения в форме. Закрыть без сохранения?"
             confirmLabel="Закрыть без сохранения"
-            cancelLabel="Продолжить редактирование"
+            cancelLabel="Нет"
             variant="danger"
             onConfirm={() => { confirmOpen = false; onclose(); }}
             onClose={() => { confirmOpen = false; }}
