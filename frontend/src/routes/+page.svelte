@@ -35,6 +35,7 @@
 	import { formatBitRate, formatBytes, formatDuration, formatRelativeTime, secondsSince } from '$lib/utils/format';
 	import {
 		SINGBOX_LAYOUT_STORAGE_KEY,
+		TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX,
 		type SingboxLayoutMode,
 	} from '$lib/constants/singboxLayout';
 
@@ -44,7 +45,6 @@
 	type EndpointScope = 'managed' | 'system' | 'external';
 
 	const AWG_TUNNEL_VIEW_STORAGE_KEY = 'awg_tunnel_view_mode';
-	const AWG_MOBILE_VIEW_MAX_WIDTH = 760;
 
 	// Polling-store subscription: first subscriber triggers the fetch,
 	// the last unsubscribe stops polling. `$tunnels` yields a
@@ -426,8 +426,9 @@
 	let singboxLayoutReady = false;
 	let showSingboxListOption = $derived($usageLevel !== 'basic');
 	let singboxEffectiveLayout = $derived<SingboxLayoutMode>(
-		!showSingboxListOption && singboxLayoutMode === 'list' ? 'grid' : singboxLayoutMode,
+		isAwgMobile || (!showSingboxListOption && singboxLayoutMode === 'list') ? 'grid' : singboxLayoutMode,
 	);
+	let showSingboxGridListToggle = $derived(showSingboxListOption && !isAwgMobile);
 	let awgEffectiveViewMode = $derived<AwgTunnelViewMode>(
 		isAwgMobile || (!showAwgListViewOption && awgViewMode === 'list') ? 'compact' : awgViewMode
 	);
@@ -473,7 +474,7 @@
 	});
 
 	onMount(() => {
-		const media = window.matchMedia(`(max-width: ${AWG_MOBILE_VIEW_MAX_WIDTH}px)`);
+		const media = window.matchMedia(`(max-width: ${TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX}px)`);
 		const sync = (event?: MediaQueryList | MediaQueryListEvent) => {
 			isAwgMobile = event ? event.matches : media.matches;
 		};
@@ -1583,7 +1584,7 @@
 							{#if subscriptionsList.length > 0}
 								<GridListToggle
 									value={singboxEffectiveLayout}
-									showListOption={showSingboxListOption}
+									showListOption={showSingboxGridListToggle}
 									onchange={(v) => (singboxLayoutMode = v)}
 								/>
 							{/if}
@@ -1705,7 +1706,7 @@
 						{#if singboxTunnelsList.length > 0}
 							<GridListToggle
 								value={singboxEffectiveLayout}
-								showListOption={showSingboxListOption}
+								showListOption={showSingboxGridListToggle}
 								onchange={(v) => (singboxLayoutMode = v)}
 							/>
 						{/if}

@@ -210,6 +210,23 @@ func NewOperator(d OperatorDeps) *Operator {
 	return op
 }
 
+// singBoxStderrTextHead matches the wall-clock prefix sing-box's text logger
+// emits on stderr (e.g. "+0000 2026-05-14 21:45:56 …"). Used so JSON or
+// other structured blobs that mention "fatal" do not populate LastError.
+var singBoxStderrTextHead = regexp.MustCompile(`^\s*\+[0-9]{1,4}\s+\d{4}-\d{2}-\d{2}\b`)
+
+func stderrLineIndicatesSingBoxFatal(line string) bool {
+	u := strings.ToUpper(line)
+	if !strings.Contains(u, "FATAL") {
+		return false
+	}
+	// Bracket level token (… FATAL[0000] …) without requiring the date prefix.
+	if strings.Contains(u, "FATAL[") {
+		return true
+	}
+	return singBoxStderrTextHead.MatchString(line)
+}
+
 // handleStderrLine is invoked by Process for every line sing-box writes
 // to stderr while running. Forwards each line to the slog (which the app
 // log handler attaches to and persists in the in-memory log buffer
@@ -218,7 +235,7 @@ func NewOperator(d OperatorDeps) *Operator {
 func (o *Operator) handleStderrLine(line string) {
 	upper := strings.ToUpper(line)
 	switch {
-	case strings.Contains(upper, "FATAL"):
+	case stderrLineIndicatesSingBoxFatal(line):
 		o.log.Error("singbox stderr", "line", line)
 		o.setLastError(line)
 	case strings.Contains(upper, "ERROR"):

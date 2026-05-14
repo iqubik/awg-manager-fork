@@ -10,6 +10,7 @@
 	import { usageLevel } from '$lib/stores/settings';
 	import {
 		SINGBOX_LAYOUT_STORAGE_KEY,
+		TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX,
 		type SingboxLayoutMode,
 	} from '$lib/constants/singboxLayout';
 
@@ -38,10 +39,14 @@
 
 	let singboxLayoutMode = $state<SingboxLayoutMode>('grid');
 	let singboxLayoutReady = false;
+	let isSingboxMembersMobile = $state(false);
 	const showSingboxListOption = $derived($usageLevel !== 'basic');
 	const singboxEffectiveLayout = $derived<SingboxLayoutMode>(
-		!showSingboxListOption && singboxLayoutMode === 'list' ? 'grid' : singboxLayoutMode,
+		isSingboxMembersMobile || (!showSingboxListOption && singboxLayoutMode === 'list')
+			? 'grid'
+			: singboxLayoutMode,
 	);
+	const showSingboxGridListToggle = $derived(showSingboxListOption && !isSingboxMembersMobile);
 
 	function isSingboxLayoutMode(value: string | null): value is SingboxLayoutMode {
 		return value === 'grid' || value === 'list';
@@ -116,6 +121,16 @@
 		if (isSingboxLayoutMode(sb)) singboxLayoutMode = sb;
 		singboxLayoutReady = true;
 		loadStream();
+	});
+
+	onMount(() => {
+		const media = window.matchMedia(`(max-width: ${TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX}px)`);
+		const sync = (event?: MediaQueryList | MediaQueryListEvent) => {
+			isSingboxMembersMobile = event ? event.matches : media.matches;
+		};
+		sync(media);
+		media.addEventListener('change', sync);
+		return () => media.removeEventListener('change', sync);
 	});
 	onDestroy(() => {
 		evtSrc?.close();
@@ -221,7 +236,7 @@
 					<div class="members-toolbar">
 						<GridListToggle
 							value={singboxEffectiveLayout}
-							showListOption={showSingboxListOption}
+							showListOption={showSingboxGridListToggle}
 							onchange={(v) => (singboxLayoutMode = v)}
 						/>
 					</div>
