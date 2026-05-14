@@ -87,7 +87,11 @@ import type {
 	CreateSubscriptionInput,
 	UpdateSubscriptionInput,
 	RouterStagingStatusResponse,
-	AmneziaPremiumAccountInfo
+	AmneziaPremiumAccountInfo,
+	ManagedServerBackupFile,
+	ManagedServerDriftResponse,
+	ManagedServerRestoreResponse,
+	RestoreOptions,
 } from '$lib/types';
 import { isMockDevMode } from '$lib/env';
 
@@ -1996,6 +2000,36 @@ class ApiClient {
 			},
 		);
 		return data.deleted ? null : (data.subscription ?? null);
+	}
+
+	// #endregion
+
+	// ─────────────────────────────────────────────
+	// #region Managed Server Backup / Restore
+	// ─────────────────────────────────────────────
+
+	async managedServerExport(): Promise<ManagedServerBackupFile> {
+		return this.request<ManagedServerBackupFile>('/managed/export');
+	}
+
+	async managedServerImport(
+		payload: ManagedServerBackupFile & { options: RestoreOptions },
+	): Promise<ManagedServerRestoreResponse> {
+		return this.request<ManagedServerRestoreResponse>('/managed/import', {
+			method: 'POST',
+			body: JSON.stringify(payload),
+		});
+	}
+
+	async managedServerDrift(): Promise<ManagedServerDriftResponse> {
+		return this.request<ManagedServerDriftResponse>('/managed/drift');
+	}
+
+	async managedServerRestoreDrift(opts: RestoreOptions): Promise<ManagedServerRestoreResponse> {
+		return this.request<ManagedServerRestoreResponse>('/managed/restore-drift', {
+			method: 'POST',
+			body: JSON.stringify({ options: opts }),
+		});
 	}
 
 	// #endregion
