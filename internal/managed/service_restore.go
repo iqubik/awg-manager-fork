@@ -14,15 +14,15 @@ type RestoreOptions struct {
 	// by a DIFFERENT server (matched by public-key derived from the
 	// supplied private key), Restore picks the next free Wireguard<M>
 	// slot and creates the server there. When false, such a server is
-	// returned with action="skipped".
-	AllowRenumber bool
+	// returned with action="conflict".
+	AllowRenumber bool `json:"allowRenumber"`
 }
 
 // RestoreOutcome is the per-server report from Service.Restore.
 type RestoreOutcome struct {
 	Name       string   `json:"name"`                 // original Wireguard<N> from the input
 	NewName    string   `json:"newName,omitempty"`    // populated when action == "renamed"
-	Action     string   `json:"action"`               // created|merged|renamed|skipped|conflict|failed
+	Action     string   `json:"action"`               // created|merged|renamed|conflict|failed
 	AddedPeers int      `json:"addedPeers,omitempty"` // for merged
 	Conflicts  []string `json:"conflicts,omitempty"`  // human-readable reasons
 	Error      string   `json:"error,omitempty"`      // only for failed

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/managed"
 	"github.com/hoaxisr/awg-manager/internal/response"
 )
@@ -14,7 +15,12 @@ import (
 // ManagedServerBackupHandler exposes Export / Import / Drift / RestoreDrift.
 type ManagedServerBackupHandler struct {
 	svc *managed.Service
+	bus *events.Bus
 }
+
+// SetEventBus wires the SSE bus so Import and RestoreDrift can publish
+// resource:invalidated after a successful restore.
+func (h *ManagedServerBackupHandler) SetEventBus(bus *events.Bus) { h.bus = bus }
 
 // NewManagedServerBackupHandler creates a new backup handler.
 func NewManagedServerBackupHandler(svc *managed.Service) *ManagedServerBackupHandler {
@@ -78,16 +84,12 @@ func (h *ManagedServerBackupHandler) Export(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	now := time.Now().UTC()
-	body := ManagedServerBackupFile{
+	response.Success(w, ManagedServerBackupFile{
 		Version:        backupFileVersion,
 		Type:           backupFileType,
 		ExportedAt:     now,
 		ManagedServers: servers,
-	}
-	filename := fmt.Sprintf("managed-backup-%s.json", now.Format("2006-01-02"))
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(body)
+	})
 }
 
 // Import handles POST /api/managed/import.
@@ -123,6 +125,9 @@ func (h *ManagedServerBackupHandler) Import(w http.ResponseWriter, r *http.Reque
 	}
 	outcomes := h.svc.Restore(r.Context(), req.ManagedServers, req.Options)
 	response.Success(w, ManagedServerRestoreResponse{Outcomes: outcomes})
+	if hasActionableMutation(outcomes) {
+		publishInvalidated(h.bus, ResourceServers, "managed-restore")
+	}
 }
 
 // Drift handles GET /api/managed/drift.
@@ -177,4 +182,19 @@ func (h *ManagedServerBackupHandler) RestoreDrift(w http.ResponseWriter, r *http
 	}
 	outcomes := h.svc.Restore(r.Context(), drift, req.Options)
 	response.Success(w, ManagedServerRestoreResponse{Outcomes: outcomes})
+	if hasActionableMutation(outcomes) {
+		publishInvalidated(h.bus, ResourceServers, "managed-restore-drift")
+	}
+}
+
+// hasActionableMutation reports whether any outcome action warrants an SSE
+// invalidation (i.e. a server was actually created, merged, or renamed).
+func hasActionableMutation(outcomes []managed.RestoreOutcome) bool {
+	for _, o := range outcomes {
+		switch o.Action {
+		case "created", "merged", "renamed":
+			return true
+		}
+	}
+	return false
 }
