@@ -438,8 +438,14 @@
     .server-text {
         font-size: 0.82rem;
         overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        white-space: normal;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+        min-width: 0;
     }
     .server-text.mono {
         font-family: var(--font-mono, ui-monospace, monospace);

@@ -65,6 +65,8 @@
 			default: return member.protocol;
 		}
 	});
+
+	const heading = $derived(member.label || member.server);
 </script>
 
 <button
@@ -78,7 +80,7 @@
 >
 	<div class="header">
 		<span class="led" class:on={active} aria-hidden="true"></span>
-		<span class="title" title={member.tag}>{member.label || member.server}</span>
+		<span class="title" title={heading}>{heading}</span>
 		<span class="port mono">:{member.port}</span>
 	</div>
 	<div class="badges">
@@ -176,9 +178,15 @@
 		font-size: 0.92rem;
 		font-weight: 600;
 		flex: 1;
+		min-width: 0;
 		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		white-space: normal;
+		word-break: break-word;
+		overflow-wrap: anywhere;
 	}
 	.port { font-size: 0.78rem; color: var(--color-text-muted); }
 	.badges { display: flex; gap: 0.4rem; flex-wrap: wrap; }
