@@ -1195,6 +1195,12 @@ func main() {
 			// Must happen before tunnel start so ISP resolution works.
 			populateWANModel(shutdownCtx, ndmsQueries, wanModel, log)
 
+			// Back-fill ManagedServer.PrivateKey for entries created before
+			// the field existed in storage. Best-effort, idempotent — already
+			// populated entries are skipped. Must run AFTER the NDMS interface
+			// cache is ready so kernel-name resolution works.
+			managedService.MigratePrivateKeys(shutdownCtx)
+
 			// Migrate legacy NDMS ID values to kernel names (one-time after model is populated).
 			tunnelService.MigrateISPInterfaceToKernel()
 			// Clear stored.ActiveWAN entries that don't name a real kernel iface
