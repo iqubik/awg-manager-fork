@@ -1170,12 +1170,6 @@ func main() {
 				}
 			}
 
-			// Clean up stale userspace PID files (kernel doesn't need cleanup —
-			// bootTunnels handles it via lifecycle-based Start).
-			if backendImpl.Type() != backend.TypeKernel {
-				cleanupStaleUserspaceState(log)
-			}
-
 			// Seed WAN model with current interface state from NDMS.
 			// Must happen before tunnel start so ISP resolution works.
 			populateWANModel(shutdownCtx, ndmsQueries, wanModel, log)
@@ -1204,7 +1198,6 @@ func main() {
 		// syscall.Exec preserves child processes — amneziawg-go, TUN devices,
 		// iptables rules, routes, NDMS config all survive. Only in-memory
 		// operator maps (endpointRoutes, resolvedISP) need restoration.
-		// PID files are valid (not stale) — do NOT call cleanupStaleUserspaceState.
 		populateWANModel(context.Background(), ndmsQueries, wanModel, log)
 
 		// Migrate legacy NDMS ID values to kernel names (one-time after model is populated).
@@ -1418,30 +1411,6 @@ func getUptime() float64 {
 		return 0
 	}
 	return uptime
-}
-
-// cleanupStaleUserspaceState removes stale per-tunnel PID files left in
-// the persistent /opt/var/run/awg-manager/ directory by older awgm
-// versions that managed userspace tunnel processes directly. The current
-// kernel-backed architecture writes no per-tunnel PIDs, so in practice
-// this function finds nothing to clean — kept as a one-shot upgrade
-// safety net for users coming from those older builds. (Note: the main
-// daemon PID file moved to /var/run tmpfs and is no longer relevant here.)
-func cleanupStaleUserspaceState(log *logger.Logger) {
-	pidDir := "/opt/var/run/awg-manager"
-
-	entries, err := os.ReadDir(pidDir)
-	if err != nil {
-		return // Directory doesn't exist yet — nothing to clean
-	}
-
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".pid" {
-			pidPath := filepath.Join(pidDir, e.Name())
-			_ = os.Remove(pidPath)
-			log.Info("reboot cleanup: removed stale PID file", map[string]interface{}{"file": e.Name()})
-		}
-	}
 }
 
 // runService handles --service flag: start/stop/restart/status.
@@ -1797,7 +1766,6 @@ func runCleanup(dataDir string) {
 	}
 	os.Remove(filepath.Join(dataDir, "port"))
 	os.Remove(filepath.Join(dataDir, "dns-routes.json"))
-	os.RemoveAll("/opt/var/run/awg-manager")
 
 	fmt.Println("Done.")
 }
