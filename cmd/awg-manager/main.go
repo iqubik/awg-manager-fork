@@ -1420,9 +1420,13 @@ func getUptime() float64 {
 	return uptime
 }
 
-// cleanupStaleUserspaceState removes stale PID files and sockets after router reboot.
-// After reboot, /tmp (tmpfs) is wiped but PID files in /opt/var/run persist,
-// and processes they reference no longer exist.
+// cleanupStaleUserspaceState removes stale per-tunnel PID files left in
+// the persistent /opt/var/run/awg-manager/ directory by older awgm
+// versions that managed userspace tunnel processes directly. The current
+// kernel-backed architecture writes no per-tunnel PIDs, so in practice
+// this function finds nothing to clean — kept as a one-shot upgrade
+// safety net for users coming from those older builds. (Note: the main
+// daemon PID file moved to /var/run tmpfs and is no longer relevant here.)
 func cleanupStaleUserspaceState(log *logger.Logger) {
 	pidDir := "/opt/var/run/awg-manager"
 
@@ -1593,14 +1597,22 @@ func readPIDFile() (int, bool) {
 	return pid, true
 }
 
-// isProcessRunning checks if a process with the given PID is an awg-manager instance.
-// Reading /proc/<pid>/cmdline avoids false positives from PID reuse after reboot.
+// isProcessRunning checks if a process with the given PID is an awg-manager
+// instance. /proc/<pid>/cmdline is the NUL-separated argv. We match on the
+// basename of argv[0] rather than on the whole buffer so an argument that
+// happens to contain "awg-manager" (e.g. "-data-dir /opt/etc/awg-manager")
+// for an unrelated process that inherited the recycled PID does not
+// produce a false positive.
 func isProcessRunning(pid int) bool {
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(data), "awg-manager")
+	argv0 := string(data)
+	if i := strings.IndexByte(argv0, 0); i >= 0 {
+		argv0 = argv0[:i]
+	}
+	return filepath.Base(argv0) == "awg-manager"
 }
 
 // getServiceEndpoint reads settings to determine the service host:port for display.
