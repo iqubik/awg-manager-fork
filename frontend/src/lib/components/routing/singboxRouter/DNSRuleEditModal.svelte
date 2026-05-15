@@ -1,15 +1,20 @@
 <script lang="ts">
 	import Modal from '$lib/components/ui/Modal.svelte';
-	import { Dropdown, type DropdownOption } from '$lib/components/ui';
-	import type { SingboxRouterDNSRule, SingboxRouterDNSServer } from '$lib/types';
+	import { Dropdown, ChipMultiSelect, type DropdownOption, type ChipOption } from '$lib/components/ui';
+	import type { SingboxRouterDNSRule, SingboxRouterDNSServer, SingboxRouterRuleSet } from '$lib/types';
 
 	interface Props {
 		rule?: SingboxRouterDNSRule;
 		servers: SingboxRouterDNSServer[];
+		availableRuleSets: SingboxRouterRuleSet[];
 		onClose: () => void;
 		onSave: (rule: SingboxRouterDNSRule) => Promise<void> | void;
 	}
-	let { rule, servers, onClose, onSave }: Props = $props();
+	let { rule, servers, availableRuleSets, onClose, onSave }: Props = $props();
+
+	function normalizeTags(tags: string[]): string[] {
+		return [...new Set(tags.map((s) => s.trim()).filter(Boolean))];
+	}
 
 	const serverOptions = $derived<DropdownOption[]>([
 		{ value: '', label: '— выберите —' },
@@ -21,7 +26,10 @@
 	]);
 
 	// svelte-ignore state_referenced_locally
-	let ruleSetStr = $state((rule?.rule_set ?? []).join(', '));
+	let ruleSetTags = $state<string[]>(rule?.rule_set ?? []);
+	const ruleSetOptions = $derived<ChipOption[]>(
+		availableRuleSets.map((rs) => ({ value: rs.tag, label: rs.tag })),
+	);
 	// svelte-ignore state_referenced_locally
 	let domainSuffixStr = $state((rule?.domain_suffix ?? []).join('\n'));
 	// svelte-ignore state_referenced_locally
@@ -39,7 +47,7 @@
 	let error = $state('');
 
 	// Snapshot initial state for isDirty detection
-	let initialRuleSetStr = $state('');
+	let initialRuleSetTagsSnapshot = $state<string[]>([]);
 	let initialDomainSuffixStr = $state('');
 	let initialDomainStr = $state('');
 	let initialDomainKeywordStr = $state('');
@@ -50,7 +58,7 @@
 	// Initialize snapshot when modal opens
 	$effect(() => {
 		if (rule) {
-			initialRuleSetStr = (rule.rule_set ?? []).join(', ');
+			initialRuleSetTagsSnapshot = [...(rule.rule_set ?? [])];
 			initialDomainSuffixStr = (rule.domain_suffix ?? []).join('\n');
 			initialDomainStr = (rule.domain ?? []).join('\n');
 			initialDomainKeywordStr = (rule.domain_keyword ?? []).join(', ');
@@ -58,7 +66,7 @@
 			initialAction = rule.action === 'reject' ? 'reject' : 'route';
 			initialServer = rule.server ?? '';
 		} else {
-			initialRuleSetStr = '';
+			initialRuleSetTagsSnapshot = [];
 			initialDomainSuffixStr = '';
 			initialDomainStr = '';
 			initialDomainKeywordStr = '';
@@ -70,7 +78,7 @@
 
 	const isDirty = $derived.by(() => {
 		return (
-			ruleSetStr !== initialRuleSetStr ||
+			normalizeTags(ruleSetTags).join(',') !== normalizeTags(initialRuleSetTagsSnapshot).join(',') ||
 			domainSuffixStr !== initialDomainSuffixStr ||
 			domainStr !== initialDomainStr ||
 			domainKeywordStr !== initialDomainKeywordStr ||
@@ -84,7 +92,7 @@
 		busy = true;
 		error = '';
 		try {
-			const rule_set = ruleSetStr.split(',').map((s) => s.trim()).filter(Boolean);
+			const rule_set = normalizeTags(ruleSetTags);
 			const domain_suffix = domainSuffixStr.split('\n').map((s) => s.trim()).filter(Boolean);
 			const domain = domainStr.split('\n').map((s) => s.trim()).filter(Boolean);
 			const domain_keyword = domainKeywordStr.split(',').map((s) => s.trim()).filter(Boolean);
@@ -131,8 +139,14 @@
 		<div class="section-label">Matchers (минимум один)</div>
 
 		<label class="field">
-			<div class="lbl">Rule sets (через запятую)</div>
-			<input bind:value={ruleSetStr} placeholder="geosite-youtube, geoip-ru" />
+			<div class="lbl">Rule sets</div>
+			<ChipMultiSelect
+				values={ruleSetTags}
+				options={ruleSetOptions}
+				onchange={(next) => (ruleSetTags = next)}
+				placeholder="не выбрано"
+				allowOrphans
+			/>
 		</label>
 
 		<label class="field">

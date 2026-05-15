@@ -16,6 +16,7 @@
 		SingboxRouterDNSRule,
 		SingboxRouterDNSServer,
 		SingboxRouterDNSStrategy,
+		SingboxRouterRuleSet,
 	} from '$lib/types';
 	import {
 		DNSServerEditModal,
@@ -26,11 +27,13 @@
 	const dnsRulesStore = singboxRouter.dnsRules;
 	const dnsGlobalsStore = singboxRouter.dnsGlobals;
 	const optionsStore = singboxRouter.options;
+	const ruleSetsStore = singboxRouter.ruleSets;
 
 	const servers = $derived($dnsServersStore);
 	const rules = $derived($dnsRulesStore);
 	const globals = $derived($dnsGlobalsStore);
 	const outboundOptions = $derived($optionsStore);
+	const ruleSets = $derived<SingboxRouterRuleSet[]>($ruleSetsStore);
 
 	async function refresh(): Promise<void> {
 		await singboxRouter.loadAll();
@@ -537,6 +540,7 @@
 {#if ruleAddMode}
 	<DNSRuleEditModal
 		{servers}
+		availableRuleSets={ruleSets}
 		onClose={() => (ruleAddMode = false)}
 		onSave={async (rule) => {
 			await api.singboxRouterAddDNSRule(rule);
@@ -551,6 +555,7 @@
 	<DNSRuleEditModal
 		rule={rules[idx]}
 		{servers}
+		availableRuleSets={ruleSets}
 		onClose={() => (ruleEditIndex = null)}
 		onSave={async (rule) => {
 			await api.singboxRouterUpdateDNSRule(idx, rule);

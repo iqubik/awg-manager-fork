@@ -3,6 +3,7 @@
 		SingboxRouterDNSServer,
 		SingboxRouterDNSRule,
 		SingboxRouterDNSGlobals,
+		SingboxRouterRuleSet,
 	} from '$lib/types';
 	import type { OutboundGroup } from './outboundOptions';
 	import DNSGlobals from './DNSGlobals.svelte';
@@ -13,10 +14,11 @@
 		servers: SingboxRouterDNSServer[];
 		rules: SingboxRouterDNSRule[];
 		globals: SingboxRouterDNSGlobals;
+		ruleSets: SingboxRouterRuleSet[];
 		outboundOptions: OutboundGroup[];
 		onChange: () => Promise<void> | void;
 	}
-	let { servers, rules, globals, outboundOptions, onChange }: Props = $props();
+	let { servers, rules, globals, ruleSets, outboundOptions, onChange }: Props = $props();
 
 	type DNSSection = 'servers' | 'rules';
 	let section = $state<DNSSection>('servers');
@@ -37,7 +39,7 @@
 	{#if section === 'servers'}
 		<DNSServersList {servers} {outboundOptions} {onChange} />
 	{:else}
-		<DNSRulesList {rules} {servers} finalLabel={globals.final} {onChange} />
+		<DNSRulesList {rules} {servers} availableRuleSets={ruleSets} finalLabel={globals.final} {onChange} />
 	{/if}
 </div>
 

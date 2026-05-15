@@ -1,17 +1,18 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
-	import type { SingboxRouterDNSRule, SingboxRouterDNSServer } from '$lib/types';
+	import type { SingboxRouterDNSRule, SingboxRouterDNSServer, SingboxRouterRuleSet } from '$lib/types';
 	import DNSRuleEditModal from './DNSRuleEditModal.svelte';
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 
 	interface Props {
 		rules: SingboxRouterDNSRule[];
 		servers: SingboxRouterDNSServer[];
+		availableRuleSets: SingboxRouterRuleSet[];
 		finalLabel: string;
 		onChange: () => Promise<void> | void;
 	}
-	let { rules, servers, finalLabel, onChange }: Props = $props();
+	let { rules, servers, availableRuleSets, finalLabel, onChange }: Props = $props();
 
 	let editIndex = $state<number | null>(null);
 	let addMode = $state(false);
@@ -114,6 +115,7 @@
 {#if addMode}
 	<DNSRuleEditModal
 		{servers}
+		{availableRuleSets}
 		onClose={() => (addMode = false)}
 		onSave={async (rule) => {
 			await api.singboxRouterAddDNSRule(rule);
@@ -128,6 +130,7 @@
 	<DNSRuleEditModal
 		rule={rules[idx]}
 		{servers}
+		{availableRuleSets}
 		onClose={() => (editIndex = null)}
 		onSave={async (rule) => {
 			await api.singboxRouterUpdateDNSRule(idx, rule);
