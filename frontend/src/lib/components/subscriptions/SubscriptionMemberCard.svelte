@@ -129,12 +129,17 @@
 			<span class="n1" title={heading}>{heading}</span>
 			<span class="n2 mono" title={member.tag}>{member.server}:{member.port}</span>
 		</div>
-		<div class="c c-badges" data-label="Протокол">
-			<span class="badge proto">{protocolLabel}</span>
-			{#if member.transport && member.transport !== 'tcp'}
-				<span class="badge transport">{member.transport.toUpperCase()}</span>
-			{/if}
-		</div>
+	<div class="c c-badges" data-label="Протокол">
+		<span class="badge proto">{protocolLabel}</span>
+		{#if member.transport && member.transport !== 'tcp'}
+			<span class="badge transport">{member.transport.toUpperCase()}</span>
+		{/if}
+		{#if member.security === 'reality'}
+			<span class="badge reality">Reality</span>
+		{:else if member.security === 'tls'}
+			<span class="badge tls">TLS</span>
+		{/if}
+	</div>
 		<div class="c c-traffic-mini" data-label="Трафик">
 			<div class="traffic-row-list">
 				<TrafficSparkline
