@@ -1453,26 +1453,6 @@ export interface TunnelReferencedError {
 
 // #endregion
 
-// === Sing-box Router Setup Wizard ===
-
-export type WizardStep =
-	| 'presets'
-	| 'tunnel'
-	| 'policy'
-	| 'devices'
-	| 'summary'
-	| 'applying'
-	| 'success'
-	| 'error';
-
-export type ApplyLogStatus = 'pending' | 'running' | 'ok' | 'err';
-
-export interface ApplyLogEntry {
-	label: string;
-	status: ApplyLogStatus;
-	message?: string;
-}
-
 // === Subscriptions ===
 
 export interface SubscriptionHeader {
