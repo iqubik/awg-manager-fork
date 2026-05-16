@@ -31,9 +31,6 @@ pub.md
 diff.md
 build.log
 
-# Windows-only helper scripts (personal tooling — never commit)
-*.bat
-
 # Claude (all internal)
 .claude/
 CLAUDE.md
