@@ -165,6 +165,7 @@
 	.th-tunnel {
 		min-width: 100px;
 		text-align: center;
+		z-index: 1;
 	}
 
 	.tunnel-link {
@@ -205,6 +206,7 @@
 		background: var(--color-bg-secondary);
 		position: sticky;
 		left: 0;
+		z-index: 1;
 		min-width: 160px;
 	}
 
