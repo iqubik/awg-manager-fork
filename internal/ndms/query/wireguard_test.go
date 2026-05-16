@@ -134,12 +134,23 @@ const sampleWGSingleInterfaceJSON = `{
 
 func primeWGFakeGetter(fg *FakeGetter) {
 	fg.SetJSON("/show/interface/", sampleWGInterfaceListJSON)
-	fg.SetJSON("/show/interface/Wireguard0", stripOuterMapEntry(sampleWGInterfaceListJSON, "Wireguard0"))
-	fg.SetJSON("/show/interface/Wireguard1", sampleWGSingleInterfaceJSON)
+	// Per-interface fetches go through POST (see transport.ShowInterface
+	// rationale) — the fixture body must include the {"show":{"interface":…}}
+	// envelope that NDMS returns over the wire.
+	fg.SetPostInterface("Wireguard0", wrapShowInterface(stripOuterMapEntry(sampleWGInterfaceListJSON, "Wireguard0")))
+	fg.SetPostInterface("Wireguard1", wrapShowInterface(sampleWGSingleInterfaceJSON))
 	fg.SetJSON("/show/rc/interface/Wireguard0", `{"description":"builtin"}`)
 	fg.SetJSON("/show/rc/interface/Wireguard1", sampleWGRCInterfaceJSON)
 	fg.SetJSON("/show/interface/system-name?name=Wireguard0", `"nwg0"`)
 	fg.SetJSON("/show/interface/system-name?name=Wireguard1", `"nwg1"`)
+}
+
+// wrapShowInterface produces the {"show":{"interface":<obj>}} envelope
+// that NDMS returns from POST {"show":{"interface":{"name":…}}} queries.
+// Test fixture helper — pairs with InterfaceStore.unwrapShowInterface in
+// production.
+func wrapShowInterface(inner string) string {
+	return `{"show":{"interface":` + inner + `}}`
 }
 
 // stripOuterMapEntry extracts one key's JSON object from a map-shaped blob —
@@ -415,8 +426,8 @@ func TestWGServerStore_InvalidateName_DropsListCache(t *testing.T) {
 	if got := fg.Calls("/show/interface/"); got != 3 {
 		t.Errorf("/show/interface/ calls: want 3 (WG list ×2 + Interfaces bootstrap), got %d", got)
 	}
-	if got := fg.Calls("/show/interface/Wireguard1"); got != 2 {
-		t.Errorf("/show/interface/Wireguard1 should be hit twice (item invalidated), got %d", got)
+	if got := fg.PostInterfaceCalls("Wireguard1"); got != 2 {
+		t.Errorf("POST show.interface name=Wireguard1 should be hit twice (item invalidated), got %d", got)
 	}
 }
 
@@ -441,9 +452,9 @@ func TestWGServerStore_InvalidateAll(t *testing.T) {
 	if got := fg.Calls("/show/interface/"); got != 3 {
 		t.Errorf("/show/interface/: want 3 (WG list ×2 + Interfaces bootstrap), got %d", got)
 	}
-	// Single-interface GET happens once per Get() and once per GetConfig() → 4 total.
-	if got := fg.Calls("/show/interface/Wireguard1"); got != 4 {
-		t.Errorf("/show/interface/Wireguard1: want 4, got %d", got)
+	// Single-interface POST happens once per Get() and once per GetConfig() → 4 total.
+	if got := fg.PostInterfaceCalls("Wireguard1"); got != 4 {
+		t.Errorf("POST show.interface name=Wireguard1: want 4, got %d", got)
 	}
 }
 

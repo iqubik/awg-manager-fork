@@ -43,6 +43,13 @@ func (d *delayedGetter) GetRaw(_ context.Context, path string) ([]byte, error) {
 	return d.body(path), nil
 }
 
+// Post is unused by this test (WaitForPolicy hits /show/rc/ip/policy via GET)
+// but required by the Getter interface. Returning nil body keeps the
+// compiler happy without affecting test behaviour.
+func (d *delayedGetter) Post(_ context.Context, _ any) (json.RawMessage, error) {
+	return nil, nil
+}
+
 func (d *delayedGetter) Calls() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()

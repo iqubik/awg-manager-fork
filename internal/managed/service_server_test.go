@@ -54,6 +54,13 @@ func (g *stateAwareGetter) GetRaw(ctx context.Context, path string) ([]byte, err
 	return nil, errors.New("stateAwareGetter: GetRaw not faked: " + path)
 }
 
+// Post is unused by these tests (managed-server flow goes through GETs
+// and POST writes via the Poster, not Getter.Post) but required by
+// query.Getter. Returns an error if hit so a misroute fails loudly.
+func (g *stateAwareGetter) Post(_ context.Context, _ any) (json.RawMessage, error) {
+	return nil, errors.New("stateAwareGetter: Post not faked")
+}
+
 // recordingPoster is a thread-safe variant of fakePoster — Create uses three
 // POSTs per server and a parallel test would race the slice. Fresh instance
 // per test keeps this simple.

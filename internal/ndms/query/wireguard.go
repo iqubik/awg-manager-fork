@@ -14,7 +14,31 @@ import (
 
 	"github.com/hoaxisr/awg-manager/internal/ndms"
 	"github.com/hoaxisr/awg-manager/internal/ndms/cache"
+	"github.com/hoaxisr/awg-manager/internal/ndms/transport"
 )
+
+// fetchInterfaceDetail POSTs ShowInterface(name) and decodes the inner
+// object into dst. Centralises the "GET /show/interface/<name> → POST
+// {"show":{"interface":{"name":…}}}" migration for this package — name
+// may carry slashes (Vlan, AccessPoint, numbered ports) and the GET form
+// would 404 in those cases.
+//
+// Empty response leaves dst untouched (legacy GET behaviour returned
+// the zero-valued struct on absent body).
+func (s *WGServerStore) fetchInterfaceDetail(ctx context.Context, name string, dst any) error {
+	raw, err := s.getter.Post(ctx, transport.ShowInterface(name, nil))
+	if err != nil {
+		return err
+	}
+	inner, err := unwrapShowInterface(raw)
+	if err != nil {
+		return err
+	}
+	if len(inner) == 0 {
+		return nil
+	}
+	return json.Unmarshal(inner, dst)
+}
 
 const (
 	// wgServerListTTL — safety-net TTL for the full list; hooks invalidate
@@ -283,7 +307,7 @@ func (s *WGServerStore) ListSystemTunnels(ctx context.Context) ([]ndms.SystemWir
 // GetSystemTunnel returns a single system-tunnel view.
 func (s *WGServerStore) GetSystemTunnel(ctx context.Context, name string) (*ndms.SystemWireguardTunnel, error) {
 	var detail rciWireguardDetail
-	if err := s.getter.Get(ctx, "/show/interface/"+name, &detail); err != nil {
+	if err := s.fetchInterfaceDetail(ctx, name, &detail); err != nil {
 		return nil, fmt.Errorf("get system wireguard %s: %w", name, err)
 	}
 	t := rciToSystemTunnel(detail)
@@ -393,7 +417,7 @@ func (s *WGServerStore) fetchAll(ctx context.Context) ([]ndms.WireguardServer, e
 
 func (s *WGServerStore) fetchItem(ctx context.Context, name string) (*ndms.WireguardServer, error) {
 	var detail rciWireguardDetail
-	if err := s.getter.Get(ctx, "/show/interface/"+name, &detail); err != nil {
+	if err := s.fetchInterfaceDetail(ctx, name, &detail); err != nil {
 		return nil, fmt.Errorf("get wireguard server %s: %w", name, err)
 	}
 	srv := rciToWireguardServer(detail)
@@ -405,7 +429,7 @@ func (s *WGServerStore) fetchItem(ctx context.Context, name string) (*ndms.Wireg
 func (s *WGServerStore) fetchConfig(ctx context.Context, name string) (*ndms.WireguardServerConfig, error) {
 	// Runtime for public key.
 	var detail rciWireguardDetail
-	if err := s.getter.Get(ctx, "/show/interface/"+name, &detail); err != nil {
+	if err := s.fetchInterfaceDetail(ctx, name, &detail); err != nil {
 		return nil, fmt.Errorf("get wireguard server %s: %w", name, err)
 	}
 	var publicKey string

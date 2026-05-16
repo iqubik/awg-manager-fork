@@ -15,8 +15,10 @@ const sampleList = `{"Wireguard0": {"id":"Wireguard0","interface-name":"nwg0","t
 func primedQueries(_ *testing.T) (*query.Queries, *query.FakeGetter) {
 	fg := query.NewFakeGetter()
 	fg.SetJSON(ifaceListPath, sampleList)
-	fg.SetRaw("/show/interface/Wireguard0", []byte(`{"id":"Wireguard0","interface-name":"nwg0","type":"Wireguard","state":"up"}`))
-	fg.SetRaw("/show/interface/Wireguard1", []byte(`{"id":"Wireguard1","interface-name":"nwg1","type":"Wireguard","state":"up"}`))
+	// Per-interface fetches go through POST — fixture body must include
+	// the {"show":{"interface":…}} envelope NDMS returns over the wire.
+	fg.SetPostInterface("Wireguard0", `{"show":{"interface":{"id":"Wireguard0","interface-name":"nwg0","type":"Wireguard","state":"up"}}}`)
+	fg.SetPostInterface("Wireguard1", `{"show":{"interface":{"id":"Wireguard1","interface-name":"nwg1","type":"Wireguard","state":"up"}}}`)
 	fg.SetJSON("/show/ip/route", `[]`)
 	fg.SetRaw("/show/running-config", []byte(`{"message":["!"]}`))
 	q := query.NewQueries(query.Deps{Getter: fg, Logger: query.NopLogger(), IsOS5: func() bool { return true }})
@@ -41,10 +43,10 @@ func TestDispatcher_IfCreated_FetchesOnlyNewID(t *testing.T) {
 	d.Enqueue(Event{Type: EventIfCreated, ID: "Wireguard1"})
 
 	waitFor(t, 200*time.Millisecond, func() bool {
-		return fg.Calls("/show/interface/Wireguard1") > 0
+		return fg.PostInterfaceCalls("Wireguard1") > 0
 	})
 
-	if got := fg.Calls("/show/interface/Wireguard1"); got != 1 {
+	if got := fg.PostInterfaceCalls("Wireguard1"); got != 1 {
 		t.Errorf("after IfCreated: want 1 fetch of new id, got %d", got)
 	}
 	// Critical: list endpoint must NOT have been re-fetched.
@@ -66,7 +68,7 @@ func TestDispatcher_IfDestroyed_NoHTTP(t *testing.T) {
 
 	_, _ = q.Interfaces.List(context.Background())
 	primeList := fg.Calls(ifaceListPath)
-	primeItem := fg.Calls("/show/interface/Wireguard0")
+	primeItem := fg.PostInterfaceCalls("Wireguard0")
 
 	d.Enqueue(Event{Type: EventIfDestroyed, ID: "Wireguard0"})
 
@@ -83,7 +85,7 @@ func TestDispatcher_IfDestroyed_NoHTTP(t *testing.T) {
 	if got := fg.Calls(ifaceListPath); got != primeList {
 		t.Errorf("list must NOT be re-fetched on IfDestroyed, before=%d after=%d", primeList, got)
 	}
-	if got := fg.Calls("/show/interface/Wireguard0"); got != primeItem {
+	if got := fg.PostInterfaceCalls("Wireguard0"); got != primeItem {
 		t.Errorf("item must NOT be re-fetched on IfDestroyed, before=%d after=%d", primeItem, got)
 	}
 }
@@ -97,7 +99,7 @@ func TestDispatcher_IfLayerChanged_NoHTTPOnInterfaces(t *testing.T) {
 
 	_, _ = q.Interfaces.List(context.Background())
 	primeList := fg.Calls(ifaceListPath)
-	primeItem := fg.Calls("/show/interface/Wireguard0")
+	primeItem := fg.PostInterfaceCalls("Wireguard0")
 
 	d.Enqueue(Event{Type: EventIfLayerChanged, ID: "Wireguard0", Layer: "conf", Level: "disabled"})
 
@@ -109,7 +111,7 @@ func TestDispatcher_IfLayerChanged_NoHTTPOnInterfaces(t *testing.T) {
 	if got := fg.Calls(ifaceListPath); got != primeList {
 		t.Errorf("list re-fetched on IfLayerChanged, before=%d after=%d", primeList, got)
 	}
-	if got := fg.Calls("/show/interface/Wireguard0"); got != primeItem {
+	if got := fg.PostInterfaceCalls("Wireguard0"); got != primeItem {
 		t.Errorf("item re-fetched on IfLayerChanged, before=%d after=%d", primeItem, got)
 	}
 }

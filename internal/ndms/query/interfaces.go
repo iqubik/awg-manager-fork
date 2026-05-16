@@ -36,8 +36,39 @@ import (
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/ndms"
+	"github.com/hoaxisr/awg-manager/internal/ndms/transport"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/wan"
 )
+
+// unwrapShowInterface strips the {"show":{"interface":{…}}} envelope that
+// the JSON-payload form of /show/interface returns. The GET path form
+// returned the inner object directly; the POST form (which we use for any
+// name that may contain a slash — Vlan, AccessPoint, numbered ports) wraps
+// it. Callers receive the inner object so their existing decoders work
+// unchanged.
+//
+// Returns nil for an empty body or an absent "interface" field — both map
+// to the same "NDMS-side absence" semantics the previous GET-form
+// already encoded with an empty body.
+func unwrapShowInterface(raw []byte) ([]byte, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+	var w struct {
+		Show struct {
+			Interface json.RawMessage `json:"interface"`
+		} `json:"show"`
+	}
+	if err := json.Unmarshal(trimmed, &w); err != nil {
+		return nil, fmt.Errorf("decode show.interface envelope: %w", err)
+	}
+	inner := bytes.TrimSpace(w.Show.Interface)
+	if len(inner) == 0 {
+		return nil, nil
+	}
+	return inner, nil
+}
 
 // looksLikeKernelIfname reports whether s is a syntactically valid Linux
 // network interface name. Linux kernel names use a constrained set
@@ -248,8 +279,12 @@ func (s *InterfaceStore) HasIPv6Global(ctx context.Context, name string) bool {
 	if !ok {
 		return false
 	}
-	raw, err := s.getter.GetRaw(ctx, "/show/interface/"+name)
-	if err != nil || len(bytes.TrimSpace(raw)) == 0 {
+	raw, err := s.getter.Post(ctx, transport.ShowInterface(name, nil))
+	if err != nil {
+		return false
+	}
+	inner, err := unwrapShowInterface(raw)
+	if err != nil || len(inner) == 0 {
 		return false
 	}
 	var probe struct {
@@ -259,7 +294,7 @@ func (s *InterfaceStore) HasIPv6Global(ctx context.Context, name string) bool {
 			} `json:"addresses"`
 		} `json:"ipv6"`
 	}
-	if err := json.Unmarshal(raw, &probe); err != nil {
+	if err := json.Unmarshal(inner, &probe); err != nil {
 		return false
 	}
 	for _, a := range probe.IPv6.Addresses {
@@ -467,11 +502,19 @@ func (s *InterfaceStore) ListAll(ctx context.Context) ([]ndms.AllInterface, erro
 
 // === Hook-side write API (called from events.Dispatcher) ===
 
-// OnCreated handles ifcreated NDMS events. Issues ONE HTTP
-// (/show/interface/<id>) — 404 is impossible because NDMS sends
-// ifcreated AFTER the interface exists. On HTTP failure, inserts a
-// stub entry so existence checks return non-nil; subsequent
-// OnLayerChanged / OnIPChanged events will fill in the rest.
+// OnCreated handles ifcreated NDMS events. Issues ONE RCI POST for the
+// just-created interface to capture its initial snapshot.
+//
+// On fetch failure we do NOT overwrite an existing entry with a stub —
+// bootstrap already populated byID from /show/interface/ at startup, and
+// transient per-interface failures (e.g. an RCI quirk we haven't worked
+// around yet) must not erase that data. The previous behaviour clobbered
+// good bootstrap records and was the root cause of the v2.10.0 regression
+// where slashed-name interfaces vanished from the WAN dropdown — fetchOne
+// failed with 404, and the stub overwrote a perfectly valid bootstrap
+// record. The stub fallback is kept only for the truly-absent case
+// (no prior record) so OnLayerChanged / OnIPChanged events have
+// somewhere to land.
 func (s *InterfaceStore) OnCreated(ctx context.Context, id string) {
 	if err := s.ensureBootstrap(ctx); err != nil {
 		s.log.Warnf("OnCreated %s: bootstrap failed: %v", id, err)
@@ -479,17 +522,26 @@ func (s *InterfaceStore) OnCreated(ctx context.Context, id string) {
 	}
 	iface, err := s.fetchOne(ctx, id)
 	if err != nil {
-		s.log.Warnf("OnCreated %s: fetch failed, inserting stub: %v", id, err)
 		s.mu.Lock()
-		s.byID[id] = &ndms.Interface{ID: id}
+		_, hadPrior := s.byID[id]
+		if !hadPrior {
+			s.byID[id] = &ndms.Interface{ID: id}
+		}
 		s.mu.Unlock()
+		if hadPrior {
+			s.log.Warnf("OnCreated %s: fetch failed, keeping bootstrap entry: %v", id, err)
+		} else {
+			s.log.Warnf("OnCreated %s: fetch failed, inserting stub: %v", id, err)
+		}
 		return
 	}
 	if iface == nil {
 		// NDMS replied empty — race? interface gone before fetch?
-		// Insert a stub so layer events have somewhere to land.
+		// Insert a stub only if we have nothing better.
 		s.mu.Lock()
-		s.byID[id] = &ndms.Interface{ID: id}
+		if _, hadPrior := s.byID[id]; !hadPrior {
+			s.byID[id] = &ndms.Interface{ID: id}
+		}
 		s.mu.Unlock()
 		return
 	}
@@ -689,21 +741,33 @@ func (s *InterfaceStore) fetchListMap(ctx context.Context) (map[string]ndms.Inte
 	return out, nil
 }
 
-// fetchOne GETs /show/interface/<name> and parses the response.
-// Returns (nil, nil) for empty body (NDMS-side absence). Errors are
-// returned to the caller; HTTPError 404 (rare race condition) is
+// fetchOne POSTs {"show":{"interface":{"name":<name>}}} and parses the
+// response. Uses POST instead of the obvious GET /show/interface/<name>
+// because NDMS treats slashes in <name> as URL path separators —
+// GigabitEthernet0/Vlan2, WifiMaster0/AccessPoint0, and every numbered
+// switch-port (GigabitEthernet0/3, …) would otherwise return 404. The
+// JSON-payload form carries the name in the request body where the RCI
+// parser handles it correctly. See internal/ndms/transport/payload.go for
+// the rationale and helpers.
+//
+// Returns (nil, nil) for an empty/absent body (NDMS-side absence — used
+// to be a 404 in the GET form; now the POST may return an empty envelope
+// for the same case). HTTPError 404 (rare race condition on POST) is
 // returned as-is.
 func (s *InterfaceStore) fetchOne(ctx context.Context, name string) (*ndms.Interface, error) {
-	raw, err := s.getter.GetRaw(ctx, "/show/interface/"+name)
+	raw, err := s.getter.Post(ctx, transport.ShowInterface(name, nil))
 	if err != nil {
 		return nil, fmt.Errorf("fetch interface %s: %w", name, err)
 	}
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 {
+	inner, err := unwrapShowInterface(raw)
+	if err != nil {
+		return nil, fmt.Errorf("fetch interface %s: %w", name, err)
+	}
+	if len(inner) == 0 {
 		return nil, nil
 	}
 	var w ifaceWire
-	if err := json.Unmarshal(raw, &w); err != nil {
+	if err := json.Unmarshal(inner, &w); err != nil {
 		return nil, fmt.Errorf("parse interface %s: %w", name, err)
 	}
 	if w.ID == "" && w.InterfaceName == "" {

@@ -11,9 +11,14 @@ import (
 
 // Getter is the subset of transport.Client that Query Stores use. Kept
 // minimal so tests can mock without HTTP.
+//
+// Post is used for the JSON-payload form of RCI commands (preferred over
+// GET when the target identifier may contain slashes — see
+// internal/ndms/transport/payload.go for the rationale and helpers).
 type Getter interface {
 	Get(ctx context.Context, path string, dst any) error
 	GetRaw(ctx context.Context, path string) ([]byte, error)
+	Post(ctx context.Context, payload any) (json.RawMessage, error)
 }
 
 // Logger is the logging surface Stores use for warnings (e.g. serving
@@ -81,16 +86,28 @@ type FakeGetter struct {
 	rawResp    map[string][]byte // path → raw bytes to return
 	errFor     map[string]error  // path → error to return
 	defaultErr error             // returned when no specific entry set
+
+	// POST-side scripting. POST payloads are not paths, so we key by the
+	// interface name extracted from {"show":{"interface":{"name":...}}}
+	// payloads — the only POST shape currently used in this package.
+	// Non-interface POSTs fall through to postHandler.
+	postIfaceResp  map[string][]byte
+	postIfaceErr   map[string]error
+	postIfaceCalls map[string]int
+	postHandler    func(payload any) (json.RawMessage, error)
 }
 
 // NewFakeGetter returns a FakeGetter ready to be scripted via SetJSON /
 // SetRaw / SetError / SetDefaultError.
 func NewFakeGetter() *FakeGetter {
 	return &FakeGetter{
-		calls:    make(map[string]int),
-		jsonResp: make(map[string]string),
-		rawResp:  make(map[string][]byte),
-		errFor:   make(map[string]error),
+		calls:          make(map[string]int),
+		jsonResp:       make(map[string]string),
+		rawResp:        make(map[string][]byte),
+		errFor:         make(map[string]error),
+		postIfaceResp:  make(map[string][]byte),
+		postIfaceErr:   make(map[string]error),
+		postIfaceCalls: make(map[string]int),
 	}
 }
 
@@ -187,3 +204,99 @@ type errNoFakeResp string
 func (e errNoFakeResp) Error() string { return "FakeGetter: no response for path " + string(e) }
 
 func errNoFakeResponse(path string) error { return errNoFakeResp(path) }
+
+// SetPostInterface scripts the Post response for a ShowInterface(name, …)
+// payload. body must include the full {"show":{"interface":{…}}} wrapper,
+// matching what NDMS actually returns over HTTP. The store unwraps it.
+func (f *FakeGetter) SetPostInterface(name, body string) {
+	f.mu.Lock()
+	f.postIfaceResp[name] = []byte(body)
+	f.mu.Unlock()
+}
+
+// SetPostInterfaceError scripts an error for a Post call against the given
+// interface name. nil clears the entry.
+func (f *FakeGetter) SetPostInterfaceError(name string, err error) {
+	f.mu.Lock()
+	if err == nil {
+		delete(f.postIfaceErr, name)
+	} else {
+		f.postIfaceErr[name] = err
+	}
+	f.mu.Unlock()
+}
+
+// SetPostHandler installs a catch-all handler for POST payloads that
+// aren't ShowInterface-shaped (e.g. listings or future commands). Pass
+// nil to clear.
+func (f *FakeGetter) SetPostHandler(fn func(payload any) (json.RawMessage, error)) {
+	f.mu.Lock()
+	f.postHandler = fn
+	f.mu.Unlock()
+}
+
+// PostInterfaceCalls returns how many Post calls targeted the given
+// interface name via a ShowInterface payload.
+func (f *FakeGetter) PostInterfaceCalls(name string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.postIfaceCalls[name]
+}
+
+// Post implements Getter.Post. ShowInterface-shaped payloads dispatch on
+// the embedded "name"; everything else falls through to postHandler.
+func (f *FakeGetter) Post(_ context.Context, payload any) (json.RawMessage, error) {
+	if name := extractShowInterfaceName(payload); name != "" {
+		f.mu.Lock()
+		f.postIfaceCalls[name]++
+		body, haveBody := f.postIfaceResp[name]
+		err, haveErr := f.postIfaceErr[name]
+		defaultErr := f.defaultErr
+		f.mu.Unlock()
+
+		if haveErr {
+			return nil, err
+		}
+		if !haveBody {
+			if defaultErr != nil {
+				return nil, defaultErr
+			}
+			return nil, errNoFakeResponse("POST show.interface name=" + name)
+		}
+		out := make([]byte, len(body))
+		copy(out, body)
+		return out, nil
+	}
+
+	f.mu.Lock()
+	handler := f.postHandler
+	defaultErr := f.defaultErr
+	f.mu.Unlock()
+	if handler != nil {
+		return handler(payload)
+	}
+	if defaultErr != nil {
+		return nil, defaultErr
+	}
+	return nil, errNoFakeResponse("POST (unscripted payload)")
+}
+
+// extractShowInterfaceName walks a {"show":{"interface":{"name":X,…}}}
+// payload — the only POST shape this fake recognises by name. Returns ""
+// for any other shape so callers can fall back to the catch-all handler.
+func extractShowInterfaceName(payload any) string {
+	top, ok := payload.(map[string]any)
+	if !ok {
+		return ""
+	}
+	show, ok := top["show"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	iface, ok := show["interface"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	name, _ := iface["name"].(string)
+	return name
+}

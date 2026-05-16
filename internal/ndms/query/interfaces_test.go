@@ -478,9 +478,9 @@ func TestInterfaceStore_HasIPv6Global_TrueForPresent(t *testing.T) {
 	fg.SetJSON(ifaceListPath, `{
 		"PPPoE0": {"id":"PPPoE0","type":"PPPoE","state":"up"}
 	}`)
-	fg.SetRaw("/show/interface/PPPoE0", []byte(`{
+	fg.SetPostInterface("PPPoE0", `{"show":{"interface":{
 		"ipv6": {"addresses": [{"address":"2a00::1","global":true}]}
-	}`))
+	}}}`)
 	s := NewInterfaceStore(fg, NopLogger())
 
 	if !s.HasIPv6Global(context.Background(), "PPPoE0") {
@@ -496,8 +496,8 @@ func TestInterfaceStore_HasIPv6Global_AbsentNoHTTP(t *testing.T) {
 	if s.HasIPv6Global(context.Background(), "OpkgTun10") {
 		t.Errorf("absent: want false")
 	}
-	if got := fg.Calls("/show/interface/OpkgTun10"); got != 0 {
-		t.Errorf("absent must not probe, got %d HTTP calls", got)
+	if got := fg.PostInterfaceCalls("OpkgTun10"); got != 0 {
+		t.Errorf("absent must not probe, got %d POST calls", got)
 	}
 }
 
@@ -532,9 +532,9 @@ func TestInterfaceStore_InvalidateAll_RebuildsMap(t *testing.T) {
 func TestInterfaceStore_Invalidate_RefreshesSingleEntry(t *testing.T) {
 	fg := newFakeGetter()
 	fg.SetJSON(ifaceListPath, sampleIfaceList)
-	fg.SetRaw("/show/interface/Wireguard0", []byte(`{
+	fg.SetPostInterface("Wireguard0", `{"show":{"interface":{
 		"id":"Wireguard0","interface-name":"nwg0","type":"Wireguard","description":"updated"
-	}`))
+	}}}`)
 	s := NewInterfaceStore(fg, NopLogger())
 
 	_, _ = s.Get(context.Background(), "Wireguard0")
@@ -544,8 +544,8 @@ func TestInterfaceStore_Invalidate_RefreshesSingleEntry(t *testing.T) {
 	if got == nil || got.Description != "updated" {
 		t.Errorf("Invalidate(name): want refreshed, got %#v", got)
 	}
-	if calls := fg.Calls("/show/interface/Wireguard0"); calls != 1 {
-		t.Errorf("single-item calls: want 1 (the Invalidate refresh), got %d", calls)
+	if calls := fg.PostInterfaceCalls("Wireguard0"); calls != 1 {
+		t.Errorf("single-item POST calls: want 1 (the Invalidate refresh), got %d", calls)
 	}
 	if calls := fg.Calls(ifaceListPath); calls != 1 {
 		t.Errorf("list calls: want 1 (boot only), got %d", calls)
@@ -558,7 +558,7 @@ func TestInterfaceStore_Invalidate_RemovesFromMapOnEmptyResponse(t *testing.T) {
 	// drop the entry from the map.
 	fg := newFakeGetter()
 	fg.SetJSON(ifaceListPath, sampleIfaceList)
-	fg.SetRaw("/show/interface/Wireguard0", []byte(""))
+	fg.SetPostInterface("Wireguard0", "")
 	s := NewInterfaceStore(fg, NopLogger())
 
 	_, _ = s.Get(context.Background(), "Wireguard0")
@@ -574,7 +574,7 @@ func TestInterfaceStore_Invalidate_OnHTTPErrorLeavesMapUntouched(t *testing.T) {
 	// hook event or future Invalidate will reconcile.
 	fg := newFakeGetter()
 	fg.SetJSON(ifaceListPath, sampleIfaceList)
-	fg.SetError("/show/interface/Wireguard0", errors.New("ndms flake"))
+	fg.SetPostInterfaceError("Wireguard0", errors.New("ndms flake"))
 	s := NewInterfaceStore(fg, NopLogger())
 
 	_, _ = s.Get(context.Background(), "Wireguard0")
@@ -591,9 +591,9 @@ func TestInterfaceStore_Invalidate_OnHTTPErrorLeavesMapUntouched(t *testing.T) {
 func TestInterfaceStore_OnCreated_FetchesOnce(t *testing.T) {
 	fg := newFakeGetter()
 	fg.SetJSON(ifaceListPath, sampleIfaceList)
-	fg.SetRaw("/show/interface/Wireguard5", []byte(`{
+	fg.SetPostInterface("Wireguard5", `{"show":{"interface":{
 		"id":"Wireguard5","interface-name":"nwg5","type":"Wireguard","state":"up","link":"up"
-	}`))
+	}}}`)
 	s := NewInterfaceStore(fg, NopLogger())
 
 	_, _ = s.List(context.Background())
@@ -606,26 +606,60 @@ func TestInterfaceStore_OnCreated_FetchesOnce(t *testing.T) {
 	if got.SystemName != "nwg5" {
 		t.Errorf("OnCreated: want systemName nwg5, got %q", got.SystemName)
 	}
-	// Only ONE HTTP per OnCreated, exactly to the new id.
-	if calls := fg.Calls("/show/interface/Wireguard5"); calls != 1 {
+	// Only ONE POST per OnCreated, exactly to the new id.
+	if calls := fg.PostInterfaceCalls("Wireguard5"); calls != 1 {
 		t.Errorf("OnCreated calls: want 1, got %d", calls)
 	}
 	// Must NOT probe unrelated names.
-	if calls := fg.Calls("/show/interface/Wireguard0"); calls != 0 {
+	if calls := fg.PostInterfaceCalls("Wireguard0"); calls != 0 {
 		t.Errorf("OnCreated must not probe other interfaces, got %d calls to Wireguard0", calls)
 	}
 }
 
 func TestInterfaceStore_OnCreated_OnFetchFailure_InsertsStub(t *testing.T) {
+	// No bootstrap data for Wireguard5 — fetchOne failure falls through
+	// to the stub fallback, so OnLayerChanged/OnIPChanged can land.
 	fg := newFakeGetter()
 	fg.SetJSON(ifaceListPath, sampleIfaceList)
-	fg.SetError("/show/interface/Wireguard5", errors.New("ndms timeout"))
+	fg.SetPostInterfaceError("Wireguard5", errors.New("ndms timeout"))
 	s := NewInterfaceStore(fg, NopLogger())
 
 	s.OnCreated(context.Background(), "Wireguard5")
 	got, _ := s.Get(context.Background(), "Wireguard5")
 	if got == nil || got.ID != "Wireguard5" {
 		t.Errorf("OnCreated stub: want minimal entry with ID, got %#v", got)
+	}
+}
+
+// TestInterfaceStore_OnCreated_OnFetchFailure_KeepsBootstrapEntry guards
+// against the v2.10.0 regression: bootstrap had loaded the full record
+// for an interface (with security-level, kernel name, etc.), then an
+// ifcreated hook fired for the same id, fetchOne 404'd (slash-in-name
+// RCI quirk), and the stub fallback clobbered the good record — making
+// the interface vanish from WAN/UI listings until restart. After the
+// fix the prior record must survive a fetch failure.
+func TestInterfaceStore_OnCreated_OnFetchFailure_KeepsBootstrapEntry(t *testing.T) {
+	fg := newFakeGetter()
+	// Bootstrap contains Wireguard0 — a fully populated record.
+	fg.SetJSON(ifaceListPath, sampleIfaceList)
+	// But the per-interface POST fails (simulating a slash-in-name 404
+	// or any other transient RCI hiccup).
+	fg.SetPostInterfaceError("Wireguard0", errors.New("ndms 404"))
+	s := NewInterfaceStore(fg, NopLogger())
+
+	// Prime bootstrap, then receive an ifcreated hook for the same id.
+	_, _ = s.List(context.Background())
+	s.OnCreated(context.Background(), "Wireguard0")
+
+	got, _ := s.Get(context.Background(), "Wireguard0")
+	if got == nil {
+		t.Fatal("OnCreated must not delete on fetch failure")
+	}
+	if got.Description != "my tunnel" {
+		t.Errorf("bootstrap data must survive fetch failure: got %#v", got)
+	}
+	if got.SystemName != "nwg0" {
+		t.Errorf("bootstrap-resolved system name must survive: got %q", got.SystemName)
 	}
 }
 

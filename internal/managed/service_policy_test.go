@@ -46,6 +46,13 @@ func (f *fakePolicyGetter) GetRaw(ctx context.Context, path string) ([]byte, err
 	return f.body, nil
 }
 
+// Post is unused by these tests (PolicyStore reads via GET /show/rc/ip/policy)
+// but required by query.Getter. Returning an empty body keeps the interface
+// satisfied without affecting test behaviour.
+func (f *fakePolicyGetter) Post(ctx context.Context, payload any) (json.RawMessage, error) {
+	return nil, nil
+}
+
 func newTestService(t *testing.T, server *storage.ManagedServer, posterErr error, policyJSON string) (*Service, *fakePoster, *storage.SettingsStore) {
 	t.Helper()
 	tmpDir := t.TempDir()
