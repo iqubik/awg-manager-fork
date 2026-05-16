@@ -80,9 +80,7 @@
 		detailsOpen = savedDetails === '1';
 
 		const savedCollapsed = localStorage.getItem(COLLAPSED_KEY);
-		collapsed = savedCollapsed === null
-			? window.innerWidth <= 900
-			: savedCollapsed === '1';
+		collapsed = savedCollapsed === null ? false : savedCollapsed === '1';
 	}
 
 	$effect(() => {
