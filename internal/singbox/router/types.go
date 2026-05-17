@@ -48,8 +48,19 @@ type Rule struct {
 	Port         []int    `json:"port,omitempty"`
 	RuleSet      []string `json:"rule_set,omitempty"`
 	Protocol     string   `json:"protocol,omitempty"`
-	Action       string   `json:"action,omitempty"`
-	Outbound     string   `json:"outbound,omitempty"`
+	// IPIsPrivate, when set, matches packets whose destination is an
+	// RFC1918/loopback/link-local/CGNAT/multicast address. Pointer so
+	// the zero value (unset) stays out of JSON — `{"ip_is_private":false}`
+	// would change sing-box semantics. System rule from EnsureSystemRules
+	// uses `*IPIsPrivate = true` as defense-in-depth: even when iptables
+	// PolicyMark filter correctly keeps non-policy traffic out of
+	// AWGM-TPROXY, the `hijack-dns` route action creates a kernel-level
+	// transparent listener on every router LAN IP; a side-effect packet
+	// that slips into sing-box from there gets routed `direct` instead
+	// of ending up at `final: proxy` and being silently dropped.
+	IPIsPrivate *bool  `json:"ip_is_private,omitempty"`
+	Action      string `json:"action,omitempty"`
+	Outbound    string `json:"outbound,omitempty"`
 }
 
 // UnmarshalJSON implements json.Unmarshaler for Rule. It accepts both

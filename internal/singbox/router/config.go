@@ -188,6 +188,7 @@ func (c *RouterConfig) EnsureSystemRules() {
 	}
 	hasSniff := false
 	hasHijack := false
+	hasPrivateBypass := false
 	for _, r := range c.Route.Rules {
 		if r.Action == "sniff" && !r.hasAnyMatcher() {
 			hasSniff = true
@@ -201,8 +202,15 @@ func (c *RouterConfig) EnsureSystemRules() {
 				hasHijack = true
 			}
 		}
+		// Any user-authored ip_is_private rule wins over the system
+		// one — we just have to not duplicate. Outbound is intentionally
+		// not checked: a user might point private destinations at a
+		// specific direct-LAN outbound and we should respect that.
+		if r.IPIsPrivate != nil && *r.IPIsPrivate {
+			hasPrivateBypass = true
+		}
 	}
-	prepend := make([]Rule, 0, 2)
+	prepend := make([]Rule, 0, 3)
 	if !hasSniff {
 		prepend = append(prepend, Rule{Action: "sniff"})
 	}
@@ -220,6 +228,22 @@ func (c *RouterConfig) EnsureSystemRules() {
 				{Port: []int{53}},
 			},
 			Action: "hijack-dns",
+		})
+	}
+	if !hasPrivateBypass {
+		// Defense-in-depth: any packet that slips into sing-box with a
+		// private destination (RFC1918, loopback, link-local, CGNAT,
+		// multicast) goes `direct` instead of falling through to
+		// `final: proxy`. Matters specifically for non-policy DNS that
+		// the `hijack-dns` side-effect transparent listener picks up
+		// from router LAN IPs — those packets arrive without TPROXY
+		// ancillary data and would otherwise be silently dropped (no
+		// reply, client sees timeout). Mirrors SKeen example config
+		// (`reference/SKeen/examples/config.json:115`).
+		truePtr := true
+		prepend = append(prepend, Rule{
+			IPIsPrivate: &truePtr,
+			Outbound:    "direct",
 		})
 	}
 	if len(prepend) > 0 {
@@ -339,7 +363,8 @@ func stripLegacyAWGDirect(in []Outbound) []Outbound {
 
 func (r Rule) hasAnyMatcher() bool {
 	return len(r.DomainSuffix) > 0 || len(r.IPCIDR) > 0 || len(r.SourceIPCIDR) > 0 ||
-		len(r.Port) > 0 || len(r.RuleSet) > 0 || r.Protocol != "" || len(r.Rules) > 0
+		len(r.Port) > 0 || len(r.RuleSet) > 0 || r.Protocol != "" || len(r.Rules) > 0 ||
+		r.IPIsPrivate != nil
 }
 
 func validateRule(r Rule) error {

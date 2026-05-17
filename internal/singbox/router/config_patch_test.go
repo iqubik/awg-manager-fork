@@ -1,6 +1,7 @@
 package router
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -169,8 +170,8 @@ func TestRuleMove(t *testing.T) {
 func TestEnsureSystemRules(t *testing.T) {
 	cfg := NewEmptyConfig()
 	cfg.EnsureSystemRules()
-	if len(cfg.Route.Rules) < 2 {
-		t.Fatalf("expected >=2 rules, got %d", len(cfg.Route.Rules))
+	if len(cfg.Route.Rules) < 3 {
+		t.Fatalf("expected >=3 rules, got %d", len(cfg.Route.Rules))
 	}
 	if cfg.Route.Rules[0].Action != "sniff" {
 		t.Errorf("first rule should be sniff, got %+v", cfg.Route.Rules[0])
@@ -195,9 +196,17 @@ func TestEnsureSystemRules(t *testing.T) {
 		t.Errorf("nested[1] should be port:53, got %+v", hijack.Rules[1])
 	}
 
-	// Idempotency: re-running should NOT add duplicates of either form.
+	privateBypass := cfg.Route.Rules[2]
+	if privateBypass.IPIsPrivate == nil || !*privateBypass.IPIsPrivate {
+		t.Errorf("third rule should have ip_is_private:true, got %+v", privateBypass)
+	}
+	if privateBypass.Outbound != "direct" {
+		t.Errorf("ip_is_private rule must outbound to 'direct', got %q", privateBypass.Outbound)
+	}
+
+	// Idempotency: re-running should NOT add duplicates of any system rule.
 	cfg.EnsureSystemRules()
-	var sniffCount, hijackCount int
+	var sniffCount, hijackCount, privateCount int
 	for _, r := range cfg.Route.Rules {
 		if r.Action == "sniff" && !r.hasAnyMatcher() {
 			sniffCount++
@@ -205,9 +214,62 @@ func TestEnsureSystemRules(t *testing.T) {
 		if r.Action == "hijack-dns" {
 			hijackCount++
 		}
+		if r.IPIsPrivate != nil && *r.IPIsPrivate {
+			privateCount++
+		}
 	}
-	if sniffCount != 1 || hijackCount != 1 {
-		t.Errorf("system rules duplicated: sniff=%d hijack=%d", sniffCount, hijackCount)
+	if sniffCount != 1 || hijackCount != 1 || privateCount != 1 {
+		t.Errorf("system rules duplicated: sniff=%d hijack=%d private=%d",
+			sniffCount, hijackCount, privateCount)
+	}
+}
+
+func TestEnsureSystemRules_PreservesCustomPrivateBypass(t *testing.T) {
+	// If the user has authored their own ip_is_private rule (e.g. they
+	// want private destinations to go through a specific direct-LAN
+	// outbound rather than sing-box's built-in `direct`), EnsureSystemRules
+	// must NOT prepend a competing system rule that would shadow it.
+	cfg := NewEmptyConfig()
+	truePtr := true
+	cfg.Route.Rules = []Rule{
+		{IPIsPrivate: &truePtr, Outbound: "lan-direct"},
+	}
+	cfg.EnsureSystemRules()
+
+	var privateCount int
+	var firstPrivateOutbound string
+	for _, r := range cfg.Route.Rules {
+		if r.IPIsPrivate != nil && *r.IPIsPrivate {
+			privateCount++
+			if firstPrivateOutbound == "" {
+				firstPrivateOutbound = r.Outbound
+			}
+		}
+	}
+	if privateCount != 1 {
+		t.Errorf("expected 1 ip_is_private rule (user's), got %d", privateCount)
+	}
+	if firstPrivateOutbound != "lan-direct" {
+		t.Errorf("user's custom outbound was overridden: got %q want %q",
+			firstPrivateOutbound, "lan-direct")
+	}
+}
+
+func TestEnsureSystemRules_JSONOmitsUnsetIPIsPrivate(t *testing.T) {
+	// `ip_is_private` is `*bool` specifically so an unset value does NOT
+	// serialize as `"ip_is_private": false` — that would change sing-box
+	// semantics (false explicitly means "match non-private"). Verify
+	// that a typical user rule (no ip_is_private set) round-trips clean.
+	cfg := NewEmptyConfig()
+	cfg.Route.Rules = []Rule{
+		{DomainSuffix: []string{"example.com"}, Outbound: "proxy"},
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if contains(string(data), "ip_is_private") {
+		t.Errorf("unset ip_is_private leaked into JSON: %s", string(data))
 	}
 }
 
