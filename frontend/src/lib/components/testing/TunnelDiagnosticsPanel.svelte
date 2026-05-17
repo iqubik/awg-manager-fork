@@ -987,7 +987,6 @@
 		letter-spacing: 0.03em;
 	}
 
-	/* Speed test panel (from SingboxSpeedTestModal) */
 	.speed-test-panel {
 		display: flex;
 		flex-direction: column;
