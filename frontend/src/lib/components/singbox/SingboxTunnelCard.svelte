@@ -13,6 +13,7 @@
 	import { Modal, Button, TrafficChart, TrafficSparkline } from '$lib/components/ui';
 	import { getTrafficRates, subscribeTraffic, loadHistory } from '$lib/stores/traffic';
 	import type { SingboxLayoutMode } from '$lib/constants/singboxLayout';
+	import TunnelDiagnosticsModal from '$lib/components/testing/TunnelDiagnosticsModal.svelte';
 
 	interface Props {
 		tunnel: SingboxTunnel;
@@ -32,6 +33,7 @@
 
 	let deleting = $state(false);
 	let confirmDeleteOpen = $state(false);
+	let diagnosticsOpen = $state(false);
 	let showServer = $state(false);
 	let checking = $state(false);
 
@@ -85,9 +87,6 @@
 		if (latest !== undefined && latest <= 0) return 'проверка...';
 		return `${latest}ms`;
 	});
-
-	const testHref = $derived(`/singbox/${encodeURIComponent(tunnel.tag)}/test`);
-	const resolvedTestHref = $derived(tunnel.kernelInterface ? testHref : undefined);
 
 	const protocolLabel = $derived.by(() => {
 		if (tunnel.protocol === 'vless') return 'VLESS';
@@ -296,31 +295,39 @@
 		</div>
 		<div class="list-cell list-cell-actions" data-label="Действия">
 			<div class="list-actions">
-				<button class="action-btn" type="button" onclick={edit}>
+				<button
+					class="action-btn"
+					type="button"
+					onclick={edit}
+					title="Изменить туннель «{tunnel.tag}»"
+					aria-label="Изменить туннель «{tunnel.tag}»"
+				>
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
 						<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
 					</svg>
-					Изменить
 				</button>
-				{#if resolvedTestHref}
-					<a class="action-btn" href={resolvedTestHref}>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-							<polyline points="22,4 12,14.01 9,11.01"/>
-						</svg>
-						Тест
-					</a>
-				{:else}
-					<button class="action-btn" type="button" disabled>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-							<polyline points="22,4 12,14.01 9,11.01"/>
-						</svg>
-						Тест
-					</button>
-				{/if}
-				<button class="action-btn action-danger" type="button" onclick={() => (confirmDeleteOpen = true)} disabled={deleting}>
+				<button
+					class="action-btn action-test"
+					type="button"
+					onclick={() => (diagnosticsOpen = true)}
+					disabled={!tunnel.kernelInterface}
+					title="Тест туннеля «{tunnel.tag}»"
+					aria-label="Тест туннеля «{tunnel.tag}»"
+				>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+						<polyline points="22,4 12,14.01 9,11.01"/>
+					</svg>
+				</button>
+				<button
+					class="action-btn action-danger"
+					type="button"
+					onclick={() => (confirmDeleteOpen = true)}
+					disabled={deleting}
+					title="Удалить туннель «{tunnel.tag}»"
+					aria-label="Удалить туннель «{tunnel.tag}»"
+				>
 					{#if deleting}
 						<span class="action-spinner"></span>
 					{:else}
@@ -329,7 +336,6 @@
 							<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
 						</svg>
 					{/if}
-					Удалить
 				</button>
 			</div>
 		</div>
@@ -409,15 +415,18 @@
 
 	<div class="actions">
 		<Button variant="ghost" size="sm" onclick={edit} iconBefore={editIcon}>Изменить</Button>
-		<Button
-			variant="ghost"
-			size="sm"
-			href={resolvedTestHref}
+		<button
+			class="action-btn action-test"
+			type="button"
 			disabled={!tunnel.kernelInterface}
-			iconBefore={testIcon}
+			onclick={() => (diagnosticsOpen = true)}
 		>
+			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+				<polyline points="22,4 12,14.01 9,11.01"/>
+			</svg>
 			Тест
-		</Button>
+		</button>
 		<button
 			class="action-btn action-danger"
 			type="button"
@@ -485,6 +494,18 @@
 	</div>
 </div>
 {/if}
+
+<TunnelDiagnosticsModal
+	open={diagnosticsOpen}
+	kind="singbox"
+	targetId={tunnel.tag}
+	displayName={tunnel.tag}
+	subjectLabel="туннель"
+	iface={tunnel.kernelInterface}
+	loading={false}
+	unavailableReason={tunnel.kernelInterface ? undefined : 'У этого sing-box туннеля нет kernel interface, расширенные тесты недоступны.'}
+	onclose={() => (diagnosticsOpen = false)}
+/>
 
 <Modal
 	open={confirmDeleteOpen}
@@ -924,5 +945,9 @@
 	.list-actions :global(.action-danger:hover:not(:disabled)) {
 		color: #ff6b6b;
 		background: rgba(239, 68, 68, 0.18);
+	}
+	.action-btn.action-test:hover:not(:disabled) {
+		color: var(--color-success, #9ece6a);
+		background: var(--color-success-tint, rgba(158, 206, 106, 0.28));
 	}
 </style>

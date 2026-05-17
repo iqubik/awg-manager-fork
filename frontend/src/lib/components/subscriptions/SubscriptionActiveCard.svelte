@@ -16,6 +16,7 @@
     import { formatRelativeTime } from '$lib/utils/format';
     import SubscriptionMemberPicker from './SubscriptionMemberPicker.svelte';
     import type { SingboxLayoutMode } from '$lib/constants/singboxLayout';
+    import TunnelDiagnosticsModal from '$lib/components/testing/TunnelDiagnosticsModal.svelte';
 
     interface Props {
         subscription: Subscription;
@@ -39,6 +40,7 @@
     let showEndpoint = $state(false);
     let confirmDeleteOpen = $state(false);
     let deleting = $state(false);
+    let diagnosticsOpen = $state(false);
 
     // NDMS Proxy interface name (Proxy<N>) and matching kernel TUN
     // (t2s<N>) — same naming convention sing-box tunnels use, just
@@ -50,6 +52,12 @@
     );
     const kernelIface = $derived(
         subscription.proxyIndex >= 0 ? `t2s${subscription.proxyIndex}` : '',
+    );
+    const selectorTag = $derived(subscription.selectorTag ?? '');
+    const diagnosticsUnavailableReason = $derived(
+        !selectorTag || !kernelIface
+            ? 'Для подписки не удалось определить интерфейс тестирования.'
+            : undefined,
     );
 
     const DELAY_OK = 200;
@@ -178,6 +186,17 @@
 
     function openDetail(): void {
         goto(`/subscriptions/${subscription.id}`);
+    }
+
+    function openDiagnostics(e?: MouseEvent | PointerEvent | KeyboardEvent): void {
+        e?.preventDefault();
+        e?.stopPropagation();
+        diagnosticsOpen = true;
+    }
+
+    function stopNestedAction(e: Event): void {
+        e.preventDefault();
+        e.stopPropagation();
     }
 
     async function removeSubscription(): Promise<void> {
@@ -344,7 +363,10 @@
             </div>
             <div class="lc lc-actions" data-label="">
                 <button
+                    type="button"
                     class="action-btn"
+                    title="Открыть подписку «{subscription.label}»"
+                    aria-label="Открыть подписку «{subscription.label}»"
                     onclick={(e) => {
                         e.stopPropagation();
                         openDetail();
@@ -353,25 +375,32 @@
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                    </svg>
-                    Открыть
+                    </svg>                    
                 </button>
                 <button
-                    class="action-btn"
-                    disabled={!kernelIface}
-                    onclick={(e) => {
-                        e.stopPropagation();
-                        if (kernelIface) goto(`/subscriptions/${subscription.id}/test`);
+                    type="button"
+                    class="action-btn action-test"
+                    title="Открыть диагностику подписки «{subscription.label}»"
+                    aria-label="Открыть диагностику подписки «{subscription.label}»"
+                    data-diagnostics-action="true"
+                    onpointerdown={stopNestedAction}
+                    onmousedown={stopNestedAction}
+                    onclick={(e) => openDiagnostics(e)}
+                    onkeydown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') openDiagnostics(e);
+                        else e.stopPropagation();
                     }}
                 >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
                         <polyline points="22,4 12,14.01 9,11.01"/>
-                    </svg>
-                    Тест
+                    </svg>                    
                 </button>
                 <button
+                    type="button"
                     class="action-btn action-danger"
+                    title="Удалить подписку «{subscription.label}»"
+                    aria-label="Удалить подписку «{subscription.label}»"
                     onclick={(e) => {
                         e.stopPropagation();
                         confirmDeleteOpen = true;
@@ -380,8 +409,7 @@
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="3,6 5,6 21,6"/>
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
-                    Удалить
+                    </svg>                    
                 </button>
             </div>
         </div>
@@ -524,7 +552,7 @@
     <div class="divider"></div>
 
     <div class="actions">
-        <button class="action-btn" onclick={openDetail}>
+        <button type="button" class="action-btn" onclick={openDetail} title="Открыть подписку «{subscription.label}»">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -532,9 +560,17 @@
             Открыть подписку
         </button>
         <button
-            class="action-btn"
-            disabled={!kernelIface}
-            onclick={() => kernelIface && goto(`/subscriptions/${subscription.id}/test`)}
+            type="button"
+            class="action-btn action-test"
+            title="Открыть диагностику подписки «{subscription.label}»"
+            data-diagnostics-action="true"
+            onpointerdown={stopNestedAction}
+            onmousedown={stopNestedAction}
+            onclick={(e) => openDiagnostics(e)}
+            onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') openDiagnostics(e);
+                else e.stopPropagation();
+            }}
         >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
@@ -542,7 +578,7 @@
             </svg>
             Тест
         </button>
-        <button class="action-btn action-danger" onclick={() => (confirmDeleteOpen = true)}>
+        <button type="button" class="action-btn action-danger" onclick={() => (confirmDeleteOpen = true)} title="Удалить подписку «{subscription.label}»">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3,6 5,6 21,6"/>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -596,6 +632,18 @@
     </div>
 </div>
 {/if}
+
+<TunnelDiagnosticsModal
+    open={diagnosticsOpen}
+    kind="subscription"
+    targetId={selectorTag}
+    displayName={subscription.label || selectorTag || subscription.id}
+    subjectLabel="подписку"
+    iface={kernelIface}
+    loading={false}
+    unavailableReason={diagnosticsUnavailableReason}
+    onclose={() => (diagnosticsOpen = false)}
+/>
 
 <Modal
     open={confirmDeleteOpen}
@@ -829,6 +877,10 @@
     .action-danger:hover:not(:disabled) {
         color: var(--color-error);
         background: var(--color-error-tint);
+    }
+    .action-btn.action-test:hover:not(:disabled) {
+        color: var(--color-success);
+        background: var(--color-success-tint);
     }
     .chart-section {
         margin: 0 -16px -16px;

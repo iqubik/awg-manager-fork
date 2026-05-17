@@ -7,6 +7,7 @@
 	import { formatRelativeTime, formatDuration, secondsSince, formatBytes } from '$lib/utils/format';
 	import { getTrafficRates, subscribeTraffic, loadHistory } from '$lib/stores/traffic';
 	import ConnectivitySettingsModal from './ConnectivitySettingsModal.svelte';
+import TunnelDiagnosticsModal from '$lib/components/testing/TunnelDiagnosticsModal.svelte';
 
 	interface Props {
 		tunnel: TunnelListItem;
@@ -71,6 +72,7 @@
 
 	// ─── Connectivity (SSE-driven + manual recheck) ────────────────
 	let connectivitySettingsOpen = $state(false);
+	let diagnosticsOpen = $state(false);
 
 	let checkMethod = $derived(tunnel.connectivityCheck?.method || 'http');
 	let isCheckDisabled = $derived(checkMethod === 'disabled');
@@ -375,10 +377,14 @@
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
 					Изменить
 				</a>
-				<a class="action-btn" href="/tunnels/{tunnel.id}/test">
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
-					Тест
-				</a>
+			<button
+				class="action-btn action-test"
+				type="button"
+				onclick={() => (diagnosticsOpen = true)}
+			>
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+				Тест
+			</button>
 				<button
 					class="action-btn action-danger"
 					disabled={deleteLoading}
@@ -566,10 +572,14 @@
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
 				Изменить
 			</a>
-			<a class="action-btn" href="/tunnels/{tunnel.id}/test">
+			<button
+				class="action-btn action-test"
+				type="button"
+				onclick={() => (diagnosticsOpen = true)}
+			>
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
 				Тест
-			</a>
+			</button>
 			<button
 				class="action-btn action-danger"
 				disabled={deleteLoading}
@@ -606,6 +616,15 @@
 		{/if}
 	</div>
 {/if}
+
+<TunnelDiagnosticsModal
+	open={diagnosticsOpen}
+	kind="awg"
+	targetId={tunnel.id}
+	displayName={tunnel.name}
+	subjectLabel="туннель"
+	onclose={() => (diagnosticsOpen = false)}
+/>
 
 <ConnectivitySettingsModal
 	bind:open={connectivitySettingsOpen}
@@ -1060,6 +1079,11 @@
 	.action-danger:hover:not(:disabled) {
 		color: var(--color-error);
 		background: var(--color-error-tint);
+	}
+	.action-btn.action-test:hover:not(:disabled),
+	.list-actions :global(.action-btn.action-test:hover:not(:disabled)) {
+		color: var(--color-success);
+		background: var(--color-success-tint);
 	}
 
 	.action-spinner {

@@ -8,6 +8,7 @@
 	import { TrafficSparkline } from '$lib/components/ui';
 	import { formatBytes } from '$lib/utils/format';
 	import { resolveSubscriptionMemberTag } from '$lib/utils/subscriptionMember';
+	import TunnelDiagnosticsModal from '$lib/components/testing/TunnelDiagnosticsModal.svelte';
 
 	interface Props {
 		subscription: Subscription;
@@ -107,13 +108,44 @@
 		}
 	}
 
-	function open(): void {
+	function isNestedActionEvent(e: Event): boolean {
+		const target = e.target;
+		if (!(target instanceof HTMLElement)) return false;
+		return target.closest('button,a,input,select,textarea') !== null;
+	}
+
+	function open(e?: MouseEvent | KeyboardEvent): void {
+		if (e && isNestedActionEvent(e)) return;
 		goto(`/subscriptions/${subscription.id}`);
 	}
 
 	function requestDelete(e: MouseEvent): void {
 		e.stopPropagation();
 		ondelete?.(subscription.id);
+	}
+
+	let diagnosticsOpen = $state(false);
+
+	let selectorTag = $derived(subscription.selectorTag ?? '');
+	let kernelIface = $derived(subscription.proxyIndex >= 0 ? `t2s${subscription.proxyIndex}` : '');
+	let diagnosticsUnavailableReason = $derived(
+		!selectorTag || !kernelIface
+			? 'Для подписки не удалось определить интерфейс тестирования.'
+			: undefined,
+	);
+
+	function openDiagnostics(e: MouseEvent): void {
+		e.preventDefault();
+		e.stopPropagation();
+		diagnosticsOpen = true;
+	}
+
+	function stopNestedAction(e: Event): void {
+		e.stopPropagation();
+	}
+
+	function stopNestedActionKeydown(e: KeyboardEvent): void {
+		e.stopPropagation();
 	}
 
 	const status = $derived(
@@ -139,11 +171,11 @@
 			role="button"
 			tabindex="0"
 			class="sub-list-click"
-			onclick={open}
+			onclick={(e) => open(e)}
 			onkeydown={(e) => {
 				if (e.key === 'Enter' || e.key === ' ') {
 					e.preventDefault();
-					open();
+					open(e);
 				}
 			}}
 		>
@@ -249,6 +281,21 @@
 					{lastFetchedHuman}
 				</div>
 				<div class="list-cell list-actions" data-label="">
+					<button
+						type="button"
+						class="card-test"
+						title="Открыть диагностику"
+						aria-label="Открыть диагностику подписки {subscription.label || subscription.url}"
+						onpointerdown={stopNestedAction}
+						onmousedown={stopNestedAction}
+						onclick={openDiagnostics}
+						onkeydown={stopNestedActionKeydown}
+					>
+						<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+							<polyline points="22 4 12 14.01 9 11.01" />
+						</svg>
+					</button>
 					{#if ondelete}
 						<button
 							type="button"
@@ -274,11 +321,11 @@
 	class="card"
 	class:panel={layout === 'grid'}
 	class:err={status === 'error'}
-	onclick={open}
+	onclick={(e) => open(e)}
 	onkeydown={(e) => {
 		if (e.key === 'Enter' || e.key === ' ') {
 			e.preventDefault();
-			open();
+			open(e);
 		}
 	}}
 >
@@ -288,6 +335,21 @@
 			<div class="badge {status}">
 				{#if status === 'ok'}OK{:else if status === 'error'}Ошибка{:else}—{/if}
 			</div>
+			<button
+				type="button"
+				class="card-test"
+				title="Открыть диагностику"
+				aria-label="Открыть диагностику подписки {subscription.label || subscription.url}"
+				onpointerdown={stopNestedAction}
+				onmousedown={stopNestedAction}
+				onclick={openDiagnostics}
+				onkeydown={stopNestedActionKeydown}
+			>
+				<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+					<polyline points="22 4 12 14.01 9 11.01" />
+				</svg>
+			</button>
 			{#if ondelete}
 				<button
 					type="button"
@@ -316,6 +378,18 @@
 	{/if}
 </div>
 {/if}
+
+<TunnelDiagnosticsModal
+	open={diagnosticsOpen}
+	kind="subscription"
+	targetId={selectorTag}
+	displayName={subscription.label || selectorTag || subscription.id}
+	subjectLabel="подписку"
+	iface={kernelIface}
+	loading={false}
+	unavailableReason={diagnosticsUnavailableReason}
+	onclose={() => (diagnosticsOpen = false)}
+/>
 
 <style>
 	.card {
@@ -489,6 +563,32 @@
 	.card.err { border-color: #f85149; }
 	.head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
 	.head-right { display: flex; align-items: center; gap: 0.5rem; }
+	.card-test {
+		width: 22px;
+		height: 22px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		border: 1px solid var(--color-border);
+		border-radius: 50%;
+		color: var(--color-text-muted);
+		cursor: pointer;
+		transition: color 120ms, border-color 120ms, background 120ms;
+	}
+	.card-test:hover:not(:disabled) {
+		color: var(--color-success);
+		border-color: var(--color-success);
+		background: var(--color-success-tint);
+	}
+	.card-test:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+	.card-test:focus-visible {
+		outline: 2px solid var(--color-accent, #58a6ff);
+		outline-offset: 1px;
+	}
 	.card-remove {
 		width: 22px;
 		height: 22px;

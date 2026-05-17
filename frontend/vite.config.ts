@@ -1,8 +1,57 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
+
+/**
+ * In mock-dev (`VITE_API_STRIP_PREFIX=true`) the router-relative
+ * /site.webmanifest references in SvelteKit pages produce child-URL
+ * requests like /tunnels/site.webmanifest, /singbox/site.webmanifest,
+ * /subscriptions/site.webmanifest instead of the real root path.
+ * This Vite middleware intercepts those requests and serves the actual
+ * manifest file from frontend/static/ so the PWA install prompt works
+ * on nested routes during mock-dev on Windows.
+ * Does NOT apply in production builds or real API mode.
+ */
+const serveNestedManifestInMockDev = (enabled: boolean): Plugin => ({
+	name: 'serve-nested-site-webmanifest-in-mock-dev',
+	apply: 'serve',
+	enforce: 'pre',
+	configureServer(server) {
+		if (!enabled) return;
+
+		server.middlewares.use((req, res, next) => {
+			const pathname = (req.url ?? '').split('?')[0];
+
+			const isNestedManifest =
+				pathname === '/tunnels/site.webmanifest' ||
+				pathname === '/singbox/site.webmanifest' ||
+				pathname === '/subscriptions/site.webmanifest';
+
+			if (!isNestedManifest) {
+				next();
+				return;
+			}
+
+			if (req.method !== 'GET' && req.method !== 'HEAD') {
+				next();
+				return;
+			}
+
+			const body = readFileSync(
+				fileURLToPath(new URL('./static/site.webmanifest', import.meta.url)),
+				'utf8',
+			);
+
+			res.statusCode = 200;
+			res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+			res.setHeader('Cache-Control', 'no-store, max-age=0');
+			res.end(req.method === 'HEAD' ? undefined : body);
+		});
+	},
+});
 
 /**
  * Strip /routes/dev/* contents during production build so dev-only
@@ -46,7 +95,13 @@ export default defineConfig(({ mode }) => {
 	const useMockRewrite = isTruthy(envValue('VITE_API_STRIP_PREFIX'));
 
 	return {
-		plugins: [stubDevRoutes(), tailwindcss(), sveltekit(), svelteTesting()],
+		plugins: [
+			serveNestedManifestInMockDev(useMockRewrite),
+			stubDevRoutes(),
+			tailwindcss(),
+			sveltekit(),
+			svelteTesting(),
+		],
 		test: {
 			environment: 'jsdom',
 			include: ['src/**/*.test.ts'],
