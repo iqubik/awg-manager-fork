@@ -66,7 +66,12 @@
 	const latText = $derived(delayPresentation.label);
 
 	const protocolLabel = $derived.by(() => {
-		switch (tunnel.protocol) {
+		// Widen locally: the generated/static type is currently an exhaustive union,
+		// but runtime data may contain a newer sing-box protocol before frontend types
+		// are updated. Keep a safe fallback without making the default branch `never`.
+		const protocol = tunnel.protocol as string | undefined;
+
+		switch (protocol) {
 			case 'vless':
 				return 'VLESS';
 			case 'hysteria2':
@@ -78,9 +83,7 @@
 			case 'naive':
 				return 'Naive';
 			default:
-				return tunnel.protocol
-					? tunnel.protocol.charAt(0).toUpperCase() + tunnel.protocol.slice(1)
-					: '—';
+				return protocol ? protocol.charAt(0).toUpperCase() + protocol.slice(1) : '—';
 		}
 	});
 

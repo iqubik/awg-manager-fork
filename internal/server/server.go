@@ -1166,18 +1166,36 @@ func (s *Server) spaHandler() http.Handler {
 }
 
 // diagLogAdapter adapts logging.Service to diagnostics.LogServiceForDiag.
-// Diagnostics expects GetLogs(category, level) but new service uses GetLogs(group, subgroup, level).
+// The legacy GetLogs helper still feeds report.Logs from the app bucket;
+// structured journalWarnings uses GetBucketLogs/GetBucketStats to collect
+// both app and sing-box buckets explicitly.
 type diagLogAdapter struct {
 	svc *logging.Service
 }
 
 func (a *diagLogAdapter) GetLogs(category, level string) []logging.LogEntry {
-	// For diagnostics, category maps to group (empty = all). Diagnostics
-	// only consumes app-bucket entries (tunnel/routing/system); sing-box
-	// forwarder events live in their own bucket and are not part of the
-	// diagnostic story.
+	// For diagnostics, category maps to app-bucket group (empty = all).
+	// Kept for the legacy report.Logs section.
 	logs, _ := a.svc.GetLogs(logging.BucketApp, category, "", level, time.Time{}, 10000, 0)
 	return logs
+}
+
+func (a *diagLogAdapter) GetBucketLogs(bucket logging.Bucket, group, subgroup, level string, limit, offset int) ([]logging.LogEntry, int) {
+	if a == nil || a.svc == nil {
+		return []logging.LogEntry{}, 0
+	}
+	logs, total := a.svc.GetLogs(bucket, group, subgroup, level, time.Time{}, limit, offset)
+	if logs == nil {
+		logs = []logging.LogEntry{}
+	}
+	return logs, total
+}
+
+func (a *diagLogAdapter) GetBucketStats(bucket logging.Bucket) logging.BufferStats {
+	if a == nil || a.svc == nil {
+		return logging.BufferStats{Bucket: bucket}
+	}
+	return a.svc.Stats(bucket)
 }
 
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {

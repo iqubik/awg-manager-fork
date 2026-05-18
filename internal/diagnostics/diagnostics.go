@@ -23,17 +23,18 @@ import (
 
 // Report is the top-level diagnostics report.
 type Report struct {
-	Version        string             `json:"version"`
-	GeneratedAt    time.Time          `json:"generatedAt"`
-	DurationMs     int64              `json:"durationMs"`
-	System         SystemInfo         `json:"system"`
-	WAN            WANInfo            `json:"wan"`
-	BootHealth     BootHealth         `json:"bootHealth"`
-	AWGProxyModule AWGProxyModule     `json:"awgProxyModule"`
-	SingboxConfig  *SingboxConfigInfo `json:"singboxConfig,omitempty"`
-	Tunnels        []TunnelInfo       `json:"tunnels"`
-	Tests          []TestResult       `json:"tests"`
-	Logs           []logging.LogEntry `json:"logs"`
+	Version         string               `json:"version"`
+	GeneratedAt     time.Time            `json:"generatedAt"`
+	DurationMs      int64                `json:"durationMs"`
+	System          SystemInfo           `json:"system"`
+	WAN             WANInfo              `json:"wan"`
+	BootHealth      BootHealth           `json:"bootHealth"`
+	AWGProxyModule  AWGProxyModule       `json:"awgProxyModule"`
+	SingboxConfig   *SingboxConfigInfo   `json:"singboxConfig,omitempty"`
+	JournalWarnings *JournalWarningsInfo `json:"journalWarnings,omitempty"`
+	Tunnels         []TunnelInfo         `json:"tunnels"`
+	Tests           []TestResult         `json:"tests"`
+	Logs            []logging.LogEntry   `json:"logs"`
 }
 
 // SystemInfo contains system-level diagnostics.
@@ -106,6 +107,26 @@ type SingboxConfigInfo struct {
 	Available bool           `json:"available"`
 	Error     string         `json:"error,omitempty"`
 	Config    map[string]any `json:"config,omitempty"`
+}
+
+// JournalWarningsInfo contains WARN/ERROR journal entries from both log buckets.
+type JournalWarningsInfo struct {
+	Levels         []string             `json:"levels"`
+	LimitPerBucket int                  `json:"limitPerBucket"`
+	AWGM           JournalWarningBucket `json:"awgm"`
+	Singbox        JournalWarningBucket `json:"singbox"`
+}
+
+// JournalWarningBucket is one diagnostics journal excerpt for a concrete log bucket.
+type JournalWarningBucket struct {
+	Bucket                string             `json:"bucket"`
+	Total                 int                `json:"total"`
+	Included              int                `json:"included"`
+	Truncated             bool               `json:"truncated"`
+	BufferSize            int                `json:"bufferSize"`
+	BufferCapacity        int                `json:"bufferCapacity"`
+	BufferOldestTimestamp string             `json:"bufferOldestTimestamp,omitempty"`
+	Entries               []logging.LogEntry `json:"entries"`
 }
 
 // TunnelInfo contains per-tunnel diagnostics.
@@ -355,7 +376,12 @@ type TunnelServiceForDiag interface {
 
 // LogServiceForDiag is the subset of logging.Service used by diagnostics.
 type LogServiceForDiag interface {
+	// Legacy app-bucket helper used by existing diagnostics log collection.
 	GetLogs(category, level string) []logging.LogEntry
+
+	// Bucket helpers used by journalWarnings report section.
+	GetBucketLogs(bucket logging.Bucket, group, subgroup, level string, limit, offset int) ([]logging.LogEntry, int)
+	GetBucketStats(bucket logging.Bucket) logging.BufferStats
 }
 
 // PingCheckForDiag is the subset of pingcheck facade used by diagnostics.
@@ -634,10 +660,13 @@ func (r *Runner) executeStream(ctx context.Context) {
 		report.Tunnels = r.collectTunnels(ctx)
 	}
 
+	allResults = r.runTestsWithEvents(ctx, report)
+
 	if singleTunnel == "" {
 		r.emitPhase("collect_logs", "Сбор логов...")
 		report.Logs = r.collectLogs()
-	}
 
-	allResults = r.runTestsWithEvents(ctx, report)
+		r.emitPhase("collect_journal_warnings", "Сбор WARN/ERROR из журнала...")
+		report.JournalWarnings = r.collectJournalWarnings()
+	}
 }

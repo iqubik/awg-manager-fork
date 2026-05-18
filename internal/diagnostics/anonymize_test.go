@@ -1,6 +1,7 @@
 package diagnostics
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -179,5 +180,404 @@ func TestAnonymize_PublicIPsInStructuredTunnelSettings(t *testing.T) {
 	}
 	if !strings.Contains(out, "172.29.172.254") {
 		t.Fatalf("private IP should be preserved: %s", out)
+	}
+}
+
+func TestAnonymize_HostnamesInJournalWarnings(t *testing.T) {
+	report := Report{
+		JournalWarnings: &JournalWarningsInfo{
+			Levels:         []string{"error", "warn"},
+			LimitPerBucket: 300,
+			AWGM: JournalWarningBucket{
+				Bucket: "app",
+				Entries: []logging.LogEntry{
+					{
+						Level:   "warn",
+						Group:   "system",
+						Target:  "connectivitycheck.gstatic.com:443",
+						Message: "connectivity check failed for connectivitycheck.gstatic.com:443",
+					},
+				},
+			},
+			Singbox: JournalWarningBucket{
+				Bucket: "singbox",
+				Entries: []logging.LogEntry{
+					{
+						Level:    "error",
+						Group:    "singbox",
+						Subgroup: "outbound",
+						Target:   "example-vless.example.test",
+						Message:  "dial tcp example-vless.example.test:443 with sni real-sni.example.test failed",
+					},
+				},
+			},
+		},
+	}
+
+	anonymize(&report)
+
+	awgm := report.JournalWarnings.AWGM.Entries[0].Target + " " +
+		report.JournalWarnings.AWGM.Entries[0].Message
+	sb := report.JournalWarnings.Singbox.Entries[0].Target + " " +
+		report.JournalWarnings.Singbox.Entries[0].Message
+	out := awgm + " " + sb
+
+	for _, raw := range []string{
+		"connectivitycheck.gstatic.com",
+		"example-vless.example.test",
+		"real-sni.example.test",
+	} {
+		if strings.Contains(out, raw) {
+			t.Fatalf("raw hostname %q still present after anonymize:\n%s", raw, out)
+		}
+	}
+
+	if !strings.Contains(out, "HOST-") {
+		t.Fatalf("HOST-* aliases not found after anonymize:\n%s", out)
+	}
+	if !strings.Contains(out, ":443") {
+		t.Fatalf("port should be preserved while hostname is anonymized:\n%s", out)
+	}
+}
+
+func TestAnonymize_HostnameAliasesAreStableAcrossLogsAndJournalWarnings(t *testing.T) {
+	report := Report{
+		Logs: []logging.LogEntry{
+			{
+				Target:  "connectivitycheck.gstatic.com",
+				Message: "app log mentions connectivitycheck.gstatic.com",
+			},
+		},
+		JournalWarnings: &JournalWarningsInfo{
+			Levels:         []string{"error", "warn"},
+			LimitPerBucket: 300,
+			Singbox: JournalWarningBucket{
+				Bucket: "singbox",
+				Entries: []logging.LogEntry{
+					{
+						Target:  "connectivitycheck.gstatic.com:443",
+						Message: "sing-box warning for connectivitycheck.gstatic.com:443",
+					},
+				},
+			},
+		},
+	}
+
+	anonymize(&report)
+
+	oldLog := report.Logs[0].Target + " " + report.Logs[0].Message
+	newLog := report.JournalWarnings.Singbox.Entries[0].Target + " " +
+		report.JournalWarnings.Singbox.Entries[0].Message
+	out := oldLog + " " + newLog
+
+	if strings.Contains(out, "connectivitycheck.gstatic.com") {
+		t.Fatalf("raw hostname still present:\n%s", out)
+	}
+
+	if !strings.Contains(oldLog, "HOST-1") {
+		t.Fatalf("expected HOST-1 in legacy logs, got:\n%s", oldLog)
+	}
+	if !strings.Contains(newLog, "HOST-1") {
+		t.Fatalf("expected same HOST-1 alias in journalWarnings, got:\n%s", newLog)
+	}
+}
+
+func TestAnonymize_HostnameAliasesAreCaseInsensitive(t *testing.T) {
+	report := Report{
+		JournalWarnings: &JournalWarningsInfo{
+			Levels:         []string{"error", "warn"},
+			LimitPerBucket: 300,
+			Singbox: JournalWarningBucket{
+				Bucket: "singbox",
+				Entries: []logging.LogEntry{
+					{
+						Target:  "Example-VLESS.Example.Test:443",
+						Message: "dial example-vless.example.test:443 failed",
+					},
+				},
+			},
+		},
+	}
+
+	anonymize(&report)
+
+	target := report.JournalWarnings.Singbox.Entries[0].Target
+	message := report.JournalWarnings.Singbox.Entries[0].Message
+	out := target + " " + message
+
+	if strings.Contains(out, "Example-VLESS.Example.Test") ||
+		strings.Contains(out, "example-vless.example.test") {
+		t.Fatalf("raw hostname spelling still present:\n%s", out)
+	}
+
+	if !strings.Contains(target, "HOST-1:443") {
+		t.Fatalf("expected HOST-1 in target, got:\n%s", target)
+	}
+	if !strings.Contains(message, "HOST-1:443") {
+		t.Fatalf("expected same HOST-1 alias in message, got:\n%s", message)
+	}
+}
+
+func TestAnonymize_HostnamePatternDoesNotAliasVersionsOrIPsAsHosts(t *testing.T) {
+	report := Report{
+		JournalWarnings: &JournalWarningsInfo{
+			Levels:         []string{"error", "warn"},
+			LimitPerBucket: 300,
+			AWGM: JournalWarningBucket{
+				Bucket: "app",
+				Entries: []logging.LogEntry{
+					{
+						Target:  "system",
+						Message: "sing-box 1.12.0 failed via 8.8.8.8 from 192.168.1.1 on Wireguard0 tun_abc123",
+					},
+				},
+			},
+		},
+	}
+
+	anonymize(&report)
+
+	out := report.JournalWarnings.AWGM.Entries[0].Target + " " +
+		report.JournalWarnings.AWGM.Entries[0].Message
+
+	if strings.Contains(out, "HOST-") {
+		t.Fatalf("versions/IPs/local names must not be anonymized as HOST-*:\n%s", out)
+	}
+	if !strings.Contains(out, "1.12.0") {
+		t.Fatalf("version should be preserved, got:\n%s", out)
+	}
+	if strings.Contains(out, "8.8.8.8") {
+		t.Fatalf("public IP should still be anonymized by IP logic, got:\n%s", out)
+	}
+	if !strings.Contains(out, "PUBLIC-IP-") {
+		t.Fatalf("public IP alias not found, got:\n%s", out)
+	}
+	if !strings.Contains(out, "192.168.1.1") {
+		t.Fatalf("private IP should be preserved, got:\n%s", out)
+	}
+}
+
+func TestAnonymize_HostnamesInTestsAndTunnelSettings(t *testing.T) {
+	report := Report{
+		Tunnels: []TunnelInfo{
+			{
+				ConfigFile: "Endpoint = vpn.example.test:443\n",
+				Settings: TunnelSettings{
+					DNS: "dns.example.test, 1.1.1.1",
+					PingCheckConfig: &PingCheckConfig{
+						Enabled: true,
+						Method:  "uri",
+						Target:  "connectivitycheck.gstatic.com",
+					},
+				},
+				Routes: RouteInfo{
+					EndpointRoute: "vpn.example.test via 192.168.1.1 dev eth3",
+				},
+			},
+		},
+		Tests: []TestResult{
+			{
+				Name:        "tunnel_connectivity",
+				Description: "checks ifconfig.me through tunnel",
+				Detail:      "request to ifconfig.me failed for vpn.example.test",
+			},
+		},
+	}
+
+	anonymize(&report)
+
+	out := report.Tunnels[0].ConfigFile + " " +
+		report.Tunnels[0].Settings.DNS + " " +
+		report.Tunnels[0].Settings.PingCheckConfig.Target + " " +
+		report.Tunnels[0].Routes.EndpointRoute + " " +
+		report.Tests[0].Description + " " +
+		report.Tests[0].Detail
+
+	for _, raw := range []string{
+		"vpn.example.test",
+		"dns.example.test",
+		"connectivitycheck.gstatic.com",
+		"ifconfig.me",
+	} {
+		if strings.Contains(out, raw) {
+			t.Fatalf("raw hostname %q still present after anonymize:\n%s", raw, out)
+		}
+	}
+
+	if !strings.Contains(out, "HOST-") {
+		t.Fatalf("HOST-* aliases not found:\n%s", out)
+	}
+	if strings.Contains(out, "1.1.1.1") {
+		t.Fatalf("public DNS IP should still be anonymized:\n%s", out)
+	}
+	if !strings.Contains(out, "PUBLIC-IP-") {
+		t.Fatalf("public IP alias not found:\n%s", out)
+	}
+	if !strings.Contains(out, "192.168.1.1") {
+		t.Fatalf("private IP should be preserved:\n%s", out)
+	}
+}
+
+func TestAnonymize_HostnamesInWANAndAWGProxyModule(t *testing.T) {
+	report := Report{
+		WAN: WANInfo{
+			NDMSRouteTable: "route to wan-check.example.test via 95.25.93.179",
+			IPRouteTable:   "default via isp-gw.example.test dev eth3",
+			IPAddr:         "inet 95.25.93.179 peer isp.example.test",
+		},
+		AWGProxyModule: AWGProxyModule{
+			RawList: "endpoint proxy-endpoint.example.test:443 via 95.25.93.179",
+			DmesgLines: []string{
+				"awg-proxy failed to resolve proxy-endpoint.example.test",
+			},
+		},
+	}
+
+	anonymize(&report)
+
+	out := report.WAN.NDMSRouteTable + " " +
+		report.WAN.IPRouteTable + " " +
+		report.WAN.IPAddr + " " +
+		report.AWGProxyModule.RawList + " " +
+		strings.Join(report.AWGProxyModule.DmesgLines, " ")
+
+	for _, raw := range []string{
+		"wan-check.example.test",
+		"isp-gw.example.test",
+		"isp.example.test",
+		"proxy-endpoint.example.test",
+	} {
+		if strings.Contains(out, raw) {
+			t.Fatalf("raw hostname %q still present after anonymize:\n%s", raw, out)
+		}
+	}
+
+	if !strings.Contains(out, "HOST-") {
+		t.Fatalf("HOST-* aliases not found:\n%s", out)
+	}
+	if strings.Contains(out, "95.25.93.179") {
+		t.Fatalf("public IP should still be anonymized:\n%s", out)
+	}
+	if !strings.Contains(out, "PUBLIC-IP-") {
+		t.Fatalf("public IP alias not found:\n%s", out)
+	}
+}
+
+func TestAnonymize_HostnamePatternAnonymizesMultiLabelHostsWithTechnicalSuffix(t *testing.T) {
+	report := Report{
+		JournalWarnings: &JournalWarningsInfo{
+			Singbox: JournalWarningBucket{
+				Entries: []logging.LogEntry{{
+					Message: "dial proxy.example.service and api.example.json failed",
+				}},
+			},
+		},
+	}
+
+	anonymize(&report)
+
+	out := report.JournalWarnings.Singbox.Entries[0].Message
+	if strings.Contains(out, "proxy.example.service") || strings.Contains(out, "api.example.json") {
+		t.Fatalf("multi-label real hostnames with technical-looking suffix must be anonymized: %s", out)
+	}
+	if !strings.Contains(out, "HOST-") {
+		t.Fatalf("HOST-* aliases not found: %s", out)
+	}
+}
+
+func TestAnonymize_HostnamePatternPreservesTwoSegmentTechnicalNames(t *testing.T) {
+	report := Report{
+		JournalWarnings: &JournalWarningsInfo{
+			Singbox: JournalWarningBucket{
+				Entries: []logging.LogEntry{{
+					Message: "sing-box.service: /etc/resolv.conf and config.json missing; see package.json and awg-manager.log",
+				}},
+			},
+		},
+	}
+
+	anonymize(&report)
+
+	out := report.JournalWarnings.Singbox.Entries[0].Message
+	for _, raw := range []string{
+		"sing-box.service",
+		"resolv.conf",
+		"config.json",
+		"package.json",
+		"awg-manager.log",
+	} {
+		if !strings.Contains(out, raw) {
+			t.Fatalf("two-segment technical dotted name %q must be preserved, got:\n%s", raw, out)
+		}
+	}
+
+	if strings.Contains(out, "HOST-") {
+		t.Fatalf("two-segment technical names must not be replaced with HOST-*: %s", out)
+	}
+}
+
+func TestAnonymize_SingboxConfigPreservesTechnicalFilenamesInPathsAndURLs(t *testing.T) {
+	report := Report{
+		SingboxConfig: &SingboxConfigInfo{
+			Available: true,
+			Config: map[string]any{
+				"experimental": map[string]any{
+					"cache_file": map[string]any{
+						"enabled": true,
+						"path":    "/opt/etc/awg-manager/singbox/cache.db",
+					},
+				},
+				"route": map[string]any{
+					"rule_set": []any{
+						map[string]any{
+							"type": "remote",
+							"url":  "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-youtube.srs",
+						},
+						map[string]any{
+							"type": "remote",
+							"url":  "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ai-!cn.srs",
+						},
+					},
+					"rules": []any{
+						map[string]any{
+							"domain_suffix": []any{
+								"sensitive.example.test",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	anonymize(&report)
+
+	raw, err := json.Marshal(report.SingboxConfig.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(raw)
+
+	for _, expected := range []string{
+		"cache.db",
+		"geosite-youtube.srs",
+		"geosite-category-ai-!cn.srs",
+	} {
+		if !strings.Contains(out, expected) {
+			t.Fatalf("technical filename %q should be preserved, got:\n%s", expected, out)
+		}
+	}
+
+	for _, rawHost := range []string{
+		"raw.githubusercontent.com",
+		"sensitive.example.test",
+	} {
+		if strings.Contains(out, rawHost) {
+			t.Fatalf("real hostname %q should be anonymized, got:\n%s", rawHost, out)
+		}
+	}
+
+	if !strings.Contains(out, "HOST-") {
+		t.Fatalf("HOST-* aliases not found, got:\n%s", out)
 	}
 }

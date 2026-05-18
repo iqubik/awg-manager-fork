@@ -6,6 +6,8 @@ import (
 	"net"
 	"regexp"
 	"strings"
+
+	"github.com/hoaxisr/awg-manager/internal/logging"
 )
 
 var (
@@ -14,6 +16,36 @@ var (
 	// Leading \b anchors at a word boundary; trailing = is not a \w char
 	// so \b after = never matches in RE2 — omit trailing boundary.
 	wgPublicKeyPattern = regexp.MustCompile(`\b[A-Za-z0-9+/]{43}=`)
+	// Domain-like public hostnames that may appear in diagnostics logs
+	// (sing-box server names, SNI, connectivity checks, dial targets).
+	// Requires at least one dot and an alphabetic TLD to avoid matching
+	// IP addresses, versions, tunnel IDs, and local interface names.
+	hostnamePattern = regexp.MustCompile(`(?i)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\b`)
+
+	// Technical dotted names are common in diagnostics output but are not
+	// public hostnames/SNI/server names. Preserve them for report usefulness.
+	technicalDottedNameSuffixes = map[string]struct{}{
+		"service": {},
+		"socket":  {},
+		"target":  {},
+		"timer":   {},
+		"mount":   {},
+		"path":    {},
+		"slice":   {},
+		"scope":   {},
+		"conf":    {},
+		"json":    {},
+		"log":     {},
+		"yaml":    {},
+		"yml":     {},
+		"toml":    {},
+		"go":      {},
+		"svelte":  {},
+		"js":      {},
+		"ts":      {},
+		"db":      {},
+		"srs":     {},
+	}
 )
 
 // anonymize replaces sensitive data in the report with deterministic aliases.
@@ -126,11 +158,64 @@ func (a *anonymizer) registerKey(key string) {
 }
 
 func (a *anonymizer) registerHost(host string) {
-	if host == "" || a.hosts[host] != "" {
+	host = strings.TrimSpace(strings.Trim(host, "."))
+	if host == "" {
 		return
 	}
+
+	canonical := strings.ToLower(host)
+
+	if alias := a.hosts[host]; alias != "" {
+		return
+	}
+	if alias := a.hosts[canonical]; alias != "" {
+		a.hosts[host] = alias
+		return
+	}
+
 	a.hostCount++
-	a.hosts[host] = fmt.Sprintf("HOST-%d", a.hostCount)
+	alias := fmt.Sprintf("HOST-%d", a.hostCount)
+
+	// Store both canonical and original spellings. This makes aliases stable
+	// for Example.COM/example.com while still replacing the exact spelling
+	// that appeared in the JSON report.
+	a.hosts[canonical] = alias
+	a.hosts[host] = alias
+}
+
+func (a *anonymizer) registerHostsFromOutput(output string) {
+	for _, host := range hostnamePattern.FindAllString(output, -1) {
+		host = strings.TrimSpace(host)
+		host = strings.Trim(host, ".")
+		if host == "" {
+			continue
+		}
+		// Defensive guard: the regexp should not match IPs, but keep this
+		// check so future regexp edits do not start aliasing IPs as HOST-*.
+		if net.ParseIP(host) != nil {
+			continue
+		}
+		if isTechnicalDottedName(host) {
+			continue
+		}
+		a.registerHost(host)
+	}
+}
+
+func isTechnicalDottedName(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(strings.Trim(host, ".")))
+	if host == "" {
+		return false
+	}
+
+	parts := strings.Split(host, ".")
+	if len(parts) != 2 {
+		return false
+	}
+
+	suffix := parts[1]
+	_, ok := technicalDottedNameSuffixes[suffix]
+	return ok
 }
 
 func maskMAC(mac string) string {
@@ -179,6 +264,17 @@ func (a *anonymizer) registerWGKeysFromOutput(output string) {
 	}
 }
 
+func (a *anonymizer) registerSensitiveFromLogEntry(entry logging.LogEntry) {
+	a.registerPublicIPsFromOutput(entry.Target)
+	a.registerPublicIPsFromOutput(entry.Message)
+	a.registerHostsFromOutput(entry.Target)
+	a.registerHostsFromOutput(entry.Message)
+	a.registerMACsFromOutput(entry.Target)
+	a.registerMACsFromOutput(entry.Message)
+	a.registerWGKeysFromOutput(entry.Target)
+	a.registerWGKeysFromOutput(entry.Message)
+}
+
 func (a *anonymizer) registerFromReport(report *Report) {
 	for i := range report.Tunnels {
 		t := &report.Tunnels[i]
@@ -209,12 +305,17 @@ func (a *anonymizer) registerFromReport(report *Report) {
 		a.registerWGKeysFromOutput(t.Connection.RawOutput)
 		a.registerWGKeysFromOutput(t.ConfigFile)
 
+		a.registerHostsFromOutput(t.Interface.NDMSState)
+		a.registerHostsFromOutput(t.Connection.RawOutput)
+		a.registerHostsFromOutput(t.ConfigFile)
+
 		// Scan Connection.RawOutput for public IPs (NativeWG NDMS output may contain them)
 		a.registerPublicIPsFromOutput(t.Connection.RawOutput)
 
 		// Scan ProxyInfo fields
 		if t.Proxy != nil {
 			a.registerPublicIPsFromOutput(t.Proxy.RawListEntry)
+			a.registerHostsFromOutput(t.Proxy.RawListEntry)
 			a.registerIP(t.Proxy.ActualRouteVia)
 		}
 
@@ -224,6 +325,12 @@ func (a *anonymizer) registerFromReport(report *Report) {
 		a.registerPublicIPsFromOutput(t.Routes.EndpointRoute)
 		a.registerPublicIPsFromOutput(t.Routes.DefaultRoute)
 		a.registerPublicIPsFromOutput(t.Settings.DNS)
+
+		a.registerHostsFromOutput(t.Interface.KernelAddr)
+		a.registerHostsFromOutput(t.Interface.KernelIPv6)
+		a.registerHostsFromOutput(t.Routes.EndpointRoute)
+		a.registerHostsFromOutput(t.Routes.DefaultRoute)
+		a.registerHostsFromOutput(t.Settings.DNS)
 
 		a.registerMACsFromOutput(t.Interface.KernelAddr)
 		a.registerMACsFromOutput(t.Interface.KernelIPv6)
@@ -239,6 +346,7 @@ func (a *anonymizer) registerFromReport(report *Report) {
 
 		if t.Settings.PingCheckConfig != nil {
 			a.registerPublicIPsFromOutput(t.Settings.PingCheckConfig.Target)
+			a.registerHostsFromOutput(t.Settings.PingCheckConfig.Target)
 			a.registerMACsFromOutput(t.Settings.PingCheckConfig.Target)
 			a.registerWGKeysFromOutput(t.Settings.PingCheckConfig.Target)
 		}
@@ -248,6 +356,10 @@ func (a *anonymizer) registerFromReport(report *Report) {
 	a.registerPublicIPsFromOutput(report.WAN.NDMSRouteTable)
 	a.registerPublicIPsFromOutput(report.WAN.IPRouteTable)
 	a.registerPublicIPsFromOutput(report.WAN.IPAddr)
+
+	a.registerHostsFromOutput(report.WAN.NDMSRouteTable)
+	a.registerHostsFromOutput(report.WAN.IPRouteTable)
+	a.registerHostsFromOutput(report.WAN.IPAddr)
 
 	a.registerMACsFromOutput(report.WAN.NDMSRouteTable)
 	a.registerMACsFromOutput(report.WAN.IPRouteTable)
@@ -263,6 +375,10 @@ func (a *anonymizer) registerFromReport(report *Report) {
 	for _, line := range report.AWGProxyModule.DmesgLines {
 		a.registerPublicIPsFromOutput(line)
 	}
+	a.registerHostsFromOutput(report.AWGProxyModule.RawList)
+	for _, line := range report.AWGProxyModule.DmesgLines {
+		a.registerHostsFromOutput(line)
+	}
 	// Scan AWGProxyModule for MACs and WG keys.
 	a.registerMACsFromOutput(report.AWGProxyModule.RawList)
 	a.registerWGKeysFromOutput(report.AWGProxyModule.RawList)
@@ -276,27 +392,39 @@ func (a *anonymizer) registerFromReport(report *Report) {
 		if b, err := json.Marshal(report.SingboxConfig.Config); err == nil {
 			raw := string(b)
 			a.registerPublicIPsFromOutput(raw)
+			a.registerHostsFromOutput(raw)
 			a.registerMACsFromOutput(raw)
 			a.registerWGKeysFromOutput(raw)
 		}
 	}
 
-	// Log entries may contain MACs or WG keys in target or message fields.
+	// Log entries may contain public IPs, hostnames, MACs or WG keys in target/message fields.
 	for _, entry := range report.Logs {
-		a.registerPublicIPsFromOutput(entry.Target)
-		a.registerPublicIPsFromOutput(entry.Message)
-		a.registerMACsFromOutput(entry.Target)
-		a.registerMACsFromOutput(entry.Message)
-		a.registerWGKeysFromOutput(entry.Target)
-		a.registerWGKeysFromOutput(entry.Message)
+		a.registerSensitiveFromLogEntry(entry)
 	}
 
-	// Test results may contain public IPs, MACs, or WG keys in detail/description.
+	// JournalWarnings contains app and sing-box WARN/ERROR entries.
+	// These entries may contain public IPs, hostnames, MACs, or WireGuard public keys.
+	if report.JournalWarnings != nil {
+		for _, entry := range report.JournalWarnings.AWGM.Entries {
+			a.registerSensitiveFromLogEntry(entry)
+		}
+		for _, entry := range report.JournalWarnings.Singbox.Entries {
+			a.registerSensitiveFromLogEntry(entry)
+		}
+	}
+
+	// Test results may contain public IPs, hostnames, MACs, or WG keys.
 	for _, test := range report.Tests {
 		a.registerPublicIPsFromOutput(test.Detail)
 		a.registerPublicIPsFromOutput(test.Description)
 		a.registerPublicIPsFromOutput(test.TunnelID)
 		a.registerPublicIPsFromOutput(test.TunnelName)
+
+		a.registerHostsFromOutput(test.Detail)
+		a.registerHostsFromOutput(test.Description)
+		a.registerHostsFromOutput(test.TunnelID)
+		a.registerHostsFromOutput(test.TunnelName)
 
 		a.registerMACsFromOutput(test.Detail)
 		a.registerMACsFromOutput(test.Description)
