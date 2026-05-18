@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -104,8 +105,41 @@ func IsNetfilterAvailable() bool {
 }
 
 func EnsureTProxyModule(ctx context.Context) error {
-	return ensureKernelModule(ctx, kernelModuleName())
+	return ensureKernelModuleFn(ctx, kernelModuleName())
 }
+
+// EnsureCommentModule loads xt_comment when available as a .ko module
+// so DNS-NOPOLICY rules (which use `-m comment --comment "..."` as
+// their scrub identifier in netfilter.d) can be accepted by the kernel
+// at iptables-restore COMMIT time.
+//
+// Soft-fail by design: if the .ko file is absent we return nil and let
+// iptables-restore surface a concrete error later. Reason — the module
+// may be built into the kernel (no .ko on disk), in which case the
+// rules apply normally and a hard "missing component" error here would
+// be a false positive. The harder failure path (genuinely missing both
+// as module and built-in) shows up as "iptables-restore: line N failed"
+// at Install time, which is the same error path the user already
+// observes today.
+//
+// Why this is needed: NDMS on some Keenetic OS 5.x EA firmwares
+// (observed on NC-1812 / MT7988 / OS 5.00.C.11.0-0 EA) does not use
+// `-m comment` anywhere, so xt_comment isn't auto-loaded at boot.
+// Without an explicit insmod our DNS-NOPOLICY rules (added by commit
+// ad5ad113) are rejected at COMMIT and the whole mangle install fails.
+// See issue #130.
+func EnsureCommentModule(ctx context.Context) error {
+	err := ensureKernelModuleFn(ctx, "xt_comment")
+	if errors.Is(err, ErrNetfilterComponentMissing) {
+		return nil
+	}
+	return err
+}
+
+// ensureKernelModuleFn is the indirection point that tests redirect to
+// inject deterministic outcomes for EnsureCommentModule. Production
+// callers use the real ensureKernelModule below.
+var ensureKernelModuleFn = ensureKernelModule
 
 func ensureKernelModule(ctx context.Context, name string) error {
 	if isModuleLoaded(name) {

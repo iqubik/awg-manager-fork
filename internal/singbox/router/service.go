@@ -479,6 +479,14 @@ func (s *ServiceImpl) Enable(ctx context.Context) error {
 	if !IsTProxyTargetAvailable(ctx) {
 		return fmt.Errorf("iptables TPROXY target unavailable — kernel module loaded but iptables extension missing")
 	}
+	// xt_comment isn't auto-loaded by NDMS on some OS 5.x EA builds
+	// (issue #130 — observed on NC-1812 / MT7988). Push the load
+	// ourselves so DNS-NOPOLICY rules survive iptables-restore COMMIT.
+	// Best-effort: a hard failure here would block Enable on systems
+	// where xt_comment is built into the kernel (no .ko on disk).
+	if err := EnsureCommentModule(ctx); err != nil {
+		s.deps.Log.Warn(fmt.Sprintf("router: ensure xt_comment: %v (continuing — iptables-restore will surface a concrete error if comment match really isn't available)", err))
+	}
 
 	sr.Enabled = true
 

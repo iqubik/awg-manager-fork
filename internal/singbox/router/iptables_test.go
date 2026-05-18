@@ -83,6 +83,66 @@ func TestKernelModuleName(t *testing.T) {
 	}
 }
 
+// EnsureCommentModule is best-effort: NDMS on some OS 5.x EA builds
+// doesn't auto-load xt_comment because it doesn't use `-m comment`
+// itself, but our DNS-NOPOLICY rules do. We push the load ourselves
+// — and if the .ko file is absent (module possibly built-in), we
+// must NOT block Enable: the kernel either accepts comment match
+// natively, or iptables-restore later surfaces a concrete error.
+//
+// Encountered on a Keenetic NC-1812 (MT7988 aarch64, OS 5.00.C.11.0-0
+// EA): xt_comment.ko was present in /lib/modules but unloaded, and
+// the AWGM router refused to install with "iptables-restore: line N
+// failed" until xt_comment was manually insmod'd. See issue #130.
+func TestEnsureCommentModule_MissingKoIsNotFatal(t *testing.T) {
+	orig := ensureKernelModuleFn
+	ensureKernelModuleFn = func(_ context.Context, _ string) error {
+		return ErrNetfilterComponentMissing
+	}
+	t.Cleanup(func() { ensureKernelModuleFn = orig })
+
+	if err := EnsureCommentModule(context.Background()); err != nil {
+		t.Errorf("expected nil when .ko absent (built-in fallback), got %v", err)
+	}
+}
+
+func TestEnsureCommentModule_PassesThroughInsmodErrors(t *testing.T) {
+	orig := ensureKernelModuleFn
+	insmodErr := errors.New("insmod xt_comment.ko: out of memory")
+	ensureKernelModuleFn = func(_ context.Context, _ string) error {
+		return insmodErr
+	}
+	t.Cleanup(func() { ensureKernelModuleFn = orig })
+
+	err := EnsureCommentModule(context.Background())
+	if err == nil {
+		t.Fatal("expected error to surface, got nil")
+	}
+	if !errors.Is(err, insmodErr) {
+		t.Errorf("expected wrapped insmod error, got %v", err)
+	}
+}
+
+func TestEnsureCommentModule_LoadsSuccessfully(t *testing.T) {
+	orig := ensureKernelModuleFn
+	called := false
+	ensureKernelModuleFn = func(_ context.Context, name string) error {
+		called = true
+		if name != "xt_comment" {
+			t.Errorf("expected module name xt_comment, got %q", name)
+		}
+		return nil
+	}
+	t.Cleanup(func() { ensureKernelModuleFn = orig })
+
+	if err := EnsureCommentModule(context.Background()); err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+	if !called {
+		t.Error("expected ensureKernelModuleFn to be invoked")
+	}
+}
+
 func TestBuildRestoreInput_PolicyMark_JumpHasFilter(t *testing.T) {
 	spec := RestoreInputSpec{PolicyMark: "0xffffaaa"}
 	out := buildRestoreInput(spec)
