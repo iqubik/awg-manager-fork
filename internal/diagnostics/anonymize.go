@@ -4,7 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"regexp"
 	"strings"
+)
+
+var (
+	macAddressPattern = regexp.MustCompile(`(?i)\b[0-9a-f]{2}(:[0-9a-f]{2}){5}\b`)
+	// WG public keys are 43 base64 chars + "=" padding (44 chars total).
+	// Leading \b anchors at a word boundary; trailing = is not a \w char
+	// so \b after = never matches in RE2 — omit trailing boundary.
+	wgPublicKeyPattern = regexp.MustCompile(`\b[A-Za-z0-9+/]{43}=`)
 )
 
 // anonymize replaces sensitive data in the report with deterministic aliases.
@@ -39,22 +48,48 @@ type anonymizer struct {
 	ips       map[string]string // real IP -> alias
 	keys      map[string]string // real key -> alias
 	hosts     map[string]string // real hostname -> alias
+	macs      map[string]string // real MAC -> masked MAC
+	wgKeys    map[string]string // real WireGuard public key -> masked key
 	ipCount   int
 	epCount   int
 	keyCount  int
 	hostCount int
+	macCount  int
+	wgCount   int
 }
 
 func newAnonymizer() *anonymizer {
 	return &anonymizer{
-		ips:   make(map[string]string),
-		keys:  make(map[string]string),
-		hosts: make(map[string]string),
+		ips:    make(map[string]string),
+		keys:   make(map[string]string),
+		hosts:  make(map[string]string),
+		macs:   make(map[string]string),
+		wgKeys: make(map[string]string),
 	}
+}
+
+func isNonSensitiveSpecialIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsUnspecified() {
+		return true // 0.0.0.0, ::
+	}
+	if ip.Equal(net.IPv4bcast) {
+		return true // 255.255.255.255
+	}
+	return false
 }
 
 func (a *anonymizer) registerIP(ip string) {
 	if ip == "" || a.ips[ip] != "" {
+		return
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return
+	}
+	if isNonSensitiveSpecialIP(parsed) {
 		return
 	}
 	if isPrivateIP(ip) {
@@ -66,6 +101,13 @@ func (a *anonymizer) registerIP(ip string) {
 
 func (a *anonymizer) registerEndpoint(ip string) {
 	if ip == "" || a.ips[ip] != "" {
+		return
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return
+	}
+	if isNonSensitiveSpecialIP(parsed) {
 		return
 	}
 	if isPrivateIP(ip) {
@@ -91,6 +133,52 @@ func (a *anonymizer) registerHost(host string) {
 	a.hosts[host] = fmt.Sprintf("HOST-%d", a.hostCount)
 }
 
+func maskMAC(mac string) string {
+	parts := strings.Split(strings.ToLower(mac), ":")
+	if len(parts) != 6 {
+		return "MAC-**:**:**"
+	}
+	return fmt.Sprintf("%s:%s:**:**:**:%s", parts[0], parts[1], parts[5])
+}
+
+func maskWGKey(key string) string {
+	key = strings.TrimSpace(key)
+	if len(key) < 12 {
+		return "WGKEY-****"
+	}
+	return key[:6] + "****" + key[len(key)-6:]
+}
+
+func (a *anonymizer) registerMAC(mac string) {
+	mac = strings.ToLower(strings.TrimSpace(mac))
+	if mac == "" || a.macs[mac] != "" {
+		return
+	}
+	a.macCount++
+	a.macs[mac] = maskMAC(mac)
+}
+
+func (a *anonymizer) registerWGKey(key string) {
+	key = strings.TrimSpace(key)
+	if key == "" || key == "[REDACTED]" || a.wgKeys[key] != "" {
+		return
+	}
+	a.wgCount++
+	a.wgKeys[key] = maskWGKey(key)
+}
+
+func (a *anonymizer) registerMACsFromOutput(output string) {
+	for _, mac := range macAddressPattern.FindAllString(output, -1) {
+		a.registerMAC(mac)
+	}
+}
+
+func (a *anonymizer) registerWGKeysFromOutput(output string) {
+	for _, key := range wgPublicKeyPattern.FindAllString(output, -1) {
+		a.registerWGKey(key)
+	}
+}
+
 func (a *anonymizer) registerFromReport(report *Report) {
 	for i := range report.Tunnels {
 		t := &report.Tunnels[i]
@@ -112,6 +200,15 @@ func (a *anonymizer) registerFromReport(report *Report) {
 			}
 		}
 
+		// Scan free-text tunnel snapshots for MAC addresses and WireGuard public keys.
+		a.registerMACsFromOutput(t.Interface.NDMSState)
+		a.registerMACsFromOutput(t.Connection.RawOutput)
+		a.registerMACsFromOutput(t.ConfigFile)
+
+		a.registerWGKeysFromOutput(t.Interface.NDMSState)
+		a.registerWGKeysFromOutput(t.Connection.RawOutput)
+		a.registerWGKeysFromOutput(t.ConfigFile)
+
 		// Scan Connection.RawOutput for public IPs (NativeWG NDMS output may contain them)
 		a.registerPublicIPsFromOutput(t.Connection.RawOutput)
 
@@ -120,16 +217,86 @@ func (a *anonymizer) registerFromReport(report *Report) {
 			a.registerPublicIPsFromOutput(t.Proxy.RawListEntry)
 			a.registerIP(t.Proxy.ActualRouteVia)
 		}
+
+		// Structured tunnel fields may contain public IPs, MACs, or WG keys too.
+		a.registerPublicIPsFromOutput(t.Interface.KernelAddr)
+		a.registerPublicIPsFromOutput(t.Interface.KernelIPv6)
+		a.registerPublicIPsFromOutput(t.Routes.EndpointRoute)
+		a.registerPublicIPsFromOutput(t.Routes.DefaultRoute)
+		a.registerPublicIPsFromOutput(t.Settings.DNS)
+
+		a.registerMACsFromOutput(t.Interface.KernelAddr)
+		a.registerMACsFromOutput(t.Interface.KernelIPv6)
+		a.registerMACsFromOutput(t.Routes.EndpointRoute)
+		a.registerMACsFromOutput(t.Routes.DefaultRoute)
+		a.registerMACsFromOutput(t.Settings.DNS)
+
+		a.registerWGKeysFromOutput(t.Interface.KernelAddr)
+		a.registerWGKeysFromOutput(t.Interface.KernelIPv6)
+		a.registerWGKeysFromOutput(t.Routes.EndpointRoute)
+		a.registerWGKeysFromOutput(t.Routes.DefaultRoute)
+		a.registerWGKeysFromOutput(t.Settings.DNS)
+
+		if t.Settings.PingCheckConfig != nil {
+			a.registerPublicIPsFromOutput(t.Settings.PingCheckConfig.Target)
+			a.registerMACsFromOutput(t.Settings.PingCheckConfig.Target)
+			a.registerWGKeysFromOutput(t.Settings.PingCheckConfig.Target)
+		}
 	}
 
-	// Register public IPs found in ip route / ip addr output
+	// Register sensitive values found in WAN route/address outputs.
+	a.registerPublicIPsFromOutput(report.WAN.NDMSRouteTable)
 	a.registerPublicIPsFromOutput(report.WAN.IPRouteTable)
 	a.registerPublicIPsFromOutput(report.WAN.IPAddr)
 
+	a.registerMACsFromOutput(report.WAN.NDMSRouteTable)
+	a.registerMACsFromOutput(report.WAN.IPRouteTable)
+	a.registerMACsFromOutput(report.WAN.IPAddr)
+
+	a.registerWGKeysFromOutput(report.WAN.NDMSRouteTable)
+	a.registerWGKeysFromOutput(report.WAN.IPRouteTable)
+	a.registerWGKeysFromOutput(report.WAN.IPAddr)
+
 	// AWGProxyModule fields are free-text and may contain endpoint IPs.
+
 	a.registerPublicIPsFromOutput(report.AWGProxyModule.RawList)
 	for _, line := range report.AWGProxyModule.DmesgLines {
 		a.registerPublicIPsFromOutput(line)
+	}
+	// Scan AWGProxyModule for MACs and WG keys.
+	a.registerMACsFromOutput(report.AWGProxyModule.RawList)
+	a.registerWGKeysFromOutput(report.AWGProxyModule.RawList)
+	for _, line := range report.AWGProxyModule.DmesgLines {
+		a.registerMACsFromOutput(line)
+		a.registerWGKeysFromOutput(line)
+	}
+
+	// Log entries may contain MACs or WG keys in target or message fields.
+	for _, entry := range report.Logs {
+		a.registerPublicIPsFromOutput(entry.Target)
+		a.registerPublicIPsFromOutput(entry.Message)
+		a.registerMACsFromOutput(entry.Target)
+		a.registerMACsFromOutput(entry.Message)
+		a.registerWGKeysFromOutput(entry.Target)
+		a.registerWGKeysFromOutput(entry.Message)
+	}
+
+	// Test results may contain public IPs, MACs, or WG keys in detail/description.
+	for _, test := range report.Tests {
+		a.registerPublicIPsFromOutput(test.Detail)
+		a.registerPublicIPsFromOutput(test.Description)
+		a.registerPublicIPsFromOutput(test.TunnelID)
+		a.registerPublicIPsFromOutput(test.TunnelName)
+
+		a.registerMACsFromOutput(test.Detail)
+		a.registerMACsFromOutput(test.Description)
+		a.registerMACsFromOutput(test.TunnelID)
+		a.registerMACsFromOutput(test.TunnelName)
+
+		a.registerWGKeysFromOutput(test.Detail)
+		a.registerWGKeysFromOutput(test.Description)
+		a.registerWGKeysFromOutput(test.TunnelID)
+		a.registerWGKeysFromOutput(test.TunnelName)
 	}
 }
 
@@ -156,6 +323,12 @@ func (a *anonymizer) sortedReplacements() []replacement {
 		result = append(result, replacement{orig, alias})
 	}
 	for orig, alias := range a.hosts {
+		result = append(result, replacement{orig, alias})
+	}
+	for orig, alias := range a.macs {
+		result = append(result, replacement{orig, alias})
+	}
+	for orig, alias := range a.wgKeys {
 		result = append(result, replacement{orig, alias})
 	}
 	// Sort by length descending (longer first to avoid partial matches)

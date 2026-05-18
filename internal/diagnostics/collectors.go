@@ -19,6 +19,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/sys/exec"
 	"github.com/hoaxisr/awg-manager/internal/sys/osdetect"
+	"github.com/hoaxisr/awg-manager/internal/sys/routerinfo"
 	"github.com/hoaxisr/awg-manager/internal/tunnel"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/netutil"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/nwg"
@@ -65,6 +66,8 @@ func (r *Runner) collectSystem(ctx context.Context) SystemInfo {
 			}
 		}
 	}
+
+	info.RouterDetails = routerinfo.Collect()
 
 	return info
 }
@@ -205,12 +208,12 @@ func (r *Runner) collectTunnels(ctx context.Context) []TunnelInfo {
 		if pcMap != nil {
 			if ps, ok := pcMap[t.ID]; ok {
 				ti.PingCheck = &PingCheckInfo{
-					Status:          ps.Status,
-					Method:          ps.Method,
-					FailCount:       ps.FailCount,
-					FailThreshold:   ps.FailThreshold,
-					RestartCount:    ps.RestartCount,
-					SuccessCount:    ps.SuccessCount,
+					Status:        ps.Status,
+					Method:        ps.Method,
+					FailCount:     ps.FailCount,
+					FailThreshold: ps.FailThreshold,
+					RestartCount:  ps.RestartCount,
+					SuccessCount:  ps.SuccessCount,
 				}
 			}
 		}

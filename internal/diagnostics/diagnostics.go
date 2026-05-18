@@ -15,6 +15,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/singbox"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/sys/kmod"
+	"github.com/hoaxisr/awg-manager/internal/sys/routerinfo"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/backend"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/service"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/wan"
@@ -22,7 +23,7 @@ import (
 
 // Report is the top-level diagnostics report.
 type Report struct {
-	Version     string             `json:"version"`
+	Version        string             `json:"version"`
 	GeneratedAt    time.Time          `json:"generatedAt"`
 	DurationMs     int64              `json:"durationMs"`
 	System         SystemInfo         `json:"system"`
@@ -36,14 +37,15 @@ type Report struct {
 
 // SystemInfo contains system-level diagnostics.
 type SystemInfo struct {
-	AppVersion    string           `json:"appVersion"`
-	KeeneticOS    string           `json:"keeneticOS"`
-	IsOS5         bool             `json:"isOS5"`
-	Arch          string           `json:"arch"`
-	Backend       string           `json:"backend"`
-	KernelModule  KernelModuleInfo `json:"kernelModule"`
-	TotalMemoryMB int              `json:"totalMemoryMB"`
-	Uptime        string           `json:"uptime"`
+	AppVersion    string                    `json:"appVersion"`
+	KeeneticOS    string                    `json:"keeneticOS"`
+	IsOS5         bool                      `json:"isOS5"`
+	Arch          string                    `json:"arch"`
+	Backend       string                    `json:"backend"`
+	KernelModule  KernelModuleInfo          `json:"kernelModule"`
+	TotalMemoryMB int                       `json:"totalMemoryMB"`
+	Uptime        string                    `json:"uptime"`
+	RouterDetails *routerinfo.RouterDetails `json:"routerDetails,omitempty"`
 }
 
 // KernelModuleInfo contains kernel module status.
