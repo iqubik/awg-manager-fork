@@ -4,6 +4,8 @@
 
 > **Disclaimer:** AWG Manager — независимый open-source проект, не аффилированный с [Amnezia.org](https://amnezia.org) и не являющийся его официальным продуктом.
 
+![awgm-showcase](https://raw.githubusercontent.com/hoaxisr/awg-manager/develop/scripts/dev/awgm-showcase.webp)
+
 ---
 
 ## Возможности
