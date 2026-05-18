@@ -89,9 +89,22 @@
 	});
 
 	const protocolLabel = $derived.by(() => {
-		if (tunnel.protocol === 'vless') return 'VLESS';
-		if (tunnel.protocol === 'hysteria2') return 'Hysteria2';
-		return 'NaiveProxy';
+		switch (tunnel.protocol) {
+			case 'vless':
+				return 'VLESS';
+			case 'hysteria2':
+				return 'Hysteria2';
+			case 'trojan':
+				return 'Trojan';
+			case 'shadowsocks':
+				return 'Shadowsocks';
+			case 'naive':
+				return 'Naive';
+			default:
+				return tunnel.protocol
+					? tunnel.protocol.charAt(0).toUpperCase() + tunnel.protocol.slice(1)
+					: '—';
+		}
 	});
 
 	async function triggerCheck(): Promise<void> {
@@ -647,6 +660,8 @@
 	}
 	.b-vless { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
 	.b-hysteria2 { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+	.b-trojan { background: rgba(244, 63, 94, 0.15); color: #fb7185; }
+	.b-shadowsocks { background: rgba(16, 185, 129, 0.15); color: #34d399; }
 	/* Cyan-400 on 15% alpha perceptually washed out against the dark
 	   bg — bump to cyan-300 text with slightly denser background so
 	   NaiveProxy matches the contrast of the other protocol badges. */
