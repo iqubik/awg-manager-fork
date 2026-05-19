@@ -88,6 +88,8 @@ u8 *transform_outbound(u8 *buf, int dataoff, int n,
 
 	if (msgType == WG_HANDSHAKE_RESPONSE && n == WG_RESP_SIZE) {
 		write32_le(data, hrange_pick(&cfg->h2, rand_val));
+		if (cfg->has_server_pub)
+			recompute_mac1_response(data, cfg->mac1key_server);
 		if (cfg->s2 > 0) {
 			if (WARN_ON_ONCE(dataoff < cfg->s2)) {
 				*out_len = n;
@@ -158,6 +160,9 @@ u8 *transform_inbound(u8 *buf, int n, const awg_config_t *cfg, int *out_len)
 
 		if (hrange_contains(&cfg->h1, h)) {
 			write32_le(buf + cfg->s1, WG_HANDSHAKE_INIT);
+			if (cfg->has_client_pub)
+				recompute_mac1(buf + cfg->s1,
+					       cfg->mac1key_client);
 			*out_len = n - cfg->s1;
 			return buf + cfg->s1;
 		}
