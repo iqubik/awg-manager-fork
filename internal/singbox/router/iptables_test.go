@@ -615,82 +615,84 @@ func TestBuildRestoreInput_EmptyWANIPs_NoExclusions(t *testing.T) {
 	}
 }
 
-func TestBuildRestoreInput_LANBridges_DNSNoPolicyRules(t *testing.T) {
-	// LAN bridges with matching NDMS catch-all marks → DNS-NOPOLICY
-	// rules in mangle PREROUTING that re-mark mark=0 DNS to the
-	// bridge's catch-all mark.
+func TestBuildRestoreInput_LANBridges_DNSRescueRules(t *testing.T) {
+	// LAN bridges with discovered ndnproxy ports → DNS-RESCUE REDIRECT
+	// rules in nat PREROUTING that short-circuit DNS for mark=0 packets
+	// to the per-policy ndnproxy port, bypassing NDMS's
+	// _NDM_DNS_FLT_REDIR catch-all (which would land them on the
+	// sing-box-hijacked :53).
 	spec := RestoreInputSpec{
-		PolicyMark: "0xffffaad",
-		LANBridges: []LANBridgeMark{
-			{Bridge: "br0", Mark: "0xffffaab"},
-			{Bridge: "br1", Mark: "0xffffaab"},
+		PolicyMark: "0xffffaae",
+		LANBridges: []LANBridgeDNSRedir{
+			{Bridge: "br0", Port: 41100},
+			{Bridge: "br1", Port: 41100},
 		},
 	}
 	input := buildRestoreInput(spec)
 
 	expected := []string{
-		`-A PREROUTING -i br0 -m mark --mark 0x0 -m pkttype --pkt-type unicast -p udp --dport 53 -m comment --comment "AWGM-DNS-NOPOLICY" -j MARK --set-mark 0xffffaab`,
-		`-A PREROUTING -i br0 -m mark --mark 0x0 -m pkttype --pkt-type unicast -p tcp --dport 53 -m comment --comment "AWGM-DNS-NOPOLICY" -j MARK --set-mark 0xffffaab`,
-		`-A PREROUTING -i br1 -m mark --mark 0x0 -m pkttype --pkt-type unicast -p udp --dport 53 -m comment --comment "AWGM-DNS-NOPOLICY" -j MARK --set-mark 0xffffaab`,
-		`-A PREROUTING -i br1 -m mark --mark 0x0 -m pkttype --pkt-type unicast -p tcp --dport 53 -m comment --comment "AWGM-DNS-NOPOLICY" -j MARK --set-mark 0xffffaab`,
+		`-I PREROUTING 1 -i br0 -m mark --mark 0x0 -m pkttype --pkt-type unicast -p udp --dport 53 -m comment --comment "AWGM-DNS-RESCUE" -j REDIRECT --to-ports 41100`,
+		`-I PREROUTING 1 -i br0 -m mark --mark 0x0 -m pkttype --pkt-type unicast -p tcp --dport 53 -m comment --comment "AWGM-DNS-RESCUE" -j REDIRECT --to-ports 41100`,
+		`-I PREROUTING 1 -i br1 -m mark --mark 0x0 -m pkttype --pkt-type unicast -p udp --dport 53 -m comment --comment "AWGM-DNS-RESCUE" -j REDIRECT --to-ports 41100`,
+		`-I PREROUTING 1 -i br1 -m mark --mark 0x0 -m pkttype --pkt-type unicast -p tcp --dport 53 -m comment --comment "AWGM-DNS-RESCUE" -j REDIRECT --to-ports 41100`,
 	}
 	for _, line := range expected {
 		if !strings.Contains(input, line) {
-			t.Errorf("missing DNS-NOPOLICY line: %q\nin:\n%s", line, input)
+			t.Errorf("missing DNS-RESCUE line: %q\nin:\n%s", line, input)
 		}
 	}
 }
 
-func TestBuildRestoreInput_LANBridges_DifferentMarksPerBridge(t *testing.T) {
-	// Sanity: per-bridge mark wired through correctly when bridges
-	// have different NDMS catch-all marks (e.g. different LAN policies
-	// per bridge). Each bridge gets its OWN re-mark target.
+func TestBuildRestoreInput_LANBridges_DifferentPortsPerBridge(t *testing.T) {
+	// Sanity: per-bridge port wired through when bridges resolve to
+	// different ndnproxy ports (different NDMS policies attached to
+	// different bridges). Each bridge gets its OWN REDIRECT target.
 	spec := RestoreInputSpec{
-		PolicyMark: "0xffffaad",
-		LANBridges: []LANBridgeMark{
-			{Bridge: "br0", Mark: "0xffffaab"},
-			{Bridge: "br1", Mark: "0xffffab0"},
+		PolicyMark: "0xffffaae",
+		LANBridges: []LANBridgeDNSRedir{
+			{Bridge: "br0", Port: 41100},
+			{Bridge: "br1", Port: 41101},
 		},
 	}
 	input := buildRestoreInput(spec)
 
-	if !strings.Contains(input, "-i br0 -m mark --mark 0x0 -m pkttype --pkt-type unicast -p udp --dport 53 -m comment --comment \"AWGM-DNS-NOPOLICY\" -j MARK --set-mark 0xffffaab") {
-		t.Errorf("br0 should use mark 0xffffaab")
+	if !strings.Contains(input, `-I PREROUTING 1 -i br0 -m mark --mark 0x0 -m pkttype --pkt-type unicast -p udp --dport 53 -m comment --comment "AWGM-DNS-RESCUE" -j REDIRECT --to-ports 41100`) {
+		t.Errorf("br0 should redirect to 41100")
 	}
-	if !strings.Contains(input, "-i br1 -m mark --mark 0x0 -m pkttype --pkt-type unicast -p udp --dport 53 -m comment --comment \"AWGM-DNS-NOPOLICY\" -j MARK --set-mark 0xffffab0") {
-		t.Errorf("br1 should use mark 0xffffab0")
+	if !strings.Contains(input, `-I PREROUTING 1 -i br1 -m mark --mark 0x0 -m pkttype --pkt-type unicast -p udp --dport 53 -m comment --comment "AWGM-DNS-RESCUE" -j REDIRECT --to-ports 41101`) {
+		t.Errorf("br1 should redirect to 41101")
 	}
 }
 
-func TestBuildRestoreInput_NoLANBridges_NoDNSNoPolicyRules(t *testing.T) {
-	// Empty LANBridges → no DNS-NOPOLICY rules emitted at all.
-	// Caller (Service.Enable) skips DNS fallback entirely on routers
-	// without hotspot LAN configuration.
+func TestBuildRestoreInput_NoLANBridges_NoDNSRescueRules(t *testing.T) {
+	// Empty LANBridges → no DNS-RESCUE rules emitted at all. Caller
+	// (Service.Enable) skips DNS rescue entirely on routers without
+	// _NDM_HOTSPOT_DNSREDIR entries.
 	spec := RestoreInputSpec{
-		PolicyMark: "0xffffaad",
+		PolicyMark: "0xffffaae",
 		LANBridges: nil,
 	}
 	input := buildRestoreInput(spec)
 
-	for _, marker := range []string{"AWGM-DNS-NOPOLICY", "--set-mark"} {
+	for _, marker := range []string{"AWGM-DNS-RESCUE", "--to-ports 41"} {
 		if strings.Contains(input, marker) {
-			t.Errorf("DNS-NOPOLICY artifact %q leaked into output when LANBridges empty:\n%s", marker, input)
+			t.Errorf("DNS-RESCUE artifact %q leaked into output when LANBridges empty:\n%s", marker, input)
 		}
 	}
 }
 
 func TestEqualLANBridges(t *testing.T) {
-	a := []LANBridgeMark{{Bridge: "br0", Mark: "0xffffaab"}, {Bridge: "br1", Mark: "0xffffaab"}}
-	b := []LANBridgeMark{{Bridge: "br0", Mark: "0xffffaab"}, {Bridge: "br1", Mark: "0xffffaab"}}
-	c := []LANBridgeMark{{Bridge: "br0", Mark: "0xffffaab"}, {Bridge: "br1", Mark: "0xffffab0"}}  // different mark
-	d := []LANBridgeMark{{Bridge: "br0", Mark: "0xffffaab"}}                                       // shorter
-	e := []LANBridgeMark{{Bridge: "br1", Mark: "0xffffaab"}, {Bridge: "br0", Mark: "0xffffaab"}}  // different order
+	a := []LANBridgeDNSRedir{{Bridge: "br0", Port: 41100}, {Bridge: "br1", Port: 41100}}
+	b := []LANBridgeDNSRedir{{Bridge: "br0", Port: 41100}, {Bridge: "br1", Port: 41100}}
+	c := []LANBridgeDNSRedir{{Bridge: "br0", Port: 41100}, {Bridge: "br1", Port: 41101}} // different port
+	d := []LANBridgeDNSRedir{{Bridge: "br0", Port: 41100}}                               // shorter
+	e := []LANBridgeDNSRedir{{Bridge: "br1", Port: 41100}, {Bridge: "br0", Port: 41100}} // different order
 
 	if !equalLANBridges(a, b) {
 		t.Error("identical slices must compare equal")
 	}
 	if equalLANBridges(a, c) {
-		t.Error("differing mark must not compare equal")
+		t.Error("differing port must not compare equal")
 	}
 	if equalLANBridges(a, d) {
 		t.Error("differing length must not compare equal")
@@ -701,7 +703,7 @@ func TestEqualLANBridges(t *testing.T) {
 	if !equalLANBridges(nil, nil) {
 		t.Error("nil/nil must compare equal")
 	}
-	if !equalLANBridges([]LANBridgeMark{}, nil) {
+	if !equalLANBridges([]LANBridgeDNSRedir{}, nil) {
 		t.Error("empty and nil must compare equal")
 	}
 }
@@ -713,20 +715,23 @@ func TestParseDNSRedirRule(t *testing.T) {
 		wantOK    bool
 		wantIface string
 		wantMark  string
+		wantPort  int
 	}{
 		{
-			name:      "udp 53 redirect — match",
+			name:      "udp 53 redirect — match (sing-box mark)",
 			line:      "-A _NDM_HOTSPOT_DNSREDIR -d 192.168.0.1/32 -i br0 -p udp -m mark --mark 0xffffaae -m pkttype --pkt-type unicast -m udp --dport 53 -j REDIRECT --to-ports 41104",
 			wantOK:    true,
 			wantIface: "br0",
 			wantMark:  "0xffffaae",
+			wantPort:  41104,
 		},
 		{
-			name:      "tcp 53 redirect — match",
+			name:      "tcp 53 redirect — match (provider mark)",
 			line:      "-A _NDM_HOTSPOT_DNSREDIR -d 192.168.2.1/32 -i br1 -p tcp -m mark --mark 0xffffaaa -m pkttype --pkt-type unicast -m tcp --dport 53 -j REDIRECT --to-ports 41100",
 			wantOK:    true,
 			wantIface: "br1",
 			wantMark:  "0xffffaaa",
+			wantPort:  41100,
 		},
 		{
 			name:   "port 1900 (SSDP) — skip",
@@ -756,7 +761,7 @@ func TestParseDNSRedirRule(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			iface, mark, ok := parseDNSRedirRule(c.line)
+			iface, mark, port, ok := parseDNSRedirRule(c.line)
 			if ok != c.wantOK {
 				t.Fatalf("ok=%v, want %v", ok, c.wantOK)
 			}
@@ -769,47 +774,56 @@ func TestParseDNSRedirRule(t *testing.T) {
 			if mark != c.wantMark {
 				t.Errorf("mark=%q, want %q", mark, c.wantMark)
 			}
+			if port != c.wantPort {
+				t.Errorf("port=%d, want %d", port, c.wantPort)
+			}
 		})
 	}
 }
 
-func TestPickMark(t *testing.T) {
+func TestPickPort(t *testing.T) {
 	cases := []struct {
-		name     string
-		marks    map[string]bool
-		singbox  string
-		want     string
+		name      string
+		markPorts map[string]int
+		singbox   string
+		want      int
 	}{
 		{
-			name:    "single mark, equals sing-box — fall back to it",
-			marks:   map[string]bool{"0xffffaae": true},
-			singbox: "0xffffaae",
-			want:    "0xffffaae",
+			name:      "single mark, equals sing-box — fall back to it",
+			markPorts: map[string]int{"0xffffaae": 41104},
+			singbox:   "0xffffaae",
+			want:      41104,
 		},
 		{
-			name:    "two marks, prefer non-sing-box",
-			marks:   map[string]bool{"0xffffaaa": true, "0xffffaae": true},
-			singbox: "0xffffaae",
-			want:    "0xffffaaa",
+			name:      "two marks, prefer non-sing-box",
+			markPorts: map[string]int{"0xffffaaa": 41100, "0xffffaae": 41104},
+			singbox:   "0xffffaae",
+			want:      41100,
 		},
 		{
-			name:    "sing-box mark empty — pick smallest deterministically",
-			marks:   map[string]bool{"0xffffaab": true, "0xffffaaa": true},
-			singbox: "",
-			want:    "0xffffaaa",
+			name:      "sing-box mark empty — pick smallest mark's port deterministically",
+			markPorts: map[string]int{"0xffffaab": 41101, "0xffffaaa": 41100},
+			singbox:   "",
+			want:      41100,
 		},
 		{
-			name:    "case-insensitive sing-box match",
-			marks:   map[string]bool{"0xFFFFAAE": true, "0xffffaaa": true},
-			singbox: "0xffffaae",
-			want:    "0xffffaaa",
+			name:      "case-insensitive sing-box match",
+			markPorts: map[string]int{"0xFFFFAAE": 41104, "0xffffaaa": 41100},
+			singbox:   "0xffffaae",
+			want:      41100,
+		},
+		{
+			name:      "empty map — zero port (caller filters)",
+			markPorts: map[string]int{},
+			singbox:   "0xffffaae",
+			want:      0,
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := pickMark(c.marks, c.singbox)
+			got := pickPort(c.markPorts, c.singbox)
 			if got != c.want {
-				t.Errorf("pickMark()=%q, want %q", got, c.want)
+				t.Errorf("pickPort()=%d, want %d", got, c.want)
 			}
 		})
 	}

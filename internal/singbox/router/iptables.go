@@ -32,17 +32,24 @@ const (
 	RoutingTable     = 100
 	ChainName        = "AWGM-TPROXY"
 	RedirectChain    = "AWGM-REDIRECT"
-	// DNSNoPolicyChain re-marks DNS-port-53 packets that arrive with
-	// mark=0 (no NDMS access policy assigned) up to an NDMS mark that
-	// has a _NDM_HOTSPOT_DNSREDIR rule on this bridge — so NDMS's own
-	// REDIRECT fires and forwards the DNS query to its per-policy
-	// ndnproxy. Without this, sing-box's hijack-dns side-effect
-	// transparent listener at every router LAN-IP:53 silently drops
-	// the query (no TPROXY ancillary data → drop without log) and the
-	// client sees DNS timeout. The chain itself is empty — rules are
-	// emitted directly under PREROUTING per-bridge from LANBridges in
-	// buildRestoreInput.
-	DNSNoPolicyChain = "AWGM-DNS-NOPOLICY"
+	// DNSRescueTag identifies our short-circuit REDIRECT rules in nat
+	// PREROUTING that bypass NDMS's _NDM_DNS_FLT_REDIR catch-all
+	// (which would unconditionally REDIRECT DNS to :53, where
+	// sing-box's hijack-dns transparent listener catches it and
+	// silently drops). The rules are inserted at PREROUTING position 1
+	// per LAN bridge and target the per-policy ndnproxy port
+	// discovered from _NDM_HOTSPOT_DNSREDIR (see lanbridges.go).
+	// Issue #132.
+	DNSRescueTag = "AWGM-DNS-RESCUE"
+	// DNSNoPolicyTag is the legacy tag for the previous (failed)
+	// attempt: re-mark mark=0 DNS in mangle PREROUTING up to an NDMS
+	// catch-all mark, expecting _NDM_HOTSPOT_DNSREDIR to forward to
+	// the per-policy ndnproxy. That path is dead — _NDM_DNS_FLT_REDIR
+	// REDIRECTs to :53 before _NDM_HOTSPOT_DNSREDIR ever runs, so the
+	// mark we'd elevate is never consulted. We still scrub these on
+	// Install to clean up the rules on upgrade from any prior AWGM
+	// build that installed the mangle-MARK form.
+	DNSNoPolicyTag = "AWGM-DNS-NOPOLICY"
 	// IPRulePriority is the fixed `ip rule` priority for our fwmark rule.
 	// Above NDMS policy rules (~100-200) and below system main/default
 	// (32766/32767). Hard-coded so Install is fully idempotent and so
@@ -198,12 +205,13 @@ type RestoreInputSpec struct {
 	// the WAN-IP loop edge case).
 	WANIPs []string
 
-	// LANBridges enumerates (bridge, NDMS catch-all mark) pairs for the
-	// DNS-NOPOLICY mangle rules. Discovered by DiscoverLANBridges() — see
-	// lanbridges.go for the discovery algorithm and the why. Empty list
-	// = skip DNS-NOPOLICY entirely (no bridges where the fall-through is
-	// applicable on this router).
-	LANBridges []LANBridgeMark
+	// LANBridges enumerates (bridge, ndnproxy-port) pairs for the
+	// DNS-RESCUE nat-PREROUTING REDIRECT rules. Discovered by
+	// DiscoverLANBridges() — see lanbridges.go for the discovery
+	// algorithm and the why. Empty list = skip DNS-RESCUE entirely
+	// (no bridges with usable _NDM_HOTSPOT_DNSREDIR entries on this
+	// router).
+	LANBridges []LANBridgeDNSRedir
 }
 
 var bypassCIDRs = []string{
@@ -276,28 +284,6 @@ func buildRestoreInput(spec RestoreInputSpec) string {
 			spec.PolicyMark, ChainName)
 	}
 
-	// ---- DNS-NOPOLICY: re-mark mark=0 DNS up to a bridge-known NDMS mark ----
-	// For each (bridge, mark) discovered from nat _NDM_HOTSPOT_DNSREDIR
-	// (see lanbridges.go), emit a packet-MARK rule on PREROUTING that
-	// fires only when:
-	//   - packet arrived on that bridge (-i bridge),
-	//   - current MARK is 0 (no NDMS hotspot mark set — either the
-	//     device hit a MAC-RETURN-override, or the bridge has no
-	//     segment-level policy binding so no catch-all marked it),
-	//   - destination port is 53 (DNS only — other no-policy traffic
-	//     stays at mark=0, keeping the "no-policy" semantics intact),
-	//   - packet type is unicast (don't touch mDNS / link-local multicast).
-	// Re-marking ONLY this single packet (no CONNMARK save) means
-	// subsequent flow packets retain mark=0; only the DNS query gets
-	// elevated. NDMS's existing _NDM_HOTSPOT_DNSREDIR rule for that
-	// mark then REDIRECTs the query to its per-policy ndnproxy port.
-	for _, bm := range spec.LANBridges {
-		fmt.Fprintf(&b, "-A PREROUTING -i %s -m mark --mark 0x0 -m pkttype --pkt-type unicast -p udp --dport 53 -m comment --comment %q -j MARK --set-mark %s\n",
-			bm.Bridge, DNSNoPolicyChain, bm.Mark)
-		fmt.Fprintf(&b, "-A PREROUTING -i %s -m mark --mark 0x0 -m pkttype --pkt-type unicast -p tcp --dport 53 -m comment --comment %q -j MARK --set-mark %s\n",
-			bm.Bridge, DNSNoPolicyChain, bm.Mark)
-	}
-
 	b.WriteString("COMMIT\n")
 
 	// ---- *nat table: TCP via REDIRECT ----
@@ -325,6 +311,37 @@ func buildRestoreInput(spec RestoreInputSpec) string {
 		fmt.Fprintf(&b, "-A PREROUTING -m connmark --mark %s -m conntrack ! --ctstate INVALID -j %s\n",
 			spec.PolicyMark, RedirectChain)
 	}
+
+	// ---- DNS-RESCUE: per-bridge short-circuit REDIRECT to ndnproxy ----
+	// For each (bridge, ndnproxy-port) discovered from
+	// _NDM_HOTSPOT_DNSREDIR (see lanbridges.go), insert at position 1
+	// in nat PREROUTING — BEFORE NDMS's own `-A PREROUTING -j
+	// _NDM_DNS_REDIRECT`, whose first sub-chain (_NDM_DNS_FLT_REDIR)
+	// unconditionally REDIRECTs DNS to :53 (terminating, mark not
+	// consulted). Our rule fires first, REDIRECTs the packet to the
+	// per-policy ndnproxy that sing-box doesn't touch, and skips the
+	// :53 hijack edge case entirely.
+	//
+	// Filters:
+	//   - -i <bridge>: only LAN bridges where NDMS knows ndnproxy port,
+	//   - -m mark --mark 0x0: only mark=0 (default-policy) packets —
+	//     devices in any access policy already get NDMS's mark-aware
+	//     _NDM_HOTSPOT_DNSREDIR via _NDM_DNS_BYPS-style mechanisms or
+	//     don't go through FLT_REDIR at all,
+	//   - -m pkttype --pkt-type unicast: don't touch mDNS/multicast,
+	//   - --dport 53 + REDIRECT --to-ports <port>: DNS only, target
+	//     ndnproxy.
+	//
+	// All rules use -I PREROUTING 1 so they land in front of the NDMS
+	// jumps; their relative order amongst themselves doesn't matter
+	// (per-bridge, per-protocol independent matches).
+	for _, bm := range spec.LANBridges {
+		fmt.Fprintf(&b, "-I PREROUTING 1 -i %s -m mark --mark 0x0 -m pkttype --pkt-type unicast -p udp --dport 53 -m comment --comment %q -j REDIRECT --to-ports %d\n",
+			bm.Bridge, DNSRescueTag, bm.Port)
+		fmt.Fprintf(&b, "-I PREROUTING 1 -i %s -m mark --mark 0x0 -m pkttype --pkt-type unicast -p tcp --dport 53 -m comment --comment %q -j REDIRECT --to-ports %d\n",
+			bm.Bridge, DNSRescueTag, bm.Port)
+	}
+
 	b.WriteString("COMMIT\n")
 	return b.String()
 }
@@ -453,12 +470,19 @@ if [ "$mangle_ok" -eq 0 ] || [ "$nat_ok" -eq 0 ]; then
     | grep -E -- '-[jg] %[6]s($| )' \
     | sed 's/-A PREROUTING/-D PREROUTING/' \
     | while IFS= read -r line; do /opt/sbin/iptables -w -t nat $line 2>/dev/null; done
-  # Scrub DNS-NOPOLICY direct PREROUTING rules (identified by comment
-  # tag, not by jump target — these are -j MARK rules, not chain
-  # jumps). Same drop-and-restore approach as above, just matched
-  # via the iptables-save comment serialisation.
-  /opt/sbin/iptables -w -t mangle -S PREROUTING 2>/dev/null \
+  # Scrub DNS-RESCUE direct PREROUTING rules in nat (identified by
+  # comment tag, not by jump target — these are -j REDIRECT rules,
+  # not chain jumps). Same drop-and-restore approach as above, just
+  # matched via the iptables-save comment serialisation.
+  /opt/sbin/iptables -w -t nat -S PREROUTING 2>/dev/null \
     | grep -F -- '--comment "%[7]s"' \
+    | sed 's/-A PREROUTING/-D PREROUTING/' \
+    | while IFS= read -r line; do /opt/sbin/iptables -w -t nat $line 2>/dev/null; done
+  # Legacy DNS-NOPOLICY MARK rules in mangle (dead code from earlier
+  # AWGM builds). Always scrub so upgrades don't leave dangling rules
+  # accumulating across NDMS reloads.
+  /opt/sbin/iptables -w -t mangle -S PREROUTING 2>/dev/null \
+    | grep -F -- '--comment "%[8]s"' \
     | sed 's/-A PREROUTING/-D PREROUTING/' \
     | while IFS= read -r line; do /opt/sbin/iptables -w -t mangle $line 2>/dev/null; done
   /opt/sbin/iptables-restore --noflush < %[1]q
@@ -466,7 +490,7 @@ if [ "$mangle_ok" -eq 0 ] || [ "$nat_ok" -eq 0 ]; then
   /opt/sbin/ip route add local 0.0.0.0/0 dev lo table %[4]d 2>/dev/null || true
   logger -t awgm-tproxy "netfilter.d: restored AWGM chains after NDMS reload"
 fi
-`, netfilterRulesPath, ChainName, Fwmark, RoutingTable, IPRulePriority, RedirectChain, DNSNoPolicyChain)
+`, netfilterRulesPath, ChainName, Fwmark, RoutingTable, IPRulePriority, RedirectChain, DNSRescueTag, DNSNoPolicyTag)
 	return os.WriteFile(netfilterHookPath, []byte(script), 0755)
 }
 
@@ -513,10 +537,16 @@ func (it *IPTables) Uninstall(ctx context.Context) error {
 func (it *IPTables) removeSourceHooks(ctx context.Context) {
 	it.removeSourceHooksFromTable(ctx, "mangle", ChainName)
 	it.removeSourceHooksFromTable(ctx, "nat", RedirectChain)
-	// DNS-NOPOLICY uses direct PREROUTING rules (no intermediate chain
-	// jump), identified by their `-m comment --comment AWGM-DNS-NOPOLICY`
-	// tag. Same pattern XKeen uses for its own tagged rules.
-	it.removeCommentTaggedRulesFromTable(ctx, "mangle", "PREROUTING", DNSNoPolicyChain)
+	// DNS-RESCUE: direct PREROUTING REDIRECT rules in nat, tagged with
+	// `-m comment --comment AWGM-DNS-RESCUE`. Scrub before re-install
+	// so we don't accumulate duplicates and so port changes (e.g. NDMS
+	// reassigned ndnproxy:41100→41200) propagate cleanly.
+	it.removeCommentTaggedRulesFromTable(ctx, "nat", "PREROUTING", DNSRescueTag)
+	// Legacy: DNS-NOPOLICY MARK rules in mangle from 2.10.x and
+	// earlier. Always scrub on Install for upgrade migration — the
+	// rules are dead code now, but if left in place they'd accumulate
+	// across upgrades.
+	it.removeCommentTaggedRulesFromTable(ctx, "mangle", "PREROUTING", DNSNoPolicyTag)
 }
 
 // removeCommentTaggedRulesFromTable scrubs every rule in `chain` whose

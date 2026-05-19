@@ -248,7 +248,7 @@ type ServiceImpl struct {
 	mu             sync.Mutex
 	currentMark       string          // last-installed iptables mark; used by Reconcile to detect change
 	currentWANIPs     []string        // last-collected WAN IPs; used by Reconcile to detect change
-	currentLANBridges []LANBridgeMark // last-discovered LAN-bridge (name, NDMS mark) pairs; reconcile triggers re-install when this changes (e.g. user changed Keenetic hotspot policy or added a new bridge)
+	currentLANBridges []LANBridgeDNSRedir // last-discovered LAN-bridge (name, ndnproxy port) pairs; reconcile triggers re-install when this changes (e.g. NDMS hotspot reconfigured, bridge added/removed, port reassigned)
 
 	// netfilterStateKnown tracks whether we know for certain that the
 	// installed iptables rules match the current desired state. It starts
