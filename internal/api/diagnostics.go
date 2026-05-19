@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/diagnostics"
@@ -90,6 +92,18 @@ func (h *DiagnosticsHandler) Status(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, h.runner.Status())
 }
 
+func diagnosticsFilenameTimestamp() string {
+	out, err := exec.Command("date", "+%Y-%m-%d_%H-%M-%S").Output()
+	if err == nil {
+		ts := strings.TrimSpace(string(out))
+		if ts != "" {
+			return ts
+		}
+	}
+
+	return time.Now().Format("2006-01-02_15-04-05")
+}
+
 // Result returns the last completed diagnostics report as a JSON file download.
 // GET /api/diagnostics/result
 //
@@ -113,7 +127,7 @@ func (h *DiagnosticsHandler) Result(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filename := fmt.Sprintf("awg-diagnostics-%s.json", time.Now().Format("2006-01-02_15-04-05"))
+	filename := fmt.Sprintf("awg-diagnostics-%s.json", diagnosticsFilenameTimestamp())
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	w.Write(data)
