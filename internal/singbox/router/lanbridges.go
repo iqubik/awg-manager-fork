@@ -4,59 +4,48 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"regexp"
+	"sort"
+	"strings"
 
 	sysexec "github.com/hoaxisr/awg-manager/internal/sys/exec"
 	sysiptables "github.com/hoaxisr/awg-manager/internal/sys/iptables"
 )
 
 // LANBridgeMark pairs a Linux bridge name with the NDMS hotspot mark
-// that NDMS assigns to traffic entering on that bridge with no specific
-// MAC-override. It's the mark we elevate mark=0 (no-policy) DNS to so
-// NDMS's _NDM_HOTSPOT_DNSREDIR rules pick the packet up and REDIRECT it
-// to its per-policy ndnproxy port — same code path that already works
-// for any unmarked LAN device.
+// that we elevate mark=0 (no-policy) DNS to so NDMS's existing
+// _NDM_HOTSPOT_DNSREDIR REDIRECT picks the packet up and forwards it to
+// the per-policy ndnproxy port.
 type LANBridgeMark struct {
 	Bridge string // kernel bridge name, e.g. "br0"
-	Mark   string // hex mark, e.g. "0xffffaab"
+	Mark   string // hex mark, e.g. "0xffffaaa"
 }
 
-// _NDM_HOTSPOT_PREROUTING_MANGL catch-all rule shape we parse:
+// DiscoverLANBridges returns (bridge, mark) pairs for every Linux LAN
+// bridge that NDMS has at least one _NDM_HOTSPOT_DNSREDIR REDIRECT rule
+// for on UDP/TCP --dport 53.
 //
-//	-A _NDM_HOTSPOT_PREROUTING_MANGL -i br0 -j MARK --set-xmark 0xffffaab/0xffffffff
+// We read from _NDM_HOTSPOT_DNSREDIR (nat table) rather than from
+// _NDM_HOTSPOT_PREROUTING_MANGL (mangle table) because segment-policy
+// binding in NDMS is optional: a bridge can have per-policy DNSREDIR
+// rules even when no NDMS access policy is bound to its segment (segment
+// binding only adds the per-bridge catch-all MARK in PREROUTING_MANGL).
+// Reading from DNSREDIR finds bridges in both cases — including the
+// common "main home segment with no segment-level policy" config that
+// breaks DNS for default devices when sing-box's hijack-dns listener
+// is active (issue #132).
 //
-// MAC-specific rules and CONNMARK/RETURN follow-ups don't match this
-// regex (they have either `-m mac --mac-source X` before `-j MARK`, or
-// `-j CONNMARK` / `-j RETURN` as the target). The catch-all `-i <iface>
-// -j MARK` form is the one we want — it's the rule that fires for a
-// device on that bridge when no earlier MAC-override matched.
-var hotspotCatchAllRegexp = regexp.MustCompile(
-	`^-A _NDM_HOTSPOT_PREROUTING_MANGL -i ([a-zA-Z0-9_-]+) -j MARK --set-xmark (0x[0-9a-fA-F]+)/0x[0-9a-fA-F]+$`,
-)
-
-// DiscoverLANBridges returns the intersection of:
-//  1. interfaces that NDMS catch-all-marks in _NDM_HOTSPOT_PREROUTING_MANGL
-//     (each paired with whatever mark NDMS uses for that bridge), and
-//  2. real Linux bridges in /sys/class/net/*/bridge.
-//
-// The intersection is exactly the set of bridges where:
-//   - a device CAN end up with mark=0 (via a MAC-RETURN-override that
-//     fires before the catch-all sets the mark), AND
-//   - NDMS has a downstream `_NDM_HOTSPOT_DNSREDIR` rule with a
-//     `-m mark --mark <mark> ... -j REDIRECT --to-ports <port>` ready
-//     to receive a packet we re-mark to that bridge's catch-all mark.
-//
-// Excludes interfaces like nwg2 (WireGuard tunnel — not a sysfs bridge,
-// no MAC-override mechanism, NDMS marks 100% of its traffic so our
-// mark=0 filter would never fire anyway) and sstp-bridge (real Linux
-// bridge but NDMS doesn't have a _NDM_HOTSPOT_DNSREDIR rule for it).
+// When a bridge has multiple eligible marks, we prefer any mark other
+// than singboxPolicyMark — re-marking default DNS up to the sing-box
+// policy mark would route it via the sing-box policy's table, which
+// typically has no WAN permit (the policy exists only to feed TPROXY),
+// so DNS would never resolve upstream. If singboxPolicyMark is the
+// only choice, we fall back to it (still better than no rule at all).
 //
 // Returns empty slice (not nil, not error) when no bridges qualify;
-// that means there's nothing to fall through DNS-wise and callers
-// should skip the DNS-NOPOLICY install logic.
-func DiscoverLANBridges(ctx context.Context) ([]LANBridgeMark, error) {
-	result, err := sysexec.Run(ctx, sysiptables.Binary, "-w", "-t", "mangle",
-		"-S", "_NDM_HOTSPOT_PREROUTING_MANGL")
+// callers should skip the DNS-NOPOLICY install logic in that case.
+func DiscoverLANBridges(ctx context.Context, singboxPolicyMark string) ([]LANBridgeMark, error) {
+	result, err := sysexec.Run(ctx, sysiptables.Binary, "-w", "-t", "nat",
+		"-S", "_NDM_HOTSPOT_DNSREDIR")
 	if err != nil || result == nil {
 		// Chain doesn't exist: router has no hotspot config (fresh
 		// install, no LAN policies created yet). Nothing to elevate
@@ -64,24 +53,93 @@ func DiscoverLANBridges(ctx context.Context) ([]LANBridgeMark, error) {
 		return []LANBridgeMark{}, nil
 	}
 
-	out := make([]LANBridgeMark, 0, 4)
-	seen := make(map[string]bool, 4)
+	candidates := map[string]map[string]bool{}
 	for _, line := range splitLines(result.Stdout) {
-		m := hotspotCatchAllRegexp.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		iface, mark := m[1], m[2]
-		if seen[iface] {
+		iface, mark, ok := parseDNSRedirRule(line)
+		if !ok {
 			continue
 		}
 		if !isLinuxBridge(iface) {
 			continue
 		}
-		seen[iface] = true
-		out = append(out, LANBridgeMark{Bridge: iface, Mark: mark})
+		if candidates[iface] == nil {
+			candidates[iface] = map[string]bool{}
+		}
+		candidates[iface][mark] = true
+	}
+
+	bridges := make([]string, 0, len(candidates))
+	for b := range candidates {
+		bridges = append(bridges, b)
+	}
+	sort.Strings(bridges)
+
+	out := make([]LANBridgeMark, 0, len(bridges))
+	for _, b := range bridges {
+		out = append(out, LANBridgeMark{Bridge: b, Mark: pickMark(candidates[b], singboxPolicyMark)})
 	}
 	return out, nil
+}
+
+// pickMark chooses one mark from the available set for a bridge. It
+// returns any mark other than singboxPolicyMark when one exists, falling
+// back to singboxPolicyMark only when it's the sole option. Marks are
+// sorted before selection so the choice is deterministic across runs
+// — that keeps reconcileInstalled stable when nothing actually changed.
+func pickMark(marks map[string]bool, singboxPolicyMark string) string {
+	ordered := make([]string, 0, len(marks))
+	for m := range marks {
+		ordered = append(ordered, m)
+	}
+	sort.Strings(ordered)
+
+	if singboxPolicyMark != "" {
+		for _, m := range ordered {
+			if !strings.EqualFold(m, singboxPolicyMark) {
+				return m
+			}
+		}
+	}
+	return ordered[0]
+}
+
+// parseDNSRedirRule extracts (interface, mark) from one
+// _NDM_HOTSPOT_DNSREDIR rule line. Returns ok=false unless the rule
+// targets DNS port 53 with a REDIRECT — sibling rules for ports 1900
+// (SSDP) and 5351 (NAT-PMP) are filtered out.
+//
+// Example accepted line:
+//
+//	-A _NDM_HOTSPOT_DNSREDIR -d 192.168.0.1/32 -i br0 -p udp -m mark --mark 0xffffaae -m pkttype --pkt-type unicast -m udp --dport 53 -j REDIRECT --to-ports 41104
+func parseDNSRedirRule(line string) (iface, mark string, ok bool) {
+	if !strings.HasPrefix(line, "-A _NDM_HOTSPOT_DNSREDIR ") {
+		return "", "", false
+	}
+	tokens := strings.Fields(line)
+	var (
+		hasDNS      bool
+		hasRedirect bool
+	)
+	for i := 0; i < len(tokens)-1; i++ {
+		switch tokens[i] {
+		case "-i":
+			iface = tokens[i+1]
+		case "--mark":
+			mark = tokens[i+1]
+		case "--dport":
+			if tokens[i+1] == "53" {
+				hasDNS = true
+			}
+		case "-j":
+			if tokens[i+1] == "REDIRECT" {
+				hasRedirect = true
+			}
+		}
+	}
+	if !hasDNS || !hasRedirect || iface == "" || mark == "" {
+		return "", "", false
+	}
+	return iface, mark, true
 }
 
 // isLinuxBridge reports whether the named interface is a real Linux

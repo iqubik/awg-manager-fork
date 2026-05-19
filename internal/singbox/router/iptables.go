@@ -33,14 +33,15 @@ const (
 	ChainName        = "AWGM-TPROXY"
 	RedirectChain    = "AWGM-REDIRECT"
 	// DNSNoPolicyChain re-marks DNS-port-53 packets that arrive with
-	// mark=0 (no NDMS access policy assigned) up to the bridge's NDMS
-	// catch-all mark, so NDMS's own _NDM_HOTSPOT_DNSREDIR fires and
-	// REDIRECTs the DNS query to its per-policy ndnproxy. Without this,
-	// sing-box's hijack-dns side-effect transparent listener at every
-	// router LAN-IP:53 silently drops the query (no TPROXY ancillary
-	// data → drop without log) and the client sees DNS timeout. The
-	// chain itself is empty — rules are emitted directly under
-	// PREROUTING per-bridge from LANBridges in buildRestoreInput.
+	// mark=0 (no NDMS access policy assigned) up to an NDMS mark that
+	// has a _NDM_HOTSPOT_DNSREDIR rule on this bridge — so NDMS's own
+	// REDIRECT fires and forwards the DNS query to its per-policy
+	// ndnproxy. Without this, sing-box's hijack-dns side-effect
+	// transparent listener at every router LAN-IP:53 silently drops
+	// the query (no TPROXY ancillary data → drop without log) and the
+	// client sees DNS timeout. The chain itself is empty — rules are
+	// emitted directly under PREROUTING per-bridge from LANBridges in
+	// buildRestoreInput.
 	DNSNoPolicyChain = "AWGM-DNS-NOPOLICY"
 	// IPRulePriority is the fixed `ip rule` priority for our fwmark rule.
 	// Above NDMS policy rules (~100-200) and below system main/default
@@ -275,13 +276,14 @@ func buildRestoreInput(spec RestoreInputSpec) string {
 			spec.PolicyMark, ChainName)
 	}
 
-	// ---- DNS-NOPOLICY: re-mark mark=0 DNS up to bridge's NDMS catch-all ----
-	// For each (bridge, mark) discovered in mangle _NDM_HOTSPOT_PREROUTING_MANGL,
-	// emit a packet-MARK rule on PREROUTING that fires only when:
+	// ---- DNS-NOPOLICY: re-mark mark=0 DNS up to a bridge-known NDMS mark ----
+	// For each (bridge, mark) discovered from nat _NDM_HOTSPOT_DNSREDIR
+	// (see lanbridges.go), emit a packet-MARK rule on PREROUTING that
+	// fires only when:
 	//   - packet arrived on that bridge (-i bridge),
-	//   - current MARK is 0 (i.e., a MAC-RETURN-override in NDMS's
-	//     hotspot chain skipped this device, so NDMS catch-all never
-	//     ran for it),
+	//   - current MARK is 0 (no NDMS hotspot mark set — either the
+	//     device hit a MAC-RETURN-override, or the bridge has no
+	//     segment-level policy binding so no catch-all marked it),
 	//   - destination port is 53 (DNS only — other no-policy traffic
 	//     stays at mark=0, keeping the "no-policy" semantics intact),
 	//   - packet type is unicast (don't touch mDNS / link-local multicast).

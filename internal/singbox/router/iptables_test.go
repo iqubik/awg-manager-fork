@@ -706,54 +706,112 @@ func TestEqualLANBridges(t *testing.T) {
 	}
 }
 
-func TestHotspotCatchAllRegexp_RealisticParse(t *testing.T) {
-	// Realistic snapshot of `iptables -t mangle -S _NDM_HOTSPOT_PREROUTING_MANGL`
-	// from a router with three bridges in NDMS hotspot (br0/br1) plus a
-	// WireGuard "bridge" (nwg2) and a MAC-RETURN entry. Only the catch-all
-	// `-i X -j MARK --set-xmark Y/...` lines should match — MAC-specific
-	// and CONNMARK/RETURN lines must NOT.
-	snapshot := `-N _NDM_HOTSPOT_PREROUTING_MANGL
--A _NDM_HOTSPOT_PREROUTING_MANGL -m mac --mac-source 50:FF:20:B4:F4:37 -j RETURN
--A _NDM_HOTSPOT_PREROUTING_MANGL -m mac --mac-source B0:4A:B4:74:80:F8 -j RETURN
--A _NDM_HOTSPOT_PREROUTING_MANGL -m mac --mac-source 80:B6:55:60:28:FE -j MARK --set-xmark 0xffffaab/0xffffffff
--A _NDM_HOTSPOT_PREROUTING_MANGL -m mac --mac-source 80:B6:55:60:28:FE -j CONNMARK --save-mark --nfmask 0xffffffff --ctmask 0xffffffff
--A _NDM_HOTSPOT_PREROUTING_MANGL -m mac --mac-source 80:B6:55:60:28:FE -j RETURN
--A _NDM_HOTSPOT_PREROUTING_MANGL -i br0 -j MARK --set-xmark 0xffffaab/0xffffffff
--A _NDM_HOTSPOT_PREROUTING_MANGL -i br0 -j CONNMARK --save-mark --nfmask 0xffffffff --ctmask 0xffffffff
--A _NDM_HOTSPOT_PREROUTING_MANGL -i br0 -j RETURN
--A _NDM_HOTSPOT_PREROUTING_MANGL -i nwg2 -j MARK --set-xmark 0xffffaab/0xffffffff
--A _NDM_HOTSPOT_PREROUTING_MANGL -i nwg2 -j CONNMARK --save-mark --nfmask 0xffffffff --ctmask 0xffffffff
--A _NDM_HOTSPOT_PREROUTING_MANGL -i nwg2 -j RETURN
--A _NDM_HOTSPOT_PREROUTING_MANGL -i br1 -j MARK --set-xmark 0xffffaab/0xffffffff`
-
-	matched := make(map[string]string)
-	for _, line := range strings.Split(snapshot, "\n") {
-		m := hotspotCatchAllRegexp.FindStringSubmatch(line)
-		if m != nil {
-			matched[m[1]] = m[2]
-		}
+func TestParseDNSRedirRule(t *testing.T) {
+	cases := []struct {
+		name      string
+		line      string
+		wantOK    bool
+		wantIface string
+		wantMark  string
+	}{
+		{
+			name:      "udp 53 redirect — match",
+			line:      "-A _NDM_HOTSPOT_DNSREDIR -d 192.168.0.1/32 -i br0 -p udp -m mark --mark 0xffffaae -m pkttype --pkt-type unicast -m udp --dport 53 -j REDIRECT --to-ports 41104",
+			wantOK:    true,
+			wantIface: "br0",
+			wantMark:  "0xffffaae",
+		},
+		{
+			name:      "tcp 53 redirect — match",
+			line:      "-A _NDM_HOTSPOT_DNSREDIR -d 192.168.2.1/32 -i br1 -p tcp -m mark --mark 0xffffaaa -m pkttype --pkt-type unicast -m tcp --dport 53 -j REDIRECT --to-ports 41100",
+			wantOK:    true,
+			wantIface: "br1",
+			wantMark:  "0xffffaaa",
+		},
+		{
+			name:   "port 1900 (SSDP) — skip",
+			line:   "-A _NDM_HOTSPOT_DNSREDIR -d 192.168.0.1/32 -i br0 -p udp -m mark --mark 0xffffaae -m pkttype --pkt-type unicast -m udp --dport 1900 -j REDIRECT --to-ports 41308",
+			wantOK: false,
+		},
+		{
+			name:   "port 5351 (NAT-PMP) — skip",
+			line:   "-A _NDM_HOTSPOT_DNSREDIR -d 192.168.0.1/32 -i br0 -p udp -m mark --mark 0xffffaae -m pkttype --pkt-type unicast -m udp --dport 5351 -j REDIRECT --to-ports 41309",
+			wantOK: false,
+		},
+		{
+			name:   "chain declaration — skip",
+			line:   "-N _NDM_HOTSPOT_DNSREDIR",
+			wantOK: false,
+		},
+		{
+			name:   "unrelated chain — skip",
+			line:   "-A _NDM_HOTSPOT_PREROUTING_MANGL -i br0 -j MARK --set-xmark 0xffffaaa/0xffffffff",
+			wantOK: false,
+		},
+		{
+			name:   "missing -j REDIRECT — skip",
+			line:   "-A _NDM_HOTSPOT_DNSREDIR -i br0 -m mark --mark 0xffffaaa -p udp --dport 53 -j RETURN",
+			wantOK: false,
+		},
 	}
-
-	want := map[string]string{
-		"br0":  "0xffffaab",
-		"nwg2": "0xffffaab",
-		"br1":  "0xffffaab",
-	}
-	if len(matched) != len(want) {
-		t.Errorf("matched %d ifaces, want %d: %+v", len(matched), len(want), matched)
-	}
-	for iface, mark := range want {
-		if matched[iface] != mark {
-			t.Errorf("iface %s: got mark %q, want %q", iface, matched[iface], mark)
-		}
-	}
-	// CONNMARK and MAC-source rules must NOT match.
-	for _, line := range strings.Split(snapshot, "\n") {
-		if strings.Contains(line, "CONNMARK") || strings.Contains(line, "RETURN") || strings.Contains(line, "mac-source") {
-			if hotspotCatchAllRegexp.FindStringSubmatch(line) != nil {
-				t.Errorf("false positive on: %s", line)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			iface, mark, ok := parseDNSRedirRule(c.line)
+			if ok != c.wantOK {
+				t.Fatalf("ok=%v, want %v", ok, c.wantOK)
 			}
-		}
+			if !ok {
+				return
+			}
+			if iface != c.wantIface {
+				t.Errorf("iface=%q, want %q", iface, c.wantIface)
+			}
+			if mark != c.wantMark {
+				t.Errorf("mark=%q, want %q", mark, c.wantMark)
+			}
+		})
+	}
+}
+
+func TestPickMark(t *testing.T) {
+	cases := []struct {
+		name     string
+		marks    map[string]bool
+		singbox  string
+		want     string
+	}{
+		{
+			name:    "single mark, equals sing-box — fall back to it",
+			marks:   map[string]bool{"0xffffaae": true},
+			singbox: "0xffffaae",
+			want:    "0xffffaae",
+		},
+		{
+			name:    "two marks, prefer non-sing-box",
+			marks:   map[string]bool{"0xffffaaa": true, "0xffffaae": true},
+			singbox: "0xffffaae",
+			want:    "0xffffaaa",
+		},
+		{
+			name:    "sing-box mark empty — pick smallest deterministically",
+			marks:   map[string]bool{"0xffffaab": true, "0xffffaaa": true},
+			singbox: "",
+			want:    "0xffffaaa",
+		},
+		{
+			name:    "case-insensitive sing-box match",
+			marks:   map[string]bool{"0xFFFFAAE": true, "0xffffaaa": true},
+			singbox: "0xffffaae",
+			want:    "0xffffaaa",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := pickMark(c.marks, c.singbox)
+			if got != c.want {
+				t.Errorf("pickMark()=%q, want %q", got, c.want)
+			}
+		})
 	}
 }
 

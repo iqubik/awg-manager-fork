@@ -588,13 +588,15 @@ func (s *ServiceImpl) Enable(ctx context.Context) error {
 		return fmt.Errorf("collect WAN IPs: %w", err)
 	}
 
-	// Discover LAN bridges where NDMS hotspot catch-all marks traffic
-	// — these are exactly the bridges where a mark=0 (no-policy) device
-	// can exist. DNS-NOPOLICY rules re-mark its DNS up to NDMS's
-	// catch-all mark so the existing _NDM_HOTSPOT_DNSREDIR REDIRECTs it
-	// to the per-policy ndnproxy. Empty result = no qualifying bridges
-	// = skip the DNS-NOPOLICY logic entirely (Install proceeds without it).
-	lanBridges, _ := DiscoverLANBridges(ctx)
+	// Discover LAN bridges that NDMS knows how to REDIRECT DNS for
+	// (i.e. has _NDM_HOTSPOT_DNSREDIR rules on). DNS-NOPOLICY rules
+	// re-mark mark=0 DNS up to one of those marks so the existing
+	// REDIRECT picks it up and forwards to the per-policy ndnproxy.
+	// We pass our policy mark so the picker avoids it — re-marking
+	// default DNS up to the sing-box mark would route it via Policy1's
+	// (permit-less) table and DNS would never resolve. Empty result =
+	// no qualifying bridges = skip the DNS-NOPOLICY logic entirely.
+	lanBridges, _ := DiscoverLANBridges(ctx, mark)
 	if len(lanBridges) == 0 {
 		s.deps.Log.Warnf("router: no NDMS hotspot LAN bridges discovered; DNS fallback for no-policy devices skipped")
 	}
@@ -903,7 +905,7 @@ func (s *ServiceImpl) reconcileInstalled(ctx context.Context, sr storage.Singbox
 
 	markChanged := mark != s.currentMark
 	wanIPsChanged := !slices.Equal(s.currentWANIPs, wanIPs)
-	lanBridges, _ := DiscoverLANBridges(ctx)
+	lanBridges, _ := DiscoverLANBridges(ctx, mark)
 	lanBridgesChanged := !equalLANBridges(s.currentLANBridges, lanBridges)
 
 	// After a daemon restart or upgrade the old awg-manager process died
