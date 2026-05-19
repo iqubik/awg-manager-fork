@@ -3,8 +3,22 @@ package hydraroute
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+const cleanIssue144Conf = `CIDR=true
+clearIPSet=true
+IpsetEnableTimeout=true
+log=off
+logfile=/opt/var/log/LOGhrneo.log
+DirectRouteEnabled=true
+GlobalRouting=false
+ConntrackFlush=true
+GeoIPFile=
+GeoSiteFile=
+PolicyOrder=
+`
 
 // setupTestConf writes content to a temp hrneo.conf and overrides hrConfPath/hrDir
 // for the duration of the test.
@@ -608,4 +622,342 @@ func TestWriteConfig_AppendsNewKeysWithCanonicalCase(t *testing.T) {
 			t.Errorf("unexpected PascalCase append %q\nfull output:\n%s", mustNot, text)
 		}
 	}
+}
+
+func TestWriteGeoFilesOnly_DoesNotMaterializeZeroValueKeys(t *testing.T) {
+	setupTestConf(t, cleanIssue144Conf)
+
+	if err := WriteGeoFilesOnly(nil, []string{"/opt/etc/HydraRoute/geosite_GA.dat"}); err != nil {
+		t.Fatalf("WriteGeoFilesOnly: %v", err)
+	}
+	raw, _ := os.ReadFile(hrConfPath)
+	text := string(raw)
+
+	if !strContains(text, "GeoSiteFile=/opt/etc/HydraRoute/geosite_GA.dat") {
+		t.Fatalf("GeoSiteFile not updated\nfull output:\n%s", text)
+	}
+	for _, forbidden := range []string{
+		"IpsetMaxElem=0",
+		"IpsetTimeout=0",
+		"autoStart=false",
+	} {
+		if strContains(text, forbidden) {
+			t.Errorf("unexpected materialized key %q\nfull output:\n%s", forbidden, text)
+		}
+	}
+	expected := `CIDR=true
+clearIPSet=true
+IpsetEnableTimeout=true
+log=off
+logfile=/opt/var/log/LOGhrneo.log
+DirectRouteEnabled=true
+GlobalRouting=false
+ConntrackFlush=true
+GeoIPFile=
+GeoSiteFile=/opt/etc/HydraRoute/geosite_GA.dat
+PolicyOrder=
+`
+	if text != expected {
+		t.Fatalf("unexpected output after geo patch\nwant:\n%s\ngot:\n%s", expected, text)
+	}
+}
+
+func TestWritePolicyOrderOnly_DoesNotMaterializeZeroValueKeys(t *testing.T) {
+	setupTestConf(t, cleanIssue144Conf)
+
+	if err := WritePolicyOrderOnly([]string{"PolicyA", "PolicyB"}); err != nil {
+		t.Fatalf("WritePolicyOrderOnly: %v", err)
+	}
+	raw, _ := os.ReadFile(hrConfPath)
+	text := string(raw)
+
+	if !strContains(text, "PolicyOrder=PolicyA,PolicyB") {
+		t.Fatalf("PolicyOrder not updated\nfull output:\n%s", text)
+	}
+	for _, forbidden := range []string{
+		"IpsetMaxElem=0",
+		"IpsetTimeout=0",
+		"autoStart=false",
+	} {
+		if strContains(text, forbidden) {
+			t.Errorf("unexpected materialized key %q\nfull output:\n%s", forbidden, text)
+		}
+	}
+	expected := `CIDR=true
+clearIPSet=true
+IpsetEnableTimeout=true
+log=off
+logfile=/opt/var/log/LOGhrneo.log
+DirectRouteEnabled=true
+GlobalRouting=false
+ConntrackFlush=true
+GeoIPFile=
+GeoSiteFile=
+PolicyOrder=PolicyA,PolicyB
+`
+	if text != expected {
+		t.Fatalf("unexpected output after policy patch\nwant:\n%s\ngot:\n%s", expected, text)
+	}
+}
+
+func TestWriteConfig_DoesNotWriteIpsetMaxElemZero(t *testing.T) {
+	setupTestConf(t, cleanIssue144Conf)
+
+	cfg, err := ReadConfig()
+	if err != nil {
+		t.Fatalf("ReadConfig: %v", err)
+	}
+	cfg.IpsetMaxElem = 0
+	if err := WriteConfig(cfg); err != nil {
+		t.Fatalf("WriteConfig: %v", err)
+	}
+	raw, _ := os.ReadFile(hrConfPath)
+	text := string(raw)
+
+	if strContains(text, "IpsetMaxElem=0") {
+		t.Fatalf("invalid zero value was written\nfull output:\n%s", text)
+	}
+	if !strContains(text, "IpsetMaxElem=65536") {
+		t.Fatalf("expected normalized default value\nfull output:\n%s", text)
+	}
+}
+
+func TestPatchSingleScalarKey_UnknownKey_NoWrite(t *testing.T) {
+	setupEmptyConf(t)
+
+	if err := patchSingleScalarKey("unknownkey", "value"); err == nil {
+		t.Fatal("expected error for unknown key")
+	}
+	if _, err := os.Stat(hrConfPath); !os.IsNotExist(err) {
+		t.Fatalf("file should not be written on validation error, stat err=%v", err)
+	}
+}
+
+func TestPatchMultiValueKeys_UnknownKey(t *testing.T) {
+	setupEmptyConf(t)
+
+	err := patchMultiValueKeys(
+		[]string{"geoipfile", "unknownkey"},
+		map[string][]string{"geoipfile": nil, "unknownkey": {"x"}},
+	)
+	if err == nil {
+		t.Fatal("expected error for unknown key")
+	}
+}
+
+func TestPatchMultiValueKeys_UpdateKeyMissingFromOrder(t *testing.T) {
+	setupEmptyConf(t)
+
+	err := patchMultiValueKeys(
+		[]string{"geoipfile"},
+		map[string][]string{
+			"geoipfile":   nil,
+			"geositefile": nil,
+		},
+	)
+	if err == nil {
+		t.Fatal("expected error for key missing from patch order")
+	}
+}
+
+func TestPatchMultiValueKeys_OrderKeyMissingFromUpdates(t *testing.T) {
+	setupEmptyConf(t)
+
+	err := patchMultiValueKeys(
+		[]string{"geoipfile", "geositefile"},
+		map[string][]string{
+			"geoipfile": nil,
+		},
+	)
+	if err == nil {
+		t.Fatal("expected error for key missing from patch updates")
+	}
+}
+
+func TestHealInvalidRuntimeConfig_ZeroToDefault(t *testing.T) {
+	content := cleanIssue144Conf + "IpsetMaxElem=0\n"
+	setupTestConf(t, content)
+
+	changed, _, err := HealInvalidRuntimeConfig()
+	if err != nil {
+		t.Fatalf("HealInvalidRuntimeConfig: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	got, _ := os.ReadFile(hrConfPath)
+	if !strContains(string(got), "IpsetMaxElem=65536") {
+		t.Fatalf("expected healed maxelem, got:\n%s", string(got))
+	}
+}
+
+func TestHealInvalidRuntimeConfig_NegativeToDefault(t *testing.T) {
+	content := cleanIssue144Conf + "IpsetMaxElem=-5\n"
+	setupTestConf(t, content)
+
+	changed, _, err := HealInvalidRuntimeConfig()
+	if err != nil {
+		t.Fatalf("HealInvalidRuntimeConfig: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	got, _ := os.ReadFile(hrConfPath)
+	if !strContains(string(got), "IpsetMaxElem=65536") {
+		t.Fatalf("expected healed maxelem, got:\n%s", string(got))
+	}
+}
+
+func TestHealInvalidRuntimeConfig_ValidUnchanged(t *testing.T) {
+	content := cleanIssue144Conf + "IpsetMaxElem=131072\n"
+	setupTestConf(t, content)
+
+	before, _ := os.ReadFile(hrConfPath)
+	changed, _, err := HealInvalidRuntimeConfig()
+	if err != nil {
+		t.Fatalf("HealInvalidRuntimeConfig: %v", err)
+	}
+	if changed {
+		t.Fatal("expected changed=false")
+	}
+	after, _ := os.ReadFile(hrConfPath)
+	if string(before) != string(after) {
+		t.Fatalf("file changed unexpectedly\nbefore:\n%s\nafter:\n%s", string(before), string(after))
+	}
+}
+
+func TestHealInvalidRuntimeConfig_MissingKeyUnchanged(t *testing.T) {
+	setupTestConf(t, cleanIssue144Conf)
+	before, _ := os.ReadFile(hrConfPath)
+	changed, _, err := HealInvalidRuntimeConfig()
+	if err != nil {
+		t.Fatalf("HealInvalidRuntimeConfig: %v", err)
+	}
+	if changed {
+		t.Fatal("expected changed=false")
+	}
+	after, _ := os.ReadFile(hrConfPath)
+	if string(before) != string(after) {
+		t.Fatalf("file changed unexpectedly\nbefore:\n%s\nafter:\n%s", string(before), string(after))
+	}
+}
+
+func TestHealInvalidRuntimeConfig_PreservesKeyCasing(t *testing.T) {
+	content := cleanIssue144Conf + "ipsetmaxelem=0\n"
+	setupTestConf(t, content)
+	changed, _, err := HealInvalidRuntimeConfig()
+	if err != nil {
+		t.Fatalf("HealInvalidRuntimeConfig: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	got, _ := os.ReadFile(hrConfPath)
+	if !strContains(string(got), "ipsetmaxelem=65536") {
+		t.Fatalf("expected preserved casing, got:\n%s", string(got))
+	}
+}
+
+func TestHealInvalidRuntimeConfig_Duplicates_KeepValidValue(t *testing.T) {
+	content := cleanIssue144Conf + "IpsetMaxElem=0\nipsetmaxelem=131072\n"
+	setupTestConf(t, content)
+	changed, _, err := HealInvalidRuntimeConfig()
+	if err != nil {
+		t.Fatalf("HealInvalidRuntimeConfig: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	got := mustRead(t, hrConfPath)
+	if !strContains(got, "IpsetMaxElem=131072") {
+		t.Fatalf("expected healed chosen valid value, got:\n%s", got)
+	}
+	if countIpsetMaxElemKeys(got) != 1 {
+		t.Fatalf("expected single IpsetMaxElem key, got:\n%s", got)
+	}
+}
+
+func TestHealInvalidRuntimeConfig_Duplicates_ValidThenInvalid(t *testing.T) {
+	content := cleanIssue144Conf + "IpsetMaxElem=131072\nipsetmaxelem=0\n"
+	setupTestConf(t, content)
+	changed, _, err := HealInvalidRuntimeConfig()
+	if err != nil {
+		t.Fatalf("HealInvalidRuntimeConfig: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	got := mustRead(t, hrConfPath)
+	if !strContains(got, "IpsetMaxElem=131072") {
+		t.Fatalf("expected kept valid value, got:\n%s", got)
+	}
+	if countIpsetMaxElemKeys(got) != 1 {
+		t.Fatalf("expected single IpsetMaxElem key, got:\n%s", got)
+	}
+}
+
+func TestHealInvalidRuntimeConfig_Duplicates_AllInvalid_Default(t *testing.T) {
+	content := cleanIssue144Conf + "ipsetmaxelem=0\nIpsetMaxElem=bad\n"
+	setupTestConf(t, content)
+	changed, _, err := HealInvalidRuntimeConfig()
+	if err != nil {
+		t.Fatalf("HealInvalidRuntimeConfig: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	got := mustRead(t, hrConfPath)
+	if !strContains(got, "ipsetmaxelem=65536") {
+		t.Fatalf("expected default healed value with first-key casing, got:\n%s", got)
+	}
+	if countIpsetMaxElemKeys(got) != 1 {
+		t.Fatalf("expected single IpsetMaxElem key, got:\n%s", got)
+	}
+}
+
+func TestHealInvalidRuntimeConfig_PreservesFirstKeyPosition(t *testing.T) {
+	content := "CIDR=true\nIpsetMaxElem=0\nPolicyOrder=\n"
+	setupTestConf(t, content)
+	changed, _, err := HealInvalidRuntimeConfig()
+	if err != nil {
+		t.Fatalf("HealInvalidRuntimeConfig: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	got := mustRead(t, hrConfPath)
+	lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("unexpected line count: %d\n%s", len(lines), got)
+	}
+	if lines[1] != "IpsetMaxElem=65536" {
+		t.Fatalf("IpsetMaxElem position/value changed unexpectedly:\n%s", got)
+	}
+}
+
+func mustRead(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(raw)
+}
+
+func countIpsetMaxElemKeys(text string) int {
+	n := 0
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		key, _, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(key), "IpsetMaxElem") {
+			n++
+		}
+	}
+	return n
 }

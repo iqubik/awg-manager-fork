@@ -129,11 +129,12 @@
 					<div class="setting-row">
 						<div class="flex flex-col gap-1">
 							<span class="font-medium">Ipset maxelem</span>
-							<span class="setting-description">макс. записей (0 → 65536)</span>
+							<span class="setting-description">макс. записей, стандартно 65536</span>
 						</div>
 						<input
 							class="form-input num"
 							type="number"
+							min="1"
 							value={cfg.ipsetMaxElem}
 							onchange={(e) =>
 								touch('ipsetMaxElem', Number((e.target as HTMLInputElement).value))}

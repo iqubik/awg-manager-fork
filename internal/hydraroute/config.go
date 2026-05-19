@@ -128,6 +128,7 @@ func WriteConfig(cfg *Config) error {
 	if err := os.MkdirAll(hrDir, 0o755); err != nil {
 		return fmt.Errorf("hydraroute: create hrneo dir: %w", err)
 	}
+	cfg = normalizeConfigForWrite(cfg)
 
 	existing, err := os.ReadFile(hrConfPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -252,6 +253,254 @@ func WriteConfig(cfg *Config) error {
 	return atomicWrite(hrConfPath, out.String())
 }
 
+// WritePolicyOrderOnly updates only PolicyOrder in hrneo.conf and leaves every
+// other line untouched.
+func WritePolicyOrderOnly(order []string) error {
+	return patchSingleScalarKey("policyorder", strings.Join(order, ","))
+}
+
+// WriteGeoFilesOnly updates only GeoIPFile/GeoSiteFile entries in hrneo.conf
+// and leaves every other line untouched.
+func WriteGeoFilesOnly(geoIP []string, geoSite []string) error {
+	return patchMultiValueKeys([]string{"geoipfile", "geositefile"}, map[string][]string{
+		"geoipfile":   geoIP,
+		"geositefile": geoSite,
+	})
+}
+
+func patchSingleScalarKey(lowerKey string, value string) error {
+	targetKey := canonicalKey[lowerKey]
+	if targetKey == "" {
+		return fmt.Errorf("hydraroute: unknown config key %q", lowerKey)
+	}
+	if err := os.MkdirAll(hrDir, 0o755); err != nil {
+		return fmt.Errorf("hydraroute: create hrneo dir: %w", err)
+	}
+	existing, err := os.ReadFile(hrConfPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("hydraroute: read hrneo.conf: %w", err)
+	}
+
+	var out strings.Builder
+	written := false
+
+	if len(existing) > 0 {
+		scanner := bufio.NewScanner(strings.NewReader(string(existing)))
+		for scanner.Scan() {
+			rawLine := scanner.Text()
+			stripped := rawLine
+			if idx := strings.Index(stripped, "#"); idx >= 0 {
+				stripped = stripped[:idx]
+			}
+			stripped = strings.TrimSpace(stripped)
+
+			origKey := ""
+			if k, _, ok := strings.Cut(stripped, "="); ok {
+				origKey = strings.TrimSpace(k)
+			}
+			if strings.EqualFold(origKey, targetKey) {
+				if !written {
+					fmt.Fprintf(&out, "%s=%s\n", origKey, value)
+					written = true
+				}
+				continue
+			}
+			out.WriteString(rawLine)
+			out.WriteByte('\n')
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("hydraroute: scan hrneo.conf: %w", err)
+		}
+	}
+	if !written {
+		fmt.Fprintf(&out, "%s=%s\n", targetKey, value)
+	}
+	return atomicWrite(hrConfPath, out.String())
+}
+
+func patchMultiValueKey(lowerKey string, values []string) error {
+	return patchMultiValueKeys([]string{lowerKey}, map[string][]string{lowerKey: values})
+}
+
+func patchMultiValueKeys(order []string, updates map[string][]string) error {
+	for k := range updates {
+		found := false
+		for _, orderedKey := range order {
+			if k == orderedKey {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("hydraroute: config key %q missing from patch order", k)
+		}
+	}
+	for _, k := range order {
+		if _, ok := updates[k]; !ok {
+			return fmt.Errorf("hydraroute: config key %q missing from patch updates", k)
+		}
+	}
+
+	if err := os.MkdirAll(hrDir, 0o755); err != nil {
+		return fmt.Errorf("hydraroute: create hrneo dir: %w", err)
+	}
+	existing, err := os.ReadFile(hrConfPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("hydraroute: read hrneo.conf: %w", err)
+	}
+	var out strings.Builder
+	written := make(map[string]bool, len(updates))
+	targetKeys := make(map[string]string, len(updates))
+	for _, lowerKey := range order {
+		targetKey, ok := canonicalKey[lowerKey]
+		if !ok || targetKey == "" {
+			return fmt.Errorf("hydraroute: unknown config key %q", lowerKey)
+		}
+		targetKeys[lowerKey] = targetKey
+	}
+	writeValues := func(lowerKey, key string) {
+		values := updates[lowerKey]
+		for _, v := range values {
+			fmt.Fprintf(&out, "%s=%s\n", key, v)
+		}
+		if len(values) == 0 {
+			fmt.Fprintf(&out, "%s=\n", key)
+		}
+	}
+
+	if len(existing) > 0 {
+		scanner := bufio.NewScanner(strings.NewReader(string(existing)))
+		for scanner.Scan() {
+			rawLine := scanner.Text()
+			stripped := rawLine
+			if idx := strings.Index(stripped, "#"); idx >= 0 {
+				stripped = stripped[:idx]
+			}
+			stripped = strings.TrimSpace(stripped)
+
+			origKey := ""
+			if k, _, ok := strings.Cut(stripped, "="); ok {
+				origKey = strings.TrimSpace(k)
+			}
+			for _, lowerKey := range order {
+				targetKey := targetKeys[lowerKey]
+				if strings.EqualFold(origKey, targetKey) {
+					if !written[lowerKey] {
+						writeValues(lowerKey, origKey)
+						written[lowerKey] = true
+					}
+					goto nextLine
+				}
+			}
+			out.WriteString(rawLine)
+			out.WriteByte('\n')
+		nextLine:
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("hydraroute: scan hrneo.conf: %w", err)
+		}
+	}
+	for _, lowerKey := range order {
+		if !written[lowerKey] {
+			writeValues(lowerKey, targetKeys[lowerKey])
+		}
+	}
+
+	return atomicWrite(hrConfPath, out.String())
+}
+
+func normalizeConfigForWrite(cfg *Config) *Config {
+	if cfg == nil {
+		return &Config{IpsetMaxElem: defaultMaxElem}
+	}
+	cloned := *cfg
+	if cloned.IpsetMaxElem <= 0 {
+		cloned.IpsetMaxElem = defaultMaxElem
+	}
+	return &cloned
+}
+
+// HealInvalidRuntimeConfig patch-heals existing IpsetMaxElem keys in
+// hrneo.conf. It collapses duplicates into one key (first-key casing kept),
+// prefers the first valid value (>0), otherwise falls back to defaultMaxElem.
+// It never adds IpsetMaxElem if absent.
+func HealInvalidRuntimeConfig() (bool, int, error) {
+	existing, err := os.ReadFile(hrConfPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, 0, nil
+		}
+		return false, 0, fmt.Errorf("hydraroute: read hrneo.conf: %w", err)
+	}
+	if len(existing) == 0 {
+		return false, 0, nil
+	}
+
+	var outLines []string
+	changed := false
+	firstKey := ""
+	firstVal := ""
+	keyFound := false
+	seenValid := false
+	chosen := defaultMaxElem
+	firstIdx := -1
+	scanner := bufio.NewScanner(strings.NewReader(string(existing)))
+	for scanner.Scan() {
+		rawLine := scanner.Text()
+		stripped := rawLine
+		if idx := strings.Index(stripped, "#"); idx >= 0 {
+			stripped = stripped[:idx]
+		}
+		stripped = strings.TrimSpace(stripped)
+
+		key, val, ok := strings.Cut(stripped, "=")
+		if !ok {
+			outLines = append(outLines, rawLine)
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		if strings.EqualFold(key, canonicalKey["ipsetmaxelem"]) {
+			if !keyFound {
+				keyFound = true
+				firstKey = key
+				firstVal = val
+				firstIdx = len(outLines)
+				outLines = append(outLines, rawLine)
+			} else {
+				changed = true // duplicate key removed
+			}
+			n, convErr := strconv.Atoi(val)
+			if convErr == nil && n > 0 && !seenValid {
+				chosen = n
+				seenValid = true
+			}
+			continue
+		}
+		outLines = append(outLines, rawLine)
+	}
+	if err := scanner.Err(); err != nil {
+		return false, 0, fmt.Errorf("hydraroute: scan hrneo.conf: %w", err)
+	}
+	if !keyFound {
+		return false, 0, nil
+	}
+	if !seenValid {
+		changed = true
+	}
+	if seenValid && strconv.Itoa(chosen) != strings.TrimSpace(firstVal) {
+		changed = true
+	}
+	outLines[firstIdx] = fmt.Sprintf("%s=%d", firstKey, chosen)
+	if !changed {
+		return false, chosen, nil
+	}
+	if err := atomicWrite(hrConfPath, strings.Join(outLines, "\n")+"\n"); err != nil {
+		return false, 0, err
+	}
+	return true, chosen, nil
+}
+
 // configValue returns the string representation for a scalar managed key.
 // lowerKey must already be lowercased.
 func configValue(lowerKey string, cfg *Config) string {
@@ -289,6 +538,7 @@ func defaultConfig() *Config {
 	return &Config{
 		DirectRouteEnabled: true,
 		ConntrackFlush:     true,
+		IpsetMaxElem:       defaultMaxElem,
 	}
 }
 

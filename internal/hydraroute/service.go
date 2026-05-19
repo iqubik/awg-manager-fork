@@ -44,8 +44,24 @@ func NewService(resolver KernelIfaceResolver, log *logger.Logger, appLogger logg
 	if s.status.Installed {
 		s.log.Infof("hydraroute: detected (running=%v)", s.status.Running)
 		s.appLog.Info("detect", "", fmt.Sprintf("HrNeo detected (running=%v)", s.status.Running))
+		s.HealInvalidRuntimeConfig()
 	}
 	return s
+}
+
+func (s *Service) HealInvalidRuntimeConfig() {
+	changed, chosen, err := HealInvalidRuntimeConfig()
+	if err != nil {
+		s.appLog.Warn("config-heal", "", "failed to heal invalid config: "+err.Error())
+		return
+	}
+	if !changed {
+		return
+	}
+	s.appLog.Warn("config-heal", "IpsetMaxElem", fmt.Sprintf("invalid or duplicate IpsetMaxElem healed to %d", chosen))
+	if !s.status.Running {
+		s.scheduleRestart("config-heal")
+	}
 }
 
 // GetStatus returns cached detection status.
@@ -94,10 +110,11 @@ func (s *Service) Control(action string) error {
 }
 
 // scheduleRestart debounces neo restart: resets timer on each call.
-func (s *Service) scheduleRestart() {
+func (s *Service) scheduleRestart(reason string) {
 	if s.restartTimer != nil {
 		s.restartTimer.Stop()
 	}
+	s.appLog.Info("restart-schedule", "", "neo restart scheduled: "+reason)
 	s.restartTimer = time.AfterFunc(2*time.Second, func() {
 		// Mark timer as completed before releasing the lock so a concurrent
 		// scheduleRestart sees nil and creates a fresh timer rather than
@@ -203,57 +220,73 @@ func (s *Service) WriteConfig(cfg *Config) error {
 		cfg.GeoIPFiles = geoIP
 		cfg.GeoSiteFiles = geoSite
 	}
+	effectiveMaxElem := cfg.IpsetMaxElem
+	if cfg.IpsetMaxElem <= 0 {
+		effectiveMaxElem = defaultMaxElem
+		s.appLog.Warn("config-normalize", "IpsetMaxElem", "invalid value <=0 normalized to 65536")
+	}
+	s.appLog.Info(
+		"config-write",
+		"",
+		fmt.Sprintf(
+			"full config write: geoip=%d geosite=%d ipsetMaxElem=%d policyOrder=%d",
+			len(cfg.GeoIPFiles),
+			len(cfg.GeoSiteFiles),
+			effectiveMaxElem,
+			len(cfg.PolicyOrder),
+		),
+	)
 
 	if err := WriteConfig(cfg); err != nil {
+		s.appLog.Warn("config-write", "", "full config write failed: "+err.Error())
 		return err
 	}
 
-	s.scheduleRestart()
+	s.scheduleRestart("config-write")
 	return nil
 }
 
-// SetPolicyOrder updates only the PolicyOrder field in hrneo.conf and restarts.
+// SetPolicyOrder updates only PolicyOrder in hrneo.conf and restarts.
 func (s *Service) SetPolicyOrder(order []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.appLog.Info("policy-order", "", fmt.Sprintf("patch-only policy order write: entries=%d", len(order)))
 
-	cfg, err := ReadConfig()
-	if err != nil {
-		return fmt.Errorf("read config: %w", err)
-	}
-
-	cfg.PolicyOrder = order
-
-	if s.geodata != nil {
-		geoIP, geoSite := s.geodata.GeoFilePaths()
-		cfg.GeoIPFiles = geoIP
-		cfg.GeoSiteFiles = geoSite
-	}
-
-	if err := WriteConfig(cfg); err != nil {
+	if err := WritePolicyOrderOnly(order); err != nil {
+		s.appLog.Warn("policy-order", "", "patch-only policy order write failed: "+err.Error())
 		return err
 	}
 
-	s.scheduleRestart()
+	s.scheduleRestart("policy-order")
 	return nil
 }
 
-// SyncGeoFilesToConfig reads the current config and writes it back with updated geo file paths.
+// SyncGeoFilesToConfig updates only GeoIPFile/GeoSiteFile in hrneo.conf.
 func (s *Service) SyncGeoFilesToConfig() error {
-	cfg, err := ReadConfig()
-	if err != nil {
-		return err
-	}
 	geoIP, geoSite := 0, 0
-	if s.geodata != nil {
-		ips, sites := s.geodata.GeoFilePaths()
-		geoIP, geoSite = len(ips), len(sites)
+	var ips []string
+	var sites []string
+	s.mu.Lock()
+	gds := s.geodata
+	s.mu.Unlock()
+	if gds == nil {
+		s.appLog.Warn("sync-geo", "", "geo data store not initialized")
+		return fmt.Errorf("geo data store not initialized")
 	}
+	ips, sites = gds.GeoFilePaths()
+	geoIP, geoSite = len(ips), len(sites)
 	if s.log != nil {
 		s.log.Infof("hydraroute: sync geo files to config — %d geoip + %d geosite", geoIP, geoSite)
 	}
-	s.appLog.Info("sync-geo", "", fmt.Sprintf("sync geo files: %d geoip + %d geosite", geoIP, geoSite))
-	return s.WriteConfig(cfg)
+	s.appLog.Info("sync-geo", "", fmt.Sprintf("patch-only geo file sync: geoip=%d geosite=%d", geoIP, geoSite))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := WriteGeoFilesOnly(ips, sites); err != nil {
+		s.appLog.Warn("sync-geo", "", "patch-only geo file sync failed: "+err.Error())
+		return err
+	}
+	s.scheduleRestart("geo-sync")
+	return nil
 }
 
 // CalculateIpsetUsage returns the current ipset usage per kernel interface.
