@@ -33,9 +33,31 @@
 		{ value: '3h', label: '3 ч' },
 		{ value: '6h', label: '6 ч' },
 		{ value: '12h', label: '12 ч' },
-		{ value: '24h', label: '24 ч' },
-		{ value: '48h', label: '48 ч' }
+		{ value: '24h', label: '24 ч' }
 	];
+
+	/** Самый широкий период в UI — по нему пробуем оценить доступную историю при открытии. */
+	const WIDEST_PERIOD = PERIOD_OPTIONS[PERIOD_OPTIONS.length - 1].value;
+
+	/** Доля выбранного окна, которую должны покрывать точки (туннель мог прожить меньше). */
+	const MIN_PERIOD_COVERAGE = 0.5;
+
+	function dataSpanFromTimestamps(ts: number[]): number {
+		if (ts.length < 2) return 0;
+		return ts[ts.length - 1] - ts[0];
+	}
+
+	/** Наибольший пресет, для которого хватает уже загруженных точек. */
+	function pickLargestSufficientPeriod(spanSec: number): TrafficPeriod {
+		if (spanSec <= 0) return PERIOD_OPTIONS[0].value;
+		for (let i = PERIOD_OPTIONS.length - 1; i >= 0; i--) {
+			const { value } = PERIOD_OPTIONS[i];
+			if (spanSec >= PERIOD_SECONDS[value] * MIN_PERIOD_COVERAGE) {
+				return value;
+			}
+		}
+		return PERIOD_OPTIONS[0].value;
+	}
 
 	const PERIOD_LABELS: Record<TrafficPeriod, string> = {
 		'5m': 'последние 5 минут',
@@ -83,12 +105,23 @@
 	let liveCurrentRx = $state(0);
 	let liveCurrentTx = $state(0);
 	let lastLoadToken = 0;
+	/** После автоподбора периода при открытии — не повторять для того же туннеля в этой сессии. */
+	let periodAutoResolvedFor = '';
 
 	function periodLabel(period: TrafficPeriod): string {
 		return PERIOD_LABELS[period];
 	}
 
-	async function load(id: string, period: TrafficPeriod) {
+	function applyTrafficDetail(d: Awaited<ReturnType<typeof fetchTrafficDetail>>) {
+		timestamps = d.timestamps;
+		rxRates = d.rxRates;
+		txRates = d.txRates;
+		stats = d.stats as TrafficModalStats;
+		liveCurrentRx = d.stats.currentRx;
+		liveCurrentTx = d.stats.currentTx;
+	}
+
+	async function load(id: string, period: TrafficPeriod, resolveBestPeriod = false) {
 		const token = ++lastLoadToken;
 		loading = true;
 		error = null;
@@ -96,12 +129,17 @@
 		try {
 			const d = await fetchTrafficDetail(id, period);
 			if (token !== lastLoadToken) return;
-			timestamps = d.timestamps;
-			rxRates = d.rxRates;
-			txRates = d.txRates;
-			stats = d.stats as TrafficModalStats;
-			liveCurrentRx = d.stats.currentRx;
-			liveCurrentTx = d.stats.currentTx;
+
+			if (resolveBestPeriod) {
+				const best = pickLargestSufficientPeriod(dataSpanFromTimestamps(d.timestamps));
+				if (best !== period) {
+					selectedPeriod = best;
+					return load(id, best, false);
+				}
+				selectedPeriod = best;
+			}
+
+			applyTrafficDetail(d);
 		} catch (e) {
 			if (token !== lastLoadToken) return;
 			error = e instanceof Error ? e.message : 'Не удалось загрузить историю';
@@ -111,30 +149,39 @@
 		}
 	}
 
-	// Re-fetch whenever the modal opens, the tunnel id changes, or the
-	// selected period changes while open.
+	// Автоподбор периода только при открытии / смене туннеля (не при клике по пресетам).
 	$effect(() => {
-		if (open && tunnelId) {
-			load(tunnelId, selectedPeriod);
+		if (!open || !tunnelId) {
+			periodAutoResolvedFor = '';
+			return;
 		}
+		if (periodAutoResolvedFor === tunnelId) return;
+		periodAutoResolvedFor = tunnelId;
+		timestamps = [];
+		rxRates = [];
+		txRates = [];
+		void load(tunnelId, WIDEST_PERIOD, true);
 	});
 
-	// Subscribe to SSE traffic updates while the modal is open. The chart
-	// footer legend and the right edge advance in real time — the live
-	// buffer in the shared store is small, so a full swap is cheap.
+	function selectPeriod(period: TrafficPeriod) {
+		if (period === selectedPeriod) return;
+		selectedPeriod = period;
+		if (!open || !tunnelId) return;
+		// Не показываем точки прошлого периода, пока не пришёл ответ API.
+		timestamps = [];
+		rxRates = [];
+		txRates = [];
+		void load(tunnelId, period, false);
+	}
+
+	// SSE обновляет только «Сейчас» в легенде. Серии графика — только из API
+	// (fetchTrafficDetail), иначе буфер карточки (~1 ч) затирает окно 5m/10m.
 	$effect(() => {
 		if (!open || !tunnelId) return;
 		const unsub = subscribeTraffic(() => {
 			const { rx, tx } = getTrafficRates(tunnelId);
 			if (rx.length > 0) liveCurrentRx = rx[rx.length - 1];
 			if (tx.length > 0) liveCurrentTx = tx[tx.length - 1];
-			// Advance the chart's right edge in real time. Only overwrite
-			// if the live buffer has grown past what we fetched — never
-			// shrink the history window.
-			if (rx.length > rxRates.length) {
-				rxRates = rx.slice();
-				txRates = tx.slice();
-			}
 		});
 		return unsub;
 	});
@@ -149,6 +196,17 @@
 
 	let len = $derived(Math.min(rxRates.length, txRates.length));
 	let hasData = $derived(len >= 2);
+
+	let dataSpanSec = $derived.by(() => {
+		if (timestamps.length < 2) return 0;
+		return timestamps[timestamps.length - 1] - timestamps[0];
+	});
+
+	let periodSeconds = $derived(PERIOD_SECONDS[selectedPeriod]);
+
+	let hasSufficientPeriodData = $derived(
+		hasData && dataSpanSec >= periodSeconds * MIN_PERIOD_COVERAGE
+	);
 
 	let maxRate = $derived.by(() => {
 		if (!hasData) return 1;
@@ -280,10 +338,8 @@
 	let tooltipX = $derived(tooltipFlip ? hoverX - TOOLTIP_W - 8 : hoverX + 8);
 	let tooltipY = $derived(Math.min(hoverRxY, hoverTxY) - TOOLTIP_H - 6);
 	let tooltipYClamped = $derived(Math.max(PAD_TOP, tooltipY));
-	let showChart = $derived(hasData);
-	let showChartOverlay = $derived(loading && hasData);
-
-	let periodSeconds = $derived(PERIOD_SECONDS[selectedPeriod]);
+	let showChart = $derived(hasSufficientPeriodData);
+	let showChartOverlay = $derived(loading && len >= 2);
 	let periodRxBytes = $derived.by(() => {
 		if (stats.points >= 2 && stats.volumeRx !== undefined && stats.volumeTx !== undefined) {
 			return stats.volumeRx;
@@ -299,6 +355,15 @@
 	let useServerVolume = $derived(
 		stats.points >= 2 && stats.volumeRx !== undefined && stats.volumeTx !== undefined
 	);
+
+	let chartStageMessage = $derived.by((): { text: string; error: boolean } | null => {
+		if (loading && !showChart) return { text: 'Загрузка…', error: false };
+		if (error) return { text: error, error: true };
+		if (!loading && !hasSufficientPeriodData) {
+			return { text: 'Недостаточно данных за выбранный период', error: false };
+		}
+		return null;
+	});
 </script>
 
 <Modal {open} title={tunnelName || tunnelId} size="xl" {onclose}>
@@ -314,7 +379,7 @@
 					class="period-btn"
 					class:active={selectedPeriod === option.value}
 					aria-pressed={selectedPeriod === option.value}
-					onclick={() => (selectedPeriod = option.value)}
+					onclick={() => selectPeriod(option.value)}
 				>
 					{option.label}
 				</button>
@@ -352,23 +417,24 @@
 		</span>
 	</div>
 
-	{#if showChart}
-		<div class="chart-panel" aria-busy={showChartOverlay}>
-			<div class="chart-wrap" class:chart-wrap--loading={showChartOverlay}>
-				<div class="chart-top">
-					<span class="max-rate">{formatBitRate(maxRate)}</span>
-				</div>
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<svg
-					bind:this={svgEl}
-					class="chart-svg"
-					viewBox={`0 0 ${CHART_W} ${CHART_H}`}
-					preserveAspectRatio="none"
-					role="img"
-					aria-label={`График трафика за период: ${periodLabel(selectedPeriod)}`}
-					onmousemove={handleMouseMove}
-					onmouseleave={handleMouseLeave}
-				>
+	<div class="chart-stage" aria-busy={loading || showChartOverlay}>
+		<div class="chart-wrap" class:chart-wrap--loading={showChartOverlay}>
+			<div class="chart-top">
+				<span class="max-rate">{showChart ? formatBitRate(maxRate) : ''}</span>
+			</div>
+			<div class="chart-body">
+				{#if showChart}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<svg
+						bind:this={svgEl}
+						class="chart-svg"
+						viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+						preserveAspectRatio="none"
+						role="img"
+						aria-label={`График трафика за период: ${periodLabel(selectedPeriod)}`}
+						onmousemove={handleMouseMove}
+						onmouseleave={handleMouseLeave}
+					>
 					<defs>
 						<linearGradient
 							id="rx-grad-modal"
@@ -480,29 +546,28 @@
 						</g>
 					{/if}
 				</svg>
-				<div class="chart-bottom">
-					<span class="time">{timeStart}</span>
-					<span class="legend">
-						<span class="dot rx"></span>Прием: <span class="val rx">{formatBitRate(liveCurrentRx)}</span>
-						<span class="sep">·</span>
-						<span class="dot tx"></span>Передача: <span class="val tx">{formatBitRate(liveCurrentTx)}</span>
-					</span>
-					<span class="time">{timeEnd}</span>
-				</div>
+				{:else if chartStageMessage}
+					<p class="chart-state" class:chart-state--err={chartStageMessage.error}>
+						{chartStageMessage.text}
+					</p>
+				{/if}
 			</div>
-			{#if showChartOverlay}
-				<div class="chart-overlay">
-					<div class="chart-overlay-label">Обновляем график…</div>
-				</div>
-			{/if}
+			<div class="chart-bottom">
+				<span class="time">{showChart ? timeStart : ''}</span>
+				<span class="legend">
+					<span class="dot rx"></span>Прием: <span class="val rx">{formatBitRate(liveCurrentRx)}</span>
+					<span class="sep">·</span>
+					<span class="dot tx"></span>Передача: <span class="val tx">{formatBitRate(liveCurrentTx)}</span>
+				</span>
+				<span class="time">{showChart ? timeEnd : ''}</span>
+			</div>
 		</div>
-	{:else if loading}
-		<div class="state-msg">Загрузка…</div>
-	{:else if error}
-		<div class="state-msg state-err">{error}</div>
-	{:else if !hasData}
-		<div class="state-msg">Недостаточно данных за выбранный период</div>
-	{/if}
+		{#if showChartOverlay}
+			<div class="chart-overlay">
+				<div class="chart-overlay-label">Обновляем график…</div>
+			</div>
+		{/if}
+	</div>
 </Modal>
 
 <style>
@@ -594,6 +659,7 @@
 
 	.stats-line .stat--period-est {
 		row-gap: 2px;
+		min-width: 150px;
 		white-space: normal;
 		max-width: 100%;
 	}
@@ -624,7 +690,7 @@
 		opacity: 0.4;
 	}
 
-	.chart-panel {
+	.chart-stage {
 		position: relative;
 	}
 
@@ -636,10 +702,35 @@
 	.chart-wrap--loading {
 		opacity: 0.45;
 	}
-	.chart-svg {
+
+	.chart-body {
+		position: relative;
+		width: 100%;
+		aspect-ratio: 840 / 220;
+		min-height: 120px;
+	}
+
+	.chart-body .chart-svg {
 		display: block;
 		width: 100%;
-		height: auto;
+		height: 100%;
+	}
+
+	.chart-state {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin: 0;
+		padding: 0 1rem;
+		text-align: center;
+		color: var(--text-muted, #888);
+		font-size: 0.8125rem;
+	}
+
+	.chart-state--err {
+		color: var(--error, #f52a65);
 	}
 
 	.chart-top {
@@ -658,6 +749,7 @@
 		align-items: center;
 		column-gap: 16px;
 		padding: 4px 4px 0;
+		min-height: 2.75rem;
 		font-size: 0.6875rem;
 		color: var(--text-muted);
 	}
@@ -721,16 +813,6 @@
 		color: var(--color-text-secondary);
 		font-size: 0.75rem;
 		backdrop-filter: blur(6px);
-	}
-
-	.state-msg {
-		padding: 40px 0;
-		text-align: center;
-		color: var(--text-muted, #888);
-		font-size: 0.8125rem;
-	}
-	.state-msg.state-err {
-		color: var(--error, #f52a65);
 	}
 
 	@media (max-width: 720px) {
