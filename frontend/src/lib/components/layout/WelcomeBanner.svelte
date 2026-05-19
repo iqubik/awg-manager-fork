@@ -1,20 +1,20 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { usageLevel } from '$lib/stores/settings';
+	import { browser } from '$app/environment';
+	import { settings, usageLevel } from '$lib/stores/settings';
 
 	const STORAGE_KEY_BASIC = 'awgm.welcomeBannerDismissed';
 	const STORAGE_KEY_ADVANCED = 'awgm.welcomeBannerAdvancedDismissed';
 
-	let dismissedBasic = $state(true);
-	let dismissedAdvanced = $state(true);
+	function readDismissed(key: string): boolean {
+		return browser && localStorage.getItem(key) === '1';
+	}
 
-	onMount(() => {
-		dismissedBasic = localStorage.getItem(STORAGE_KEY_BASIC) === '1';
-		dismissedAdvanced = localStorage.getItem(STORAGE_KEY_ADVANCED) === '1';
-	});
+	let dismissedBasic = $state(readDismissed(STORAGE_KEY_BASIC));
+	let dismissedAdvanced = $state(readDismissed(STORAGE_KEY_ADVANCED));
 
-	const visibleBasic = $derived($usageLevel === 'basic' && !dismissedBasic);
-	const visibleAdvanced = $derived($usageLevel === 'advanced' && !dismissedAdvanced);
+	const settingsReady = $derived($settings !== null);
+	const visibleBasic = $derived(settingsReady && $usageLevel === 'basic' && !dismissedBasic);
+	const visibleAdvanced = $derived(settingsReady && $usageLevel === 'advanced' && !dismissedAdvanced);
 
 	function dismissBasic() {
 		localStorage.setItem(STORAGE_KEY_BASIC, '1');
