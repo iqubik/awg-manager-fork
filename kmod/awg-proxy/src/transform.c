@@ -55,18 +55,20 @@ static inline void write32_le(u8 *p, u32 v)
 
 u8 *transform_outbound(u8 *buf, int dataoff, int n,
 		       const awg_config_t *cfg, u64 rand_val,
-		       int *out_len, int *sendJunk)
+		       int *out_len, int *sendJunk, u32 *out_msgType)
 {
 	u8 *data = buf + dataoff;
 	u32 msgType;
 
 	*sendJunk = 0;
+	*out_msgType = 0;
 	if (n < 4) {
 		*out_len = n;
 		return data;
 	}
 
 	msgType = read32_le(data);
+	*out_msgType = msgType;
 
 	if (msgType == WG_HANDSHAKE_INIT && n == WG_INIT_SIZE) {
 		write32_le(data, hrange_pick(&cfg->h1, rand_val));

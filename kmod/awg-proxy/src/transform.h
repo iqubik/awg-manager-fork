@@ -16,6 +16,11 @@
 #define WG_COOKIE_REPLY        3
 #define WG_TRANSPORT_DATA      4
 
+/* AF41 (Assured Forwarding) + ECN bits cleared — matches
+ * amneziawg-linux-kernel-module HANDSHAKE_DSCP. Without this marking, some
+ * middleboxes drop handshake packets on the way to the AWG server. */
+#define AWG_HANDSHAKE_DSCP     0x88
+
 /* WireGuard packet sizes */
 #define WG_INIT_SIZE     148
 #define WG_RESP_SIZE      92
@@ -108,11 +113,13 @@ void config_compute(awg_config_t *cfg);
  * Transform outbound WG->AWG.
  * buf has dataoff bytes of headroom before the packet data.
  * sendJunk is set to 1 if junk+CPS should be sent before this packet.
+ * out_msgType receives the original WG msgType (pre-substitution); the caller
+ * uses it to apply HANDSHAKE_DSCP to init/response sends.
  * Returns pointer to output data.
  */
 u8 *transform_outbound(u8 *buf, int dataoff, int n,
 		       const awg_config_t *cfg, u64 rand_val,
-		       int *out_len, int *sendJunk);
+		       int *out_len, int *sendJunk, u32 *out_msgType);
 
 /*
  * Transform inbound AWG->WG.
