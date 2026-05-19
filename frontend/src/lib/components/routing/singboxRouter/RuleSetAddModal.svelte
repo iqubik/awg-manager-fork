@@ -491,12 +491,6 @@ keyword:youtube`;
 		resize: vertical;
 		line-height: 1.45;
 	}
-	.hint code {
-		font-family: ui-monospace, monospace;
-		background: var(--bg-tertiary, var(--bg));
-		padding: 0 0.25rem;
-		border-radius: 3px;
-	}
 	.segment {
 		display: inline-flex;
 		border: 1px solid var(--border);
@@ -522,10 +516,6 @@ keyword:youtube`;
 	}
 	.error {
 		color: var(--danger, #dc2626);
-		font-size: 0.85rem;
-	}
-	.warn {
-		color: var(--color-warning, #d97706);
 		font-size: 0.85rem;
 	}
 	.parse-messages {
