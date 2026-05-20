@@ -457,8 +457,9 @@ func (r *Runner) collectLogs() []logging.LogEntry {
 	if r.deps.LogService == nil {
 		return nil
 	}
-	// Get all entries (all categories, all levels)
-	return r.deps.LogService.GetLogs("", "")
+	// Diagnostics report keeps only warn/error-level journal entries.
+	// logging.LevelWarn includes both WARN and ERROR via IsVisible().
+	return r.deps.LogService.GetLogs("", string(logging.LevelWarn))
 }
 
 // --- Helpers ---
