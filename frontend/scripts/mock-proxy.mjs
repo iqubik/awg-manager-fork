@@ -1839,6 +1839,19 @@ const MANAGED_PEERS_FIXTURE = [
 	{ ip: '10.0.0.13', name: 'Guest device' },
 ];
 
+const SYSTEM_SERVER_PEERS_FIXTURE = [
+	{ ip: '10.0.1.2', name: 'Phone 15 Pro', endpoint: '95.64.154.50:50412', rx: 182_440_112, tx: 34_207_991, handshakeMinAgo: 1, enabled: true },
+	{ ip: '10.0.1.3', name: 'MacBook-Pro-13', endpoint: '178.176.80.12:54822', rx: 96_882_301, tx: 22_914_004, handshakeMinAgo: 3, enabled: true },
+	{ ip: '10.0.1.4', name: 'Windows-Workstation', endpoint: '0.0.0.0:0', rx: 0, tx: 0, enabled: true },
+	{ ip: '10.0.1.5', name: 'Android-Tablet', endpoint: '188.17.9.22:61234', rx: 24_331_554, tx: 7_220_118, handshakeMinAgo: 14, enabled: true },
+	{ ip: '10.0.1.6', name: 'Smart TV LG', endpoint: '100.64.2.8:53001', rx: 512_441_223, tx: 61_441_002, handshakeMinAgo: 120, enabled: true },
+	{ ip: '10.0.1.7', name: 'Synology NAS', endpoint: '0.0.0.0:0', rx: 1_522_112, tx: 211_334, enabled: true },
+	{ ip: '10.0.1.8', name: 'PS5', endpoint: '85.113.41.10:41999', rx: 72_556_801, tx: 11_772_900, handshakeMinAgo: 40, enabled: true },
+	{ ip: '10.0.1.9', name: 'MikroTik-Lab', endpoint: '203.0.113.18:51820', rx: 8_211_402, tx: 4_115_721, handshakeMinAgo: 9, enabled: true },
+	{ ip: '10.0.1.10', name: 'Guest-iPad', endpoint: '0.0.0.0:0', rx: 0, tx: 0, enabled: false },
+	{ ip: '10.0.1.11', name: 'Home-Assistant', endpoint: '192.0.2.77:55000', rx: 17_030_221, tx: 2_002_144, handshakeMinAgo: 300, enabled: true },
+];
+
 function mockPubkey(i) {
 	// 43 chars + '=' → 44, matches real WG pubkey length so any UI truncation behaves realistically.
 	return `MOCK${String(i).padStart(2, '0')}${'A'.repeat(37)}=`;
@@ -1884,6 +1897,67 @@ function mockManagedStats() {
 			};
 		}),
 	};
+}
+
+function mockSystemServerPeers() {
+	const now = Date.now();
+	return SYSTEM_SERVER_PEERS_FIXTURE.map((p, i) => {
+		const online = p.handshakeMinAgo !== undefined;
+		return {
+			publicKey: mockPubkey(50 + i),
+			description: p.name,
+			endpoint: p.endpoint ?? '0.0.0.0:0',
+			allowedIPs: [`${p.ip}/32`],
+			rxBytes: p.rx ?? 0,
+			txBytes: p.tx ?? 0,
+			lastHandshake: online ? new Date(now - p.handshakeMinAgo * 60_000).toISOString() : '',
+			online,
+			enabled: p.enabled !== false,
+		};
+	});
+}
+
+function mockSystemServers() {
+	return [
+		{
+			id: 'Wireguard0',
+			interfaceName: 'Wireguard0',
+			description: 'Wireguard VPN Server',
+			status: 'up',
+			connected: true,
+			mtu: 1420,
+			address: '10.0.1.1',
+			mask: '255.255.255.0',
+			publicKey: mockPubkey(41),
+			listenPort: 51820,
+			peers: mockSystemServerPeers(),
+		},
+		{
+			id: 'Wireguard9',
+			interfaceName: 'Wireguard9',
+			description: 'Branch Office WG',
+			status: 'down',
+			connected: false,
+			mtu: 1420,
+			address: '10.9.0.1',
+			mask: '255.255.255.0',
+			publicKey: mockPubkey(42),
+			listenPort: 53199,
+			peers: [
+				{
+					publicKey: mockPubkey(60),
+					description: 'Branch-Router',
+					endpoint: '0.0.0.0:0',
+					allowedIPs: ['10.9.0.2/32'],
+					rxBytes: 0,
+					txBytes: 0,
+					lastHandshake: '',
+					online: false,
+					enabled: true,
+				},
+			],
+		},
+	];
 }
 
 async function fetchJSON(path, init) {
@@ -3281,6 +3355,7 @@ const server = http.createServer(async (req, res) => {
 	if (req.method === 'GET' && path === '/servers/all') {
 		fetchJSON('/servers/all').then(({ status, body }) => {
 			if (body && typeof body === 'object' && body.data && typeof body.data === 'object') {
+				body.data.servers = mockSystemServers();
 				body.data.managed = [mockManagedServer()];
 				body.data.managedStats = { Wireguard1: mockManagedStats() };
 			}

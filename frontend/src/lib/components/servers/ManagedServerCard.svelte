@@ -13,7 +13,7 @@
 		PeerConfModal,
 		PeerSortControls
 	} from '$lib/components/servers';
-	import { comparePeerFields } from '$lib/utils/peerSort';
+	import { comparePeerFieldsDirected } from '$lib/utils/peerSort';
 	import { peerSort } from '$lib/stores/peerSort';
 
 	interface Props {
@@ -61,7 +61,7 @@
 		const sorted = [...peers].sort((a, b) => {
 			const sa = getPeerStats(a.publicKey);
 			const sb = getPeerStats(b.publicKey);
-			const cmp = comparePeerFields(
+			return comparePeerFieldsDirected(
 				{
 					name: a.description || a.publicKey,
 					ip: a.tunnelIP,
@@ -79,8 +79,8 @@
 					lastHandshake: sb?.lastHandshake ?? null,
 				},
 				$peerSort.sortBy,
+				$peerSort.sortAsc,
 			);
-			return $peerSort.sortAsc ? cmp : -cmp;
 		});
 
 		return sorted;

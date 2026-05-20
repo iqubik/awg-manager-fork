@@ -17,6 +17,20 @@ export interface PeerSortFields {
 	lastHandshake: string | null;
 }
 
+function parseHandshakeOrNull(v: string | null): number | null {
+	if (!v) return null;
+	const ts = new Date(v).getTime();
+	return Number.isFinite(ts) ? ts : null;
+}
+
+function compareNullableNumbers(a: number | null, b: number | null, sortAsc: boolean): number {
+	// Missing values are always last, regardless of direction.
+	if (a === null && b === null) return 0;
+	if (a === null) return 1;
+	if (b === null) return -1;
+	return sortAsc ? a - b : b - a;
+}
+
 export function parseIPv4(ip: string): number {
 	const bare = ip.split('/')[0] ?? '';
 	const parts = bare.split('.').map((s) => {
@@ -26,7 +40,10 @@ export function parseIPv4(ip: string): number {
 	return (parts[0] ?? 0) * 0x1000000 + (parts[1] ?? 0) * 0x10000 + (parts[2] ?? 0) * 0x100 + (parts[3] ?? 0);
 }
 
-export function comparePeerFields(a: PeerSortFields, b: PeerSortFields, sortBy: PeerSortKey): number {
+// Base field comparator (direction-agnostic). For UI sorting, always use
+// comparePeerFieldsDirected(...) so direction and "missing values last"
+// behavior are applied consistently.
+function comparePeerFields(a: PeerSortFields, b: PeerSortFields, sortBy: PeerSortKey): number {
 	switch (sortBy) {
 		case 'name':
 			return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
@@ -47,12 +64,37 @@ export function comparePeerFields(a: PeerSortFields, b: PeerSortFields, sortBy: 
 			return (a.online ? 1 : 0) - (b.online ? 1 : 0);
 		}
 		case 'handshake': {
-			const ha = a.lastHandshake ? new Date(a.lastHandshake).getTime() : -1;
-			const hb = b.lastHandshake ? new Date(b.lastHandshake).getTime() : -1;
-			if (ha === -1 && hb === -1) return 0;
-			if (ha === -1) return 1;
-			if (hb === -1) return -1;
+			const ha = parseHandshakeOrNull(a.lastHandshake);
+			const hb = parseHandshakeOrNull(b.lastHandshake);
+			if (ha === null && hb === null) return 0;
+			if (ha === null) return 1;
+			if (hb === null) return -1;
 			return ha - hb;
 		}
 	}
+}
+
+export function comparePeerFieldsDirected(
+	a: PeerSortFields,
+	b: PeerSortFields,
+	sortBy: PeerSortKey,
+	sortAsc: boolean,
+): number {
+	if (sortBy === 'traffic') {
+		const ta = a.rxBytes !== null && a.txBytes !== null ? a.rxBytes + a.txBytes : null;
+		const tb = b.rxBytes !== null && b.txBytes !== null ? b.rxBytes + b.txBytes : null;
+		return compareNullableNumbers(ta, tb, sortAsc);
+	}
+	if (sortBy === 'online') {
+		const oa = a.online === null ? null : (a.online ? 1 : 0);
+		const ob = b.online === null ? null : (b.online ? 1 : 0);
+		return compareNullableNumbers(oa, ob, sortAsc);
+	}
+	if (sortBy === 'handshake') {
+		const ha = parseHandshakeOrNull(a.lastHandshake);
+		const hb = parseHandshakeOrNull(b.lastHandshake);
+		return compareNullableNumbers(ha, hb, sortAsc);
+	}
+	const cmp = comparePeerFields(a, b, sortBy);
+	return sortAsc ? cmp : -cmp;
 }

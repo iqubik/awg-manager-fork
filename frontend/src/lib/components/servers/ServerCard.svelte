@@ -3,7 +3,7 @@
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { formatBytes } from '$lib/utils/format';
-	import { comparePeerFields } from '$lib/utils/peerSort';
+	import { comparePeerFieldsDirected } from '$lib/utils/peerSort';
 	import { peerSort } from '$lib/stores/peerSort';
 	import { PeerTable, ConfGeneratorModal, PeerSortControls } from '$lib/components/servers';
 	import { Button } from '$lib/components/ui';
@@ -49,7 +49,7 @@
 		}
 
 		const sorted = [...peers].sort((a, b) => {
-			const cmp = comparePeerFields(
+			return comparePeerFieldsDirected(
 				{
 					name: a.description || a.publicKey,
 					ip: peerIP(a),
@@ -67,8 +67,8 @@
 					lastHandshake: b.lastHandshake || null,
 				},
 				$peerSort.sortBy,
+				$peerSort.sortAsc,
 			);
-			return $peerSort.sortAsc ? cmp : -cmp;
 		});
 
 		return sorted;
