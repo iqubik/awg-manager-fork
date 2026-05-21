@@ -66,11 +66,75 @@ static void test_rejects_range_overlapping_default_header(void)
 		    "configured H2 range must not overlap default H1=1");
 }
 
+static void test_accepts_exact_public_keys(void)
+{
+	awg_config_t cfg;
+	int ret;
+
+	tests_run++;
+	ret = awg_config_parse("203.0.113.1:51820 "
+			       "PUB_SERVER=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f "
+			       "PUB_CLIENT=202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+			       &cfg);
+	ASSERT_TRUE("accepts_exact_public_keys", ret == 0,
+		    "64-char hex public keys should parse");
+	if (!ret) {
+		ASSERT_TRUE("accepts_exact_public_keys", cfg.has_server_pub,
+			    "server public key should be marked present");
+		ASSERT_TRUE("accepts_exact_public_keys", cfg.has_client_pub,
+			    "client public key should be marked present");
+		awg_config_free(&cfg);
+	}
+}
+
+static void test_rejects_short_public_key(void)
+{
+	awg_config_t cfg;
+	int ret;
+
+	tests_run++;
+	ret = awg_config_parse("203.0.113.1:51820 "
+			       "PUB_SERVER=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
+			       &cfg);
+	ASSERT_TRUE("rejects_short_public_key", ret != 0,
+		    "short public key hex must be rejected");
+}
+
+static void test_rejects_long_public_key(void)
+{
+	awg_config_t cfg;
+	int ret;
+
+	tests_run++;
+	ret = awg_config_parse("203.0.113.1:51820 "
+			       "PUB_SERVER=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00",
+			       &cfg);
+	ASSERT_TRUE("rejects_long_public_key", ret != 0,
+		    "long public key hex must be rejected");
+}
+
+static void test_rejects_invalid_public_key_hex(void)
+{
+	awg_config_t cfg;
+	int ret;
+
+	tests_run++;
+	ret = awg_config_parse("203.0.113.1:51820 "
+			       "PUB_CLIENT=zz0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			       &cfg);
+	ASSERT_TRUE("rejects_invalid_public_key_hex", ret != 0,
+		    "non-hex public key data must be rejected");
+}
+
 int main(void)
 {
 	test_accepts_non_overlapping_h_ranges();
 	test_rejects_overlapping_h_ranges();
 	test_rejects_range_overlapping_default_header();
+	test_accepts_exact_public_keys();
+	test_rejects_short_public_key();
+	test_rejects_long_public_key();
+	test_rejects_invalid_public_key_hex();
 
 	printf("\n=== %d run, %d failed ===\n", tests_run, tests_failed);
 	return tests_failed == 0 ? 0 : 1;

@@ -14,24 +14,22 @@
 #include "blake2s.h"
 #include "cps.h"
 
-/*
- * Parse hex string into binary buffer.
- * Returns number of bytes written, or -1 on error.
- */
-static int parse_hex(const char *hex, u8 *out, int maxlen)
+static int parse_hex_exact(const char *hex, u8 *out, int len)
 {
-	int i = 0;
-	int hi, lo;
+	int i, hi, lo;
 
-	while (hex[0] && hex[1] && i < maxlen) {
+	for (i = 0; i < len; i++) {
+		if (!hex[0] || !hex[1])
+			return -EINVAL;
 		hi = hex_to_bin(hex[0]);
 		lo = hex_to_bin(hex[1]);
 		if (hi < 0 || lo < 0)
-			return -1;
-		out[i++] = (hi << 4) | lo;
+			return -EINVAL;
+		out[i] = (hi << 4) | lo;
 		hex += 2;
 	}
-	return i;
+
+	return *hex ? -EINVAL : 0;
 }
 
 static int hrange_overlaps(const hrange_t *a, const hrange_t *b)
@@ -162,9 +160,17 @@ int awg_config_parse(const char *config_line, awg_config_t *cfg)
 		} else if (strcmp(key, "Jmax") == 0) {
 			kstrtoint(val, 10, &cfg->jmax);
 		} else if (strcmp(key, "PUB_SERVER") == 0) {
-			parse_hex(val, cfg->server_pub, 32);
+			if (parse_hex_exact(val, cfg->server_pub, 32)) {
+				pr_warn("awg_proxy: invalid PUB_SERVER\n");
+				kfree(val);
+				goto out_invalid;
+			}
 		} else if (strcmp(key, "PUB_CLIENT") == 0) {
-			parse_hex(val, cfg->client_pub, 32);
+			if (parse_hex_exact(val, cfg->client_pub, 32)) {
+				pr_warn("awg_proxy: invalid PUB_CLIENT\n");
+				kfree(val);
+				goto out_invalid;
+			}
 		} else if (strcmp(key, "BIND") == 0) {
 			strscpy(cfg->bind_iface, val, sizeof(cfg->bind_iface));
 		} else if (key[0] == 'I' && key[1] >= '1' && key[1] <= '5' &&
