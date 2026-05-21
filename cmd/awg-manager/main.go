@@ -321,7 +321,8 @@ func main() {
 		eventBus,
 		3*time.Second,
 		10*time.Second,
-		0, nil,
+		env.DurationDefault("AWG_NDMS_SAVE_SETTLE_DELAY", 2*time.Second),
+		ndmsQueries.RunningConfig,
 	)
 	ndmsCommands := ndmscommand.NewCommands(ndmscommand.Deps{
 		Poster:       ndmsTransportClient,
@@ -1701,7 +1702,14 @@ func runCleanup(dataDir string) {
 
 	// Build NDMS Commands early so the Operator can consume them. HookNotifier
 	// is wired below once the orchestrator exists (see SetHookNotifier call).
-	cleanupNDMSSave := ndmscommand.NewSaveCoordinator(cleanupNDMSTransport, cleanupEventBus, 3*time.Second, 10*time.Second, 0, nil)
+	cleanupNDMSSave := ndmscommand.NewSaveCoordinator(
+		cleanupNDMSTransport,
+		cleanupEventBus,
+		3*time.Second,
+		10*time.Second,
+		env.DurationDefault("AWG_NDMS_SAVE_SETTLE_DELAY", 2*time.Second),
+		cleanupNDMSQueries.RunningConfig,
+	)
 	cleanupNDMSCommands := ndmscommand.NewCommands(ndmscommand.Deps{
 		Poster:  cleanupNDMSTransport,
 		Save:    cleanupNDMSSave,
