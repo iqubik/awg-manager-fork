@@ -208,6 +208,34 @@ u8 *transform_inbound(u8 *buf, int n, const awg_config_t *cfg, int *out_len)
 	return NULL;
 }
 
+/*
+ * MAC1/MAC2 layout per messages.h (vanilla WG, identical in AWG):
+ *   init (148B):     [0..116] data | [116..132] mac1 | [132..148] mac2
+ *   response (92B):  [0..60]  data | [60..76]  mac1 | [76..92]   mac2
+ * MAC2 is keyed by the 16-byte decrypted cookie (cookie.c:88).
+ */
+void recompute_mac2_if_present(u8 *buf, int n, u32 msgType,
+			       const u8 cookie[16])
+{
+	static const u8 zeros[16] = {0};
+	int mac1_end, mac2_off;
+
+	if (msgType == WG_HANDSHAKE_INIT && n == WG_INIT_SIZE) {
+		mac1_end = 116;
+		mac2_off = 132;
+	} else if (msgType == WG_HANDSHAKE_RESPONSE && n == WG_RESP_SIZE) {
+		mac1_end = 60;
+		mac2_off = 76;
+	} else {
+		return;
+	}
+
+	if (memcmp(buf + mac2_off, zeros, 16) == 0)
+		return;
+
+	compute_mac2(cookie, buf, mac1_end + 16, buf + mac2_off);
+}
+
 int generate_junk(const awg_config_t *cfg, u8 *junk_buf,
 		  int *sizes, int max_sizes)
 {

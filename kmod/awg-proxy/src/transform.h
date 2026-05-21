@@ -128,6 +128,25 @@ u8 *transform_outbound(u8 *buf, int dataoff, int n,
 u8 *transform_inbound(u8 *buf, int n, const awg_config_t *cfg, int *out_len);
 
 /*
+ * Recompute MAC2 in a freshly-transformed WG handshake init/response.
+ *
+ * Server validates MAC2 over the bytes it received (cookie.c:142-143),
+ * so when proxy rewrites msg_type+MAC1 the client-computed MAC2 stops
+ * matching and the server keeps responding with cookie_replies under
+ * load. If the caller has stashed a fresh cookie from a prior
+ * cookie_reply decrypt, this helper rewrites MAC2 in place.
+ *
+ * No-op (returns early) when:
+ *   - msgType is not INIT or RESPONSE
+ *   - n doesn't match the expected packet size
+ *   - existing MAC2 field is all zeros (client has no cookie → don't lie)
+ *
+ * buf points at the WG packet start (after any AWG s_prefix).
+ */
+void recompute_mac2_if_present(u8 *buf, int n, u32 msgType,
+			       const u8 cookie[16]);
+
+/*
  * Generate junk packet sizes.
  * junk_buf should be pre-filled with random data.
  * sizes[] receives the packet sizes.

@@ -22,4 +22,9 @@ void recompute_mac1(u8 *buf, const u8 mac1key[32]);
 /* Recompute MAC1 in handshake response (92 bytes). MAC1 at [60:76], covers [0:60]. */
 void recompute_mac1_response(u8 *buf, const u8 mac1key[32]);
 
+/* MAC2 keyed by 16-byte cookie (vs 32-byte mac1 key). Mirrors official AWG
+ * src/cookie.c compute_mac2(): blake2s(cookie, 16, message, len, mac2, 16). */
+void compute_mac2(const u8 cookie[16], const void *data, size_t len,
+		  u8 out[16]);
+
 #endif

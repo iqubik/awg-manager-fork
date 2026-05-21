@@ -309,6 +309,102 @@ static void test_mac1_recompute_inbound_init(void)
 		    "MAC1 should differ after header restore + recompute");
 }
 
+/*
+ * Test 7: recompute_mac2_if_present rewrites MAC2 for init with non-zero MAC2,
+ * value matches an independent compute_mac2() over the same bytes.
+ */
+static void test_mac2_recompute_outbound_init(void)
+{
+	u8 buf[WG_INIT_SIZE];
+	u8 cookie[16];
+	u8 expected[16];
+
+	tests_run++;
+	/* Build init body with non-zero MAC2 (simulates client with cookie) */
+	memset(buf, 0x33, WG_INIT_SIZE);
+	write32_le_host(buf, WG_HANDSHAKE_INIT);
+	memset(cookie, 0xAB, 16);
+
+	/* Reference: MAC2 = blake2s(cookie, buf[0..132], 16) */
+	compute_mac2(cookie, buf, 132, expected);
+
+	recompute_mac2_if_present(buf, WG_INIT_SIZE,
+				  WG_HANDSHAKE_INIT, cookie);
+
+	ASSERT_TRUE("mac2_outbound_init",
+		    memcmp(buf + 132, expected, 16) == 0,
+		    "MAC2 must match independent compute_mac2 result");
+}
+
+/*
+ * Test 8: same for response packet (mac1_end=60, mac2_off=76).
+ */
+static void test_mac2_recompute_outbound_response(void)
+{
+	u8 buf[WG_RESP_SIZE];
+	u8 cookie[16];
+	u8 expected[16];
+
+	tests_run++;
+	memset(buf, 0x55, WG_RESP_SIZE);
+	write32_le_host(buf, WG_HANDSHAKE_RESPONSE);
+	memset(cookie, 0xCD, 16);
+
+	compute_mac2(cookie, buf, 76, expected);
+
+	recompute_mac2_if_present(buf, WG_RESP_SIZE,
+				  WG_HANDSHAKE_RESPONSE, cookie);
+
+	ASSERT_TRUE("mac2_outbound_response",
+		    memcmp(buf + 76, expected, 16) == 0,
+		    "MAC2 must match independent compute_mac2 result");
+}
+
+/*
+ * Test 9: zero MAC2 stays zero (client without cookie — must not lie to server).
+ */
+static void test_mac2_zero_passthrough(void)
+{
+	u8 buf[WG_INIT_SIZE];
+	u8 cookie[16];
+	u8 zeros[16] = {0};
+
+	tests_run++;
+	memset(buf, 0x77, WG_INIT_SIZE);
+	write32_le_host(buf, WG_HANDSHAKE_INIT);
+	memset(buf + 132, 0, 16);  /* MAC2 = zeros */
+	memset(cookie, 0xEF, 16);
+
+	recompute_mac2_if_present(buf, WG_INIT_SIZE,
+				  WG_HANDSHAKE_INIT, cookie);
+
+	ASSERT_TRUE("mac2_zero_passthrough",
+		    memcmp(buf + 132, zeros, 16) == 0,
+		    "zero MAC2 must remain zero");
+}
+
+/*
+ * Test 10: non-handshake msgType is no-op (transport / cookie / unknown).
+ */
+static void test_mac2_non_handshake_noop(void)
+{
+	u8 buf[WG_INIT_SIZE];
+	u8 buf_before[WG_INIT_SIZE];
+	u8 cookie[16];
+
+	tests_run++;
+	memset(buf, 0x99, WG_INIT_SIZE);
+	memset(cookie, 0x11, 16);
+	memcpy(buf_before, buf, WG_INIT_SIZE);
+
+	recompute_mac2_if_present(buf, WG_INIT_SIZE,
+				  WG_TRANSPORT_DATA, cookie);
+
+	ASSERT_TRUE("mac2_non_handshake_noop",
+		    memcmp(buf, buf_before, WG_INIT_SIZE) == 0,
+		    "non-handshake msgType must leave buffer untouched");
+}
+
 /* ---------- Main ---------- */
 
 int main(void)
@@ -319,6 +415,10 @@ int main(void)
 	test_s4_noop_passthrough();
 	test_mac1_recompute_outbound_init();
 	test_mac1_recompute_inbound_init();
+	test_mac2_recompute_outbound_init();
+	test_mac2_recompute_outbound_response();
+	test_mac2_zero_passthrough();
+	test_mac2_non_handshake_noop();
 
 	printf("\n=== %d run, %d failed ===\n", tests_run, tests_failed);
 	return tests_failed == 0 ? 0 : 1;
