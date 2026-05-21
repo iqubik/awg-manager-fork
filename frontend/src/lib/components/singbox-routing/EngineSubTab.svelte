@@ -34,6 +34,90 @@
 	let createModalOpen = $state(false);
 	let createDescription = $state('awgm-router');
 
+	// Preset configuration — must match backend knownPresets keys
+	const PRESET_CONFIG = [
+		{
+			id: 'l2tp',
+			label: 'L2TP / IPsec',
+			ports: '500, 4500, 1701 UDP',
+			description: 'Корпоративный VPN, операторский L2TP',
+		},
+		{
+			id: 'ntp',
+			label: 'NTP',
+			ports: '123 UDP',
+			description: 'Синхронизация времени',
+		},
+		{
+			id: 'netbios-smb',
+			label: 'NetBIOS / SMB',
+			ports: '137–139 UDP/TCP, 445 TCP',
+			description: 'Локальная сеть, доступ к файлам',
+		},
+	] as const;
+
+	let advancedOpen = $state(false);
+	let localPresets = $state<string[]>([]);
+	let localExtraPorts = $state('');
+	let extraPortsError = $state('');
+	let savingAdvanced = $state(false);
+
+	const advancedHint = $derived.by(() => {
+		const labels = localPresets
+			.map((id) => PRESET_CONFIG.find((p) => p.id === id)?.label)
+			.filter(Boolean)
+			.join(', ');
+		if (labels) return labels;
+		if (localExtraPorts.trim()) return '+ доп. порты';
+		return '';
+	});
+
+	function toggleAdvanced(): void {
+		advancedOpen = !advancedOpen;
+		if (advancedOpen && settings) {
+			// Sync local state from server on open
+			localPresets = [...(settings.bypassPresets ?? [])];
+			localExtraPorts = settings.bypassExtraPorts ?? '';
+			extraPortsError = '';
+		}
+	}
+
+	function togglePreset(id: string): void {
+		if (localPresets.includes(id)) {
+			localPresets = localPresets.filter((p) => p !== id);
+		} else {
+			localPresets = [...localPresets, id];
+		}
+	}
+
+	function validateExtraPorts(value: string): boolean {
+		if (!value.trim()) return true;
+		const entries = value.split(',').map((e) => e.trim()).filter(Boolean);
+		return entries.every((e) => /^\d+\s+(UDP|TCP)$/i.test(e));
+	}
+
+	async function saveAdvanced(): Promise<void> {
+		if (!settings) return;
+		extraPortsError = '';
+		if (!validateExtraPorts(localExtraPorts)) {
+			extraPortsError = 'Формат: «PORT UDP» или «PORT TCP», через запятую. Например: 51820 UDP, 1194 TCP';
+			return;
+		}
+		savingAdvanced = true;
+		try {
+			await api.singboxRouterPutSettings({
+				...settings,
+				bypassPresets: localPresets,
+				bypassExtraPorts: localExtraPorts.trim(),
+			});
+			await refresh();
+		} catch (e) {
+			notifications.error((e as Error).message);
+		} finally {
+			savingAdvanced = false;
+		}
+	}
+
 	async function refresh(): Promise<void> {
 		await singboxRouter.loadAll();
 	}
@@ -359,6 +443,68 @@
 						</div>
 					{/if}
 				</div>
+
+				<div class="advanced-block">
+					<button class="advanced-toggle" onclick={toggleAdvanced}>
+						<span>Дополнительно</span>
+						{#if advancedHint && !advancedOpen}
+							<span class="advanced-hint">{advancedHint}</span>
+						{/if}
+						<span class="advanced-chevron" class:open={advancedOpen}>›</span>
+					</button>
+
+					{#if advancedOpen}
+						<div class="advanced-body">
+							<div class="control-label">Исключить из перехвата</div>
+							<p class="advanced-description">
+								Трафик на указанные порты не будет перехватываться sing-box —
+								пройдёт напрямую как без политики.
+							</p>
+
+							{#each PRESET_CONFIG as preset}
+								<label class="preset-row">
+									<input
+										type="checkbox"
+										checked={localPresets.includes(preset.id)}
+										onchange={() => togglePreset(preset.id)}
+										disabled={savingAdvanced}
+									/>
+									<div class="preset-info">
+										<span class="preset-label">{preset.label}</span>
+										<span class="preset-ports">{preset.ports}</span>
+										<span class="preset-description">{preset.description}</span>
+									</div>
+								</label>
+							{/each}
+
+							<div class="extra-ports-block">
+								<div class="control-label">Дополнительные порты</div>
+								<input
+									class="extra-ports-input"
+									class:error={!!extraPortsError}
+									value={localExtraPorts}
+									oninput={(e) => { localExtraPorts = (e.target as HTMLInputElement).value; extraPortsError = ''; }}
+									placeholder="например: 51820 UDP, 1194 TCP"
+									disabled={savingAdvanced}
+								/>
+								{#if extraPortsError}
+									<div class="extra-ports-error">{extraPortsError}</div>
+								{/if}
+							</div>
+
+							<div class="advanced-actions">
+								<Button
+									variant="primary"
+									size="sm"
+									onclick={saveAdvanced}
+									disabled={savingAdvanced}
+								>
+									{savingAdvanced ? 'Сохранение…' : 'Сохранить'}
+								</Button>
+							</div>
+						</div>
+					{/if}
+				</div>
 			{/if}
 		</div>
 	</Card>
@@ -603,5 +749,110 @@
 	}
 	.stat-row-wrap + :global(.card) {
 		margin-top: 1rem;
+	}
+	.advanced-block {
+		border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+		padding-top: 0.5rem;
+		margin-top: 0.25rem;
+	}
+	.advanced-toggle {
+		background: none;
+		border: none;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		width: 100%;
+		padding: 0;
+		font-size: 0.8rem;
+		color: var(--color-text-secondary);
+		text-align: left;
+	}
+	.advanced-toggle:hover {
+		color: var(--color-text-primary);
+	}
+	.advanced-hint {
+		font-size: 0.72rem;
+		color: var(--color-text-muted);
+		margin-left: 0.25rem;
+	}
+	.advanced-chevron {
+		margin-left: auto;
+		font-size: 0.75rem;
+		transition: transform 0.2s;
+	}
+	.advanced-chevron.open {
+		transform: rotate(90deg);
+	}
+	.advanced-body {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+	}
+	.advanced-description {
+		margin: 0;
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+		line-height: 1.4;
+	}
+	.preset-row {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		cursor: pointer;
+	}
+	.preset-row input[type='checkbox'] {
+		margin-top: 2px;
+		flex-shrink: 0;
+	}
+	.preset-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+	.preset-label {
+		font-size: 0.82rem;
+		font-weight: 600;
+		color: var(--color-text-primary);
+	}
+	.preset-ports {
+		font-size: 0.72rem;
+		color: var(--color-text-muted);
+		font-family: var(--font-mono, ui-monospace, monospace);
+	}
+	.preset-description {
+		font-size: 0.72rem;
+		color: var(--color-text-muted);
+	}
+	.extra-ports-block {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		margin-top: 0.25rem;
+	}
+	.extra-ports-input {
+		width: 100%;
+		background: var(--color-bg-secondary);
+		border: 1px solid var(--color-border, rgba(255, 255, 255, 0.12));
+		border-radius: var(--radius-sm);
+		padding: 0.35rem 0.6rem;
+		color: var(--color-text-primary);
+		font-size: 0.8rem;
+		font-family: var(--font-mono, ui-monospace, monospace);
+		box-sizing: border-box;
+	}
+	.extra-ports-input.error {
+		border-color: var(--color-error);
+	}
+	.extra-ports-error {
+		font-size: 0.72rem;
+		color: var(--color-error);
+		line-height: 1.4;
+	}
+	.advanced-actions {
+		display: flex;
+		justify-content: flex-end;
+		margin-top: 0.25rem;
 	}
 </style>
