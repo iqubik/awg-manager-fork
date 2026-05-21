@@ -1881,6 +1881,31 @@ function mockManagedServer() {
 	};
 }
 
+function mockManagedSystemServer() {
+	return {
+		interfaceName: 'Wireguard0',
+		description: 'Wireguard VPN Server',
+		address: '10.0.1.1',
+		mask: '255.255.255.0',
+		listenPort: 51820,
+		endpoint: '',
+		dns: '',
+		mtu: 1420,
+		natEnabled: true,
+		policy: 'none',
+		privateKey: 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=',
+		peers: SYSTEM_SERVER_PEERS_FIXTURE.map((p, i) => ({
+			publicKey: mockPubkey(50 + i),
+			privateKey: '',
+			presharedKey: '',
+			description: p.name,
+			tunnelIP: `${p.ip}/32`,
+			dns: '',
+			enabled: p.enabled !== false,
+		})),
+	};
+}
+
 function mockManagedStats() {
 	const now = Date.now();
 	return {
@@ -1896,6 +1921,13 @@ function mockManagedStats() {
 				online,
 			};
 		}),
+	};
+}
+
+function mockManagedSystemStats() {
+	return {
+		status: 'up',
+		peers: mockSystemServerPeers(),
 	};
 }
 
@@ -3356,8 +3388,11 @@ const server = http.createServer(async (req, res) => {
 		fetchJSON('/servers/all').then(({ status, body }) => {
 			if (body && typeof body === 'object' && body.data && typeof body.data === 'object') {
 				body.data.servers = mockSystemServers();
-				body.data.managed = [mockManagedServer()];
-				body.data.managedStats = { Wireguard1: mockManagedStats() };
+				body.data.managed = [mockManagedServer(), mockManagedSystemServer()];
+				body.data.managedStats = {
+					Wireguard1: mockManagedStats(),
+					Wireguard0: mockManagedSystemStats(),
+				};
 			}
 			send(res, status, body);
 		});

@@ -9,7 +9,7 @@ import { defineConfig, loadEnv, type Plugin } from 'vite';
  * In mock-dev (`VITE_API_STRIP_PREFIX=true`) the router-relative
  * /site.webmanifest references in SvelteKit pages produce child-URL
  * requests like /tunnels/site.webmanifest, /singbox/site.webmanifest,
- * /subscriptions/site.webmanifest instead of the real root path.
+ * /subscriptions/site.webmanifest, /servers/site.webmanifest instead of the real root path.
  * This Vite middleware intercepts those requests and serves the actual
  * manifest file from frontend/static/ so the PWA install prompt works
  * on nested routes during mock-dev on Windows.
@@ -25,10 +25,14 @@ const serveNestedManifestInMockDev = (enabled: boolean): Plugin => ({
 		server.middlewares.use((req, res, next) => {
 			const pathname = (req.url ?? '').split('?')[0];
 
-			const isNestedManifest =
-				pathname === '/tunnels/site.webmanifest' ||
-				pathname === '/singbox/site.webmanifest' ||
-				pathname === '/subscriptions/site.webmanifest';
+			const nestedManifestPaths = new Set([
+				'/tunnels/site.webmanifest',
+				'/singbox/site.webmanifest',
+				'/subscriptions/site.webmanifest',
+				'/servers/site.webmanifest',
+			]);
+
+			const isNestedManifest = nestedManifestPaths.has(pathname);
 
 			if (!isNestedManifest) {
 				next();
