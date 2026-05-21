@@ -13,7 +13,7 @@ set "BUILD_MODE=arm"
 :: Set UPLOAD_MODE to: "on" or "off"
 :: - "on": Upload and install the built IPK on rax1 (default if ARM64 built)
 :: - "off": Skip upload and installation
-set "UPLOAD_MODE=on"
+set "UPLOAD_MODE=off"
 :: ===========================
 
 set "LOGFILE=build.log"
