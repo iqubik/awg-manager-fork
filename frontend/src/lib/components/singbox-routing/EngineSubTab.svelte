@@ -63,12 +63,15 @@
 	let savingAdvanced = $state(false);
 
 	const advancedHint = $derived.by(() => {
-		const labels = localPresets
+		// When closed, show server-persisted state; when open, reflect the local edits.
+		const activePresets = advancedOpen ? localPresets : (settings?.bypassPresets ?? []);
+		const activeExtra = advancedOpen ? localExtraPorts : (settings?.bypassExtraPorts ?? '');
+		const labels = activePresets
 			.map((id) => PRESET_CONFIG.find((p) => p.id === id)?.label)
 			.filter(Boolean)
 			.join(', ');
 		if (labels) return labels;
-		if (localExtraPorts.trim()) return '+ доп. порты';
+		if (activeExtra.trim()) return '+ доп. порты';
 		return '';
 	});
 
