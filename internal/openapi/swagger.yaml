@@ -284,6 +284,13 @@ definitions:
         example: admin
         type: string
     type: object
+  api.BackupWarningDTO:
+    properties:
+      interfaceName:
+        type: string
+      message:
+        type: string
+    type: object
   api.BootStatusResponse:
     properties:
       initializing:
@@ -1213,6 +1220,12 @@ definitions:
         type: string
       i2:
         type: string
+      i3:
+        type: string
+      i4:
+        type: string
+      i5:
+        type: string
       interfaceName:
         example: Wireguard1
         type: string
@@ -1251,6 +1264,10 @@ definitions:
         type: string
       version:
         type: integer
+      warnings:
+        items:
+          $ref: '#/definitions/api.BackupWarningDTO'
+        type: array
     type: object
   api.ManagedServerDTO:
     properties:

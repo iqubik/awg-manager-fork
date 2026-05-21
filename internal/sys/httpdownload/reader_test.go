@@ -7,6 +7,29 @@ import (
 	"testing"
 )
 
+type fixedChunkReader struct {
+	data []byte
+	pos  int
+	step int
+}
+
+func (r *fixedChunkReader) Read(p []byte) (int, error) {
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
+	n := r.step
+	if n > len(p) {
+		n = len(p)
+	}
+	remain := len(r.data) - r.pos
+	if n > remain {
+		n = remain
+	}
+	copy(p[:n], r.data[r.pos:r.pos+n])
+	r.pos += n
+	return n, nil
+}
+
 func TestReader_PassthroughBytes(t *testing.T) {
 	src := bytes.Repeat([]byte("x"), 1024)
 	pr := NewReader(bytes.NewReader(src), int64(len(src)), nil)
@@ -44,11 +67,13 @@ func TestReader_EmitsAtLeastOnceOnEOF(t *testing.T) {
 }
 
 func TestReader_EmitsAfterByteThreshold(t *testing.T) {
-	// 256 KB triggers emitBytes (64 KB) at least three times during copy
-	// plus an EOF flush — ≥4 emits total.
+	// Use deterministic 32KB chunks so 256KB always crosses the 64KB
+	// threshold exactly 4 times (EOF flush may or may not add another one
+	// depending on whether the final emit landed exactly at EOF).
 	src := bytes.Repeat([]byte("x"), 256*1024)
 	var calls atomic.Int32
-	pr := NewReader(bytes.NewReader(src), int64(len(src)), func(downloaded, total int64) {
+	r := &fixedChunkReader{data: src, step: 32 * 1024}
+	pr := NewReader(r, int64(len(src)), func(downloaded, total int64) {
 		calls.Add(1)
 	})
 	if _, err := io.ReadAll(pr); err != nil {

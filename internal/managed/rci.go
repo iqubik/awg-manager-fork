@@ -15,6 +15,7 @@ import (
 // subsequent reads see fresh data.
 func (s *Service) rciPost(ctx context.Context, payload interface{}) error {
 	if _, err := s.transport.Post(ctx, payload); err != nil {
+		s.sysLog().Warn("managed rci post failed", "error", err)
 		return err
 	}
 	if s.saveCoord != nil {
@@ -108,9 +109,9 @@ type updateServerChanges struct {
 	portSet bool
 	port    int
 
-	addressChanged                  bool
-	oldAddress, oldMask             string
-	newAddress, newMask             string
+	addressChanged      bool
+	oldAddress, oldMask string
+	newAddress, newMask string
 }
 
 // rciUpdateServer applies multiple managed-server property changes in a
@@ -297,11 +298,11 @@ func (s *Service) rciInterfaceDown(ctx context.Context, ifaceName string) error 
 }
 
 // rciAddPeer adds a peer with all parameters in a single RCI call.
-func (s *Service) rciAddPeer(ctx context.Context, ifaceName, pubKey, psk, comment, peerIP string) error {
+func (s *Service) rciAddPeer(ctx context.Context, ifaceName, pubKey, psk, comment, peerIP string, enabled bool) error {
 	peer := map[string]interface{}{
 		"key":           pubKey,
 		"preshared-key": psk,
-		"connect":       true,
+		"connect":       enabled,
 		"allow-ips": []map[string]interface{}{
 			{"address": peerIP, "mask": "255.255.255.255"},
 			{"address": "0.0.0.0", "mask": "0.0.0.0"},

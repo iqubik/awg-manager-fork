@@ -48,6 +48,9 @@ type ManagedServerBackupDTO struct {
 	Peers         []ManagedPeerDTO `json:"peers"`
 	I1            string           `json:"i1,omitempty"`
 	I2            string           `json:"i2,omitempty"`
+	I3            string           `json:"i3,omitempty"`
+	I4            string           `json:"i4,omitempty"`
+	I5            string           `json:"i5,omitempty"`
 }
 
 // ManagedServerBackupFile is the on-disk JSON shape.
@@ -56,6 +59,12 @@ type ManagedServerBackupFile struct {
 	Type           string                   `json:"type"`
 	ExportedAt     time.Time                `json:"exportedAt"`
 	ManagedServers []ManagedServerBackupDTO `json:"managedServers"`
+	Warnings       []BackupWarningDTO       `json:"warnings,omitempty"`
+}
+
+type BackupWarningDTO struct {
+	InterfaceName string `json:"interfaceName,omitempty"`
+	Message       string `json:"message"`
 }
 
 const (
@@ -83,8 +92,8 @@ type RestoreOutcomeDTO struct {
 type ManagedServerImportRequest struct {
 	ManagedServers []ManagedServerBackupDTO `json:"managedServers"`
 	Options        RestoreOptionsDTO        `json:"options"`
-	Version        int                      `json:"version,omitempty"`
-	Type           string                   `json:"type,omitempty"`
+	Version        int                      `json:"version"`
+	Type           string                   `json:"type"`
 }
 
 // ManagedServerRestoreDriftRequest is the body of POST /api/managed/restore-drift.
@@ -156,6 +165,9 @@ func managedServerToBackupDTO(s storage.ManagedServer) ManagedServerBackupDTO {
 		Peers:         peers,
 		I1:            s.I1,
 		I2:            s.I2,
+		I3:            s.I3,
+		I4:            s.I4,
+		I5:            s.I5,
 	}
 }
 
@@ -210,6 +222,9 @@ func backupDTOToManagedServer(d ManagedServerBackupDTO) storage.ManagedServer {
 		Peers:         peers,
 		I1:            d.I1,
 		I2:            d.I2,
+		I3:            d.I3,
+		I4:            d.I4,
+		I5:            d.I5,
 	}
 }
 
@@ -228,20 +243,30 @@ func (h *ManagedServerBackupHandler) Export(w http.ResponseWriter, r *http.Reque
 		response.MethodNotAllowed(w)
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 	servers, err := h.svc.ExportAll(r.Context())
 	if err != nil {
 		response.InternalError(w, "export: "+err.Error())
 		return
 	}
 	dtos := make([]ManagedServerBackupDTO, len(servers))
+	warnings := make([]BackupWarningDTO, 0)
 	for i, s := range servers {
 		dtos[i] = managedServerToBackupDTO(s)
+		if s.PrivateKey == "" {
+			warnings = append(warnings, BackupWarningDTO{
+				InterfaceName: s.InterfaceName,
+				Message:       "server private key is missing; restore is impossible",
+			})
+		}
 	}
 	response.Success(w, ManagedServerBackupFile{
 		Version:        backupFileVersion,
 		Type:           backupFileType,
 		ExportedAt:     time.Now().UTC(),
 		ManagedServers: dtos,
+		Warnings:       warnings,
 	})
 }
 
@@ -268,11 +293,11 @@ func (h *ManagedServerBackupHandler) Import(w http.ResponseWriter, r *http.Reque
 		response.Error(w, "invalid request: "+err.Error(), "INVALID_REQUEST")
 		return
 	}
-	if req.Type != "" && req.Type != backupFileType {
+	if req.Type != backupFileType {
 		response.Error(w, "unknown file type: "+req.Type, "INVALID_REQUEST")
 		return
 	}
-	if req.Version != 0 && req.Version != backupFileVersion {
+	if req.Version != backupFileVersion {
 		response.Error(w, fmt.Sprintf("unsupported version %d (only %d)", req.Version, backupFileVersion), "INVALID_REQUEST")
 		return
 	}
@@ -341,7 +366,7 @@ func (h *ManagedServerBackupHandler) RestoreDrift(w http.ResponseWriter, r *http
 		response.InternalError(w, "drift: "+err.Error())
 		return
 	}
-	outcomes := h.svc.Restore(r.Context(), drift, restoreOptionsFromDTO(req.Options))
+	outcomes := h.svc.RestoreDrift(r.Context(), drift, restoreOptionsFromDTO(req.Options))
 	response.Success(w, ManagedServerRestoreResponse{Outcomes: outcomesToDTO(outcomes)})
 	if hasActionableMutation(outcomes) {
 		publishInvalidated(h.bus, ResourceServers, "managed-restore-drift")

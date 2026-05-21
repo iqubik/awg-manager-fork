@@ -1621,6 +1621,10 @@ export interface ManagedServerBackupFile {
 	type: string;
 	exportedAt: string;
 	managedServers: ManagedServerExport[];
+	warnings?: Array<{
+		interfaceName?: string;
+		message: string;
+	}>;
 }
 
 export interface RestoreOptions {

@@ -59,7 +59,7 @@
 		/>
 	{:else}
 		<div class="results">
-			{#each outcomes as o (o.name)}
+			{#each outcomes as o, i (`${o.name}:${i}`)}
 				<div class="row {actionStyle(o.action)}">
 					<span class="iface">
 						{o.name}{#if o.newName} → {o.newName}{/if}

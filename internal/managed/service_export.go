@@ -2,6 +2,7 @@ package managed
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/hoaxisr/awg-manager/internal/storage"
 )
@@ -20,6 +21,8 @@ func (s *Service) ExportAll(ctx context.Context) ([]ManagedServerExport, error) 
 	servers := s.settings.GetManagedServers()
 	out := make([]ManagedServerExport, len(servers))
 	copy(out, servers)
+	s.sysLog().Info("managed export prepared", "servers", len(out))
+	s.appLog.Info("export-managed-backup", fmt.Sprintf("%d servers", len(out)), "Prepared managed server backup payload")
 	return out, nil
 }
 
@@ -35,8 +38,8 @@ func (s *Service) Drift(ctx context.Context) ([]ManagedServerExport, error) {
 		if s.queries == nil || s.queries.Interfaces == nil {
 			return false
 		}
-		_, err := s.queries.Interfaces.Get(ctx, name)
-		return err == nil
+		iface, err := s.queries.Interfaces.Get(ctx, name)
+		return err == nil && iface != nil
 	})
 }
 
@@ -47,6 +50,10 @@ func (s *Service) driftWith(ctx context.Context, present presenceFn) ([]ManagedS
 		if !present(sv.InterfaceName) {
 			out = append(out, sv)
 		}
+	}
+	s.sysLog().Info("managed drift scan finished", "total", len(servers), "drifted", len(out))
+	if len(out) > 0 {
+		s.appLog.Warn("managed-drift-detected", fmt.Sprintf("%d servers", len(out)), "Managed servers exist in storage but are missing live interfaces")
 	}
 	return out, nil
 }
