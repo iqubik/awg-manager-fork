@@ -42,7 +42,7 @@ static DEFINE_MUTEX(proxy_mutex);
 
 static inline bool cookie_expired(u64 birthdate_ns)
 {
-	u64 now = ktime_get_coarse_boottime_ns();
+	u64 now = ktime_to_ns(ktime_get_boottime());
 
 	return now < birthdate_ns || now - birthdate_ns > AWG_COOKIE_TTL_NS;
 }
@@ -587,7 +587,7 @@ static int s2c_thread_fn(void *data)
 				spin_lock(&proxy->cookie_lock);
 				memcpy(proxy->latest_cookie, cookie_buf, 16);
 				proxy->latest_cookie_birthdate_ns =
-					ktime_get_coarse_boottime_ns();
+					ktime_to_ns(ktime_get_boottime());
 				proxy->latest_cookie_valid = true;
 				spin_unlock(&proxy->cookie_lock);
 
