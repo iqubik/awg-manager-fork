@@ -2,6 +2,7 @@ package router
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -25,6 +26,7 @@ func KnownPresetNames() []string {
 	for k := range knownPresets {
 		names = append(names, k)
 	}
+	sort.Strings(names)
 	return names
 }
 
