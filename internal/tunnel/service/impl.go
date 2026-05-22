@@ -476,6 +476,13 @@ func (s *ServiceImpl) applyDiffNWG(ctx context.Context, oldStored, newStored *st
 	tunnelID := newStored.ID
 	var errs []error
 
+	if oldStored.Interface.PrivateKey != newStored.Interface.PrivateKey {
+		if err := s.nwgOperator.SyncPrivateKey(ctx, newStored); err != nil {
+			s.logWarn("update", tunnelID, "Failed to sync NWG private-key: "+err.Error())
+			errs = append(errs, fmt.Errorf("sync private-key: %w", err))
+		}
+	}
+
 	if oldStored.Interface.Address != newStored.Interface.Address ||
 		oldStored.Interface.MTU != newStored.Interface.MTU {
 		if err := s.nwgOperator.SyncAddressMTU(ctx, newStored); err != nil {
@@ -760,6 +767,11 @@ func (s *ServiceImpl) ReplaceConfig(ctx context.Context, tunnelID, confContent, 
 	// ends up with both old and new peers (NDMS indexes by key).
 	oldPublicKey := stored.Peer.PublicKey
 
+	// Capture old DNS for the non-running sync branch below — handler skips
+	// Stop+Start when the tunnel isn't running, leaving NDMS DNS entries
+	// orphaned (pointing to the previous conf's servers).
+	oldDNS := stored.Interface.DNS
+
 	// Replace Interface + Peer entirely
 	stored.Interface = parsed.Interface
 	stored.Peer = parsed.Peer
@@ -792,6 +804,19 @@ func (s *ServiceImpl) ReplaceConfig(ctx context.Context, tunnelID, confContent, 
 			if err := s.nwgOperator.Stop(ctx, stored); err != nil {
 				s.logWarn("replace-config", tunnelID, "Stop before peer sync failed: "+err.Error())
 			}
+		} else if oldDNS != stored.Interface.DNS {
+			// Tunnel was not running — handler skipped Stop (which would
+			// clear OLD DNS) and will skip Start (which would set NEW DNS).
+			// Sync DNS here so NDMS doesn't keep orphan entries from the
+			// previous conf.
+			oldList := tunnel.ParseDNSList(oldDNS)
+			newList := tunnel.ParseDNSList(stored.Interface.DNS)
+			if err := s.nwgOperator.SyncDNS(ctx, stored, oldList, newList); err != nil {
+				s.logWarn("replace-config", tunnelID, "SyncDNS failed: "+err.Error())
+			}
+		}
+		if err := s.nwgOperator.SyncPrivateKey(ctx, stored); err != nil {
+			s.logWarn("replace-config", tunnelID, "SyncPrivateKey failed: "+err.Error())
 		}
 		if err := s.nwgOperator.SyncPeer(ctx, stored, oldPublicKey); err != nil {
 			s.logWarn("replace-config", tunnelID, "SyncPeer failed: "+err.Error())

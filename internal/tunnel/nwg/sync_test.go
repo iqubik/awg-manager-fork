@@ -111,6 +111,48 @@ func TestSyncPeer_SameKey_DoesNotRemovePeer(t *testing.T) {
 	}
 }
 
+// TestSyncPrivateKey_SendsKeyAndSave is the regression test for issue #136
+// handshake-fail-after-replace path.
+//
+// ReplaceConfig replaces stored.Interface (including PrivateKey) wholesale,
+// but CmdWireguardPrivateKey is otherwise only emitted in Create. Without
+// explicit re-sync, NDMS keeps the old key from the original import — WG
+// kernel signs handshake initiators with that old identity, the new
+// server's peer entry (which expects the public key derived from the NEW
+// PrivateKey) silently rejects them, handshake never completes.
+//
+// Fix lives in nwg/sync.go:SyncPrivateKey and service/impl.go ReplaceConfig
+// (calls SyncPrivateKey before SyncPeer) + applyDiffNWG (calls it on
+// PrivateKey diff).
+func TestSyncPrivateKey_SendsKeyAndSave(t *testing.T) {
+	cs := newCaptureServer(t)
+	op := newSyncTestOperator(t, cs.srv.URL)
+
+	stored := &storage.AWGTunnel{
+		NWGIndex: 5,
+		Interface: storage.AWGInterface{
+			PrivateKey: "newPrivateKey000000000000000000000000000000=",
+		},
+	}
+
+	if err := op.SyncPrivateKey(context.Background(), stored); err != nil {
+		t.Fatalf("SyncPrivateKey: %v", err)
+	}
+	if len(cs.bodies) != 1 {
+		t.Fatalf("want 1 POST batch, got %d", len(cs.bodies))
+	}
+	body := cs.bodies[0]
+	if !strings.Contains(body, "private-key") {
+		t.Errorf("batch must contain private-key field:\n%s", body)
+	}
+	if !strings.Contains(body, "newPrivateKey000000000000000000000000000000=") {
+		t.Errorf("batch must contain the new key value:\n%s", body)
+	}
+	if !strings.Contains(body, "save") {
+		t.Errorf("batch must contain save command:\n%s", body)
+	}
+}
+
 // TestSyncPeer_DifferentPreviousKey_RemovesOldPeer is the regression test
 // for issue #136 (https://github.com/hoaxisr/awg-manager/issues/136).
 //

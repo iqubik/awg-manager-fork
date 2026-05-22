@@ -100,6 +100,28 @@ func (o *OperatorNativeWG) SyncAddressMTU(ctx context.Context, stored *storage.A
 	return nil
 }
 
+// SyncPrivateKey pushes stored.Interface.PrivateKey to NDMS.
+//
+// Required when the interface section is replaced wholesale (ReplaceConfig)
+// or its PrivateKey changes via Update. CmdWireguardPrivateKey is otherwise
+// only emitted in Create — without explicit re-sync, NDMS keeps the original
+// key from import. WG kernel then signs handshake initiators with the
+// old identity; the new server (whose peer entry expects the public key
+// derived from the NEW private key) silently drops them → handshake never
+// completes. Symptom: tx grows, rx stays at 0, last-handshake never updates.
+func (o *OperatorNativeWG) SyncPrivateKey(ctx context.Context, stored *storage.AWGTunnel) error {
+	ndmsName := NewNWGNames(stored.NWGIndex).NDMSName
+	cmds := []any{
+		payloads.CmdWireguardPrivateKey(ndmsName, stored.Interface.PrivateKey),
+		payloads.CmdSave(),
+	}
+	if _, err := o.transport.PostBatch(ctx, cmds); err != nil {
+		return fmt.Errorf("sync private-key: %w", err)
+	}
+	o.log.Infof("nwg: synced private-key on %s", ndmsName)
+	return nil
+}
+
 // SyncPeer pushes the stored peer configuration to the NDMS interface.
 // This applies key/allowed-ips/keepalive/preshared-key from storage.
 //
