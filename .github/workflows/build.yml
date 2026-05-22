@@ -134,8 +134,17 @@ jobs:
           fi
 
           gh release delete latest --yes --cleanup-tag || true
+
+          PREV_TAG=$(gh release list --limit 10 --json tagName --jq '[.[] | select(.tagName != "latest")] | .[0].tagName' 2>/dev/null)
+
+          EXTRA_FLAGS=()
+          if [ -n "${PREV_TAG}" ]; then
+            EXTRA_FLAGS+=("--notes-start-tag" "${PREV_TAG}")
+          fi
+
           gh release create latest "${files[@]}" \
             --target "${GITHUB_SHA}" \
             --title "Development build" \
             --generate-notes \
+            "${EXTRA_FLAGS[@]}" \
             --prerelease
