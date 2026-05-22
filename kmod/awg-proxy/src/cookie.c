@@ -14,6 +14,7 @@
 
 #include <linux/kernel.h>
 #include <linux/string.h>
+#include <linux/errno.h>
 #include <asm/unaligned.h>
 
 #include "cookie.h"
