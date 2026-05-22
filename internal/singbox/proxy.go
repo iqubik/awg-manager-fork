@@ -88,6 +88,50 @@ func (pm *ProxyManager) RemoveProxy(ctx context.Context, index int) error {
 	return pm.commands.Proxies.DeleteProxy(ctx, name)
 }
 
+// RemoveOrphanSingboxProxies удаляет ProxyN, ассоциированные с sing-box,
+// которые остались в NDMS после перехода в режим "NDMS Proxy disabled"
+// (или после кривого middle-of-MigrateOff обрыва). Безопасно сохраняет
+// Proxy, созданные пользователем вручную.
+//
+// Критерии "ours":
+//  1. iface.Description совпадает с одним из tunnelTags (наш ProxyManager
+//     пишет tunnel tag в description — proxy.go:47, operator.go:1292).
+//  2. iface.Description пустой И idx попадает в ourPortSlots (некоторые
+//     версии прошивки могут не возвращать description в List).
+//
+// Прочие ProxyN остаются нетронутыми — это пользовательские интерфейсы.
+// Best-effort: при ошибке удаления одного proxy переходит к следующему,
+// возвращает первую ошибку.
+func (pm *ProxyManager) RemoveOrphanSingboxProxies(ctx context.Context, tunnelTags map[string]bool, ourPortSlots map[int]bool) error {
+	ifaces, err := pm.queries.Interfaces.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list interfaces: %w", err)
+	}
+	var firstErr error
+	for _, iface := range ifaces {
+		if !strings.HasPrefix(iface.ID, proxyIfacePrefix) {
+			continue
+		}
+		var idx int
+		if n, e := fmt.Sscanf(iface.ID, proxyIfacePrefix+"%d", &idx); e != nil || n != 1 {
+			continue
+		}
+		var isOurs bool
+		if iface.Description != "" {
+			isOurs = tunnelTags[iface.Description]
+		} else {
+			isOurs = ourPortSlots[idx]
+		}
+		if !isOurs {
+			continue
+		}
+		if err := pm.RemoveProxy(ctx, idx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // SyncProxies reconciles NDMS Proxy interfaces with current config.json tunnels.
 // Creates missing Proxy for each tunnel and brings existing Proxy up if Down.
 // Removal of proxies for absent tunnels is the Operator's responsibility.

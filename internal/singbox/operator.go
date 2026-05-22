@@ -145,6 +145,13 @@ type Operator struct {
 	// nil means "treat as enabled" for back-compat (pre-dates this field).
 	ndmsProxyEnabledFn func() bool
 
+	// needsOrphanCleanup сигналит Reconcile запустить one-shot sweep
+	// орфанных ProxyN. CAS-флаг — после consume сбрасывается, следующие
+	// тики не делают повторных NDMS-вызовов. Поднимается из MigrateOff
+	// (best-effort fallback) и из main.go при старте, если settings уже
+	// в disabled-режиме (предыдущая сессия не успела дочистить).
+	needsOrphanCleanup atomic.Bool
+
 	// migrationMu serialises all lifecycle ops that touch ProxyManager:
 	// AddTunnels, RemoveTunnel, MigrateOff/On, Reconcile orphan cleanup.
 	// Required because toggle and tunnel lifecycle race — a flag flip
@@ -1500,9 +1507,40 @@ func (o *Operator) UpdateTunnel(ctx context.Context, tag string, outbound json.R
 	return nil
 }
 
+// MarkNeedsOrphanCleanup поднимает one-shot флаг для Reconcile —
+// при следующем тике он почистит зомби-ProxyN, оставшиеся в NDMS
+// после перехода в disabled-режим. CAS гарантирует ровно один sweep
+// на сигнал. Вызывается из MigrateOff и из main.go на старте, если
+// settings уже в disabled.
+func (o *Operator) MarkNeedsOrphanCleanup() { o.needsOrphanCleanup.Store(true) }
+
+// removeOrphanSingboxProxies собирает known tunnel tags и port-slots
+// из текущего config.json и делегирует в ProxyManager. Best-effort.
+func (o *Operator) removeOrphanSingboxProxies(ctx context.Context) error {
+	cfg, err := o.loadConfig()
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	tunnelTags := map[string]bool{}
+	portSlots := map[int]bool{}
+	if cfg != nil {
+		for _, t := range cfg.Tunnels() {
+			tunnelTags[t.Tag] = true
+			slot := t.ListenPort - firstPort
+			if slot >= 0 {
+				portSlots[slot] = true
+			}
+		}
+	}
+	return o.proxyMgr.RemoveOrphanSingboxProxies(ctx, tunnelTags, portSlots)
+}
+
 // Reconcile: ensure process is running if config has tunnels; ensure Proxies are up.
 // Honours the sticky-stop intent — when the user pressed Stop, watchdog/Reconcile
 // must not bring sing-box back up. Cleared only by Control("start"/"restart").
+//
+// В режиме NDMS Proxy disabled пропускает SyncProxies и, при наличии
+// сигнала, делает one-shot orphan cleanup.
 func (o *Operator) Reconcile(ctx context.Context) error {
 	if o.manuallyStopped.Load() {
 		if o.runtimeLogger != nil {
@@ -1510,6 +1548,8 @@ func (o *Operator) Reconcile(ctx context.Context) error {
 		}
 		return nil
 	}
+	o.migrationMu.Lock()
+	defer o.migrationMu.Unlock()
 	cfg, err := o.loadConfig()
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -1526,7 +1566,7 @@ func (o *Operator) Reconcile(ctx context.Context) error {
 	}
 	if running, _ := o.proc.IsRunning(); !running {
 		if o.runtimeLogger != nil {
-			o.runtimeLogger.Warn("reconcile", "", fmt.Sprintf("process down, starting before proxy sync (tunnels=%d)", len(tunnels)))
+			o.runtimeLogger.Warn("reconcile", "", fmt.Sprintf("process down, starting (tunnels=%d)", len(tunnels)))
 		}
 		if err := o.startAndWait(ctx); err != nil {
 			if o.runtimeLogger != nil {
@@ -1534,6 +1574,19 @@ func (o *Operator) Reconcile(ctx context.Context) error {
 			}
 			return fmt.Errorf("start: %w", err)
 		}
+	}
+	if !o.isNDMSProxyEnabled() {
+		if o.needsOrphanCleanup.CompareAndSwap(true, false) {
+			if err := o.removeOrphanSingboxProxies(ctx); err != nil {
+				if o.runtimeLogger != nil {
+					o.runtimeLogger.Warn("reconcile", "", "orphan cleanup: "+err.Error())
+				}
+			}
+		}
+		if o.runtimeLogger != nil {
+			o.runtimeLogger.Info("reconcile", "", fmt.Sprintf("done (ndms-proxy disabled) tunnels=%d", len(tunnels)))
+		}
+		return nil
 	}
 	if err := o.proxyMgr.SyncProxies(ctx, tunnels); err != nil {
 		if o.runtimeLogger != nil {

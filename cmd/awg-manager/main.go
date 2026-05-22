@@ -689,6 +689,12 @@ func main() {
 		SetManuallyStopped:     settingsStore.SetSingboxManuallyStopped,
 		IsNDMSProxyEnabled:     settingsStore.IsSingboxNDMSProxyEnabled,
 	})
+	// Если на старте флаг disabled — orphan-cleanup (после возможного
+	// обрыва прошлой MigrateOff в любой момент). Reconcile подберёт
+	// сигнал на первом тике watchdog'а.
+	if !settingsStore.IsSingboxNDMSProxyEnabled() {
+		singboxOp.MarkNeedsOrphanCleanup()
+	}
 
 	// config.d orchestrator — the single writer of slot files (00-base /
 	// 10-tunnels / 15-awg / 20-router / 30-deviceproxy). Producers route
