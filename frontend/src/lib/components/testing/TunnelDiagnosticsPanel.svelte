@@ -11,6 +11,7 @@
 	} from '$lib/types';
 	import { FormToggle, Button, Dropdown, SpeedGauge, type DropdownOption } from '$lib/components/ui';
 	import { PageContainer } from '$lib/components/layout';
+	import TunnelTestIcon from '$lib/components/tunnels/TunnelTestIcon.svelte';
 
 	type DiagnosticsKind = 'awg' | 'system' | 'singbox' | 'subscription';
 	type DiagnosticsSubjectLabel = 'туннель' | 'подписку';
@@ -455,10 +456,7 @@
 {#snippet connectivityCard()}
 	<div class="card test-card">
 		<h3>
-			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-				<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-				<polyline points="22 4 12 14.01 9 11.01"/>
-			</svg>
+			<TunnelTestIcon size={20} />
 			Проверка соединения
 		</h3>
 

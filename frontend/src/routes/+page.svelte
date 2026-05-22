@@ -8,6 +8,7 @@
 	import { api } from '$lib/api/client';
 	import {
 		TunnelCard,
+		TunnelTestIcon,
 		ExternalTunnelCard,
 		AdoptTunnelDialog,
 		SystemTunnelCard,
@@ -1442,7 +1443,7 @@
 									aria-label="Тест туннеля «{tunnel.name}»"
 									onclick={() => openAwgDiagnostics(tunnel.id, tunnel.name)}
 								>
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+									<TunnelTestIcon />
 								</button>
 								<button
 									type="button"
@@ -1574,7 +1575,7 @@
 										aria-label="Тест туннеля «{tunnel.description || tunnel.id}»"
 										onclick={() => openAwgDiagnostics(tunnel.id, tunnel.description || tunnel.id, 'system')}
 									>
-										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+										<TunnelTestIcon />
 									</button>
 									<button
 										type="button"
