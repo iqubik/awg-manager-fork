@@ -160,12 +160,12 @@ opkg install /opt/tmp/awg-manager_2.6.3_aarch64-3.10-kn.ipk --force-reinstall
 
 Надёжный способ: запускать тесты внутри Linux Docker-контейнера с Go.
 
-### Базовая команда (рекомендуется)
+### Базовая команда (разовый запуск через Docker)
 
 Из корня репозитория:
 
 ```powershell
-docker run --rm -v "C:/Users/iqubik/Documents/GitHub/awg-manager080526:/src" -w /src golang:1.24-bullseye bash -c 'go test ./internal/orchestrator'
+docker run --rm -v "$(Get-Location):/src" -w /src golang:1.24-bullseye bash -c 'go test ./internal/orchestrator'
 ```
 
 ### Важно для Codex/песочницы
@@ -186,7 +186,7 @@ ok  	github.com/hoaxisr/awg-manager/internal/orchestrator	0.0xxs
 ### Точечный запуск одного теста
 
 ```powershell
-docker run --rm -v "C:/Users/iqubik/Documents/GitHub/awg-manager080526:/src" -w /src golang:1.24-bullseye bash -c 'go test ./internal/orchestrator -run TestDecide_Reconnect_ASCSoftRestart_MonitoringRestartedOnce'
+docker run --rm -v "$(Get-Location):/src" -w /src golang:1.24-bullseye bash -c 'go test ./internal/orchestrator -run TestDecide_Reconnect_ASCSoftRestart_MonitoringRestartedOnce'
 ```
 
 ### Важный нюанс: `bash -c`, не `bash -lc`
@@ -203,7 +203,7 @@ bash: line 1: go: command not found
 Если сомневаетесь, что Go виден:
 
 ```powershell
-docker run --rm -v "C:/Users/iqubik/Documents/GitHub/awg-manager080526:/src" -w /src golang:1.24-bullseye bash -c 'command -v go && go version'
+docker run --rm -v "$(Get-Location):/src" -w /src golang:1.24-bullseye bash -c 'command -v go && go version'
 ```
 
 Ожидается:
@@ -227,8 +227,9 @@ docker run --rm -v "C:/Users/iqubik/Documents/GitHub/awg-manager080526:/src" -w 
 ### Практический вывод для проекта
 
 - Сборка IPK остаётся через Git Bash (как в `scripts/build-all-ipk.bat`).
-- Backend-тесты под Linux/Keenetic выполняем через Docker `golang:*` + `bash -c`.
-- Если нужна автоматизация, сделать отдельный `.bat`-раннер тестов в таком же стиле.
+- На **Windows 11** (локальная разработка) backend-тесты под Linux/Keenetic выполняем **только** через Docker `golang:*` + `bash -c` (или через `dev-backend-tests.bat`).
+- На **нативном Linux**, в WSL с установленным Go и в CI — можно и нужно использовать обычный `go test ./...` напрямую (это эталон).
+- Автоматизация на Windows — через `scripts\dev\dev-backend-tests.bat` (постоянный контейнер + кэши).
 
 ### Подход к запуску backend-тестов (обязательно)
 
@@ -248,13 +249,13 @@ docker run --rm -v "C:/Users/iqubik/Documents/GitHub/awg-manager080526:/src" -w 
 
 ```powershell
 # 1) Точечно (пример)
-docker run --rm -v "C:/Users/iqubik/Documents/GitHub/awg-manager:/src" -w /src golang:1.24-bullseye bash -c 'go test ./internal/managed ./internal/api'
+docker run --rm -v "$(Get-Location):/src" -w /src golang:1.24-bullseye bash -c 'go test ./internal/managed ./internal/api'
 
 # 2) Отдельно упавший пакет/тест (пример)
-docker run --rm -v "C:/Users/iqubik/Documents/GitHub/awg-manager:/src" -w /src golang:1.24-bullseye bash -c 'go test ./internal/sys/httpdownload -run TestReader_EmitsAfterByteThreshold'
+docker run --rm -v "$(Get-Location):/src" -w /src golang:1.24-bullseye bash -c 'go test ./internal/sys/httpdownload -run TestReader_EmitsAfterByteThreshold'
 
 # 3) Только в конце — полный прогон
-docker run --rm -v "C:/Users/iqubik/Documents/GitHub/awg-manager:/src" -w /src golang:1.24-bullseye bash -c 'go test ./...'
+docker run --rm -v "$(Get-Location):/src" -w /src golang:1.24-bullseye bash -c 'go test ./...'
 ```
 
 ### Более прогрессивный путь запуска backend-тестов
@@ -280,6 +281,9 @@ scripts\dev\dev-backend-tests.bat start
 # статус раннера
 scripts\dev\dev-backend-tests.bat status
 
+# открыть интерактивную bash внутри раннера (для ручной отладки, go list, ps и т.д.)
+scripts\dev\dev-backend-tests.bat shell
+
 # точечный прогон пакета
 scripts\dev\dev-backend-tests.bat run ./internal/managed
 
@@ -297,6 +301,17 @@ scripts\dev\dev-backend-tests.bat stop
 1. Во время отладки использовать `run` только по изменённым пакетам/тестам.
 2. `full` запускать один раз в конце, когда точечные прогоны уже зелёные.
 3. Если `full` упал — снова вернуться к точечному `run`, исправить, и только потом повторить `full`.
+
+### Тесты в CI (GitHub Actions)
+
+В настоящем Linux-окружении (ubuntu-latest в GitHub Actions) тесты выполняются **нативно** (без Docker):
+
+- Backend: `go test ./...`
+- Frontend: `cd frontend && npm ci && npx vitest run`
+
+См. job `test` в `.github/workflows/build.yml`.
+
+CI — это эталонная проверка для всего, что зависит от Linux/Keenetic (ndms, iptables, sing-box, ASC и т.д.). Прогоняется автоматически на каждый push и PR.
 
 ---
 
@@ -387,15 +402,40 @@ git status
 
 ## 15. Рекомендации по запуску frontend-тестов (Win11/PowerShell)
 
-Запускать из папки `frontend`:
+Все frontend-проверки и тесты запускаются из папки `frontend`.
 
-```powershell
-cd frontend; npm exec -- vitest run src/lib/utils/singboxInlineRules.test.ts
-```
-
-Полная проверка фронта:
+### Проверка типов / Svelte / a11y (svelte-check)
 
 ```powershell
 cd frontend
 & "C:\Program Files\nodejs\npm.cmd" run check
 ```
+
+Запускает `svelte-kit sync && svelte-check --tsconfig ./tsconfig.json`.
+Выводит количество ошибок и предупреждений. Цель — 0 errors, 0 warnings.
+
+### Запуск vitest (unit-тесты компонентов и утилит)
+
+```powershell
+cd frontend
+npm exec -- vitest run
+```
+
+- Без параметров — прогоняет **все** тесты (23 файла, 177+ тестов на май 2026).
+- Конкретный файл:
+  ```powershell
+  cd frontend; npm exec -- vitest run src/lib/utils/singboxInlineRules.test.ts
+  ```
+- Конкретный тест по названию:
+  ```powershell
+  npm exec -- vitest run ... -t "название теста или часть"
+  ```
+
+**Полная проверка фронтенда (перед коммитом / PR):**
+
+1. `npm run check`
+2. `npm exec -- vitest run`
+
+Оба шага должны завершаться успешно (зелёный).
+
+Примечание: в `frontend/package.json` нет скрипта `"test"`. Vitest всегда вызывается через `npm exec -- vitest run`.

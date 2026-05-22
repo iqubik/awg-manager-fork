@@ -14,13 +14,17 @@ import (
 
 // fakePoster records every RCI POST payload and can be primed with errors.
 type fakePoster struct {
-	posts []map[string]interface{}
-	err   error
+	posts  []map[string]interface{}
+	err    error
+	onPost func(map[string]interface{})
 }
 
 func (f *fakePoster) Post(ctx context.Context, payload any) (json.RawMessage, error) {
 	if m, ok := payload.(map[string]interface{}); ok {
 		f.posts = append(f.posts, m)
+		if f.onPost != nil {
+			f.onPost(m)
+		}
 	}
 	if f.err != nil {
 		return nil, f.err

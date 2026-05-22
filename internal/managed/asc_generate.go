@@ -16,11 +16,11 @@ func rndInt(r *rand.Rand, a, b int) int {
 }
 
 func generateHRanges(r *rand.Rand) [4]string {
-	bases := [4]int{100_000_000, 1_200_000_000, 2_400_000_000, 3_600_000_000}
+	bases := [4]int64{100_000_000, 1_200_000_000, 2_400_000_000, 3_600_000_000}
 	var out [4]string
 	for i, base := range bases {
-		offset := rndInt(r, 0, 4_000_000)
-		spread := rndInt(r, 100_000, 500_000)
+		offset := int64(rndInt(r, 0, 4_000_000))
+		spread := int64(rndInt(r, 100_000, 500_000))
 		start := base + offset
 		out[i] = fmt.Sprintf("%d-%d", start, start+spread)
 	}
@@ -28,10 +28,10 @@ func generateHRanges(r *rand.Rand) [4]string {
 }
 
 func generateHSingle(r *rand.Rand) [4]string {
-	bases := [4]int{100_000_000, 1_200_000_000, 2_400_000_000, 3_600_000_000}
+	bases := [4]int64{100_000_000, 1_200_000_000, 2_400_000_000, 3_600_000_000}
 	var out [4]string
 	for i, base := range bases {
-		out[i] = fmt.Sprintf("%d", base+rndInt(r, 0, 4_000_000))
+		out[i] = fmt.Sprintf("%d", base+int64(rndInt(r, 0, 4_000_000)))
 	}
 	return out
 }

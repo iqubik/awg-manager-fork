@@ -21,10 +21,30 @@ import (
 // covers exactly the surface Service.Create touches).
 type stateAwareGetter struct {
 	store *storage.SettingsStore
+	mu    sync.Mutex
+	asc   map[string]map[string]string
 }
 
 func (g *stateAwareGetter) Get(ctx context.Context, path string, out any) error {
 	if path != "/show/interface/" {
+		if strings.HasPrefix(path, "/show/rc/interface/") && strings.HasSuffix(path, "/wireguard/asc") {
+			iface := strings.TrimSuffix(strings.TrimPrefix(path, "/show/rc/interface/"), "/wireguard/asc")
+			g.mu.Lock()
+			src, ok := g.asc[iface]
+			g.mu.Unlock()
+			if !ok {
+				src = map[string]string{
+					"jc": "0", "jmin": "0", "jmax": "0", "s1": "0", "s2": "0",
+					"h1": "", "h2": "", "h3": "", "h4": "",
+					"s3": "0", "s4": "0",
+				}
+			}
+			raw, err := json.Marshal(src)
+			if err != nil {
+				return err
+			}
+			return json.Unmarshal(raw, out)
+		}
 		return fmt.Errorf("stateAwareGetter: path not faked: %s", path)
 	}
 	m := map[string]json.RawMessage{}
@@ -48,6 +68,64 @@ func (g *stateAwareGetter) Get(ctx context.Context, path string, out any) error 
 		return err
 	}
 	return json.Unmarshal(b, out)
+}
+
+func (g *stateAwareGetter) applyPost(payload map[string]interface{}) {
+	intf, ok := payload["interface"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	for ifaceName, raw := range intf {
+		cfg, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		wg, ok := cfg["wireguard"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		ascRaw, has := wg["asc"]
+		if !has {
+			continue
+		}
+		g.mu.Lock()
+		if g.asc == nil {
+			g.asc = map[string]map[string]string{}
+		}
+		if clear, ok := ascRaw.(map[string]interface{}); ok {
+			if no, ok := clear["no"].(bool); ok && no {
+				g.asc[ifaceName] = map[string]string{
+					"jc": "0", "jmin": "0", "jmax": "0", "s1": "0", "s2": "0",
+					"h1": "", "h2": "", "h3": "", "h4": "",
+					"s3": "0", "s4": "0",
+				}
+				g.mu.Unlock()
+				continue
+			}
+		}
+		ascMap, ok := ascRaw.(map[string]interface{})
+		if !ok {
+			b, _ := json.Marshal(ascRaw)
+			_ = json.Unmarshal(b, &ascMap)
+		}
+		state := map[string]string{}
+		for k, v := range ascMap {
+			switch val := v.(type) {
+			case string:
+				state[k] = val
+			default:
+				state[k] = strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%v", val), ".0"), ".")
+			}
+		}
+		// Preserve optional fields as zeros if omitted by set payload.
+		for _, k := range []string{"s3", "s4"} {
+			if _, ok := state[k]; !ok {
+				state[k] = "0"
+			}
+		}
+		g.asc[ifaceName] = state
+		g.mu.Unlock()
+	}
 }
 
 // GetRaw handles /show/interface/system-name?name=<ndmsName> by mapping
@@ -81,15 +159,19 @@ func (g *stateAwareGetter) Post(_ context.Context, _ any) (json.RawMessage, erro
 // POSTs per server and a parallel test would race the slice. Fresh instance
 // per test keeps this simple.
 type recordingPoster struct {
-	mu    sync.Mutex
-	posts []map[string]interface{}
-	err   error
+	mu     sync.Mutex
+	posts  []map[string]interface{}
+	err    error
+	onPost func(map[string]interface{})
 }
 
 func (p *recordingPoster) Post(ctx context.Context, payload any) (json.RawMessage, error) {
 	p.mu.Lock()
 	if m, ok := payload.(map[string]interface{}); ok {
 		p.posts = append(p.posts, m)
+		if p.onPost != nil {
+			p.onPost(m)
+		}
 	}
 	err := p.err
 	p.mu.Unlock()
@@ -111,14 +193,14 @@ func newCreateTestService(t *testing.T) (*Service, *storage.SettingsStore) {
 	if _, err := store.Load(); err != nil {
 		t.Fatalf("load store: %v", err)
 	}
-	getter := &stateAwareGetter{store: store}
+	getter := &stateAwareGetter{store: store, asc: map[string]map[string]string{}}
 	ifaces := query.NewInterfaceStoreWithTTL(getter, query.NopLogger(), 0, 0)
 	queries := &query.Queries{
 		Interfaces: ifaces,
 		Policies:   query.NewPolicyStore(getter, query.NopLogger()),
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &recordingPoster{}
+	poster := &recordingPoster{onPost: getter.applyPost}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	svc := New(poster, nil, queries, nil, store, log, nil)
 	// Create now requires immediate private-key capture; tests should not

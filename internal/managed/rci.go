@@ -259,6 +259,21 @@ func (s *Service) rciSetASCParams(ctx context.Context, ifaceName string, params 
 	})
 }
 
+// rciClearASCParams clears ASC settings from interface wireguard.asc.
+func (s *Service) rciClearASCParams(ctx context.Context, ifaceName string) error {
+	return s.rciPost(ctx, map[string]interface{}{
+		"interface": map[string]interface{}{
+			ifaceName: map[string]interface{}{
+				"wireguard": map[string]interface{}{
+					"asc": map[string]interface{}{
+						"no": true,
+					},
+				},
+			},
+		},
+	})
+}
+
 // rciSetHotspotPolicy applies an ip hotspot policy to the interface.
 // policy is "permit", "deny", or an IP Policy profile name. For "none"
 // use rciClearHotspotPolicy.

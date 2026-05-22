@@ -36,14 +36,16 @@ func TestSetASCParams_RejectsEmptyRequiredFields(t *testing.T) {
 
 	raw := json.RawMessage(`{
 		"jc":3,"jmin":64,"jmax":256,"s1":15,"s2":16,
-		"h1":"","h2":"1200000000","h3":"2400000000","h4":"3600000000"
+		"h1":"","h2":"","h3":"","h4":""
 	}`)
 	err = svc.SetASCParams(context.Background(), server.InterfaceName, raw)
 	if err == nil {
 		t.Fatalf("expected validation error for empty required ASC text field")
 	}
-	if !strings.Contains(err.Error(), "h1") {
-		t.Fatalf("expected error to mention missing h1, got: %v", err)
+	for _, k := range []string{"h1", "h2", "h3", "h4"} {
+		if !strings.Contains(err.Error(), k) {
+			t.Fatalf("expected aggregate error to mention %s, got: %v", k, err)
+		}
 	}
 }
 
@@ -112,6 +114,28 @@ func TestSetASCParams_AllowsZeroDisabledState(t *testing.T) {
 	}
 }
 
+func TestSetASCParams_AllowsExtendedDisabledStateWithEmptyS3S4(t *testing.T) {
+	svc, _ := newCreateTestService(t)
+	server, err := svc.Create(context.Background(), CreateServerRequest{
+		Address:    "10.42.0.1",
+		Mask:       "255.255.255.0",
+		ListenPort: 52042,
+	})
+	if err != nil {
+		t.Fatalf("seed Create: %v", err)
+	}
+
+	raw := json.RawMessage(`{
+		"jc":0,"jmin":0,"jmax":0,"s1":0,"s2":0,
+		"h1":"","h2":"","h3":"","h4":"",
+		"s3":"","s4":"",
+		"i1":"","i2":"","i3":"","i4":"","i5":""
+	}`)
+	if err := svc.SetASCParams(context.Background(), server.InterfaceName, raw); err != nil {
+		t.Fatalf("extended disabled ASC payload with empty s3/s4 must be accepted: %v", err)
+	}
+}
+
 func TestSetASCParams_RejectsPartialDisabledState(t *testing.T) {
 	svc, _ := newCreateTestService(t)
 	server, err := svc.Create(context.Background(), CreateServerRequest{
@@ -132,6 +156,32 @@ func TestSetASCParams_RejectsPartialDisabledState(t *testing.T) {
 	}
 }
 
+func TestSetASCParams_RejectsMultipleInvalidNumericFields(t *testing.T) {
+	svc, _ := newCreateTestService(t)
+	server, err := svc.Create(context.Background(), CreateServerRequest{
+		Address:    "10.38.0.1",
+		Mask:       "255.255.255.0",
+		ListenPort: 52038,
+	})
+	if err != nil {
+		t.Fatalf("seed Create: %v", err)
+	}
+
+	raw := json.RawMessage(`{
+		"jc":0,"jmin":0,"jmax":0,"s1":0,"s2":0,
+		"h1":"100","h2":"","h3":"","h4":""
+	}`)
+	err = svc.SetASCParams(context.Background(), server.InterfaceName, raw)
+	if err == nil {
+		t.Fatalf("expected validation error")
+	}
+	for _, k := range []string{"jc", "jmin", "jmax", "s1", "s2"} {
+		if !strings.Contains(err.Error(), k) {
+			t.Fatalf("expected aggregate error to mention %s, got: %v", k, err)
+		}
+	}
+}
+
 func TestSetASCParams_RejectsJmaxNotGreaterThanJmin(t *testing.T) {
 	svc, _ := newCreateTestService(t)
 	server, err := svc.Create(context.Background(), CreateServerRequest{
@@ -149,5 +199,139 @@ func TestSetASCParams_RejectsJmaxNotGreaterThanJmin(t *testing.T) {
 	}`)
 	if err := svc.SetASCParams(context.Background(), server.InterfaceName, raw); err == nil {
 		t.Fatalf("expected validation error when jmax <= jmin")
+	}
+}
+
+func TestSetASCParams_AllowsZeroDisabledState_UsesClearPath(t *testing.T) {
+	svc, _ := newCreateTestService(t)
+	server, err := svc.Create(context.Background(), CreateServerRequest{
+		Address:    "10.39.0.1",
+		Mask:       "255.255.255.0",
+		ListenPort: 52039,
+	})
+	if err != nil {
+		t.Fatalf("seed Create: %v", err)
+	}
+
+	raw := json.RawMessage(`{"jc":0,"jmin":0,"jmax":0,"s1":0,"s2":0,"h1":"","h2":"","h3":"","h4":""}`)
+	if err := svc.SetASCParams(context.Background(), server.InterfaceName, raw); err != nil {
+		t.Fatalf("SetASCParams: %v", err)
+	}
+
+	poster := svc.transport.(*recordingPoster)
+	foundClear := false
+	for _, post := range poster.posts {
+		iface, ok := post["interface"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		row, ok := iface[server.InterfaceName].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		wg, ok := row["wireguard"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		asc, ok := wg["asc"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if no, ok := asc["no"].(bool); ok && no {
+			foundClear = true
+		}
+	}
+	if !foundClear {
+		t.Fatalf("expected clear ASC payload with no=true")
+	}
+}
+
+func TestSetASCParams_DisabledStateFailsWhenReadBackStillEnabled(t *testing.T) {
+	svc, _ := newCreateTestService(t)
+	server, err := svc.Create(context.Background(), CreateServerRequest{
+		Address:    "10.43.0.1",
+		Mask:       "255.255.255.0",
+		ListenPort: 52043,
+	})
+	if err != nil {
+		t.Fatalf("seed Create: %v", err)
+	}
+
+	poster := svc.transport.(*recordingPoster)
+	originalOnPost := poster.onPost
+	poster.onPost = func(_ map[string]interface{}) {
+		// Simulate router ignoring ASC clear.
+	}
+	defer func() { poster.onPost = originalOnPost }()
+
+	raw := json.RawMessage(`{
+		"jc":0,"jmin":0,"jmax":0,"s1":0,"s2":0,
+		"h1":"","h2":"","h3":"","h4":""
+	}`)
+
+	if err := svc.SetASCParams(context.Background(), server.InterfaceName, raw); err == nil {
+		t.Fatalf("expected read-back mismatch error when disabled ASC clear is ignored")
+	}
+}
+
+func TestSetASCParams_SetFailsWhenReadBackDiffers(t *testing.T) {
+	svc, _ := newCreateTestService(t)
+	server, err := svc.Create(context.Background(), CreateServerRequest{
+		Address:    "10.40.0.1",
+		Mask:       "255.255.255.0",
+		ListenPort: 52040,
+	})
+	if err != nil {
+		t.Fatalf("seed Create: %v", err)
+	}
+
+	poster := svc.transport.(*recordingPoster)
+	originalOnPost := poster.onPost
+	poster.onPost = func(_ map[string]interface{}) {
+		// Simulate router ignoring ASC updates.
+	}
+	defer func() { poster.onPost = originalOnPost }()
+
+	raw := json.RawMessage(`{
+		"jc":3,"jmin":64,"jmax":256,"s1":15,"s2":16,
+		"h1":"100000001","h2":"1200000002","h3":"2400000003","h4":"3600000004"
+	}`)
+	if err := svc.SetASCParams(context.Background(), server.InterfaceName, raw); err == nil {
+		t.Fatalf("expected read-back mismatch error")
+	}
+}
+
+func TestSetASCParams_SavesIFieldsOnlyAfterApplyVerified(t *testing.T) {
+	svc, store := newCreateTestService(t)
+	server, err := svc.Create(context.Background(), CreateServerRequest{
+		Address:    "10.41.0.1",
+		Mask:       "255.255.255.0",
+		ListenPort: 52041,
+	})
+	if err != nil {
+		t.Fatalf("seed Create: %v", err)
+	}
+
+	poster := svc.transport.(*recordingPoster)
+	originalOnPost := poster.onPost
+	poster.onPost = func(_ map[string]interface{}) {
+		// Simulate router ignoring ASC updates.
+	}
+	defer func() { poster.onPost = originalOnPost }()
+
+	raw := json.RawMessage(`{
+		"jc":3,"jmin":64,"jmax":256,"s1":15,"s2":16,
+		"h1":"100000001","h2":"1200000002","h3":"2400000003","h4":"3600000004",
+		"i1":"sig1","i2":"sig2","i3":"sig3","i4":"sig4","i5":"sig5"
+	}`)
+	if err := svc.SetASCParams(context.Background(), server.InterfaceName, raw); err == nil {
+		t.Fatalf("expected read-back mismatch error")
+	}
+	got, ok := store.GetManagedServerByID(server.InterfaceName)
+	if !ok {
+		t.Fatalf("server missing in store")
+	}
+	if got.I1 != "" || got.I2 != "" || got.I3 != "" || got.I4 != "" || got.I5 != "" {
+		t.Fatalf("I1-I5 must not be persisted on failed apply/read-back, got: %+v", got)
 	}
 }

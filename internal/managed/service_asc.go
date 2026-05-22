@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/hoaxisr/awg-manager/internal/ndms"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/sys/osdetect"
 )
@@ -70,30 +69,32 @@ func (s *Service) SetASCParams(ctx context.Context, id string, params json.RawMe
 		return err
 	}
 
-	// Extract I1-I5 from params and persist locally first so the strip-and-send
-	// path below can fail without leaving stale local state.
-	var ext ndms.ASCParamsExtended
-	hasI := false
-	if err := json.Unmarshal(params, &ext); err == nil {
-		hasI = true
-	}
-
-	if hasI {
-		if err := s.settings.UpdateManagedServer(id, func(sv *storage.ManagedServer) error {
-			sv.I1 = ext.I1
-			sv.I2 = ext.I2
-			sv.I3 = ext.I3
-			sv.I4 = ext.I4
-			sv.I5 = ext.I5
-			return nil
-		}); err != nil {
-			return fmt.Errorf("save I1-I5: %w", err)
-		}
+	i1, i2, i3, i4, i5, err := extractASCSignatures(params)
+	if err != nil {
+		return fmt.Errorf("parse ASC signature fields: %w", err)
 	}
 
 	if err := s.applyASCParams(ctx, server.InterfaceName, params); err != nil {
 		s.appLog.Warn("set-asc", server.InterfaceName, "Failed to set ASC params: "+err.Error())
 		return err
+	}
+
+	obj, err := normalizeASCRaw(params)
+	if err != nil {
+		return fmt.Errorf("parse ASC params: %w", err)
+	}
+	if isASCDisabledState(obj) {
+		i1, i2, i3, i4, i5 = "", "", "", "", ""
+	}
+	if err := s.settings.UpdateManagedServer(id, func(sv *storage.ManagedServer) error {
+		sv.I1 = i1
+		sv.I2 = i2
+		sv.I3 = i3
+		sv.I4 = i4
+		sv.I5 = i5
+		return nil
+	}); err != nil {
+		return fmt.Errorf("save I1-I5: %w", err)
 	}
 
 	s.appLog.Full("set-asc", server.InterfaceName, "ASC params updated")

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 
 type restoreLiveGetter struct {
 	live map[string]restoreLiveEntry
+	asc  map[string]map[string]string
 }
 
 type restoreLiveEntry struct {
@@ -24,6 +26,19 @@ type restoreLiveEntry struct {
 }
 
 func (g *restoreLiveGetter) Get(ctx context.Context, path string, out any) error {
+	if strings.HasPrefix(path, "/show/rc/interface/") && strings.HasSuffix(path, "/wireguard/asc") {
+		iface := strings.TrimSuffix(strings.TrimPrefix(path, "/show/rc/interface/"), "/wireguard/asc")
+		src, ok := g.asc[iface]
+		if !ok {
+			src = map[string]string{
+				"jc": "0", "jmin": "0", "jmax": "0", "s1": "0", "s2": "0",
+				"h1": "", "h2": "", "h3": "", "h4": "",
+				"s3": "0", "s4": "0",
+			}
+		}
+		b, _ := json.Marshal(src)
+		return json.Unmarshal(b, out)
+	}
 	if path != "/show/interface/" {
 		return errors.New("unsupported path: " + path)
 	}
@@ -53,6 +68,62 @@ func (g *restoreLiveGetter) Get(ctx context.Context, path string, out any) error
 	}
 	b, _ := json.Marshal(m)
 	return json.Unmarshal(b, out)
+}
+
+func (g *restoreLiveGetter) applyPost(payload map[string]interface{}) {
+	intf, ok := payload["interface"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	for ifaceName, raw := range intf {
+		cfg, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		wg, ok := cfg["wireguard"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		ascRaw, has := wg["asc"]
+		if !has {
+			continue
+		}
+		if g.asc == nil {
+			g.asc = map[string]map[string]string{}
+		}
+		if clear, ok := ascRaw.(map[string]interface{}); ok {
+			if no, ok := clear["no"].(bool); ok && no {
+				g.asc[ifaceName] = map[string]string{
+					"jc": "0", "jmin": "0", "jmax": "0", "s1": "0", "s2": "0",
+					"h1": "", "h2": "", "h3": "", "h4": "",
+					"s3": "0", "s4": "0",
+				}
+				continue
+			}
+		}
+		ascMap, ok := ascRaw.(map[string]interface{})
+		if !ok {
+			// Fallback for map[any]any-like payloads.
+			b, _ := json.Marshal(ascRaw)
+			_ = json.Unmarshal(b, &ascMap)
+		}
+		state := map[string]string{}
+		for k, v := range ascMap {
+			switch val := v.(type) {
+			case string:
+				state[k] = val
+			default:
+				state[k] = strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%v", val), ".0"), ".")
+			}
+		}
+		if _, ok := state["s3"]; !ok {
+			state["s3"] = "0"
+		}
+		if _, ok := state["s4"]; !ok {
+			state["s4"] = "0"
+		}
+		g.asc[ifaceName] = state
+	}
 }
 
 func (g *restoreLiveGetter) GetRaw(ctx context.Context, path string) ([]byte, error) {
@@ -172,7 +243,7 @@ func TestRestore_CreatesNewServerHappyPath(t *testing.T) {
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	outcomes := s.Restore(context.Background(), []ManagedServerExport{{
@@ -223,7 +294,7 @@ func TestRestoreDrift_CreatesInterfaceWhenOnlyStorageExists(t *testing.T) {
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	drift, err := s.Drift(context.Background())
@@ -262,7 +333,7 @@ func TestRestoreDrift_CreatesInterfaceAndPeers(t *testing.T) {
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	drift, err := s.Drift(context.Background())
@@ -362,7 +433,7 @@ func TestRestore_MergeRejectsDuplicatePeerPublicKey(t *testing.T) {
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	out := s.Restore(context.Background(), []ManagedServerExport{{
@@ -415,7 +486,7 @@ func TestRestore_MergeAppliesASCAndPersistsIFields(t *testing.T) {
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	asc := json.RawMessage(`{"jc":3,"jmin":77,"jmax":266,"s1":18,"s2":29,"h1":"103994526","h2":"1201929360","h3":"2403636727","h4":"3602647725","i1":"AA","i2":"BB","i3":"CC","i4":"DD","i5":"EE"}`)
@@ -481,7 +552,7 @@ func TestRestore_PolicyNoneDoesNotEmitClearOnCreate(t *testing.T) {
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 	out := s.Restore(context.Background(), []ManagedServerExport{{
 		InterfaceName: "Wireguard0",
@@ -525,7 +596,7 @@ func TestRestore_PolicyProfileEmitsSetOnCreate(t *testing.T) {
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 	out := s.Restore(context.Background(), []ManagedServerExport{{
 		InterfaceName: "Wireguard0",
@@ -610,7 +681,7 @@ func TestRestore_RenamePersistRollbackRestoresOldOnAddFailure(t *testing.T) {
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	// Drift-mode direct call to exercise rename persist path.
@@ -640,7 +711,7 @@ func TestRestore_InvalidPrivateKeyConflictsBeforeRCI(t *testing.T) {
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	out := s.Restore(context.Background(), []ManagedServerExport{{
@@ -691,7 +762,7 @@ func TestRestore_LiveSameAddressMaskButDifferentIdentityDoesNotMerge(t *testing.
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	out := s.Restore(context.Background(), []ManagedServerExport{{
@@ -752,7 +823,7 @@ func TestRestore_LiveInterfaceWithNilWGServersIsTreatedAsForeignOccupied(t *test
 		// live exists but identity cannot be proven -> treat as foreign occupied slot.
 		WGServers: nil,
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	out := s.Restore(context.Background(), []ManagedServerExport{{
@@ -798,7 +869,7 @@ func TestRestore_AllowRenumberWithStorageSameIdentityUsesRenamePersistMode(t *te
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	out := s.Restore(context.Background(), []ManagedServerExport{{
@@ -868,7 +939,7 @@ func TestRestore_AddPeerRespectsEnabledFlag(t *testing.T) {
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	out := s.Restore(context.Background(), []ManagedServerExport{{
@@ -938,7 +1009,7 @@ func TestRestore_AppliesASCAndPersistsIFields(t *testing.T) {
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	asc := json.RawMessage(`{"jc":3,"jmin":77,"jmax":266,"s1":18,"s2":29,"h1":"103994526","h2":"1201929360","h3":"2403636727","h4":"3602647725","i1":"AA","i2":"BB","i3":"CC","i4":"DD","i5":"EE"}`)
@@ -1003,7 +1074,7 @@ func TestRestore_WithoutASC_DoesNotAutoApplyASC(t *testing.T) {
 		Interfaces: ifaces,
 		WGServers:  query.NewWGServerStore(getter, query.NopLogger(), ifaces),
 	}
-	poster := &fakePoster{}
+	poster := &fakePoster{onPost: getter.applyPost}
 	s := &Service{settings: store, transport: poster, queries: queries}
 
 	out := s.Restore(context.Background(), []ManagedServerExport{{

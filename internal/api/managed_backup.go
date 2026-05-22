@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/events"
@@ -343,96 +342,7 @@ func isEmptyASC(raw json.RawMessage) bool {
 	if len(obj) == 0 {
 		return true
 	}
-
-	parseNumber := func(key string) (float64, bool) {
-		v, ok := obj[key]
-		if !ok {
-			return 0, false
-		}
-		var n float64
-		if err := json.Unmarshal(v, &n); err != nil {
-			return 0, false
-		}
-		return n, true
-	}
-
-	requiredNums := []string{"jc", "jmin", "jmax", "s1", "s2"}
-	numeric := map[string]float64{}
-	for _, key := range requiredNums {
-		n, ok := parseNumber(key)
-		if !ok {
-			return true
-		}
-		numeric[key] = n
-	}
-
-	parseText := func(key string) (string, bool) {
-		v, ok := obj[key]
-		if !ok {
-			return "", false
-		}
-		var s string
-		if err := json.Unmarshal(v, &s); err != nil {
-			return "", false
-		}
-		return s, true
-	}
-	texts := map[string]string{}
-	for _, key := range []string{"h1", "h2", "h3", "h4"} {
-		v, ok := parseText(key)
-		if !ok {
-			return true
-		}
-		texts[key] = v
-	}
-
-	disabled := numeric["jc"] == 0 &&
-		numeric["jmin"] == 0 &&
-		numeric["jmax"] == 0 &&
-		numeric["s1"] == 0 &&
-		numeric["s2"] == 0 &&
-		strings.TrimSpace(texts["h1"]) == "" &&
-		strings.TrimSpace(texts["h2"]) == "" &&
-		strings.TrimSpace(texts["h3"]) == "" &&
-		strings.TrimSpace(texts["h4"]) == ""
-	if disabled {
-		if n, ok := parseNumber("s3"); ok && n != 0 {
-			return true
-		}
-		if n, ok := parseNumber("s4"); ok && n != 0 {
-			return true
-		}
-		return false
-	}
-
-	for _, key := range []string{"jc", "jmin", "jmax", "s1", "s2"} {
-		if numeric[key] <= 0 {
-			return true
-		}
-	}
-	if numeric["jmax"] <= numeric["jmin"] {
-		return true
-	}
-	for _, key := range []string{"h1", "h2", "h3", "h4"} {
-		if strings.TrimSpace(texts[key]) == "" {
-			return true
-		}
-	}
-
-	_, hasS3 := obj["s3"]
-	_, hasS4 := obj["s4"]
-	if hasS3 || hasS4 {
-		s3, ok := parseNumber("s3")
-		if !ok || s3 <= 0 {
-			return true
-		}
-		s4, ok := parseNumber("s4")
-		if !ok || s4 <= 0 {
-			return true
-		}
-	}
-
-	return false
+	return managed.ValidateASCParams(trimmed) != nil
 }
 
 // Drift handles GET /api/managed/drift.
