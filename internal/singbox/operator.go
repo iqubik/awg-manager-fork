@@ -140,6 +140,10 @@ type Operator struct {
 	// settings. Called BEFORE proc transitions so a persistence error
 	// short-circuits the action instead of leaving an unpersisted intent.
 	persistManualStop func(bool) error
+
+	// ndmsProxyEnabledFn is the late-bound closure from OperatorDeps.IsNDMSProxyEnabled.
+	// nil means "treat as enabled" for back-compat (pre-dates this field).
+	ndmsProxyEnabledFn func() bool
 }
 
 // OperatorDeps are external dependencies for DI.
@@ -163,6 +167,12 @@ type OperatorDeps struct {
 	// to persist the new intent to settings.json. Optional — when nil,
 	// the in-memory flag still works but does not survive an awgm restart.
 	SetManuallyStopped func(bool) error
+	// IsNDMSProxyEnabled returns the current value of the global toggle
+	// (Settings.CreateNDMSProxyForSingbox). Late-binding closure avoids
+	// circular construction between SettingsStore and Operator. When nil,
+	// the operator behaves as if always enabled (back-compat for tests
+	// that pre-date this field).
+	IsNDMSProxyEnabled func() bool
 }
 
 func NewOperator(d OperatorDeps) *Operator {
@@ -206,6 +216,7 @@ func NewOperator(d OperatorDeps) *Operator {
 		persistManualStop: d.SetManuallyStopped,
 	}
 	op.manuallyStopped.Store(d.InitialManuallyStopped)
+	op.ndmsProxyEnabledFn = d.IsNDMSProxyEnabled
 	op.proc.OnStderrLine = op.handleStderrLine
 	op.proc.OnStdoutLine = op.handleStdoutLine
 	op.proc.OnExit = op.handleExit
@@ -1005,6 +1016,16 @@ func (o *Operator) RequiredVersion() string {
 	return o.inst.RequiredVersion()
 }
 
+// isNDMSProxyEnabled returns the current NDMS proxy toggle value.
+// Returns true when no closure is wired (back-compat: callers that
+// constructed an Operator before this field existed behave as enabled).
+func (o *Operator) isNDMSProxyEnabled() bool {
+	if o.ndmsProxyEnabledFn == nil {
+		return true
+	}
+	return o.ndmsProxyEnabledFn()
+}
+
 // GetStatus returns install + run status.
 func (o *Operator) GetStatus(ctx context.Context) Status {
 	s := Status{}
@@ -1034,6 +1055,7 @@ func (o *Operator) GetStatus(ctx context.Context) Status {
 		s.TunnelCount = len(cfg.Tunnels())
 	}
 	s.ProxyComponent = ndmsinfo.HasProxyComponent()
+	s.NDMSProxyEnabled = o.isNDMSProxyEnabled()
 	if !s.Running {
 		s.LastError = o.LastError()
 	}

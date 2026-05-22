@@ -63,6 +63,11 @@ type Status struct {
 	// sing-box integration cannot route any traffic — the binary may be
 	// installed, but nothing works end-to-end.
 	ProxyComponent bool `json:"proxyComponent"`
+	// NDMSProxyEnabled mirrors Settings.CreateNDMSProxyForSingbox. When
+	// false, the UI hides ProxyComponent warnings and renders sing-box
+	// tunnel cards with a neutral "via sing-box" badge instead of the
+	// per-tunnel ProxyN label.
+	NDMSProxyEnabled bool `json:"ndmsProxyEnabled"`
 	// Features enumerates the build tags of the installed sing-box
 	// binary (parsed from the `Tags:` line of `sing-box version`).
 	// Example: ["with_gvisor","with_quic","with_naive_outbound",…].

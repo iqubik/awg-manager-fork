@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1087,5 +1089,46 @@ func TestParseProxyIdx_ValidProxy(t *testing.T) {
 func TestParseProxyIdx_Malformed(t *testing.T) {
 	if _, err := parseProxyIdx("garbage"); err == nil {
 		t.Error("parseProxyIdx(garbage) should error")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for constructing a minimal Operator in tests.
+// ---------------------------------------------------------------------------
+
+type operatorOpt func(*OperatorDeps)
+
+func withNDMSProxyEnabled(fn func() bool) operatorOpt {
+	return func(d *OperatorDeps) { d.IsNDMSProxyEnabled = fn }
+}
+
+func newOperatorForTest(t *testing.T, opts ...operatorOpt) *Operator {
+	t.Helper()
+	d := OperatorDeps{
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Dir: t.TempDir(),
+	}
+	for _, o := range opts {
+		o(&d)
+	}
+	return NewOperator(d)
+}
+
+func TestGetStatus_NDMSProxyEnabled_Mirrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		enabled bool
+	}{
+		{"enabled true", true},
+		{"enabled false", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			op := newOperatorForTest(t, withNDMSProxyEnabled(func() bool { return tc.enabled }))
+			got := op.GetStatus(context.Background())
+			if got.NDMSProxyEnabled != tc.enabled {
+				t.Errorf("NDMSProxyEnabled = %v, want %v", got.NDMSProxyEnabled, tc.enabled)
+			}
+		})
 	}
 }

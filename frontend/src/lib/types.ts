@@ -1105,6 +1105,8 @@ export interface SingboxStatus {
 	pid?: number;
 	tunnelCount: number;
 	proxyComponent: boolean;
+	/** Mirrors Settings.CreateNDMSProxyForSingbox. When false, the UI hides ProxyComponent warnings. */
+	ndmsProxyEnabled: boolean;
 	/**
 	 * Build tags of the installed sing-box binary (parsed from
 	 * `sing-box version` Tags: line). Missing when not installed.
