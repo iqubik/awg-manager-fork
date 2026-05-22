@@ -24,7 +24,7 @@ func newHRTestSvc(t *testing.T, resolver InterfaceResolver) (*ServiceImpl, *hydr
 	)
 	t.Cleanup(restore)
 
-	hydra := hydraroute.NewService(&kernelResolverAdapter{resolver: resolver}, noopLogger(), nil)
+	hydra := hydraroute.NewService(&kernelResolverAdapter{resolver: resolver}, nil)
 	hydra.SetStatusForTest(true)
 
 	store := NewStore(t.TempDir())
@@ -38,7 +38,6 @@ func newHRTestSvc(t *testing.T, resolver InterfaceResolver) (*ServiceImpl, *hydr
 		queries:  q,
 		commands: c,
 		resolver: resolver,
-		log:      noopLogger(),
 		hydra:    hydra,
 	}
 	return svc, hydra

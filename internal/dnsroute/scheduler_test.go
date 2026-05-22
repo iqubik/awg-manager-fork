@@ -180,7 +180,7 @@ func TestScheduler_StartStop(t *testing.T) {
 		RefreshIntervalHours: 0,
 	})
 
-	sched := NewScheduler(mock, store, noopLogger())
+	sched := NewScheduler(mock, store, nil)
 	sched.Start()
 
 	// Stop should return promptly (scheduler is in initial delay).
@@ -204,7 +204,7 @@ func TestScheduler_DoRefreshCallsService(t *testing.T) {
 		RefreshIntervalHours: 1,
 	})
 
-	sched := NewScheduler(mock, store, noopLogger())
+	sched := NewScheduler(mock, store, nil)
 	sched.doRefresh()
 
 	if mock.count() != 1 {

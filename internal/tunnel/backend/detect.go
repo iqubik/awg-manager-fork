@@ -4,14 +4,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/sys/kmod"
 )
-
-// Logger interface for backend logging.
-type Logger interface {
-	Warn(msg string, fields ...map[string]interface{})
-	Info(msg string, fields ...map[string]interface{})
-}
 
 // IsKernelAvailable checks if the AmneziaWG kernel module is loaded.
 func IsKernelAvailable() bool {
@@ -37,28 +32,20 @@ func waitForKernel(timeout time.Duration) bool {
 	}
 }
 
-// New creates a kernel backend.
-func New(log Logger) Backend {
+// New creates a kernel backend. appLog is optional (nil is safe).
+func New(appLog *logging.ScopedLogger) Backend {
 	if IsKernelAvailable() {
-		if log != nil {
-			log.Info("Using kernel backend")
-		}
+		appLog.Info("backend-detect", "", "using kernel backend")
 		return NewKernel()
 	}
 
 	// Module may still be registering after insmod — wait with retry
-	if log != nil {
-		log.Info("Waiting for kernel module to become available")
-	}
+	appLog.Info("backend-detect", "", "waiting for kernel module")
 	if waitForKernel(5 * time.Second) {
-		if log != nil {
-			log.Info("Using kernel backend (after wait)")
-		}
+		appLog.Info("backend-detect", "", "using kernel backend (after wait)")
 		return NewKernel()
 	}
 
-	if log != nil {
-		log.Warn("Kernel module not available — tunnel operations may fail")
-	}
+	appLog.Warn("backend-detect", "", "kernel module not available — tunnel operations may fail")
 	return NewKernel()
 }

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/events"
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/storage"
@@ -177,7 +176,6 @@ type StagingEventBus interface {
 }
 
 type Deps struct {
-	Log            *logger.Logger
 	AppLog         logging.AppLogger
 	Settings       *storage.SettingsStore
 	Singbox        SingboxController
@@ -223,30 +221,30 @@ type Deps struct {
 	NetfilterPreflight func(context.Context) error
 }
 
-// routerLoggerAdapter narrows *logger.Logger to the wanLogger
-// interface required by NewWANIPCollector. Needed because
-// logger.Logger.Warn / .Info have variadic fields, which doesn't
-// satisfy a literal Warn(msg string) / Info(msg string) interface.
+// routerLoggerAdapter narrows *logging.ScopedLogger to the wanLogger
+// interface required by NewWANIPCollector. ScopedLogger expects
+// (action, target, message) — we collapse to a single message.
 type routerLoggerAdapter struct {
-	log *logger.Logger
+	log *logging.ScopedLogger
 }
 
 func (a *routerLoggerAdapter) Warn(msg string) {
 	if a.log == nil {
 		return
 	}
-	a.log.Warn(msg)
+	a.log.Warn("wan-ip", "", msg)
 }
 
 func (a *routerLoggerAdapter) Info(msg string) {
 	if a.log == nil {
 		return
 	}
-	a.log.Info(msg)
+	a.log.Info("wan-ip", "", msg)
 }
 
 type ServiceImpl struct {
 	deps                    Deps
+	appLog                  *logging.ScopedLogger
 	mu                      sync.Mutex
 	currentMark             string              // last-installed iptables mark; used by Reconcile to detect change
 	currentWANIPs           []string            // last-collected WAN IPs; used by Reconcile to detect change
@@ -273,15 +271,16 @@ func NewService(d Deps) *ServiceImpl {
 	if d.IPTables == nil {
 		d.IPTables = NewIPTables()
 	}
+	appLog := logging.NewScopedLogger(d.AppLog, logging.GroupRouting, logging.SubSingboxRouter)
 	if d.WANIPCollector == nil {
-		d.WANIPCollector = NewWANIPCollector(&routerLoggerAdapter{log: d.Log})
+		d.WANIPCollector = NewWANIPCollector(&routerLoggerAdapter{log: appLog})
 	}
 	// Idempotently refresh the netfilter hook script: if a previous
 	// version is on disk (older AWGM without pidof guard), this writes
 	// the current version. No-op when the file is absent — Install
 	// creates it on first Enable.
 	refreshNetfilterHookIfPresent()
-	return &ServiceImpl{deps: d}
+	return &ServiceImpl{deps: d, appLog: appLog}
 }
 
 func (s *ServiceImpl) routerConfigPath() string {
@@ -414,9 +413,7 @@ func (s *ServiceImpl) prepareNetfilter(ctx context.Context) error {
 	// xt_comment, xt_mark, xt_connmark, xt_conntrack, xt_pkttype.
 	if errs := EnsureRouterNetfilterModules(ctx); len(errs) > 0 {
 		for _, err := range errs {
-			if s.deps.Log != nil {
-				s.deps.Log.Warnf("router: ensure netfilter module: %v", err)
-			}
+			s.appLog.Warn("ensure-netfilter", "", err.Error())
 		}
 	}
 
@@ -610,7 +607,7 @@ func (s *ServiceImpl) Enable(ctx context.Context) error {
 	// (refusing to install iptables) leaves the router with no routing
 	// at all, which is worse than a brief packet-drop blip.
 	if err := s.waitForSingbox(ctx, 15*time.Second); err != nil {
-		s.deps.Log.Warnf("router: sing-box not ready before iptables install: %v", err)
+		s.appLog.Warn("install", "", "sing-box not ready: "+err.Error())
 	}
 
 	// Collect WAN IPs BEFORE Install: the router's own public-IP
@@ -636,7 +633,7 @@ func (s *ServiceImpl) Enable(ctx context.Context) error {
 	if policyMode {
 		lanBridges, _ = DiscoverLANBridges(ctx, mark)
 		if len(lanBridges) == 0 {
-			s.deps.Log.Warnf("router: no NDMS hotspot LAN bridges discovered; DNS fallback for no-policy devices skipped")
+			s.appLog.Warn("discover-lan-bridges", "", "no NDMS hotspot LAN bridges, DNS fallback skipped")
 		}
 	}
 
@@ -871,7 +868,7 @@ func (s *ServiceImpl) Disable(ctx context.Context) error {
 	defer s.mu.Unlock()
 
 	if err := s.deps.IPTables.Uninstall(ctx); err != nil {
-		s.deps.Log.Warn(fmt.Sprintf("router iptables uninstall: %v", err))
+		s.appLog.Warn("uninstall", "", err.Error())
 	}
 	s.currentMark = ""
 	s.currentWANIPs = nil
@@ -886,7 +883,7 @@ func (s *ServiceImpl) Disable(ctx context.Context) error {
 		// tproxy inbound, route rules, DNS rules and composite outbounds
 		// all disappear from the merged config in one atomic rename.
 		if err := s.deps.Orch.SetEnabled(orchestrator.SlotRouter, false); err != nil {
-			s.deps.Log.Warn(fmt.Sprintf("orchestrator disable router: %v", err))
+			s.appLog.Warn("orch-disable", "", err.Error())
 		}
 	} else {
 		// Legacy fallback: strip the tproxy inbound in place so
@@ -982,8 +979,8 @@ func (s *ServiceImpl) reconcileInstalled(ctx context.Context, sr storage.Singbox
 	needsInstall := forceInitialSync || markChanged || wanIPsChanged || lanBridgesChanged || bypassPresetsChanged || bypassExtraChanged
 
 	if needsInstall {
-		if forceInitialSync && s.deps.Log != nil {
-			s.deps.Log.Infof("router: first reconcile after daemon start — reinstalling netfilter rules")
+		if forceInitialSync {
+			s.appLog.Info("reconcile", "", "first after daemon start — reinstalling netfilter rules")
 		}
 
 		if err := s.prepareNetfilter(ctx); err != nil {
@@ -1016,7 +1013,7 @@ func (s *ServiceImpl) reconcileInstalled(ctx context.Context, sr storage.Singbox
 	// have left 20-router.json without the tproxy-in inbound. Re-add
 	// it idempotently so sing-box keeps listening on TPROXYPort.
 	if err := s.healTProxyInbound(ctx); err != nil {
-		s.deps.Log.Warn(fmt.Sprintf("router: heal tproxy inbound: %v", err))
+		s.appLog.Warn("heal-tproxy", "", err.Error())
 	}
 	return nil
 }

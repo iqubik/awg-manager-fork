@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/hydraroute"
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms/command"
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
@@ -32,7 +31,6 @@ type ServiceImpl struct {
 	queries            *query.Queries
 	commands           *command.Commands
 	resolver           InterfaceResolver
-	log                *logger.Logger
 	appLog             *logging.ScopedLogger
 	failover           *FailoverManager
 	hydra              *hydraroute.Service
@@ -40,13 +38,12 @@ type ServiceImpl struct {
 }
 
 // NewService creates a new DNS route service.
-func NewService(store *Store, queries *query.Queries, commands *command.Commands, resolver InterfaceResolver, log *logger.Logger, appLogger logging.AppLogger) *ServiceImpl {
+func NewService(store *Store, queries *query.Queries, commands *command.Commands, resolver InterfaceResolver, appLogger logging.AppLogger) *ServiceImpl {
 	return &ServiceImpl{
 		store:    store,
 		queries:  queries,
 		commands: commands,
 		resolver: resolver,
-		log:      log,
 		appLog:   logging.NewScopedLogger(appLogger, logging.GroupRouting, logging.SubDnsRoute),
 	}
 }
@@ -257,7 +254,7 @@ func (s *ServiceImpl) Create(ctx context.Context, list DomainList) (*DomainList,
 		return nil, fmt.Errorf("save after create: %w", err)
 	}
 
-	s.log.Infof("created dns route list %q (%s)", list.Name, list.ID)
+	s.appLog.Info("create", list.ID, "list created: "+list.Name)
 
 	// Validate subscriptions by fetching them. If any URL fails (wrong
 	// Content-Type, unreachable, etc.), reject the entire Create.
@@ -325,7 +322,7 @@ func (s *ServiceImpl) List(ctx context.Context) ([]DomainList, error) {
 
 	hrLists, err := s.listHydraRoute(ctx)
 	if err != nil {
-		s.log.Warnf("hydraroute: list rules failed: %v", err)
+		s.appLog.Warn("hydraroute-list-rules", "", err.Error())
 	}
 	result = append(result, hrLists...)
 
@@ -443,7 +440,7 @@ func (s *ServiceImpl) Update(ctx context.Context, list DomainList) (*DomainList,
 		return nil, fmt.Errorf("save after update: %w", err)
 	}
 
-	s.log.Infof("updated dns route list %q (%s)", list.Name, list.ID)
+	s.appLog.Info("update", list.ID, "list updated: "+list.Name)
 
 	if err := s.reconcileAll(ctx); err != nil {
 		s.logError("update", list.ID, "Reconcile failed", err.Error())
@@ -487,7 +484,7 @@ func (s *ServiceImpl) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("save after delete: %w", err)
 	}
 
-	s.log.Infof("deleted dns route list %q (%s)", name, id)
+	s.appLog.Info("delete", id, "list deleted: "+name)
 
 	if err := s.reconcileAll(ctx); err != nil {
 		s.logError("delete", id, "Reconcile failed", err.Error())
@@ -516,7 +513,7 @@ func (s *ServiceImpl) DeleteBatch(ctx context.Context, ids []string) (int, error
 	deleted := 0
 	for _, list := range data.Lists {
 		if toDelete[list.ID] {
-			s.log.Infof("deleted dns route list %q (%s)", list.Name, list.ID)
+			s.appLog.Info("delete", list.ID, "list deleted: "+list.Name)
 			deleted++
 		} else {
 			kept = append(kept, list)
@@ -576,7 +573,7 @@ func (s *ServiceImpl) CreateBatch(ctx context.Context, lists []DomainList) ([]*D
 		s.dedup(&list)
 		data.Lists = append(data.Lists, list)
 		createdIDs = append(createdIDs, list.ID)
-		s.log.Infof("created dns route list %q (%s)", list.Name, list.ID)
+		s.appLog.Info("create", list.ID, "list created: "+list.Name)
 
 		if len(list.Subscriptions) > 0 {
 			hasSubs = true
@@ -722,9 +719,7 @@ func (s *ServiceImpl) refreshSubscriptions(ctx context.Context, id string) error
 		if err != nil {
 			sub.LastError = err.Error()
 			sub.LastCount = 0
-			s.log.Warn("subscription fetch failed", map[string]interface{}{
-				"list": id, "url": sub.URL, "error": err.Error(),
-			})
+			s.appLog.Warn("subscription-fetch", id, fmt.Sprintf("url=%s err=%s", sub.URL, err.Error()))
 			// Keep going — one failed subscription shouldn't block others
 			continue
 		}
@@ -747,9 +742,7 @@ func (s *ServiceImpl) refreshSubscriptions(ctx context.Context, id string) error
 		return fmt.Errorf("save after refresh: %w", err)
 	}
 
-	s.log.Info("subscriptions refreshed", map[string]interface{}{
-		"list": id, "totalDomains": len(list.Domains),
-	})
+	s.appLog.Info("subscription-refresh", id, fmt.Sprintf("totalDomains=%d", len(list.Domains)))
 
 	return s.reconcileAll(ctx)
 }
@@ -825,7 +818,7 @@ func (s *ServiceImpl) OnTunnelDelete(ctx context.Context, tunnelID string) error
 		if err := s.store.Save(data); err != nil {
 			return fmt.Errorf("save after tunnel delete cleanup: %w", err)
 		}
-		s.log.Infof("removed deleted tunnel %s from dns route targets", tunnelID)
+		s.appLog.Info("cleanup-targets", tunnelID, "removed from dns route targets")
 	}
 
 	return s.reconcileAll(ctx)

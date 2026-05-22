@@ -17,7 +17,6 @@ func newTestService(t *testing.T) *ServiceImpl {
 		store:    store,
 		queries:  q,
 		commands: c,
-		log:      noopLogger(),
 	}
 }
 

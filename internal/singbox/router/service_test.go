@@ -11,7 +11,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
 	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/storage"
@@ -204,7 +203,6 @@ func TestEnable_AllDevicesMode_DoesNotRequirePolicyMark(t *testing.T) {
 	singbox := newTestSingbox(t)
 	singbox.isRunningFn = func() (bool, int) { return true, 1234 }
 	svc := newTestService(t, Deps{
-		Log:                logger.New(),
 		Settings:           settingsStore,
 		Policies:           policies,
 		IPTables:           newStubIPTables(func(_ context.Context, input string) error { restoreInput = input; return nil }),
@@ -261,7 +259,6 @@ func TestReconcile_PolicyMarkChanged_Reinstalls(t *testing.T) {
 
 	svc := &ServiceImpl{
 		deps: Deps{
-			Log:            logger.New(),
 			Policies:       &fakeAccessPolicyProvider{mark: "0xffffaab"},
 			IPTables:       ipt,
 			WANIPCollector: collector,
@@ -335,8 +332,7 @@ func TestReconcile_WANIPsChanged_Reinstalls(t *testing.T) {
 
 	svc := &ServiceImpl{
 		deps: Deps{
-			Log:                logger.New(),
-			Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
+				Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
 			IPTables:           ipt,
 			WANIPCollector:     collector,
 			Singbox:            newTestSingbox(t),
@@ -373,8 +369,7 @@ func TestReconcile_WANIPsSame_NoOp(t *testing.T) {
 	// stored values, so no re-install should be triggered.
 	svc := &ServiceImpl{
 		deps: Deps{
-			Log:                logger.New(),
-			Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
+				Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
 			IPTables:           ipt,
 			WANIPCollector:     collector,
 			Singbox:            newTestSingbox(t),
@@ -436,8 +431,7 @@ func TestReconcile_DeviceModeChanged_ReinstallsImmediately(t *testing.T) {
 			policies := &fakeAccessPolicyProvider{mark: "0xffffaaa"}
 			svc := &ServiceImpl{
 				deps: Deps{
-					Log:                logger.New(),
-					Policies:           policies,
+								Policies:           policies,
 					IPTables:           newStubIPTables(func(_ context.Context, input string) error { restoreInput = input; restoreCalls++; return nil }),
 					WANIPCollector:     &fakeWANIPCollector{},
 					Singbox:            newTestSingbox(t),
@@ -544,7 +538,6 @@ func TestReconcile_StateUnknown_ForcesInitialReinstall(t *testing.T) {
 	// binary upgrade.
 	svc := &ServiceImpl{
 		deps: Deps{
-			Log:            logger.New(),
 			Policies:       &fakeAccessPolicyProvider{mark: "0xffffaaa"},
 			IPTables:       ipt,
 			WANIPCollector: collector,
@@ -995,8 +988,7 @@ func TestReconcile_BypassPresetsChanged_Reinstalls(t *testing.T) {
 
 	svc := &ServiceImpl{
 		deps: Deps{
-			Log:                logger.New(),
-			Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
+				Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
 			IPTables:           ipt,
 			WANIPCollector:     collector,
 			Singbox:            newTestSingbox(t),
@@ -1033,8 +1025,7 @@ func TestReconcile_BypassPresetsSame_NoOp(t *testing.T) {
 
 	svc := &ServiceImpl{
 		deps: Deps{
-			Log:                logger.New(),
-			Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
+				Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
 			IPTables:           ipt,
 			WANIPCollector:     collector,
 			Singbox:            newTestSingbox(t),

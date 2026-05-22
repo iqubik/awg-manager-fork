@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms/command"
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
@@ -54,7 +53,6 @@ type ServiceImpl struct {
 	interfaces  *command.InterfaceCommands
 	queries     *query.Queries
 	tracker     PolicyTracker
-	log         *logger.Logger
 	appLog      *logging.ScopedLogger
 	policyMarks PolicyMarkSource
 }
@@ -62,13 +60,12 @@ type ServiceImpl struct {
 // New creates a new access policy service backed by the NDMS CQRS layer.
 // Stores handle their own caching and single-flight — no boot-time
 // pre-warm is needed.
-func New(policies *command.PolicyCommands, interfaces *command.InterfaceCommands, queries *query.Queries, tracker PolicyTracker, log *logger.Logger, appLogger logging.AppLogger, policyMarks PolicyMarkSource) *ServiceImpl {
+func New(policies *command.PolicyCommands, interfaces *command.InterfaceCommands, queries *query.Queries, tracker PolicyTracker, appLogger logging.AppLogger, policyMarks PolicyMarkSource) *ServiceImpl {
 	return &ServiceImpl{
 		policies:    policies,
 		interfaces:  interfaces,
 		queries:     queries,
 		tracker:     tracker,
-		log:         log.WithComponent("accesspolicy"),
 		appLog:      logging.NewScopedLogger(appLogger, logging.GroupRouting, logging.SubAccessPolicy),
 		policyMarks: policyMarks,
 	}
@@ -90,7 +87,7 @@ func (s *ServiceImpl) List(ctx context.Context) ([]Policy, error) {
 	// Count devices per policy from hotspot
 	deviceCounts, err := s.countDevicesPerPolicy(ctx)
 	if err != nil {
-		s.log.Warnf("failed to count devices per policy: %v", err)
+		s.appLog.Warn("count-devices", "", err.Error())
 		deviceCounts = map[string]int{}
 	}
 
@@ -193,7 +190,7 @@ func (s *ServiceImpl) Create(ctx context.Context, description string) (*Policy, 
 	// Track as managed by AWG Manager
 	if s.tracker != nil {
 		if err := s.tracker.AddManagedPolicy(name); err != nil {
-			s.log.Warnf("failed to track managed policy %s: %v", name, err)
+			s.appLog.Warn("track-managed", name, err.Error())
 		}
 	}
 
@@ -364,7 +361,7 @@ func (s *ServiceImpl) ListDevices(ctx context.Context) ([]Device, error) {
 	if !osdetect.AtLeast(5, 1) {
 		rcHostPolicies, err = s.parseHotspotPolicies(ctx)
 		if err != nil {
-			s.log.Warnf("failed to parse hotspot policies from running-config: %v", err)
+			s.appLog.Warn("parse-hotspot-policies", "", err.Error())
 		}
 	}
 
@@ -497,7 +494,7 @@ func (s *ServiceImpl) countDevicesPerPolicy(ctx context.Context) (map[string]int
 	if !osdetect.AtLeast(5, 1) {
 		rcHostPolicies, err = s.parseHotspotPolicies(ctx)
 		if err != nil {
-			s.log.Warnf("failed to parse hotspot policies from running-config: %v", err)
+			s.appLog.Warn("parse-hotspot-policies", "", err.Error())
 		}
 	}
 

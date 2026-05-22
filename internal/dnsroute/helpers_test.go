@@ -6,15 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/ndms/command"
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
 )
-
-// noopLogger returns a logger for tests.
-func noopLogger() *logger.Logger {
-	return logger.New().WithComponent("dnsroute-test")
-}
 
 // fakePoster records payloads passed to Post for assertion.
 type fakePoster struct {

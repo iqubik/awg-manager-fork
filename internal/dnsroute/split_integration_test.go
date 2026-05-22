@@ -18,7 +18,6 @@ func TestCreate_SplitsCIDRIntoSubnets(t *testing.T) {
 		store:    store,
 		queries:  q,
 		commands: c,
-		log:      noopLogger(),
 	}
 
 	ctx := context.Background()
@@ -67,7 +66,6 @@ func TestUpdate_SplitsCIDRIntoSubnets(t *testing.T) {
 		store:    store,
 		queries:  q,
 		commands: c,
-		log:      noopLogger(),
 	}
 
 	ctx := context.Background()

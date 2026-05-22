@@ -49,7 +49,7 @@ func (o *Orchestrator) resolveWAN(ctx context.Context, ispInterface string) (str
 		if tunnel.IsTunnelRoute(parentStored.ISPInterface) {
 			return "", fmt.Errorf("parent tunnel %s: nested chain, ActiveWAN not tracked", parentID)
 		}
-		o.logInfo(parentID, "ActiveWAN empty, resolving from stored config")
+		o.appLog.Info("resolve-wan", parentID, "ActiveWAN empty, resolving from stored config")
 		return o.resolveWAN(ctx, parentStored.ISPInterface)
 	}
 

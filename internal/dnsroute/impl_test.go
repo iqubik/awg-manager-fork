@@ -179,7 +179,6 @@ func TestServiceImpl_CRUD(t *testing.T) {
 		store:    store,
 		queries:  q,
 		commands: c,
-		log:      noopLogger(),
 	}
 
 	ctx := context.Background()
@@ -286,7 +285,7 @@ func TestServiceImpl_CreateValidation(t *testing.T) {
 	}
 
 	q, c, _, _ := newTestNDMS()
-	svc := &ServiceImpl{store: store, queries: q, commands: c, log: noopLogger()}
+	svc := &ServiceImpl{store: store, queries: q, commands: c}
 	ctx := context.Background()
 
 	t.Run("empty name", func(t *testing.T) {
@@ -312,7 +311,7 @@ func TestServiceImpl_NotFound(t *testing.T) {
 	}
 
 	q, c, _, _ := newTestNDMS()
-	svc := &ServiceImpl{store: store, queries: q, commands: c, log: noopLogger()}
+	svc := &ServiceImpl{store: store, queries: q, commands: c}
 	ctx := context.Background()
 
 	if _, err := svc.Get(ctx, "nope"); err == nil {
@@ -340,7 +339,6 @@ func TestServiceImpl_OnTunnelDelete_CleansFailoverState(t *testing.T) {
 		store:    store,
 		queries:  q,
 		commands: c,
-		log:      noopLogger(),
 	}
 	fm := NewFailoverManager(func() error { return nil })
 	svc.SetFailoverManager(fm)
@@ -375,7 +373,7 @@ func TestServiceImpl_OnTunnelDelete_PreservesListDomains(t *testing.T) {
 		t.Fatal(err)
 	}
 	q, c, _, _ := newTestNDMS()
-	svc := &ServiceImpl{store: store, queries: q, commands: c, log: noopLogger()}
+	svc := &ServiceImpl{store: store, queries: q, commands: c}
 	svc.SetFailoverManager(NewFailoverManager(func() error { return nil }))
 
 	// soloList → only bound to "doomed", becomes orphan after delete.
@@ -443,7 +441,6 @@ func TestServiceImpl_LookupAffectedLists_RestoredAction(t *testing.T) {
 		store:    store,
 		queries:  q,
 		commands: c,
-		log:      noopLogger(),
 	}
 	fm := NewFailoverManager(func() error { return nil })
 	svc.SetFailoverManager(fm)

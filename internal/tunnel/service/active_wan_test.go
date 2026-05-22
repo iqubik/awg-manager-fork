@@ -31,7 +31,7 @@ func testService(t *testing.T) (*ServiceImpl, *storage.AWGTunnelStore, *mockOp, 
 	confDir = confTestDir
 	t.Cleanup(func() { confDir = oldConfDir })
 
-	store := storage.NewAWGTunnelStoreWithLockDir(dir, nil, lockDir)
+	store := storage.NewAWGTunnelStoreWithLockDir(dir, lockDir)
 	stateMgr := NewMockStateManager()
 	op := newMockOp()
 	op.stateMgr = stateMgr // wire up for Stop → state update
@@ -41,7 +41,7 @@ func testService(t *testing.T) (*ServiceImpl, *storage.AWGTunnelStore, *mockOp, 
 		{Name: "ppp0", ID: "PPPoE1", Up: true, Label: "PPPoE1", Priority: 5},
 	})
 
-	svc := New(store, nil, op, stateMgr, nil, wanModel, nil)
+	svc := New(store, nil, op, stateMgr, wanModel, nil)
 
 	return svc, store, op, stateMgr
 }

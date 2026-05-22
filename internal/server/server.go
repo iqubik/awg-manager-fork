@@ -30,7 +30,6 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/routing"
 	"github.com/hoaxisr/awg-manager/internal/singbox"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/managed"
 	"github.com/hoaxisr/awg-manager/internal/monitoring"
@@ -78,7 +77,7 @@ type Config struct {
 // Server is the HTTP server for awg-manager.
 type Server struct {
 	config                 Config
-	log                    *logger.Logger
+	appLog                 *logging.ScopedLogger
 	tunnelService          api.TunnelService
 	externalService        api.ExternalTunnelService
 	testingService         *testing.Service
@@ -148,7 +147,6 @@ type Server struct {
 // via the existing post-construction Set*Handler() / SetSingboxOperator()
 // setters — see SetSingboxRouterHandler etc. below in this file.
 type Deps struct {
-	Log                  *logger.Logger
 	TunnelService        api.TunnelService
 	ExternalService      api.ExternalTunnelService
 	TestingService       *testing.Service
@@ -184,14 +182,28 @@ type Deps struct {
 	SingboxConfigPreview func() (string, error)
 }
 
+// authLoggerAdapter narrows ScopedLogger to the AuthLogger interface
+// (Warnf) required by auth.NewMiddleware.
+type authLoggerAdapter struct {
+	log *logging.ScopedLogger
+}
+
+func (a *authLoggerAdapter) Warnf(format string, args ...interface{}) {
+	if a.log == nil {
+		return
+	}
+	a.log.Warn("auth", "", fmt.Sprintf(format, args...))
+}
+
 // New creates a new server instance.
 func New(cfg Config, deps Deps) *Server {
 	id := generateInstanceID()
-	deps.Log.Infof("Server instance: %s", id)
+	appLog := logging.NewScopedLogger(deps.LoggingService, logging.GroupServer, logging.SubHTTP)
+	appLog.Info("startup", "", "Server instance: "+id)
 
 	return &Server{
 		config:                 cfg,
-		log:                    deps.Log,
+		appLog:                 appLog,
 		tunnelService:          deps.TunnelService,
 		externalService:        deps.ExternalService,
 		testingService:         deps.TestingService,
@@ -225,7 +237,7 @@ func New(cfg Config, deps Deps) *Server {
 		monitoringService:      deps.MonitoringService,
 		singboxSubMembersFn:    deps.SingboxSubMembers,
 		singboxConfigPreviewFn: deps.SingboxConfigPreview,
-		authMiddleware:         auth.NewMiddleware(deps.Sessions, deps.Settings, deps.Log),
+		authMiddleware:         auth.NewMiddleware(deps.Sessions, deps.Settings, &authLoggerAdapter{log: appLog}),
 		instanceID:             id,
 	}
 }
@@ -377,7 +389,7 @@ func (s *Server) Start() error {
 		}
 		go func() {
 			if err := s.pprofServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				s.log.Warn("pprof listener stopped", map[string]interface{}{"error": err.Error(), "addr": addr})
+				s.appLog.Warn("pprof", addr, "listener stopped: "+err.Error())
 			}
 		}()
 		fmt.Fprintf(os.Stderr, "awg-manager: pprof (standalone): http://%s/debug/pprof/\n", addr)
@@ -413,10 +425,7 @@ func (s *Server) Start() error {
 	if s.config.LoopbackListenAddr != "" {
 		ln, err := net.Listen("tcp", s.config.LoopbackListenAddr)
 		if err != nil {
-			s.log.Warn("Failed to start loopback listener", map[string]interface{}{
-				"addr":  s.config.LoopbackListenAddr,
-				"error": err.Error(),
-			})
+			s.appLog.Warn("loopback-listener", s.config.LoopbackListenAddr, "failed to start: "+err.Error())
 		} else {
 			s.loopbackListener = ln
 			loopbackSrv := &http.Server{
@@ -426,9 +435,7 @@ func (s *Server) Start() error {
 				MaxHeaderBytes:    8192,
 			}
 			go loopbackSrv.Serve(ln)
-			s.log.Info("Loopback listener started", map[string]interface{}{
-				"addr": s.config.LoopbackListenAddr,
-			})
+			s.appLog.Info("loopback-listener", s.config.LoopbackListenAddr, "started")
 		}
 	}
 
@@ -474,13 +481,13 @@ func (s *Server) ScheduleRestart() {
 
 			executable, err := os.Executable()
 			if err != nil {
-				s.log.Error("Failed to get executable path for restart", map[string]interface{}{"error": err.Error()})
+				s.appLog.Error("restart", "", "failed to get executable path: "+err.Error())
 				return
 			}
-			s.log.Info("Restarting daemon", map[string]interface{}{"executable": executable})
+			s.appLog.Info("restart", executable, "restarting daemon")
 
 			if err := syscall.Exec(executable, os.Args, os.Environ()); err != nil {
-				s.log.Error("Failed to exec for restart", map[string]interface{}{"error": err.Error()})
+				s.appLog.Error("restart", "", "exec failed: "+err.Error())
 			}
 		}()
 	})
@@ -530,7 +537,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	importHandler.SetPingCheckService(s.pingCheckService)
 	importHandler.SetTunnelsHandler(tunnelsHandler)
 	statusHandler := api.NewStatusHandler(s.tunnelService)
-	wanHandler := api.NewWANHandler(s.tunnelService, s.log, appLog)
+	wanHandler := api.NewWANHandler(s.tunnelService, appLog)
 	pingCheckHandler := api.NewPingCheckHandler(s.pingCheckService, s.tunnels, s.nwgOp, appLog)
 	pingCheckHandler.SetEventBus(s.bus)
 	pingCheckHandler.SetOrchestrator(s.orch)

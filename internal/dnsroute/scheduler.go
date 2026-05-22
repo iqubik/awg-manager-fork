@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
+	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 )
 
@@ -17,18 +17,18 @@ const (
 type Scheduler struct {
 	svc         Service
 	settings    *storage.SettingsStore
-	log         *logger.Logger
+	appLog      *logging.ScopedLogger
 	stop        chan struct{}
 	done        chan struct{}
 	lastRefresh time.Time // tracks last successful refresh
 }
 
 // NewScheduler creates a new subscription refresh scheduler.
-func NewScheduler(svc Service, settings *storage.SettingsStore, log *logger.Logger) *Scheduler {
+func NewScheduler(svc Service, settings *storage.SettingsStore, appLogger logging.AppLogger) *Scheduler {
 	return &Scheduler{
 		svc:      svc,
 		settings: settings,
-		log:      log,
+		appLog:   logging.NewScopedLogger(appLogger, logging.GroupRouting, logging.SubDnsRoute),
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
 	}
@@ -133,8 +133,8 @@ func (s *Scheduler) doRefresh() {
 	defer cancel()
 
 	if err := s.svc.RefreshAllSubscriptions(ctx); err != nil {
-		s.log.Warn("dns-route auto-refresh failed", map[string]interface{}{"error": err.Error()})
+		s.appLog.Warn("auto-refresh", "", err.Error())
 	} else {
-		s.log.Info("dns-route auto-refresh completed", nil)
+		s.appLog.Info("auto-refresh", "", "completed")
 	}
 }

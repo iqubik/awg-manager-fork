@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/events"
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/storage"
@@ -32,7 +31,6 @@ type ServiceImpl struct {
 	state          state.Manager         // state detection for kernel tunnels only
 	nwgOperator    *nwg.OperatorNativeWG // NativeWG backend (nil if unavailable)
 	legacyOperator ops.Operator          // Kernel backend (OS5/OS4)
-	log            *logger.Logger
 	appLog         *logging.ScopedLogger // UI-visible logging
 
 	// tunnelMu provides per-tunnel mutexes for lifecycle operations.
@@ -75,7 +73,7 @@ func (s *ServiceImpl) notifyAWGSyncer(ctx context.Context) {
 		return
 	}
 	if err := s.awgSyncer.SyncAWGOutbounds(ctx); err != nil {
-		s.log.Warnf("awg syncer: %v", err)
+		s.appLog.Warn("awg-sync", "", err.Error())
 	}
 }
 
@@ -85,7 +83,6 @@ func New(
 	nwgOp *nwg.OperatorNativeWG,
 	legacyOp ops.Operator,
 	stateMgr state.Manager,
-	log *logger.Logger,
 	wanModel *wan.Model,
 	appLogger logging.AppLogger,
 ) *ServiceImpl {
@@ -94,7 +91,6 @@ func New(
 		state:          stateMgr,
 		nwgOperator:    nwgOp,
 		legacyOperator: legacyOp,
-		log:            log,
 		appLog:         logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubLifecycle),
 		wan:            wanModel,
 	}
@@ -586,7 +582,7 @@ func (s *ServiceImpl) SetEnabled(ctx context.Context, tunnelID string, enabled b
 		return fmt.Errorf("save tunnel: %w", err)
 	}
 
-	s.logInfo("set_enabled", tunnelID, fmt.Sprintf("Enabled set to %v", enabled))
+	s.logInfo("set-enabled", tunnelID, fmt.Sprintf("Enabled set to %v", enabled))
 	return nil
 }
 
@@ -617,17 +613,17 @@ func (s *ServiceImpl) SetDefaultRoute(ctx context.Context, tunnelID string, enab
 		if stateInfo.State == tunnel.StateRunning && oldValue != enabled {
 			if enabled {
 				if err := s.legacyOperator.SetDefaultRoute(ctx, tunnelID); err != nil {
-					s.logWarn("set_default_route", tunnelID, "Failed to set default route: "+err.Error())
+					s.logWarn("set-default-route", tunnelID, "Failed to set default route: "+err.Error())
 				}
 			} else {
 				if err := s.legacyOperator.RemoveDefaultRoute(ctx, tunnelID); err != nil {
-					s.logWarn("set_default_route", tunnelID, "Failed to remove default route: "+err.Error())
+					s.logWarn("set-default-route", tunnelID, "Failed to remove default route: "+err.Error())
 				}
 			}
 		}
 	}
 
-	s.logInfo("set_default_route", tunnelID, fmt.Sprintf("DefaultRoute set to %v", enabled))
+	s.logInfo("set-default-route", tunnelID, fmt.Sprintf("DefaultRoute set to %v", enabled))
 	return nil
 }
 
@@ -937,7 +933,7 @@ func (s *ServiceImpl) resolveWAN(ctx context.Context, ispInterface string) (stri
 		if tunnel.IsTunnelRoute(parentStored.ISPInterface) {
 			return "", fmt.Errorf("parent tunnel %s: nested chain, ActiveWAN not tracked", parentID)
 		}
-		s.logInfo("resolve_wan", parentID, "ActiveWAN empty, resolving from stored config")
+		s.logInfo("resolve-wan", parentID, "ActiveWAN empty, resolving from stored config")
 		return s.resolveWAN(ctx, parentStored.ISPInterface)
 	}
 
@@ -976,18 +972,14 @@ func (s *ServiceImpl) writeConfigFile(stored *storage.AWGTunnel) error {
 	return nil
 }
 
-// logInfo logs an info message.
+// logInfo logs an info message via the UI-visible scoped logger.
 func (s *ServiceImpl) logInfo(action, target, message string) {
-	if s.log != nil {
-		s.log.Infof("[%s] %s: %s", action, target, message)
-	}
+	s.appLog.Info(action, target, message)
 }
 
-// logWarn logs a warning message.
+// logWarn logs a warning message via the UI-visible scoped logger.
 func (s *ServiceImpl) logWarn(action, target, message string) {
-	if s.log != nil {
-		s.log.Warnf("[%s] %s: %s", action, target, message)
-	}
+	s.appLog.Warn(action, target, message)
 }
 
 // MigrateISPInterfaceNone converts legacy "none" ISPInterface values to "" (auto).

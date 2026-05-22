@@ -69,6 +69,10 @@ const (
 	SubProfiling      = "profiling" // slow HTTP telemetry (handlers → UI journal)
 	SubRCI            = "rci"
 	SubNDMS           = "ndms"
+	SubOrchestrator   = "orchestrator" // tunnel lifecycle decisions (decide/execute/external-restart)
+	SubKmod           = "kmod"         // awg_proxy kernel module load/add/remove
+	SubStorage        = "storage"      // tunnel store + settings persistence
+	SubHTTP           = "http"         // HTTP server lifecycle and listener events
 
 	// Singbox bucket subgroups
 	SubSBInbound  = "inbound"
@@ -103,7 +107,7 @@ func BucketForGroup(group string) Bucket {
 // (alphabetical within group except where a domain ordering matters).
 var KnownSubgroups = map[string][]string{
 	GroupTunnel: {
-		SubLifecycle, SubOps, SubState, SubFirewall,
+		SubLifecycle, SubOrchestrator, SubOps, SubKmod, SubState, SubFirewall,
 		SubPingcheck, SubConnectivity, SubTest, SubSignature,
 	},
 	GroupRouting: {
@@ -112,12 +116,12 @@ var KnownSubgroups = map[string][]string{
 		SubAWGOutbounds,
 	},
 	GroupServer: {
-		SubManaged,
+		SubHTTP, SubManaged,
 	},
 	GroupSystem: {
 		SubBoot, SubAuth, SubSettings, SubUpdate, SubWan, SubSystemTunnel,
 		SubCleanup, SubDnsCheck, SubConnections, SubTraffic, SubDiagnostics,
-		SubProfiling, SubRCI, SubNDMS,
+		SubProfiling, SubRCI, SubNDMS, SubStorage,
 	},
 	GroupSingbox: {
 		SubSBProcess, SubSBInbound, SubSBOutbound, SubSBDNS, SubSBRouter, SubSBRuntime,

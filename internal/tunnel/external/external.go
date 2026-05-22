@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
+	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/tunnel"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/config"
@@ -24,7 +24,7 @@ type Service struct {
 	store         *storage.AWGTunnelStore
 	settingsStore *storage.SettingsStore
 	tunnelService service.Service
-	log           *logger.Logger
+	appLog        *logging.ScopedLogger
 }
 
 // NewService creates a new external tunnel service.
@@ -32,13 +32,13 @@ func NewService(
 	store *storage.AWGTunnelStore,
 	settingsStore *storage.SettingsStore,
 	tunnelSvc service.Service,
-	log *logger.Logger,
+	appLogger logging.AppLogger,
 ) *Service {
 	return &Service{
 		store:         store,
 		settingsStore: settingsStore,
 		tunnelService: tunnelSvc,
-		log:           log,
+		appLog:        logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubConnectivity),
 	}
 }
 
@@ -47,7 +47,7 @@ func (s *Service) List(ctx context.Context) ([]TunnelInfo, error) {
 	// Get all system interfaces
 	systemNumbers, err := sysinfo.ListSystemInterfaces()
 	if err != nil {
-		s.logWarn("list", "Failed to list system interfaces: "+err.Error())
+		s.appLog.Warn("list", "", "Failed to list system interfaces: "+err.Error())
 		systemNumbers = []int{}
 	}
 
@@ -173,25 +173,14 @@ func (s *Service) Adopt(ctx context.Context, req AdoptRequest) (*service.TunnelW
 		return nil, fmt.Errorf("save tunnel: %w", err)
 	}
 
-	s.logInfo(t.ID, "Adopted external tunnel: "+t.Name)
+	s.appLog.Info("adopt", t.ID, "Adopted external tunnel: "+t.Name)
 
 	// Start the tunnel under awg-manager control
 	if err := s.tunnelService.Start(ctx, t.ID); err != nil {
-		s.logWarn(t.ID, "Failed to start adopted tunnel: "+err.Error())
+		s.appLog.Warn("adopt", t.ID, "Failed to start: "+err.Error())
 		// Don't fail - tunnel is imported, just not started
 	}
 
 	return s.tunnelService.Get(ctx, t.ID)
 }
 
-func (s *Service) logInfo(target, message string) {
-	if s.log != nil {
-		s.log.Infof("[external] %s: %s", target, message)
-	}
-}
-
-func (s *Service) logWarn(target, message string) {
-	if s.log != nil {
-		s.log.Warnf("[external] %s: %s", target, message)
-	}
-}

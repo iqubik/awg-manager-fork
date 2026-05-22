@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms/command"
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
@@ -35,7 +34,6 @@ type OperatorOS4Impl struct {
 	wg       wg.Client
 	backend  backend.Backend
 	firewall firewall.Manager
-	log      *logger.Logger
 	appLog   *logging.ScopedLogger
 
 	// Resolved ISP tracking (tunnelID -> WAN interface name)
@@ -55,7 +53,6 @@ func NewOperatorOS4(
 	wgClient wg.Client,
 	backendImpl backend.Backend,
 	firewallMgr firewall.Manager,
-	log *logger.Logger,
 ) *OperatorOS4Impl {
 	o := &OperatorOS4Impl{
 		queries:     queries,
@@ -63,7 +60,6 @@ func NewOperatorOS4(
 		wg:          wgClient,
 		backend:     backendImpl,
 		firewall:    firewallMgr,
-		log:         log,
 		resolvedISP: make(map[string]string),
 		appliedDNS:  make(map[string][]string),
 	}
@@ -438,18 +434,14 @@ func (o *OperatorOS4Impl) interfaceExists(iface string) bool {
 	return err == nil && result != nil && result.ExitCode == 0
 }
 
-// logInfo logs an info message.
+// logInfo logs an info message via the UI-visible scoped logger.
 func (o *OperatorOS4Impl) logInfo(action, target, message string) {
-	if o.log != nil {
-		o.log.Infof("[%s] %s: %s", action, target, message)
-	}
+	o.appLog.Info(action, target, message)
 }
 
-// logWarn logs a warning message.
+// logWarn logs a warning message via the UI-visible scoped logger.
 func (o *OperatorOS4Impl) logWarn(action, target, message string) {
-	if o.log != nil {
-		o.log.Warnf("[%s] %s: %s", action, target, message)
-	}
+	o.appLog.Warn(action, target, message)
 }
 
 // HasWANIPv6 checks if a WAN interface has IPv6 connectivity via NDMS RCI.

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/events"
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/tunnel"
@@ -27,7 +26,6 @@ type Service struct {
 	settings *storage.SettingsStore
 	tunnels  *storage.AWGTunnelStore
 	wg       wgClient
-	log      *logger.Logger
 	appLog   *logging.ScopedLogger
 	bus      *events.Bus
 
@@ -66,14 +64,12 @@ func NewService(
 	settings *storage.SettingsStore,
 	tunnels *storage.AWGTunnelStore,
 	wgClient wgClient,
-	log *logger.Logger,
 	appLogger logging.AppLogger,
 ) *Service {
 	return &Service{
 		settings:  settings,
 		tunnels:   tunnels,
 		wg:        wgClient,
-		log:       log,
 		appLog:    logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubPingcheck),
 		monitors:  make(map[string]*tunnelMonitor),
 		logBuffer: NewLogBuffer(),

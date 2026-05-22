@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/sys/lock"
 	"github.com/hoaxisr/awg-manager/internal/sys/osdetect"
 )
@@ -18,22 +17,20 @@ import (
 // AWGTunnelStore provides directory-based storage for AmneziaWG tunnel metadata.
 type AWGTunnelStore struct {
 	dir      string
-	log      *logger.Logger
 	lockName string
 	lockDir  string
 	timeout  time.Duration
 }
 
 // NewAWGTunnelStore creates a new AWG tunnel store.
-func NewAWGTunnelStore(dir string, log *logger.Logger) *AWGTunnelStore {
-	return NewAWGTunnelStoreWithLockDir(dir, log, lock.LockDir)
+func NewAWGTunnelStore(dir string) *AWGTunnelStore {
+	return NewAWGTunnelStoreWithLockDir(dir, lock.LockDir)
 }
 
 // NewAWGTunnelStoreWithLockDir creates a new AWG tunnel store with custom lock directory.
-func NewAWGTunnelStoreWithLockDir(dir string, log *logger.Logger, lockDir string) *AWGTunnelStore {
+func NewAWGTunnelStoreWithLockDir(dir string, lockDir string) *AWGTunnelStore {
 	return &AWGTunnelStore{
 		dir:      dir,
-		log:      log,
 		lockName: "tunnels",
 		lockDir:  lockDir,
 		timeout:  5 * time.Second,
