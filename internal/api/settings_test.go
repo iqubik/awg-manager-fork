@@ -28,6 +28,123 @@ func newSettingsHandlerForTest(t *testing.T) (*SettingsHandler, *storage.Setting
 	return h, store
 }
 
+func TestUpdate_SingboxLogLevelInvalidRejected(t *testing.T) {
+	h, _ := newSettingsHandlerForTest(t)
+	body := []byte(`{"logging":{"singboxLogLevel":"verbose"}}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "INVALID_SINGBOX_LOG_LEVEL") {
+		t.Fatalf("missing INVALID_SINGBOX_LOG_LEVEL, body=%s", rec.Body.String())
+	}
+}
+
+func TestUpdate_SingboxLogLevelChanged_ApplyCallbackCalledOnce(t *testing.T) {
+	h, store := newSettingsHandlerForTest(t)
+	calls := 0
+	h.SetApplySingboxLogSettings(func() error {
+		calls++
+		return nil
+	})
+
+	body := []byte(`{"logging":{"singboxLogLevel":"warn"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if calls != 1 {
+		t.Fatalf("apply callback calls = %d, want 1", calls)
+	}
+	got, _ := store.Get()
+	if got.Logging.SingboxLogLevel != "warn" {
+		t.Fatalf("stored singboxLogLevel = %q, want warn", got.Logging.SingboxLogLevel)
+	}
+}
+
+func TestUpdate_SingboxLogLevelPartialPreservesOtherLoggingFields(t *testing.T) {
+	h, store := newSettingsHandlerForTest(t)
+	current, _ := store.Get()
+	seed := *current
+	seed.Logging.Enabled = true
+	seed.Logging.MaxAge = 4
+	seed.Logging.LogLevel = "debug"
+	seed.Logging.AppMaxEntries = 6000
+	seed.Logging.SingboxMaxEntries = 7000
+	seed.Logging.SingboxLogLevel = "trace"
+	if err := store.Save(&seed); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	body := []byte(`{"logging":{"singboxLogLevel":"warn"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	got, _ := store.Get()
+	if !got.Logging.Enabled || got.Logging.MaxAge != 4 || got.Logging.LogLevel != "debug" {
+		t.Fatalf("logging core fields changed unexpectedly: %+v", got.Logging)
+	}
+	if got.Logging.AppMaxEntries != 6000 || got.Logging.SingboxMaxEntries != 7000 {
+		t.Fatalf("logging entry caps changed unexpectedly: %+v", got.Logging)
+	}
+	if got.Logging.SingboxLogLevel != "warn" {
+		t.Fatalf("singboxLogLevel = %q, want warn", got.Logging.SingboxLogLevel)
+	}
+}
+
+func TestUpdate_SingboxLogLevelNormalizedBeforeSave(t *testing.T) {
+	h, store := newSettingsHandlerForTest(t)
+	body := []byte(`{"logging":{"singboxLogLevel":" WARN "}}`)
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	got, _ := store.Get()
+	if got.Logging.SingboxLogLevel != "warn" {
+		t.Fatalf("stored singboxLogLevel = %q, want warn", got.Logging.SingboxLogLevel)
+	}
+}
+
+func TestUpdate_SingboxLogLevelUnchanged_ApplyCallbackNotCalled(t *testing.T) {
+	h, store := newSettingsHandlerForTest(t)
+	current, _ := store.Get()
+	current.Logging.SingboxLogLevel = "trace"
+	if err := store.Save(current); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	calls := 0
+	h.SetApplySingboxLogSettings(func() error {
+		calls++
+		return nil
+	})
+
+	body := []byte(`{"logging":{"logLevel":"info","appMaxEntries":7000}}`)
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if calls != 0 {
+		t.Fatalf("apply callback calls = %d, want 0", calls)
+	}
+}
+
 // TestUpdateUsageLevelAccepted verifies that a valid usageLevel value
 // (here: "expert") is accepted and persisted by the Update handler.
 func TestUpdateUsageLevelAccepted(t *testing.T) {

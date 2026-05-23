@@ -30,6 +30,10 @@ func ApplyPatch[Dst any, Src any](dst *Dst, src *Src) {
 	if srcV.Kind() != reflect.Struct {
 		panic("ApplyPatch: src is not a struct pointer")
 	}
+	applyStructPatch(dstV, srcV)
+}
+
+func applyStructPatch(dstV, srcV reflect.Value) {
 	srcT := srcV.Type()
 	for i := 0; i < srcV.NumField(); i++ {
 		srcField := srcV.Field(i)
@@ -45,7 +49,7 @@ func ApplyPatch[Dst any, Src any](dst *Dst, src *Src) {
 		}
 		dstField := dstV.FieldByName(srcFieldT.Name)
 		if !dstField.IsValid() {
-			continue // src has a field dst doesn't — silently ignore (DTO drift tolerated)
+			continue
 		}
 		if !dstField.CanSet() {
 			continue
@@ -62,9 +66,15 @@ func ApplyPatch[Dst any, Src any](dst *Dst, src *Src) {
 			}
 			panic(fmt.Sprintf("ApplyPatch: incompatible pointer types for field %s: dst=%s src=%s", srcFieldT.Name, dstField.Type(), srcField.Type()))
 		}
-		if !srcInner.Type().AssignableTo(dstField.Type()) {
-			panic(fmt.Sprintf("ApplyPatch: incompatible types for field %s: dst=%s src deref=%s", srcFieldT.Name, dstField.Type(), srcInner.Type()))
+		if srcInner.Type().AssignableTo(dstField.Type()) {
+			dstField.Set(srcInner)
+			continue
 		}
-		dstField.Set(srcInner)
+		// Recursive patch mode: patch struct (pointer fields) -> plain struct.
+		if dstField.Kind() == reflect.Struct && srcInner.Kind() == reflect.Struct {
+			applyStructPatch(dstField, srcInner)
+			continue
+		}
+		panic(fmt.Sprintf("ApplyPatch: incompatible types for field %s: dst=%s src deref=%s", srcFieldT.Name, dstField.Type(), srcInner.Type()))
 	}
 }

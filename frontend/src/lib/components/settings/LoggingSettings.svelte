@@ -21,17 +21,23 @@
 
 	const MIN_ENTRIES = 100;
 	const MAX_ENTRIES = 100000;
+	type AwgmLogLevel = 'info' | 'full' | 'debug';
+	type SingboxLogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'panic';
 
 	let localMaxAge = $state(settings.logging.maxAge);
-	let localLogLevel = $state<'info' | 'full' | 'debug'>(
-		(settings.logging.logLevel as 'info' | 'full' | 'debug') || 'info',
+	let localLogLevel = $state<AwgmLogLevel>(
+		(settings.logging.logLevel as AwgmLogLevel) || 'info',
+	);
+	let localSingboxLogLevel = $state<SingboxLogLevel>(
+		(settings.logging.singboxLogLevel as SingboxLogLevel) || 'trace',
 	);
 	let localAppMaxEntries = $state(settings.logging.appMaxEntries || 5000);
 	let localSingboxMaxEntries = $state(settings.logging.singboxMaxEntries || 5000);
 
 	$effect(() => {
 		localMaxAge = settings.logging.maxAge;
-		localLogLevel = (settings.logging.logLevel as 'info' | 'full' | 'debug') || 'info';
+		localLogLevel = (settings.logging.logLevel as AwgmLogLevel) || 'info';
+		localSingboxLogLevel = (settings.logging.singboxLogLevel as SingboxLogLevel) || 'trace';
 		localAppMaxEntries = settings.logging.appMaxEntries || 5000;
 		localSingboxMaxEntries = settings.logging.singboxMaxEntries || 5000;
 	});
@@ -44,6 +50,7 @@
 	function handleSave() {
 		settings.logging.maxAge = localMaxAge;
 		settings.logging.logLevel = localLogLevel;
+		settings.logging.singboxLogLevel = localSingboxLogLevel;
 		settings.logging.appMaxEntries = clampEntries(localAppMaxEntries);
 		settings.logging.singboxMaxEntries = clampEntries(localSingboxMaxEntries);
 		onSave();
@@ -58,10 +65,17 @@
 		{ value: '24', label: '24 ч' },
 	];
 
-	const levelOptions: DropdownOption<'info' | 'full' | 'debug'>[] = [
+	const levelOptions: DropdownOption<AwgmLogLevel>[] = [
 		{ value: 'info', label: 'INFO' },
 		{ value: 'full', label: 'FULL' },
 		{ value: 'debug', label: 'DEBUG' },
+	];
+	const singboxLevelOptions: DropdownOption<SingboxLogLevel>[] = [
+		{ value: 'trace', label: 'TRACE' },
+		{ value: 'debug', label: 'DEBUG' },
+		{ value: 'info', label: 'INFO' },
+		{ value: 'warn', label: 'WARN' },
+		{ value: 'error', label: 'ERROR' },
 	];
 
 	function handleHoursChange(v: string) {
@@ -69,8 +83,12 @@
 		handleSave();
 	}
 
-	function handleLevelChange(v: 'info' | 'full' | 'debug') {
+	function handleLevelChange(v: AwgmLogLevel) {
 		localLogLevel = v;
+		handleSave();
+	}
+	function handleSingboxLevelChange(v: SingboxLogLevel) {
+		localSingboxLogLevel = v;
 		handleSave();
 	}
 
@@ -111,7 +129,7 @@
 {#if settings.logging.enabled}
 	<div class="setting-row logging-level-row">
 		<div class="flex flex-col gap-1">
-			<span class="font-medium">Уровень логирования</span>
+			<span class="font-medium">Уровень логирования AWGM</span>
 			<span class="setting-description">INFO — результаты операций. FULL — промежуточные шаги. DEBUG — полная информация.</span>
 		</div>
 		<div class="hours-select">
@@ -119,6 +137,21 @@
 				value={localLogLevel}
 				options={levelOptions}
 				onchange={handleLevelChange}
+				disabled={saving}
+				fullWidth
+			/>
+		</div>
+	</div>
+	<div class="setting-row logging-level-row">
+		<div class="flex flex-col gap-1">
+			<span class="font-medium">Уровень логирования Sing-box</span>
+			<span class="setting-description">TRACE — максимум деталей от sing-box. INFO/WARN/ERROR уменьшают шум runtime-логов.</span>
+		</div>
+		<div class="hours-select">
+			<Dropdown
+				value={localSingboxLogLevel}
+				options={singboxLevelOptions}
+				onchange={handleSingboxLevelChange}
 				disabled={saving}
 				fullWidth
 			/>

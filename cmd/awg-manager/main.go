@@ -673,10 +673,11 @@ func main() {
 
 	// Sing-box integration
 	singboxOp := singbox.NewOperator(singbox.OperatorDeps{
-		Log:       slog.Default().With("component", "singbox"),
-		Queries:   ndmsQueries,
-		Commands:  ndmsCommands,
-		AppLogger: loggingService,
+		Log:             slog.Default().With("component", "singbox"),
+		Queries:         ndmsQueries,
+		Commands:        ndmsCommands,
+		AppLogger:       loggingService,
+		SingboxLogLevel: settingsStore.GetSingboxLogLevel,
 		// Seed the sticky-stop flag from disk so the watchdog respects
 		// a user-pressed Stop across awgm restarts. SetManuallyStopped
 		// writes the new intent back through a single-field updater so
@@ -1779,6 +1780,7 @@ func runCleanup(dataDir string) {
 		Log:                slog.Default().With("component", "singbox"),
 		Queries:            cleanupNDMSQueries,
 		Commands:           cleanupNDMSCommands,
+		SingboxLogLevel:    settingsStore.GetSingboxLogLevel,
 		IsNDMSProxyEnabled: settingsStore.IsSingboxNDMSProxyEnabled,
 	})
 

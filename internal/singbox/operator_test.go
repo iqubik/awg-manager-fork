@@ -20,6 +20,7 @@ import (
 
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/singbox/installer"
+	singboxorch "github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 )
 
 // Sentinel error used by preflight tests to assert validator delegation.
@@ -215,11 +216,11 @@ func TestEnsureBaseConfig_Idempotent(t *testing.T) {
 	if string(first) != string(second) {
 		t.Errorf("ensureBaseConfig not idempotent: first=%s second=%s", first, second)
 	}
-	// User-chosen log.level must be preserved across both runs.
+	// Default desired sing-box level is trace (when not explicitly provided).
 	var m map[string]any
 	_ = json.Unmarshal(second, &m)
-	if m["log"].(map[string]any)["level"] != "debug" {
-		t.Errorf("log.level must be preserved, got %v", m["log"])
+	if m["log"].(map[string]any)["level"] != "trace" {
+		t.Errorf("log.level must be patched to trace, got %v", m["log"])
 	}
 }
 
@@ -243,9 +244,9 @@ func TestEnsureBaseConfig_PatchesStaleClashPort(t *testing.T) {
 	if clash["external_controller"] != "127.0.0.1:9099" {
 		t.Errorf("expected port 9099, got %v", clash["external_controller"])
 	}
-	// User customizations preserved.
-	if m["log"].(map[string]any)["level"] != "debug" {
-		t.Errorf("log.level lost: %v", m["log"])
+	// Desired level defaults to trace.
+	if m["log"].(map[string]any)["level"] != "trace" {
+		t.Errorf("log.level want trace, got %v", m["log"])
 	}
 	if m["dns"].(map[string]any)["final"] != "my-dns" {
 		t.Errorf("dns.final lost: %v", m["dns"])
@@ -278,8 +279,8 @@ func TestEnsureBaseConfig_NoClashApiBlockUntouched(t *testing.T) {
 	if _, has := m["experimental"]; has {
 		t.Errorf("experimental block must NOT be re-added, got %s", raw)
 	}
-	if m["log"].(map[string]any)["level"] != "debug" {
-		t.Errorf("log.level must be preserved, got %v", m["log"])
+	if m["log"].(map[string]any)["level"] != "trace" {
+		t.Errorf("log.level want trace, got %v", m["log"])
 	}
 	route, ok := m["route"].(map[string]any)
 	if !ok {
@@ -310,7 +311,7 @@ func TestEnsureBaseConfig_PatchesStaleLogLevel(t *testing.T) {
 	}
 }
 
-func TestEnsureBaseConfig_RespectsDebugLogLevel(t *testing.T) {
+func TestEnsureBaseConfig_DefaultDesiredLevelOverridesDebug(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config.d")
 	_ = os.MkdirAll(configDir, 0755)
@@ -324,8 +325,138 @@ func TestEnsureBaseConfig_RespectsDebugLogLevel(t *testing.T) {
 	raw, _ := os.ReadFile(basePath)
 	var m map[string]any
 	_ = json.Unmarshal(raw, &m)
-	if m["log"].(map[string]any)["level"] != "debug" {
-		t.Errorf("debug must be preserved, got %v", m["log"])
+	if m["log"].(map[string]any)["level"] != "trace" {
+		t.Errorf("log.level want trace, got %v", m["log"])
+	}
+}
+
+func TestEnsureBaseConfigWithLogLevel_UsesDesiredLevel(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config.d")
+	ensureBaseConfigWithLogLevel(configDir, "warn")
+
+	raw, err := os.ReadFile(filepath.Join(configDir, "00-base.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	logBlock, _ := m["log"].(map[string]any)
+	if got, _ := logBlock["level"].(string); got != "warn" {
+		t.Fatalf("log.level = %q, want warn", got)
+	}
+	if ts, ok := logBlock["timestamp"].(bool); !ok || !ts {
+		t.Fatalf("log.timestamp missing/false: %#v", logBlock["timestamp"])
+	}
+}
+
+func TestPatchBaseLogLevel_AppliesDesiredLevel(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config.d")
+	_ = os.MkdirAll(configDir, 0o755)
+	basePath := filepath.Join(configDir, "00-base.json")
+	if err := os.WriteFile(basePath, []byte(`{"log":{"level":"info"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	patchBaseLogLevel(basePath, "error")
+	raw, err := os.ReadFile(basePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	logBlock, _ := m["log"].(map[string]any)
+	if got, _ := logBlock["level"].(string); got != "error" {
+		t.Fatalf("log.level = %q, want error", got)
+	}
+	if ts, ok := logBlock["timestamp"].(bool); !ok || !ts {
+		t.Fatalf("log.timestamp missing/false: %#v", logBlock["timestamp"])
+	}
+}
+
+func TestOperatorApplyLogLevel_UpdatesBaseConfig(t *testing.T) {
+	dir := t.TempDir()
+	op := NewOperator(OperatorDeps{Dir: dir})
+	basePath := filepath.Join(op.ConfigDir(), "00-base.json")
+	if err := op.ApplyLogLevel("warn"); err != nil {
+		t.Fatalf("ApplyLogLevel: %v", err)
+	}
+	raw, err := os.ReadFile(basePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	logBlock, _ := m["log"].(map[string]any)
+	if got, _ := logBlock["level"].(string); got != "warn" {
+		t.Fatalf("log.level = %q, want warn", got)
+	}
+}
+
+func TestOperatorApplyLogLevel_BrokenBaseJSONReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	op := NewOperator(OperatorDeps{Dir: dir})
+	basePath := filepath.Join(op.ConfigDir(), "00-base.json")
+	if err := os.WriteFile(basePath, []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := op.ApplyLogLevel("warn")
+	if err == nil {
+		t.Fatal("expected parse error for broken 00-base.json")
+	}
+	raw, readErr := os.ReadFile(basePath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(raw) != "{broken" {
+		t.Fatalf("broken file must remain untouched, got: %s", raw)
+	}
+}
+
+func TestOperatorApplyLogLevel_UsesOrchestratorSlotBase(t *testing.T) {
+	dir := t.TempDir()
+	op := NewOperator(OperatorDeps{Dir: dir})
+	orch := singboxorch.New(op.ConfigDir(), op.Process())
+	for _, meta := range singboxorch.KnownSlots() {
+		if meta.Slot == singboxorch.SlotBase {
+			if err := orch.Register(meta); err != nil {
+				t.Fatalf("register slot base: %v", err)
+			}
+		}
+	}
+	if err := orch.Bootstrap(); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	op.SetOrch(orch)
+
+	if err := op.ApplyLogLevel("error"); err != nil {
+		t.Fatalf("ApplyLogLevel via orch: %v", err)
+	}
+
+	basePath := filepath.Join(op.ConfigDir(), "00-base.json")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		raw, err := os.ReadFile(basePath)
+		if err == nil {
+			var m map[string]any
+			if json.Unmarshal(raw, &m) == nil {
+				logBlock, _ := m["log"].(map[string]any)
+				if got, _ := logBlock["level"].(string); got == "error" {
+					return
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("00-base.json was not updated to error via orchestrator in time")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -531,9 +662,8 @@ func TestEnsureBaseConfig_PatchesRelativeCachePath(t *testing.T) {
 	if cf["path"] != defaultCacheDBPath {
 		t.Errorf("expected %s, got %v", defaultCacheDBPath, cf["path"])
 	}
-	// User customizations preserved (log.level)
-	if m["log"].(map[string]any)["level"] != "debug" {
-		t.Errorf("log.level lost: %v", m["log"])
+	if m["log"].(map[string]any)["level"] != "trace" {
+		t.Errorf("log.level want trace, got %v", m["log"])
 	}
 }
 
@@ -634,12 +764,12 @@ func TestPatchBaseCacheFilePath_PreservesUserCustomPath(t *testing.T) {
 	}
 }
 
-// TestPatchTunnelsSlotStripBaseDNS_RemovesPollutedDNSBlock covers the
+// TestPatchTunnelsSlotStripBaseOwnedBlocks_RemovesPollutedDNSBlock covers the
 // exact shape of pollution observed in the wild: 10-tunnels.json with
 // the full NewConfig() dns block (dns-bootstrap + dns-doh, no user
 // rules). After patching, the dns key must be gone entirely so the
 // cross-slot validator no longer reports duplicate-dns.
-func TestPatchTunnelsSlotStripBaseDNS_RemovesPollutedDNSBlock(t *testing.T) {
+func TestPatchTunnelsSlotStripBaseOwnedBlocks_RemovesPollutedDNSBlock(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "10-tunnels.json")
 	polluted := `{
@@ -658,7 +788,7 @@ func TestPatchTunnelsSlotStripBaseDNS_RemovesPollutedDNSBlock(t *testing.T) {
 	if err := os.WriteFile(p, []byte(polluted), 0644); err != nil {
 		t.Fatal(err)
 	}
-	patchTunnelsSlotStripBaseDNS(p)
+	patchTunnelsSlotStripBaseOwnedBlocks(p)
 
 	raw, err := os.ReadFile(p)
 	if err != nil {
@@ -680,10 +810,10 @@ func TestPatchTunnelsSlotStripBaseDNS_RemovesPollutedDNSBlock(t *testing.T) {
 	}
 }
 
-// TestPatchTunnelsSlotStripBaseDNS_PreservesUserCustomDNS keeps any
+// TestPatchTunnelsSlotStripBaseOwnedBlocks_PreservesUserCustomDNS keeps any
 // dns server NOT in the owned set. A user who manually added e.g. a
 // quad9 resolver via hand-edited json must keep it after self-heal.
-func TestPatchTunnelsSlotStripBaseDNS_PreservesUserCustomDNS(t *testing.T) {
+func TestPatchTunnelsSlotStripBaseOwnedBlocks_PreservesUserCustomDNS(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "10-tunnels.json")
 	mixed := `{
@@ -700,7 +830,7 @@ func TestPatchTunnelsSlotStripBaseDNS_PreservesUserCustomDNS(t *testing.T) {
 	if err := os.WriteFile(p, []byte(mixed), 0644); err != nil {
 		t.Fatal(err)
 	}
-	patchTunnelsSlotStripBaseDNS(p)
+	patchTunnelsSlotStripBaseOwnedBlocks(p)
 
 	raw, err := os.ReadFile(p)
 	if err != nil {
@@ -724,9 +854,36 @@ func TestPatchTunnelsSlotStripBaseDNS_PreservesUserCustomDNS(t *testing.T) {
 	}
 }
 
-// TestPatchTunnelsSlotStripBaseDNS_IdempotentOnClean is the steady-state
+func TestPatchTunnelsSlotStripBaseOwnedBlocks_StripsTopLevelLog(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "10-tunnels.json")
+	withLog := `{
+		"inbounds": [],
+		"outbounds": [],
+		"route": {"rules":[]},
+		"log": {"level":"trace","timestamp":true}
+	}`
+	if err := os.WriteFile(p, []byte(withLog), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patchTunnelsSlotStripBaseOwnedBlocks(p)
+
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m["log"]; ok {
+		t.Fatalf("top-level log must be stripped from 10-tunnels.json, got: %s", raw)
+	}
+}
+
+// TestPatchTunnelsSlotStripBaseOwnedBlocks_IdempotentOnClean is the steady-state
 // case: a clean slot file (no dns block) must round-trip unchanged.
-func TestPatchTunnelsSlotStripBaseDNS_IdempotentOnClean(t *testing.T) {
+func TestPatchTunnelsSlotStripBaseOwnedBlocks_IdempotentOnClean(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "10-tunnels.json")
 	clean := `{
@@ -739,7 +896,7 @@ func TestPatchTunnelsSlotStripBaseDNS_IdempotentOnClean(t *testing.T) {
 	if err := os.WriteFile(p, []byte(clean), 0644); err != nil {
 		t.Fatal(err)
 	}
-	patchTunnelsSlotStripBaseDNS(p)
+	patchTunnelsSlotStripBaseOwnedBlocks(p)
 
 	raw, err := os.ReadFile(p)
 	if err != nil {
@@ -754,22 +911,22 @@ func TestPatchTunnelsSlotStripBaseDNS_IdempotentOnClean(t *testing.T) {
 	}
 }
 
-// TestPatchTunnelsSlotStripBaseDNS_MissingFile must be a silent no-op.
+// TestPatchTunnelsSlotStripBaseOwnedBlocks_MissingFile must be a silent no-op.
 // First boot before any tunnel-add has no 10-tunnels.json; the patcher
 // runs every NewOperator and must not error.
-func TestPatchTunnelsSlotStripBaseDNS_MissingFile(t *testing.T) {
+func TestPatchTunnelsSlotStripBaseOwnedBlocks_MissingFile(t *testing.T) {
 	dir := t.TempDir()
-	patchTunnelsSlotStripBaseDNS(filepath.Join(dir, "10-tunnels.json"))
+	patchTunnelsSlotStripBaseOwnedBlocks(filepath.Join(dir, "10-tunnels.json"))
 	// No assertion — just confirm no panic.
 }
 
-// TestPatchTunnelsSlotStripBaseDNS_StripsDanglingFinalReference covers
+// TestPatchTunnelsSlotStripBaseOwnedBlocks_StripsDanglingFinalReference covers
 // the combination case: user has a custom server (so dns block survives)
 // AND `final` still points at one of the owned-set tags that just got
 // removed. The patcher must strip that dangling reference along with
 // the polluted servers, otherwise tunnels-slot dns.final = "dns-doh"
 // references a tag whose owner now lives only in 00-base.
-func TestPatchTunnelsSlotStripBaseDNS_StripsDanglingFinalReference(t *testing.T) {
+func TestPatchTunnelsSlotStripBaseOwnedBlocks_StripsDanglingFinalReference(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "10-tunnels.json")
 	mixed := `{
@@ -789,7 +946,7 @@ func TestPatchTunnelsSlotStripBaseDNS_StripsDanglingFinalReference(t *testing.T)
 	if err := os.WriteFile(p, []byte(mixed), 0644); err != nil {
 		t.Fatal(err)
 	}
-	patchTunnelsSlotStripBaseDNS(p)
+	patchTunnelsSlotStripBaseOwnedBlocks(p)
 
 	raw, err := os.ReadFile(p)
 	if err != nil {
@@ -818,11 +975,11 @@ func TestPatchTunnelsSlotStripBaseDNS_StripsDanglingFinalReference(t *testing.T)
 	}
 }
 
-// TestPatchTunnelsSlotStripBaseDNS_PreservesUserDNSRules keeps the dns
+// TestPatchTunnelsSlotStripBaseOwnedBlocks_PreservesUserDNSRules keeps the dns
 // block alive when servers got filtered to zero but the user has rules
 // pointing at base-owned tags (dns rules reference, but don't own,
 // server tags — sing-box merges across slots).
-func TestPatchTunnelsSlotStripBaseDNS_PreservesUserDNSRules(t *testing.T) {
+func TestPatchTunnelsSlotStripBaseOwnedBlocks_PreservesUserDNSRules(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "10-tunnels.json")
 	mixed := `{
@@ -841,7 +998,7 @@ func TestPatchTunnelsSlotStripBaseDNS_PreservesUserDNSRules(t *testing.T) {
 	if err := os.WriteFile(p, []byte(mixed), 0644); err != nil {
 		t.Fatal(err)
 	}
-	patchTunnelsSlotStripBaseDNS(p)
+	patchTunnelsSlotStripBaseOwnedBlocks(p)
 
 	raw, err := os.ReadFile(p)
 	if err != nil {

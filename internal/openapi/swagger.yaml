@@ -1210,6 +1210,17 @@ definitions:
       maxAge:
         example: 2
         type: integer
+      singboxLogLevel:
+        enum:
+        - trace
+        - debug
+        - info
+        - warn
+        - error
+        - fatal
+        - panic
+        example: trace
+        type: string
       singboxMaxEntries:
         example: 5000
         type: integer

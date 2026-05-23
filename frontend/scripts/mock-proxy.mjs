@@ -47,6 +47,7 @@ const VALID = new Set(['basic', 'advanced', 'expert']);
 // router, rule sets, device proxy, etc.) are visible by default — the
 // realistic case for development against the redesigned routing page.
 let usageLevel = 'expert';
+let singboxLogLevel = 'trace';
 let singboxInstallShouldFail = process.env.MOCK_SINGBOX_INSTALL_FAIL === '1';
 let mockProxyInstances = [
 	{
@@ -2387,6 +2388,10 @@ const server = http.createServer(async (req, res) => {
 		fetchJSON('/settings/get').then(({ status, body }) => {
 			if (body && typeof body === 'object' && body.data) {
 				body.data.usageLevel = usageLevel;
+				if (!body.data.logging || typeof body.data.logging !== 'object') {
+					body.data.logging = {};
+				}
+				body.data.logging.singboxLogLevel = singboxLogLevel;
 			}
 			send(res, status, body);
 		});
@@ -2410,12 +2415,25 @@ const server = http.createServer(async (req, res) => {
 					}
 					usageLevel = payload.usageLevel;
 				}
+				if (
+					payload &&
+					typeof payload === 'object' &&
+					payload.logging &&
+					typeof payload.logging === 'object' &&
+					typeof payload.logging.singboxLogLevel === 'string'
+				) {
+					singboxLogLevel = payload.logging.singboxLogLevel;
+				}
 				const { status, body } = await fetchJSON('/settings/get');
 				if (body && typeof body === 'object' && body.data) {
 					body.data.usageLevel = usageLevel;
+					if (!body.data.logging || typeof body.data.logging !== 'object') {
+						body.data.logging = {};
+					}
+					body.data.logging.singboxLogLevel = singboxLogLevel;
 				}
 				send(res, status, body);
-				console.log(`[mock-proxy] usageLevel → ${usageLevel}`);
+				console.log(`[mock-proxy] usageLevel → ${usageLevel}, singboxLogLevel → ${singboxLogLevel}`);
 			} catch (e) {
 				send(res, 500, { success: false, error: String(e) });
 			}

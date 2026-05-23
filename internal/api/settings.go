@@ -43,6 +43,7 @@ type LoggingSettingsDTO struct {
 	Enabled           bool   `json:"enabled" example:"true"`
 	MaxAge            int    `json:"maxAge" example:"2"`
 	LogLevel          string `json:"logLevel" example:"info"`
+	SingboxLogLevel   string `json:"singboxLogLevel" example:"trace" enums:"trace,debug,info,warn,error,fatal,panic"`
 	AppMaxEntries     int    `json:"appMaxEntries" example:"5000"`
 	SingboxMaxEntries int    `json:"singboxMaxEntries" example:"5000"`
 }
@@ -100,15 +101,16 @@ type MonitoringRefreshService interface {
 
 // SettingsHandler handles settings API endpoints.
 type SettingsHandler struct {
-	store             *storage.SettingsStore
-	tunnels           *storage.AWGTunnelStore
-	pingCheck         PingCheckToggleService
-	monitoring        MonitoringRefreshService
-	pingCheckSnapshot func()
-	logsSnapshot      func()
-	applyLogSettings  func()
-	log               *logging.ScopedLogger
-	bus               *events.Bus
+	store                   *storage.SettingsStore
+	tunnels                 *storage.AWGTunnelStore
+	pingCheck               PingCheckToggleService
+	monitoring              MonitoringRefreshService
+	pingCheckSnapshot       func()
+	logsSnapshot            func()
+	applyLogSettings        func()
+	applySingboxLogSettings func() error
+	log                     *logging.ScopedLogger
+	bus                     *events.Bus
 }
 
 const settingsMonitoringRefreshTimeout = 10 * time.Second
@@ -148,6 +150,12 @@ func (h *SettingsHandler) SetLogsSnapshot(fn func()) { h.logsSnapshot = fn }
 // settings update. Called once per Update with no arguments — the
 // callback re-reads the settings store itself.
 func (h *SettingsHandler) SetApplyLoggingSettings(fn func()) { h.applyLogSettings = fn }
+
+// SetApplySingboxLogSettings sets callback that re-applies sing-box
+// log-level into 00-base.json and triggers orchestrator-driven reload.
+func (h *SettingsHandler) SetApplySingboxLogSettings(fn func() error) {
+	h.applySingboxLogSettings = fn
+}
 
 // SetEventBus wires the SSE bus so settings mutations broadcast a
 // resource:invalidated hint to all connected clients.
@@ -210,12 +218,6 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	// not protect top-level bool flags (false vs absent were
 	// indistinguishable in a non-pointer DTO).
 	//
-	// NOTE: sub-structs are replaced wholesale (no recursion). The frontend
-	// always sends each sub-struct in full via spread, so omitting one
-	// inner field is not a supported partial-update pattern. If a future
-	// caller needs field-level granularity inside a sub-struct, add a
-	// dedicated *Patch type for that sub-struct.
-	//
 	// Defense-in-depth: an explicit empty ApiKey ("") would WIPE the key,
 	// stranding any Bearer-auth client. The intended rotation path is
 	// /settings/regenerate-api-key. Treat explicit empty as "absent" so a
@@ -236,6 +238,16 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 			"INVALID_USAGE_LEVEL")
 		return
 	}
+	if !storage.IsValidSingboxLogLevel(merged.Logging.SingboxLogLevel) {
+		response.ErrorWithStatus(
+			w,
+			http.StatusBadRequest,
+			"invalid singboxLogLevel: must be one of trace, debug, info, warn, error, fatal, panic",
+			"INVALID_SINGBOX_LOG_LEVEL",
+		)
+		return
+	}
+	merged.Logging.SingboxLogLevel = storage.NormalizeSingboxLogLevel(merged.Logging.SingboxLogLevel)
 
 	// Detect ping check toggle change before saving
 	pingCheckWasEnabled := oldSettings.PingCheck.Enabled
@@ -246,6 +258,9 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	// Detect logging toggle change
 	loggingWasEnabled := oldSettings.Logging.Enabled
 	loggingNowEnabled := merged.Logging.Enabled
+	oldSingboxLogLevel := storage.NormalizeSingboxLogLevel(oldSettings.Logging.SingboxLogLevel)
+	newSingboxLogLevel := storage.NormalizeSingboxLogLevel(merged.Logging.SingboxLogLevel)
+	singboxLogLevelChanged := oldSingboxLogLevel != newSingboxLogLevel
 	monitoringExcludedChanged := !equalExcludedTunnelIDs(
 		oldSettings.MonitoringExcludedTunnels,
 		merged.MonitoringExcludedTunnels,
@@ -270,6 +285,18 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	// next AppLog tick and the cleanup ticker (up to 5 min later).
 	if h.applyLogSettings != nil {
 		h.applyLogSettings()
+	}
+	if singboxLogLevelChanged && h.applySingboxLogSettings != nil {
+		if err := h.applySingboxLogSettings(); err != nil {
+			h.log.Error("singbox-log-level", "", "failed to apply sing-box log level: "+err.Error())
+			response.Error(w, err.Error(), "SINGBOX_LOG_LEVEL_APPLY_ERROR")
+			return
+		}
+		h.log.Info(
+			"singbox-log-level",
+			"",
+			fmt.Sprintf("Sing-box log level changed: %s -> %s", oldSingboxLogLevel, newSingboxLogLevel),
+		)
 	}
 
 	// Handle ping check toggle AFTER settings are saved

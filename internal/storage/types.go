@@ -152,6 +152,7 @@ type LoggingSettings struct {
 	Enabled           bool   `json:"enabled"`           // default: false
 	MaxAge            int    `json:"maxAge"`            // hours, default: 2 (shared by both buffers)
 	LogLevel          string `json:"logLevel"`          // "warn", "info", "full", "debug"; default: "info"
+	SingboxLogLevel   string `json:"singboxLogLevel"`   // "trace", "debug", "info", "warn", "error", "fatal", "panic"; default: "trace"
 	AppMaxEntries     int    `json:"appMaxEntries"`     // app-bucket buffer cap, default: 5000
 	SingboxMaxEntries int    `json:"singboxMaxEntries"` // singbox-bucket buffer cap, default: 5000
 }

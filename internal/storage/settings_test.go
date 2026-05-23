@@ -416,11 +416,55 @@ func TestSettings_MigrateV19toV20_SetsTrueOnExistingInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if s.SchemaVersion != 20 {
-		t.Errorf("schema = %d, want 20", s.SchemaVersion)
+	if s.SchemaVersion != CurrentSchemaVersion {
+		t.Errorf("schema = %d, want %d", s.SchemaVersion, CurrentSchemaVersion)
 	}
 	if !s.CreateNDMSProxyForSingbox {
 		t.Errorf("migration should set CreateNDMSProxyForSingbox=true for existing installs (back-compat)")
+	}
+}
+
+func TestSettings_MigrateV20toV21_SetsSingboxLogLevel(t *testing.T) {
+	tmpDir := t.TempDir()
+	legacy := `{"schemaVersion":20,"authEnabled":false,"usageLevel":"basic","logging":{"enabled":true,"maxAge":2,"logLevel":"info"}}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "settings.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write legacy: %v", err)
+	}
+	store := NewSettingsStore(tmpDir)
+	s, err := store.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if s.SchemaVersion != 21 {
+		t.Fatalf("schema = %d, want 21", s.SchemaVersion)
+	}
+	if s.Logging.SingboxLogLevel != DefaultSingboxLogLevel {
+		t.Fatalf("singboxLogLevel = %q, want %q", s.Logging.SingboxLogLevel, DefaultSingboxLogLevel)
+	}
+}
+
+func TestSettingsStore_GetSingboxLogLevel_Normalized(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewSettingsStore(tmpDir)
+	s, err := store.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	s.Logging.SingboxLogLevel = " WARN "
+	if err := store.Save(s); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if got := store.GetSingboxLogLevel(); got != "warn" {
+		t.Fatalf("GetSingboxLogLevel() = %q, want warn", got)
+	}
+
+	s.Logging.SingboxLogLevel = "verbose"
+	if err := store.Save(s); err != nil {
+		t.Fatalf("save invalid: %v", err)
+	}
+	if got := store.GetSingboxLogLevel(); got != DefaultSingboxLogLevel {
+		t.Fatalf("GetSingboxLogLevel() invalid fallback = %q, want %q", got, DefaultSingboxLogLevel)
 	}
 }
 

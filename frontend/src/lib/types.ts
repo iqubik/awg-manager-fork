@@ -665,6 +665,7 @@ export interface LoggingSettings {
 	enabled: boolean;
 	maxAge: number;
 	logLevel: string;
+	singboxLogLevel: string;
 	appMaxEntries: number;
 	singboxMaxEntries: number;
 }

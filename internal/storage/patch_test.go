@@ -341,8 +341,51 @@ func TestSettingsPatchMirrorsSettings(t *testing.T) {
 			}
 		} else {
 			if patchF.Type.Elem() != f.Type {
+				// Nested patch struct is allowed (e.g. LoggingSettingsPatch
+				// for LoggingSettings) as long as both sides are structs.
+				if patchF.Type.Elem().Kind() == reflect.Struct && f.Type.Kind() == reflect.Struct {
+					continue
+				}
 				t.Errorf("SettingsPatch.%s: expected *%s, got %s", patchF.Name, f.Type, patchF.Type)
 			}
+		}
+	}
+}
+
+func TestLoggingSettingsPatchMirrorsLoggingSettings(t *testing.T) {
+	loggingT := reflect.TypeOf(LoggingSettings{})
+	patchT := reflect.TypeOf(LoggingSettingsPatch{})
+
+	patchByTag := map[string]reflect.StructField{}
+	for i := 0; i < patchT.NumField(); i++ {
+		f := patchT.Field(i)
+		tag := strings.Split(f.Tag.Get("json"), ",")[0]
+		if tag == "" || tag == "-" {
+			continue
+		}
+		patchByTag[tag] = f
+	}
+
+	for i := 0; i < loggingT.NumField(); i++ {
+		f := loggingT.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		tag := strings.Split(f.Tag.Get("json"), ",")[0]
+		if tag == "" || tag == "-" {
+			continue
+		}
+		patchF, ok := patchByTag[tag]
+		if !ok {
+			t.Errorf("LoggingSettings.%s (json:%q) has no corresponding field in LoggingSettingsPatch", f.Name, tag)
+			continue
+		}
+		if patchF.Type.Kind() != reflect.Pointer {
+			t.Errorf("LoggingSettingsPatch.%s (json:%q) must be a pointer, got %s", patchF.Name, tag, patchF.Type)
+			continue
+		}
+		if patchF.Type.Elem() != f.Type {
+			t.Errorf("LoggingSettingsPatch.%s: expected *%s, got %s", patchF.Name, f.Type, patchF.Type)
 		}
 	}
 }

@@ -19,7 +19,7 @@ type SettingsPatch struct {
 	ApiKey                    *string                `json:"apiKey,omitempty"`
 	Server                    *ServerSettings        `json:"server,omitempty"`
 	PingCheck                 *PingCheckSettings     `json:"pingCheck,omitempty"`
-	Logging                   *LoggingSettings       `json:"logging,omitempty"`
+	Logging                   *LoggingSettingsPatch  `json:"logging,omitempty"`
 	DisableMemorySaving       *bool                  `json:"disableMemorySaving,omitempty"`
 	Updates                   *UpdateSettings        `json:"updates,omitempty"`
 	DNSRoute                  *DNSRouteSettings      `json:"dnsRoute,omitempty"`
@@ -29,7 +29,18 @@ type SettingsPatch struct {
 	ManagedServer             *ManagedServer         `json:"managedServer,omitempty"`
 	ManagedPolicies           *[]string              `json:"managedPolicies,omitempty"`
 	MonitoringExcludedTunnels *[]string              `json:"monitoringExcludedTunnels,omitempty"`
-	SingboxRouter                *SingboxRouterSettings `json:"singboxRouter,omitempty"`
-	SingboxManuallyStopped       *bool                  `json:"singboxManuallyStopped,omitempty"`
-	CreateNDMSProxyForSingbox    *bool                  `json:"createNDMSProxyForSingbox,omitempty"`
+	SingboxRouter             *SingboxRouterSettings `json:"singboxRouter,omitempty"`
+	SingboxManuallyStopped    *bool                  `json:"singboxManuallyStopped,omitempty"`
+	CreateNDMSProxyForSingbox *bool                  `json:"createNDMSProxyForSingbox,omitempty"`
+}
+
+// LoggingSettingsPatch supports true partial updates for /settings/update logging block.
+// nil field means "preserve existing value".
+type LoggingSettingsPatch struct {
+	Enabled           *bool   `json:"enabled,omitempty"`
+	MaxAge            *int    `json:"maxAge,omitempty"`
+	LogLevel          *string `json:"logLevel,omitempty"`
+	SingboxLogLevel   *string `json:"singboxLogLevel,omitempty"`
+	AppMaxEntries     *int    `json:"appMaxEntries,omitempty"`
+	SingboxMaxEntries *int    `json:"singboxMaxEntries,omitempty"`
 }

@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 20
+	CurrentSchemaVersion = 21
 	DefaultPort          = 2222
 	DefaultInterface     = "br0"
 )
@@ -120,6 +120,9 @@ func (s *SettingsStore) Load() (*Settings, error) {
 		if settings.SchemaVersion < 20 {
 			s.migrateToV20(&settings)
 		}
+		if settings.SchemaVersion < 21 {
+			s.migrateToV21(&settings)
+		}
 	}
 
 	// Self-heal duplicated managed servers — see dedupManagedServers comment.
@@ -161,6 +164,8 @@ func (s *SettingsStore) defaultSettings() *Settings {
 		Logging: LoggingSettings{
 			Enabled:           true,
 			MaxAge:            2,
+			LogLevel:          "info",
+			SingboxLogLevel:   DefaultSingboxLogLevel,
 			AppMaxEntries:     5000,
 			SingboxMaxEntries: 5000,
 		},
@@ -356,6 +361,18 @@ func (s *SettingsStore) migrateToV19(settings *Settings) {
 func (s *SettingsStore) migrateToV20(settings *Settings) {
 	settings.CreateNDMSProxyForSingbox = true
 	settings.SchemaVersion = 20
+}
+
+// migrateToV21 introduces Logging.SingboxLogLevel.
+// Existing installs default to "trace" to preserve historical behavior.
+func (s *SettingsStore) migrateToV21(settings *Settings) {
+	if settings.Logging.LogLevel == "" {
+		settings.Logging.LogLevel = "info"
+	}
+	if settings.Logging.SingboxLogLevel == "" {
+		settings.Logging.SingboxLogLevel = DefaultSingboxLogLevel
+	}
+	settings.SchemaVersion = 21
 }
 
 // dedupManagedServers returns servers with duplicate InterfaceName entries
@@ -694,6 +711,15 @@ func (s *SettingsStore) GetLogLevel() string {
 		return "info"
 	}
 	return settings.Logging.LogLevel
+}
+
+// GetSingboxLogLevel returns normalized sing-box log level.
+func (s *SettingsStore) GetSingboxLogLevel() string {
+	settings, err := s.Get()
+	if err != nil {
+		return DefaultSingboxLogLevel
+	}
+	return NormalizeSingboxLogLevel(settings.Logging.SingboxLogLevel)
 }
 
 // GetLoggingMaxAge returns the max age for log entries in hours.

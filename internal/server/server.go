@@ -557,6 +557,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// settings PUT — without this the live buffers keep stale caps until
 	// the next AppLog tick (lazy apply path was removed).
 	settingsHandler.SetApplyLoggingSettings(s.loggingService.ApplySettings)
+	settingsHandler.SetApplySingboxLogSettings(func() error {
+		if s.singboxOp == nil || s.settings == nil {
+			return nil
+		}
+		return s.singboxOp.ApplyLogLevel(s.settings.GetSingboxLogLevel())
+	})
 	externalHandler := api.NewExternalTunnelsHandler(s.externalService, s.tunnelService, s.tunnels, appLog)
 	externalHandler.SetTunnelListPublisher(tunnelsHandler.PublishTunnelList)
 	updateHandler := api.NewUpdateHandler(s.updaterService, appLog)
