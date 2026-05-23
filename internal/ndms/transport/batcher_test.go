@@ -417,3 +417,91 @@ func TestBatcher_PerItemNDMSError_OnlyThatReceiverFails(t *testing.T) {
 		}
 	}
 }
+
+func TestBatcher_ContextCancelledInSubmit_ReturnsCtxErr(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond) // slow NDMS
+		_, _ = w.Write([]byte(`[{}]`))
+	}
+	b, cleanup := newTestBatcher(t, handler, 10*time.Millisecond)
+	defer cleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errs := make(chan error, 1)
+	go func() {
+		_, err := b.Submit(ctx, "/show/slow/")
+		errs <- err
+	}()
+	time.Sleep(20 * time.Millisecond) // ensure enqueued
+	cancel()
+
+	select {
+	case err := <-errs:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("err = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Submit didn't return after ctx cancel")
+	}
+}
+
+func TestBatcher_Close_FinalFlushOfPending(t *testing.T) {
+	var posted atomic.Uint32
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		posted.Add(1)
+		body, _ := io.ReadAll(r.Body)
+		var batch []json.RawMessage
+		_ = json.Unmarshal(body, &batch)
+		responses := make([]json.RawMessage, len(batch))
+		for i := range batch {
+			responses[i] = json.RawMessage(`{}`)
+		}
+		out, _ := json.Marshal(responses)
+		_, _ = w.Write(out)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(handler))
+	defer srv.Close()
+	cli := NewWithURL(srv.URL, NewSemaphore(30))
+	b := newBatcher(cli, 5*time.Second, 64, 256) // long window
+	b.Start()
+
+	results := make(chan error, 3)
+	for i := 0; i < 3; i++ {
+		go func(i int) {
+			_, err := b.Submit(context.Background(), fmt.Sprintf("/show/x-%d/", i))
+			results <- err
+		}(i)
+	}
+	time.Sleep(20 * time.Millisecond) // enqueued
+	b.Close()                          // should trigger final flush
+
+	for i := 0; i < 3; i++ {
+		select {
+		case err := <-results:
+			if err != nil {
+				t.Errorf("submit %d err: %v", i, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("submit %d didn't complete after Close", i)
+		}
+	}
+	if got := posted.Load(); got != 1 {
+		t.Errorf("HTTP POST count = %d, want 1 (final flush)", got)
+	}
+}
+
+func TestBatcher_SubmitAfterClose_ReturnsErrClosed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer srv.Close()
+	cli := NewWithURL(srv.URL, NewSemaphore(30))
+	b := newBatcher(cli, 10*time.Millisecond, 64, 256)
+	b.Start()
+	b.Close()
+
+	_, err := b.Submit(context.Background(), "/show/x/")
+	if !errors.Is(err, ErrBatcherClosed) {
+		t.Errorf("err = %v, want ErrBatcherClosed", err)
+	}
+}

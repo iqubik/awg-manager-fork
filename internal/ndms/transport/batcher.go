@@ -103,6 +103,21 @@ func (b *Batcher) flusherLoop() {
 	for {
 		select {
 		case <-b.shutdownCtx.Done():
+			// Drain any already-enqueued submits so callers aren't orphaned.
+			// Use a fresh background context: shutdownCtx is already cancelled.
+			var pending []readReq
+			for {
+				select {
+				case req := <-b.submit:
+					pending = append(pending, req)
+				default:
+					goto drained
+				}
+			}
+		drained:
+			if len(pending) > 0 {
+				b.flush(context.Background(), pending)
+			}
 			return
 		case req := <-b.submit:
 			pending := []readReq{req}
@@ -121,7 +136,7 @@ collect:
 	for {
 		select {
 		case <-b.shutdownCtx.Done():
-			b.flush(pending)
+			b.flush(context.Background(), pending)
 			return
 		case <-timer.C:
 			break collect
@@ -135,11 +150,11 @@ collect:
 			}
 		}
 	}
-	b.flush(pending)
+	b.flush(b.shutdownCtx, pending)
 }
 
 // flush обрабатывает один batch: coalesce → POST → distribute.
-func (b *Batcher) flush(pending []readReq) {
+func (b *Batcher) flush(ctx context.Context, pending []readReq) {
 	if len(pending) == 0 {
 		return
 	}
@@ -193,7 +208,7 @@ func (b *Batcher) flush(pending []readReq) {
 	b.submittedReads.Add(uint64(len(pending)))
 	b.coalescedReads.Add(uint64(len(batch)))
 
-	raw, err := b.cli.postJSON(b.shutdownCtx, batch)
+	raw, err := b.cli.postJSON(ctx, batch)
 	if err != nil {
 		b.distributeAll(byPath, validPaths, nil, fmt.Errorf("rci batch: %w", err))
 		return
