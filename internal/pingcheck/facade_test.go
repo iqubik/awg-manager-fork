@@ -28,7 +28,7 @@ func newTestFacade(t *testing.T, source nwgPollSource) (*Facade, *storage.AWGTun
 		t.Fatal(err)
 	}
 
-	tunnels := storage.NewAWGTunnelStoreWithLockDir(tunnelDir, nil, dir)
+	tunnels := storage.NewAWGTunnelStoreWithLockDir(tunnelDir, dir)
 
 	// We need a logBuffer for nwgMonitor. Create one directly.
 	lb := NewLogBuffer()

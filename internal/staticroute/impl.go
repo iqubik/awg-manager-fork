@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms/command"
 	"github.com/hoaxisr/awg-manager/internal/routing"
@@ -21,7 +20,6 @@ type ServiceImpl struct {
 	store   *storage.StaticRouteStore
 	routes  *command.RouteCommands
 	catalog routing.Catalog
-	log     *logger.Logger
 	appLog  *logging.ScopedLogger
 	mu      sync.Mutex
 
@@ -35,14 +33,12 @@ func New(
 	store *storage.StaticRouteStore,
 	routes *command.RouteCommands,
 	catalog routing.Catalog,
-	log *logger.Logger,
 	appLogger logging.AppLogger,
 ) *ServiceImpl {
 	return &ServiceImpl{
 		store:       store,
 		routes:      routes,
 		catalog:     catalog,
-		log:         log,
 		appLog:      logging.NewScopedLogger(appLogger, logging.GroupRouting, logging.SubStaticRoute),
 		ifaceExists: defaultIfaceExists,
 	}
@@ -201,7 +197,7 @@ func (s *ServiceImpl) Import(ctx context.Context, tunnelID, name, batContent str
 	}
 
 	if len(parseErrors) > 0 {
-		s.log.Warnf("staticroute: import %q: %d parse errors (first: %s)", name, len(parseErrors), parseErrors[0])
+		s.appLog.Warn("import", name, fmt.Sprintf("%d parse errors (first: %s)", len(parseErrors), parseErrors[0]))
 	}
 
 	rl := storage.StaticRouteList{
@@ -232,7 +228,7 @@ func (s *ServiceImpl) OnTunnelStart(ctx context.Context, tunnelID, tunnelIface s
 		for _, subnet := range rl.Subnets {
 			cidr, _ := ParseSubnetComment(subnet)
 			if err := s.ipRouteAdd(ctx, cidr, tunnelIface); err != nil {
-				s.log.Errorf("staticroute: add route %s: %v", cidr, err)
+				s.appLog.Warn("add-route", cidr, err.Error())
 			}
 		}
 	}
@@ -300,11 +296,11 @@ func (s *ServiceImpl) OnTunnelDelete(ctx context.Context, tunnelID string) error
 		rl.TunnelID = ""
 		rl.UpdatedAt = now
 		if err := s.store.UpdateRouteList(rl); err != nil {
-			s.log.Errorf("staticroute: orphan list %s: %v", rl.ID, err)
+			s.appLog.Warn("orphan-list", rl.ID, err.Error())
 		}
 	}
 
-	s.log.Infof("staticroute: tunnel %s deleted, %d route lists orphaned", tunnelID, len(lists))
+	s.appLog.Info("tunnel-deleted", tunnelID, fmt.Sprintf("%d route lists orphaned", len(lists)))
 	return nil
 }
 
@@ -343,7 +339,7 @@ func (s *ServiceImpl) Reconcile(ctx context.Context) error {
 		totalRoutes += len(rl.Subnets)
 	}
 
-	s.log.Infof("staticroute: reconcile complete, applied %d routes", totalRoutes)
+	s.appLog.Info("reconcile", "", fmt.Sprintf("complete, applied %d routes", totalRoutes))
 	s.appLog.Debug("reconcile", "", "Reconciling static routes")
 	return nil
 }
@@ -457,17 +453,17 @@ func (s *ServiceImpl) ipRouteDel(ctx context.Context, subnet, ifaceName string) 
 func (s *ServiceImpl) applyRoutes(ctx context.Context, rl storage.StaticRouteList) {
 	os4k := isOS4Kernel(rl.TunnelID)
 	if os4k && !s.ifaceExists(rl.TunnelID) {
-		s.log.Debugf("staticroute: skip apply for %s (interface not up, will apply on start)", rl.TunnelID)
+		s.appLog.Debug("apply", rl.TunnelID, "skip — interface not up, will apply on start")
 		return
 	}
 	ifaceName, err := s.catalog.ResolveInterface(ctx, rl.TunnelID)
 	if err != nil {
-		s.log.Errorf("staticroute: resolve interface name for %s: %v", rl.TunnelID, err)
+		s.appLog.Warn("resolve-interface", rl.TunnelID, err.Error())
 		return
 	}
 	for _, subnet := range rl.Subnets {
 		if err := s.addRoute(ctx, subnet, ifaceName, rl.Fallback, os4k); err != nil {
-			s.log.Errorf("staticroute: add route %s: %v", subnet, err)
+			s.appLog.Warn("add-route", subnet, err.Error())
 		}
 	}
 }
@@ -481,12 +477,12 @@ func (s *ServiceImpl) removeRoutes(ctx context.Context, tunnelID string, subnets
 	}
 	ifaceName, err := s.catalog.ResolveInterface(ctx, tunnelID)
 	if err != nil {
-		s.log.Errorf("staticroute: resolve interface name for %s: %v", tunnelID, err)
+		s.appLog.Warn("resolve-interface", tunnelID, err.Error())
 		return
 	}
 	for _, subnet := range subnets {
 		if err := s.removeRoute(ctx, subnet, ifaceName, os4k); err != nil {
-			s.log.Debugf("staticroute: remove route %s: %v", subnet, err)
+			s.appLog.Debug("remove-route", subnet, err.Error())
 		}
 	}
 }

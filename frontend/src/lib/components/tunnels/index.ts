@@ -2,6 +2,7 @@ export { default as AmneziaConfEditor } from './AmneziaConfEditor.svelte';
 export { default as AWGAdvancedParams } from './AWGAdvancedParams.svelte';
 export { default as ConnectivitySettingsModal } from './ConnectivitySettingsModal.svelte';
 export { default as TunnelCard } from './TunnelCard.svelte';
+export { default as TunnelTestIcon } from './TunnelTestIcon.svelte';
 export { default as TunnelEditHeader } from './TunnelEditHeader.svelte';
 export { default as ExternalTunnelCard } from './ExternalTunnelCard.svelte';
 export { default as AdoptTunnelDialog } from './AdoptTunnelDialog.svelte';

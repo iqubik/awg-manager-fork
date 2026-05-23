@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms/transport"
 	"github.com/hoaxisr/awg-manager/internal/storage"
@@ -57,8 +56,7 @@ func newSyncTestOperator(t *testing.T, srvURL string) *OperatorNativeWG {
 	sem := transport.NewSemaphore(2)
 	return &OperatorNativeWG{
 		transport: transport.NewWithURL(srvURL, sem),
-		log:       logger.New(),
-		appLog:    logging.NewScopedLogger(nil, logging.GroupTunnel, logging.SubLifecycle),
+		appLog:    logging.NewScopedLogger(nil, logging.GroupTunnel, logging.SubOps),
 	}
 }
 

@@ -60,27 +60,31 @@ fi
 # At runtime, the daemon selects the correct .ko for the detected router model.
 
 # Clean previous builds
-rm -rf build/ipk build/www build/bin
-mkdir -p build/ipk build/www build/bin dist
+rm -rf build/ipk build/bin
+mkdir -p build/ipk build/bin dist
+
+# Build frontend
+if [[ "${SKIP_FRONTEND_BUILD:-0}" == "1" ]]; then
+    if [[ ! -f "$PROJECT_ROOT/frontend/build/index.html" ]]; then
+        echo "ERROR: SKIP_FRONTEND_BUILD=1 but frontend/build/index.html is missing"
+        exit 1
+    fi
+    echo "Using existing frontend build: frontend/build/"
+else
+    echo "Building frontend..."
+    "$SCRIPT_DIR/build-frontend.sh"
+fi
 
 # Build backend (export VERSION so build-backend.sh uses it)
 echo ""
 echo "Building backend..."
 VERSION="$VERSION" ENTWARE_ARCH="$ENTWARE_ARCH" "$SCRIPT_DIR/build-backend.sh" "$GO_ARCH"
 
-# Build frontend
-echo "Building frontend..."
-"$SCRIPT_DIR/build-frontend.sh"
-
-# Copy frontend to build/www
-cp -r frontend/build/* build/www/
-
 # Create IPK structure
 IPK_ROOT="build/ipk"
 mkdir -p "$IPK_ROOT/CONTROL"
 mkdir -p "$IPK_ROOT/opt/bin"
 mkdir -p "$IPK_ROOT/opt/sbin"
-mkdir -p "$IPK_ROOT/opt/share/www/awg-manager"
 mkdir -p "$IPK_ROOT/opt/etc/init.d"
 mkdir -p "$IPK_ROOT/opt/etc/awg-manager"
 for hook in iflayerchanged ifcreated ifdestroyed ifipchanged; do
@@ -169,9 +173,6 @@ for EXTRA_KO in kmod/awg-proxy/out/awg_proxy-*.ko; do
 done
 
 echo "Total awg_proxy modules bundled: $AWG_PROXY_COUNT"
-
-# Copy web files
-cp -r build/www/* "$IPK_ROOT/opt/share/www/awg-manager/"
 
 # Copy init script (lighttpd config is generated dynamically)
 cp entware/files/etc/init.d/* "$IPK_ROOT/opt/etc/init.d/"

@@ -138,6 +138,12 @@ func validateDownloadURL(rawURL string) error {
 
 // Download fetches a .dat file from rawURL, validates it, and tracks it.
 func (s *GeoDataStore) Download(fileType, rawURL string) (*GeoFileEntry, error) {
+	return s.DownloadWithClient(fileType, rawURL, nil)
+}
+
+// DownloadWithClient fetches a .dat file from rawURL using the provided
+// client (or direct client when nil), validates it, and tracks it.
+func (s *GeoDataStore) DownloadWithClient(fileType, rawURL string, client *http.Client) (*GeoFileEntry, error) {
 	if fileType != "geosite" && fileType != "geoip" {
 		return nil, fmt.Errorf("invalid file type %q: must be geosite or geoip", fileType)
 	}
@@ -179,7 +185,7 @@ func (s *GeoDataStore) Download(fileType, rawURL string) (*GeoFileEntry, error) 
 	bytesProgress := func(downloaded, total int64) {
 		report("download", downloaded, total, "")
 	}
-	if _, err := downloadFile(rawURL, dest, bytesProgress); err != nil {
+	if _, err := downloadFileWithClient(client, rawURL, dest, bytesProgress); err != nil {
 		report("error", 0, 0, err.Error())
 		s.appLog.Warn("download", rawURL, fmt.Sprintf("%s: %v", fileType, err))
 		return nil, fmt.Errorf("download %s: %w", rawURL, err)
@@ -298,6 +304,12 @@ func (s *GeoDataStore) Delete(path string) error {
 
 // Update re-downloads and revalidates a tracked file from its stored URL.
 func (s *GeoDataStore) Update(path string) (*GeoFileEntry, error) {
+	return s.UpdateWithClient(path, nil)
+}
+
+// UpdateWithClient re-downloads a tracked geo file via the provided client
+// (or direct client when nil).
+func (s *GeoDataStore) UpdateWithClient(path string, client *http.Client) (*GeoFileEntry, error) {
 	path = filepath.Clean(path)
 	if !s.isManagedPath(path) {
 		return nil, fmt.Errorf("path outside managed geo directories")
@@ -313,7 +325,7 @@ func (s *GeoDataStore) Update(path string) (*GeoFileEntry, error) {
 
 	entry := s.entries[idx]
 	if entry.External {
-		return nil, fmt.Errorf("cannot update external file managed by HydraRoute Neo — use «Взять под контроль» or update in HR Neo")
+		return nil, fmt.Errorf("cannot update external file managed by HydraRoute Neo — use «Взять под управление or update in HR Neo")
 	}
 	sourceURL := entry.URL
 	if sourceURL == "" {
@@ -329,7 +341,7 @@ func (s *GeoDataStore) Update(path string) (*GeoFileEntry, error) {
 			progress(sourceURL, entry.Type, "download", downloaded, total, "")
 		}
 	}
-	if _, err := downloadFile(sourceURL, path, bytesProgress); err != nil {
+	if _, err := downloadFileWithClient(client, sourceURL, path, bytesProgress); err != nil {
 		if progress != nil {
 			progress(sourceURL, entry.Type, "error", 0, 0, err.Error())
 		}
@@ -359,6 +371,12 @@ func (s *GeoDataStore) Update(path string) (*GeoFileEntry, error) {
 
 // UpdateAll updates all non-external tracked files sequentially.
 func (s *GeoDataStore) UpdateAll() (int, error) {
+	return s.UpdateAllWithClient(nil)
+}
+
+// UpdateAllWithClient refreshes all tracked geo files via the provided client
+// (or direct client when nil).
+func (s *GeoDataStore) UpdateAllWithClient(client *http.Client) (int, error) {
 	// Collect paths outside the lock so Update can re-acquire it.
 	s.mu.RLock()
 	var paths []string
@@ -373,7 +391,7 @@ func (s *GeoDataStore) UpdateAll() (int, error) {
 	updated := 0
 	var errs []string
 	for _, path := range paths {
-		if _, err := s.Update(path); err != nil {
+		if _, err := s.UpdateWithClient(path, client); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", path, err))
 			continue
 		}
@@ -477,7 +495,7 @@ func (s *GeoDataStore) GeoFilePaths() (geoIP, geoSite []string) {
 // Returns the number of files adopted.
 //
 // HR paths are marked External=true with a default Ground-Zerro URL when the
-// type is known, so "Обновить" can re-download in place. "Взять под контроль"
+// type is known, so "Обновить" can re-download in place. "Взять под управление"
 // moves the file into awg-manager/geo and clears External.
 //
 // Paths under awg-manager/geo or /opt/etc/HydraRoute are adopted in place
@@ -636,11 +654,11 @@ const maxGeoFileSize = 200 << 20 // 200 MB
 // the cumulative bytes read so far. Throttled — emits at most every ~64 KB
 // or 200 ms (whichever comes first) to keep SSE traffic sane.
 type progressReader struct {
-	r         io.Reader
-	total     int64
-	read      int64
-	lastEmit  int64
-	lastTime  time.Time
+	r          io.Reader
+	total      int64
+	read       int64
+	lastEmit   int64
+	lastTime   time.Time
 	onProgress ProgressFn
 }
 
@@ -669,6 +687,10 @@ const downloadTimeout = 15 * time.Minute
 // hard size cap. Uses atomic write: downloads to a temp file, then renames.
 // onProgress (optional) receives streaming byte counters during the copy.
 func downloadFile(rawURL, dest string, onProgress ProgressFn) (size int64, err error) {
+	return downloadFileWithClient(nil, rawURL, dest, onProgress)
+}
+
+func downloadFileWithClient(client *http.Client, rawURL, dest string, onProgress ProgressFn) (size int64, err error) {
 	// Defense-in-depth: re-validate scheme before making the request.
 	if u, parseErr := url.Parse(rawURL); parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		return 0, fmt.Errorf("only http/https URLs are allowed")
@@ -685,7 +707,9 @@ func downloadFile(rawURL, dest string, onProgress ProgressFn) (size int64, err e
 		return 0, fmt.Errorf("build request: %w", err)
 	}
 
-	client := &http.Client{}
+	if client == nil {
+		client = &http.Client{}
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {

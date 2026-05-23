@@ -4,6 +4,7 @@
 	import { api } from '$lib/api/client';
 	import { formatRelativeTime, formatDuration, formatBytes, formatBitRate } from '$lib/utils/format';
 	import { TrafficChart, TrafficSparkline, Button, Badge, PingButton } from '$lib/components/ui';
+	import TunnelTestIcon from './TunnelTestIcon.svelte';
 	import { getTrafficRates, subscribeTraffic, loadHistory } from '$lib/stores/traffic';
 
 	interface Props {
@@ -225,7 +226,12 @@
 				<Button variant="ghost" size="sm" href="/system-tunnels/{tunnel.id}">Изменить</Button>
 
 				<span class="system-action-test">
-					<Button variant="ghost" size="sm" onclick={openTest}>Тест</Button>
+					<Button variant="ghost" size="sm" onclick={openTest}>
+						{#snippet iconBefore()}
+							<TunnelTestIcon size={14} />
+						{/snippet}
+						Тест
+					</Button>
 				</span>
 
 				{#if onMarkServer}
@@ -486,10 +492,7 @@
 				<span class="system-action-test">
 					<Button variant="ghost" onclick={openTest}>
 						{#snippet iconBefore()}
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-								<polyline points="22,4 12,14.01 9,11.01"/>
-							</svg>
+							<TunnelTestIcon size={16} />
 						{/snippet}
 						Тест
 					</Button>

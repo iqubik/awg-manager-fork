@@ -10,7 +10,6 @@ DESC="AWG Manager"
 BIN="/opt/bin/awg-manager"
 PID_FILE="/var/run/awg-manager.pid"
 DATA_DIR="/opt/etc/awg-manager"
-WEB_ROOT="/opt/share/www/awg-manager"
 SETTINGS_FILE="$DATA_DIR/settings.json"
 
 # Read port from settings.json
@@ -56,8 +55,7 @@ start() {
 
     # Start daemon (port is read from settings.json)
     start-stop-daemon -S -b -m -p "$PID_FILE" -x "$BIN" -- \
-        -data-dir "$DATA_DIR" \
-        -web-root "$WEB_ROOT"
+        -data-dir "$DATA_DIR"
 
     # Wait for process to start (up to 5 seconds)
     local count=0

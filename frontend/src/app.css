@@ -242,7 +242,18 @@ html.light, [data-theme="light"] {
   --family-singbox-runtime-bg:   rgba(196, 107, 138, 0.12);
   --family-singbox-runtime-bd:   rgba(196, 107, 138, 0.32);
 
-  /* Page / header gutters (expert/advanced — defaults; basic → v2.8.2). */
+  /* Sing-box / subscription card typography — AWG TunnelCard .view-compact (px). */
+  --sbx-card-title: 14px;
+  --sbx-card-meta: 11px;
+  --sbx-card-note: 11px;
+  --sbx-card-label: 10px;
+  --sbx-card-value: 12px;
+  --sbx-card-badge: 10px;
+  --sbx-card-status: 12px;
+  --sbx-card-action: 11px;
+  --sbx-card-action-dense: 10px;
+
+  /* Page / header gutters (по умолчанию; компакт — data-layout-compact). */
   --layout-gutter-x: 1.5rem;
   --layout-gutter-y: 1.5rem;
   --layout-gutter-y-top: var(--layout-gutter-y);
@@ -250,15 +261,32 @@ html.light, [data-theme="light"] {
   --header-gutter-x: 1.25rem;
 }
 
-/* Базовый режим — как в v2.8.2: main 960px + 1rem, PageContainer без боковых полей. */
-html[data-usage-level='basic'] {
+/* List mode — rem scale aligned with .awg-list-* (+page.svelte). */
+:is(
+  .singbox-tunnel-list-table,
+  .singbox-sub-list-table,
+  .member-list-table,
+  .awg-list-table-track > .sub-list-group,
+  .awg-list-table-track > .sub-active-list-group
+) {
+  --sbx-card-title: 0.9375rem;
+  --sbx-card-meta: 0.75rem;
+  --sbx-card-value: 0.8125rem;
+  --sbx-card-note: 0.75rem;
+  --sbx-card-badge: 0.625rem;
+  --sbx-card-status: 0.8125rem;
+  --sbx-card-action: 0.75rem;
+}
+
+/* Компактная ширина — как в v2.8.2 / базовом режиме: main 960px, узкие боковые поля. */
+html[data-layout-compact='true'] {
   --layout-gutter-x: 0;
   --layout-gutter-y-top: 2.5rem;
   --layout-gutter-y-bottom: 1.5rem;
   --header-gutter-x: 1rem;
 }
 
-html[data-usage-level='basic'] .page-container {
+html[data-layout-compact='true'] .page-container {
   max-width: 100% !important;
 }
 
@@ -412,6 +440,13 @@ label {
 	max-width: 1200px;
 	margin: 0 auto;
 	padding: 0 1rem;
+}
+
+/* Страницы редактирования (AWG / sing-box / подписка) — уже основной колонки. */
+.edit-wrapper {
+	max-width: 1200px;
+	margin: 0 auto;
+	width: 100%;
 }
 
 .flex {
@@ -1117,8 +1152,57 @@ label {
 	grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
 	gap: 14px;
 }
+/* Card grid density — same column fit as AWG «cards» mode; no inner card overrides */
+.tunnel-grid.tunnel-grid--cards {
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+	gap: 8px;
+}
+/* Medium grid — AWG «Сетка» (compact); used by sing-box tunnels and subscriptions */
+.tunnel-grid.tunnel-grid--compact {
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+	gap: 12px;
+}
 .tunnel-grid > * {
 	min-width: 0;
+}
+
+/*
+ * List tables (AWG / sing-box): track shrink-wraps to the widest grid row.
+ * Fixed --awg-list-min-width alone is not enough — column minmax() sums can exceed it,
+ * which leaves header bg / row borders short while cells scroll underneath.
+ */
+.awg-list-table-track {
+	display: inline-block;
+	min-width: 100%;
+	max-width: none;
+	vertical-align: top;
+	box-sizing: border-box;
+}
+
+.awg-list-table-track > :is(
+	.member-list-meta-row,
+	.member-list-line,
+	.sub-list-group,
+	.sub-active-list-group
+) {
+	min-width: max(100%, max-content);
+	box-sizing: border-box;
+}
+
+.awg-list-table-track > :is(
+	.awg-list-row,
+	.sbx-sub-list-row,
+	.sbx-tunnel-list-row,
+	.sbx-member-list-row
+) {
+	min-width: max(100%, max-content);
+	box-sizing: border-box;
+}
+
+.awg-list-table-track > :is(.sub-list-group, .sub-active-list-group) .sbx-sub-active-row {
+	width: 100%;
+	min-width: 100%;
+	box-sizing: border-box;
 }
 
 /* ─── Bare form-control primitives (for inline grid contexts where the Input/Select

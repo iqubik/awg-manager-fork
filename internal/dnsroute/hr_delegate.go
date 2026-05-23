@@ -163,7 +163,7 @@ func (s *ServiceImpl) createHydraRoute(ctx context.Context, list DomainList) (*D
 		return nil, err
 	}
 
-	s.log.Infof("hydraroute: created dns-route %q", created.Name)
+	s.appLog.Info("hydraroute-create", created.Name, "dns-route created")
 
 	dl := hrRuleToDomainList(*created, s.currentPolicySet(ctx))
 	dl.CreatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -200,7 +200,7 @@ func (s *ServiceImpl) updateHydraRoute(ctx context.Context, id string, list Doma
 	if err := s.applyPolicyInterfaces(ctx, list); err != nil {
 		return nil, err
 	}
-	s.log.Infof("hydraroute: updated dns-route %q (was %q)", updated.Name, originalName)
+	s.appLog.Info("hydraroute-update", updated.Name, "was "+originalName)
 
 	dl := hrRuleToDomainList(*updated, s.currentPolicySet(ctx))
 	dl.UpdatedAt = time.Now().UTC().Format(time.RFC3339)

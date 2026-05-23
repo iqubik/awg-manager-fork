@@ -548,7 +548,7 @@ func (s *ServiceImpl) applyDiff(ctx context.Context, diff rciDiff) error {
 		}
 		if err := s.commands.ObjectGroups.UpsertGroup(ctx, mut); err != nil {
 			groupErrors = append(groupErrors, fmt.Sprintf("%s: %v", g.name, err))
-			s.log.Warnf("reconcile: group %s update failed: %v", g.name, err)
+			s.appLog.Warn("reconcile-group", g.name, err.Error())
 		}
 	}
 

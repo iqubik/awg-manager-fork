@@ -121,6 +121,29 @@ func TestSetEnabledRenamesFile(t *testing.T) {
 	}
 }
 
+func TestSetEnabledSilentRenamesWithoutSchedulingReload(t *testing.T) {
+	o, dir := newTestOrch(t)
+	_ = o.Register(SlotMeta{Slot: SlotDownloadProxy, Filename: "35-download-proxy.json"})
+	if err := o.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.SaveSilent(SlotDownloadProxy, []byte(`{"x":1}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.SetEnabledSilent(SlotDownloadProxy, true); err != nil {
+		t.Fatalf("enable silent: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "35-download-proxy.json")); err != nil {
+		t.Fatalf("expected active file after silent enable: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "disabled", "35-download-proxy.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected disabled copy removed, err=%v", err)
+	}
+	if o.reloadTimer != nil {
+		t.Fatal("SetEnabledSilent should not schedule debounce reload timer")
+	}
+}
+
 func TestSetEnabledRejectsAlwaysOn(t *testing.T) {
 	o, _ := newTestOrch(t)
 	_ = o.Register(SlotMeta{Slot: SlotBase, Filename: "00-base.json", AlwaysOn: true})

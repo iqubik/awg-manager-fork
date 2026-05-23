@@ -21,14 +21,11 @@ import (
 func (s *Service) WaitForPolicy(ctx context.Context, policyName string, timeout time.Duration) error {
 	s.mu.Lock()
 	queries := s.queries
-	log := s.log
 	s.mu.Unlock()
 	if queries == nil || queries.Policies == nil {
 		return nil
 	}
-	if log != nil {
-		log.Infof("hydraroute: waiting for policy %q to appear (timeout %s)", policyName, timeout)
-	}
+	s.appLog.Info("wait-policy", policyName, fmt.Sprintf("waiting (timeout %s)", timeout))
 
 	deadline := time.Now().Add(timeout)
 	interval := 300 * time.Millisecond
@@ -40,18 +37,14 @@ func (s *Service) WaitForPolicy(ctx context.Context, policyName string, timeout 
 		if err == nil {
 			for _, p := range list {
 				if p.Name == policyName {
-					if log != nil {
-						log.Infof("hydraroute: policy %q appeared after %s", policyName, time.Since(start).Round(100*time.Millisecond))
-					}
+					s.appLog.Info("wait-policy", policyName, fmt.Sprintf("appeared after %s", time.Since(start).Round(100*time.Millisecond)))
 					return nil
 				}
 			}
 		}
 
 		if time.Now().After(deadline) {
-			if log != nil {
-				log.Warnf("hydraroute: policy %q did not appear within %s", policyName, timeout)
-			}
+			s.appLog.Warn("wait-policy", policyName, fmt.Sprintf("did not appear within %s", timeout))
 			return fmt.Errorf("policy %q did not appear within %s", policyName, timeout)
 		}
 

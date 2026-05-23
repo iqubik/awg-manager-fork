@@ -1,11 +1,19 @@
 package hydraroute
 
 import (
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
 
 func newTestGeoStore(t *testing.T) *GeoDataStore {
 	t.Helper()
@@ -210,5 +218,42 @@ func TestNewGeoDataStore_UsesGeoSubdir(t *testing.T) {
 	}
 	if st, err := os.Stat(want); err != nil || !st.IsDir() {
 		t.Fatalf("geo dir not created: %v", err)
+	}
+}
+
+func TestDownloadFileWithClient_UsesProvidedClient(t *testing.T) {
+	destDir := t.TempDir()
+	dest := filepath.Join(destDir, "sample.dat")
+	called := false
+
+	client := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			called = true
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("test-data")),
+				Request:    r,
+			}, nil
+		}),
+	}
+
+	size, err := downloadFileWithClient(client, "https://example.com/file.dat", dest, nil)
+	if err != nil {
+		t.Fatalf("downloadFileWithClient: %v", err)
+	}
+	if !called {
+		t.Fatal("custom client was not used")
+	}
+	if size != int64(len("test-data")) {
+		t.Fatalf("size = %d, want %d", size, len("test-data"))
+	}
+	raw, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read dest: %v", err)
+	}
+	if string(raw) != "test-data" {
+		t.Fatalf("dest content = %q", string(raw))
 	}
 }

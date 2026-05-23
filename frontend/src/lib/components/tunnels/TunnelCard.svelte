@@ -19,8 +19,9 @@
 		awgShowConnectivityRow,
 	} from '$lib/utils/awgPingStatus';
 	import ConnectivitySettingsModal from './ConnectivitySettingsModal.svelte';
-import TunnelDiagnosticsModal from '$lib/components/testing/TunnelDiagnosticsModal.svelte';
-import { PingButton } from '$lib/components/ui';
+	import TunnelDiagnosticsModal from '$lib/components/testing/TunnelDiagnosticsModal.svelte';
+	import TunnelTestIcon from './TunnelTestIcon.svelte';
+	import { PingButton } from '$lib/components/ui';
 
 	interface Props {
 		tunnel: TunnelListItem;
@@ -421,7 +422,7 @@ import { PingButton } from '$lib/components/ui';
 				type="button"
 				onclick={() => (diagnosticsOpen = true)}
 			>
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+				<TunnelTestIcon />
 				Тест
 			</button>
 				<button
@@ -748,7 +749,7 @@ import { PingButton } from '$lib/components/ui';
 				type="button"
 				onclick={() => (diagnosticsOpen = true)}
 			>
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+				<TunnelTestIcon />
 				Тест
 			</button>
 			<button

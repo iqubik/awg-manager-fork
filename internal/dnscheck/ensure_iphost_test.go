@@ -93,9 +93,7 @@ func TestEnsureIPHost_SkipsPostWhenAlreadyCorrect(t *testing.T) {
 	fake := &fakeNDMS{
 		getResp: []byte(`[{"domain":"awgm-dnscheck.test","address":"` + routerIP + `"}]`),
 	}
-	svc := &Service{ndms: fake, log: nil}
-	// Intentionally passing nil log — EnsureIPHost only calls logger in
-	// paths we're skipping here.
+	svc := &Service{ndms: fake}
 	_ = svc
 	addr, ok := svc.lookupIPHost(context.Background(), probeDomain)
 	if !ok || addr != routerIP {

@@ -17,6 +17,12 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/sys/ndmsinfo"
 )
 
+var (
+	rciGetJSONFunc  = rciGetJSON
+	rciGetRawFunc   = rciGetRaw
+	statfsUsageFunc = statfsUsage
+)
+
 // RouterDetails contains extended router metadata derived from NDMS/RCI and local procfs.
 type RouterDetails struct {
 	Model             string   `json:"model,omitempty" example:"KN-3812"`
@@ -408,8 +414,15 @@ func readLoadAverage() string {
 }
 
 func fetchOPKGStorage() string {
+	if s := fetchOPKGStorageFromRCI(); s != "" {
+		return s
+	}
+	return fetchStorageByPath("/opt")
+}
+
+func fetchOPKGStorageFromRCI() string {
 	var disk rciOpkgDiskWire
-	if err := rciGetJSON("/show/sc/opkg/disk", &disk); err != nil {
+	if err := rciGetJSONFunc("/show/sc/opkg/disk", &disk); err != nil {
 		return ""
 	}
 	rawLabel := strings.TrimSpace(disk.Disk)
@@ -441,7 +454,7 @@ func fetchOPKGStorage() string {
 		return ""
 	}
 
-	raw, err := rciGetRaw("/ls")
+	raw, err := rciGetRawFunc("/ls")
 	if err != nil {
 		return ""
 	}
@@ -503,6 +516,14 @@ func fetchOPKGStorage() string {
 		}
 	}
 	return ""
+}
+
+func fetchStorageByPath(path string) string {
+	used, total, ok := statfsUsageFunc(path)
+	if !ok || total <= 0 || used < 0 {
+		return ""
+	}
+	return formatBytesPair(used, total)
 }
 
 func anyToString(v any) string {

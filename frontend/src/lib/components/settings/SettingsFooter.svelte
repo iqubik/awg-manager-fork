@@ -36,6 +36,17 @@
 			Документация: <a href="https://awgm.hoaxisr.ru" target="_blank" rel="noopener noreferrer">awgm.hoaxisr.ru</a>
 			<span class="footer-sep">·</span>
 			<a href="/terms">Пользовательское соглашение</a>
+			<span class="footer-sep">·</span>
+			<a
+				class="github-link"
+				href="https://github.com/hoaxisr/awg-manager"
+				target="_blank"
+				rel="noopener noreferrer"
+				aria-label="Открыть GitHub репозиторий AWG Manager"
+				title="GitHub репозиторий AWG Manager"
+			>
+				GitHub
+			</a>
 			{#if isExpert}
 				<span class="footer-sep">·</span>
 				<a href="/api-docs">Swagger UI</a>

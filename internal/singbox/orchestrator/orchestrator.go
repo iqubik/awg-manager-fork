@@ -278,6 +278,30 @@ func (o *Orchestrator) SetEnabled(slot Slot, enabled bool) error {
 	return nil
 }
 
+// SetEnabledSilent toggles slot activity without scheduling a debounced reload.
+// Caller is responsible for calling Reload() when it needs the runtime updated.
+func (o *Orchestrator) SetEnabledSilent(slot Slot, enabled bool) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	meta, ok := o.slots[slot]
+	if !ok {
+		return ErrUnknownSlot
+	}
+	if !enabled && meta.AlwaysOn {
+		return ErrSlotAlwaysOn
+	}
+	if o.enabled[slot] == enabled {
+		return nil
+	}
+	if err := o.renameForToggle(meta, enabled); err != nil {
+		return fmt.Errorf("toggle %s: %w", slot, err)
+	}
+	o.enabled[slot] = enabled
+	o.dirty = true
+	return nil
+}
+
 // SetValidator wires a DraftValidator used by ApplyDraft. Pass nil to
 // skip the external check (the default). Production wiring lives in
 // main.go alongside SetLogger.
@@ -314,4 +338,3 @@ func (o *Orchestrator) Snapshot() []SlotState {
 	}
 	return out
 }
-

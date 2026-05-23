@@ -92,8 +92,6 @@ func (o *Orchestrator) executeOne(ctx context.Context, action Action) error {
 			return nil
 		}
 		return o.nwgOp.RemovePingCheck(ctx, stored)
-	case ActionExternalRestart:
-		return o.executeExternalRestart(ctx, action)
 
 	// Routing
 	case ActionApplyDNSRoutes, ActionReconcileDNSRoutes:
@@ -215,10 +213,10 @@ func (o *Orchestrator) executeColdStartKernel(ctx context.Context, action Action
 		stored.ResolvedEndpointIP = trackedIP
 	}
 	if err := o.store.Save(stored); err != nil {
-		o.logWarn(action.Tunnel, "failed to persist state: %s", err.Error())
+		o.appLog.Warn("persist-state", action.Tunnel, "kernel start: "+err.Error())
 	}
 
-	o.logInfo(action.Tunnel, "kernel tunnel started")
+	o.appLog.Info("start", action.Tunnel, "kernel tunnel started")
 	return nil
 }
 
@@ -259,10 +257,10 @@ func (o *Orchestrator) executeReconcileKernel(ctx context.Context, action Action
 		stored.ResolvedEndpointIP = trackedIP
 	}
 	if err := o.store.Save(stored); err != nil {
-		o.logWarn(action.Tunnel, "failed to persist state: %s", err.Error())
+		o.appLog.Warn("persist-state", action.Tunnel, "kernel reconcile: "+err.Error())
 	}
 
-	o.logInfo(action.Tunnel, "kernel tunnel reconciled")
+	o.appLog.Info("reconcile", action.Tunnel, "kernel tunnel reconciled")
 	return nil
 }
 
@@ -273,7 +271,7 @@ func (o *Orchestrator) executeSuspendKernel(ctx context.Context, action Action) 
 	if err := o.kernelOp.Suspend(ctx, action.Tunnel); err != nil {
 		return err
 	}
-	o.logInfo(action.Tunnel, "kernel tunnel suspended")
+	o.appLog.Info("suspend", action.Tunnel, "kernel tunnel suspended")
 	return nil
 }
 
@@ -283,7 +281,7 @@ func (o *Orchestrator) executeResumeKernel(ctx context.Context, action Action) e
 	if err := o.kernelOp.Resume(ctx, action.Tunnel); err != nil {
 		return err
 	}
-	o.logInfo(action.Tunnel, "kernel tunnel resumed")
+	o.appLog.Info("resume", action.Tunnel, "kernel tunnel resumed")
 	return nil
 }
 
@@ -314,14 +312,14 @@ func (o *Orchestrator) executeStartNativeWG(ctx context.Context, action Action) 
 		stored.ActiveWAN = activeWAN
 	}
 	if err := o.store.Save(stored); err != nil {
-		o.logWarn(action.Tunnel, "failed to persist state: %s", err.Error())
+		o.appLog.Warn("persist-state", action.Tunnel, "nwg start: "+err.Error())
 	}
 
 	wan := stored.ActiveWAN
 	if wan == "" {
 		wan = "unknown"
 	}
-	o.logInfo(action.Tunnel, "NativeWG tunnel started (active WAN: %s)", wan)
+	o.appLog.Info("start", action.Tunnel, fmt.Sprintf("NativeWG started, active WAN: %s", wan))
 	return nil
 }
 
@@ -340,7 +338,7 @@ func (o *Orchestrator) executeStopKernel(ctx context.Context, action Action) err
 		_ = o.store.Save(stored)
 	}
 
-	o.logInfo(action.Tunnel, "kernel tunnel stopped")
+	o.appLog.Info("stop", action.Tunnel, "kernel tunnel stopped")
 	return nil
 }
 
@@ -365,7 +363,7 @@ func (o *Orchestrator) executeStopNativeWG(ctx context.Context, action Action) e
 	stored.StartedAt = ""
 	_ = o.store.Save(stored)
 
-	o.logInfo(action.Tunnel, "NativeWG tunnel stopped")
+	o.appLog.Info("stop", action.Tunnel, "NativeWG tunnel stopped")
 	return nil
 }
 
@@ -403,9 +401,9 @@ func (o *Orchestrator) executeRestoreKmod(ctx context.Context, action Action) er
 	if activeWAN := o.nwgOp.ResolveActiveWAN(ctx, stored); activeWAN != "" && stored.ActiveWAN != activeWAN {
 		stored.ActiveWAN = activeWAN
 		if err := o.store.Save(stored); err != nil {
-			o.logWarn(action.Tunnel, "failed to persist refreshed ActiveWAN: %s", err.Error())
+			o.appLog.Warn("persist-state", action.Tunnel, "refreshed ActiveWAN: "+err.Error())
 		}
-		o.logInfo(action.Tunnel, "restored kmod tunnel, refreshed active WAN to %s", activeWAN)
+		o.appLog.Info("restore-kmod", action.Tunnel, fmt.Sprintf("active WAN refreshed to %s", activeWAN))
 	}
 
 	return nil
@@ -442,12 +440,12 @@ func (o *Orchestrator) executeRestoreEndpointTracking(ctx context.Context) error
 			if resolved, err := o.resolveWAN(ctx, t.ISPInterface); err == nil {
 				isp = resolved
 			} else {
-				o.logWarn(t.ID, "no stored ActiveWAN, resolve failed: %s", err.Error())
+				o.appLog.Warn("resolve-wan", t.ID, "no stored ActiveWAN: "+err.Error())
 			}
 		}
 		ip, err := o.kernelOp.RestoreEndpointTracking(ctx, t.ID, t.Peer.Endpoint, isp)
 		if err != nil {
-			o.logWarn(t.ID, "failed to restore endpoint tracking: %s", err.Error())
+			o.appLog.Warn("restore-endpoint-tracking", t.ID, err.Error())
 			continue
 		}
 
@@ -455,15 +453,15 @@ func (o *Orchestrator) executeRestoreEndpointTracking(ctx context.Context) error
 		if ip != "" && t.ResolvedEndpointIP == "" {
 			t.ResolvedEndpointIP = ip
 			if err := o.store.Save(&t); err != nil {
-				o.logWarn(t.ID, "failed to persist state: %s", err.Error())
+				o.appLog.Warn("persist-state", t.ID, "endpoint IP: "+err.Error())
 			}
-			o.logInfo(t.ID, "migrated: persisted resolved endpoint IP %s", ip)
+			o.appLog.Info("migrate", t.ID, "persisted resolved endpoint IP "+ip)
 		}
 		restored++
 	}
 
 	if restored > 0 {
-		o.logInfo("daemon", "restored endpoint tracking for %d tunnel(s)", restored)
+		o.appLog.Info("restore-endpoint-tracking", "daemon", fmt.Sprintf("%d tunnel(s)", restored))
 	}
 
 	// Clean up stale ActiveWAN/StartedAt for dead tunnels
@@ -476,7 +474,7 @@ func (o *Orchestrator) executeRestoreEndpointTracking(ctx context.Context) error
 		}
 		stateInfo := o.stateMgr.GetState(ctx, t.ID)
 		if !stateInfo.ProcessRunning {
-			o.logInfo(t.ID, "clearing stale ActiveWAN/StartedAt (process dead)")
+			o.appLog.Info("clear-stale-state", t.ID, "process dead")
 			o.store.ClearRuntimeState(t.ID)
 		}
 	}
@@ -503,7 +501,7 @@ func (o *Orchestrator) executeDeleteKernel(ctx context.Context, action Action) e
 	}
 
 	o.cleanupTunnelLock(action.Tunnel)
-	o.logInfo(action.Tunnel, "kernel tunnel deleted")
+	o.appLog.Info("delete", action.Tunnel, "kernel tunnel deleted")
 	return nil
 }
 
@@ -530,7 +528,7 @@ func (o *Orchestrator) executeDeleteNativeWG(ctx context.Context, action Action)
 	}
 
 	o.cleanupTunnelLock(action.Tunnel)
-	o.logInfo(action.Tunnel, "NativeWG tunnel deleted")
+	o.appLog.Info("delete", action.Tunnel, "NativeWG tunnel deleted")
 	return nil
 }
 
@@ -574,52 +572,6 @@ func (o *Orchestrator) executePersistStopped(action Action) error {
 		return fmt.Errorf("persist stopped state: %w", err)
 	}
 	return nil
-}
-
-// executeExternalRestart handles a soft restart for tunnels that were disabled
-// externally (e.g. by NDMS). It records the rate-limit counter, persists
-// enabled=true, resets in-memory state, then re-decides and executes start actions.
-func (o *Orchestrator) executeExternalRestart(ctx context.Context, action Action) error {
-	// Record restart and reset in-memory state under lock.
-	var count int
-	o.mu.Lock()
-	t := o.state.tunnels[action.Tunnel]
-	if t != nil {
-		t.recordExternalRestart()
-		t.Running = false
-		t.Monitoring = false
-		t.ActiveWAN = ""
-		t.Enabled = true
-		count = t.ExternalRestartCount
-	}
-	o.mu.Unlock()
-
-	stored, err := o.store.Get(action.Tunnel)
-	if err != nil {
-		return tunnel.ErrNotFound
-	}
-
-	o.logInfo(action.Tunnel, "External restart attempt (%d/%d)", count, externalRestartMaxCount)
-
-	// Ensure enabled=true in storage.
-	stored.Enabled = true
-	stored.ActiveWAN = ""
-	stored.StartedAt = ""
-	if err := o.store.Save(stored); err != nil {
-		return fmt.Errorf("persist before external restart: %w", err)
-	}
-
-	// Generate start actions.
-	o.mu.Lock()
-	startActions := decide(Event{Type: EventStart, Tunnel: action.Tunnel}, &o.state)
-	o.mu.Unlock()
-
-	if len(startActions) == 0 {
-		o.logInfo(action.Tunnel, "External restart: no start actions generated (WAN down?)")
-		return nil
-	}
-
-	return o.executeActions(ctx, startActions)
 }
 
 // checkSystemAddressConflict checks if ipv4 or ipv6 is already assigned to any

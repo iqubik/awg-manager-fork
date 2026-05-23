@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 )
@@ -16,7 +15,6 @@ const checkInterval = 24 * time.Hour
 // Service manages periodic update checks and caches results.
 type Service struct {
 	version   string
-	log       *logger.Logger
 	appLog    *logging.ScopedLogger
 	settings  *storage.SettingsStore
 	changelog *changelogFetcher
@@ -30,10 +28,9 @@ type Service struct {
 }
 
 // New creates a new updater service.
-func New(version string, settings *storage.SettingsStore, log *logger.Logger, appLogger logging.AppLogger) *Service {
+func New(version string, settings *storage.SettingsStore, appLogger logging.AppLogger) *Service {
 	s := &Service{
 		version:  version,
-		log:      log,
 		appLog:   logging.NewScopedLogger(appLogger, logging.GroupSystem, logging.SubUpdate),
 		settings: settings,
 		stop:     make(chan struct{}),
@@ -105,10 +102,8 @@ func (s *Service) doCheck() {
 	s.mu.Unlock()
 
 	if info.Error != "" {
-		s.log.Warn("Update check failed", map[string]interface{}{"error": info.Error})
 		s.appLog.Warn("check", "", "Update check failed: "+info.Error)
 	} else if info.Available {
-		s.log.Info("Update available", map[string]interface{}{"latest": info.LatestVersion})
 		s.appLog.Info("check", "", fmt.Sprintf("Update available: %s → %s", s.version, info.LatestVersion))
 	} else {
 		s.appLog.Debug("check", "", fmt.Sprintf("Up to date (%s)", s.version))

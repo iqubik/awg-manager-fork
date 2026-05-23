@@ -12,26 +12,60 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  SINGBOX_VERSION: 1.14.0-alpha.21
+  SINGBOX_REF: v1.14.0-alpha.21
+
 jobs:
-  build:
-    name: Build
+  frontend:
+    name: Build frontend
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
-      - name: Cache result
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
-        with:
-          key: result-${{ github.sha }}
-          path: dist
-
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        run: ./scripts/build-frontend.sh
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: frontend-build
+          path: frontend/build
+          if-no-files-found: error
+
+  build:
+    name: Build (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs:
+      - frontend
+    timeout-minutes: 120
+    strategy:
+      fail-fast: true
+      matrix:
+        arch:
+          - mipsel-3.4
+          - mips-3.4
+          - aarch64-3.10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Download frontend build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: frontend-build
+          path: frontend/build
 
       - name: Setup go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
@@ -50,22 +84,63 @@ jobs:
           go install golang.org/dl/go1.23.12@latest
           go1.23.12 download
 
+      - name: Restore sing-box build artifacts
+        id: singbox-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          key: sing-box-${{ matrix.arch }}-${{ env.SINGBOX_VERSION }}-${{ env.SINGBOX_REF }}
+          path: |
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}
+            internal/singbox/installer/embedded.go
+
+      - name: Build sing-box
+        if: steps.singbox-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+
+          ./scripts/build-singbox.sh "${{ matrix.arch }}"
+
+      - name: Save sing-box build artifacts
+        if: steps.singbox-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          key: sing-box-${{ matrix.arch }}-${{ env.SINGBOX_VERSION }}-${{ env.SINGBOX_REF }}
+          path: |
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}
+            internal/singbox/installer/embedded.go
+
       - name: Build
         id: build
         run: |
           set -euo pipefail
 
-          ./scripts/build-singbox.sh mipsel-3.4 1.14.0-alpha.21
-          ./scripts/build-singbox.sh mips-3.4 1.14.0-alpha.21
-          ./scripts/build-singbox.sh aarch64-3.10 1.14.0-alpha.21
+          file="dist/sing-box-${SINGBOX_VERSION}-${{ matrix.arch }}"
+          if [[ ! -f "$file" ]]; then
+            echo "Missing sing-box binary: $file" >&2
+            exit 1
+          fi
+
+          required_version="$(sed -n 's/^const RequiredVersion = "\(.*\)"/\1/p' internal/singbox/installer/embedded.go)"
+          if [[ "$required_version" != "$SINGBOX_VERSION" ]]; then
+            echo "embedded.go RequiredVersion is $required_version, want $SINGBOX_VERSION" >&2
+            exit 1
+          fi
 
           BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
           IPK_VERSION="$(cat VERSION)+r${BUILD_NUMBER}"
           printf '%s\n' "$IPK_VERSION" > dist/VERSION
 
-          ./scripts/build-ipk.sh "$IPK_VERSION" mipsel-3.4
-          ./scripts/build-ipk.sh "$IPK_VERSION" mips-3.4
-          ./scripts/build-ipk.sh "$IPK_VERSION" aarch64-3.10
+          SKIP_FRONTEND_BUILD=1 ./scripts/build-ipk.sh "$IPK_VERSION" "${{ matrix.arch }}"
+
+      - name: Upload result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: result-${{ matrix.arch }}
+          path: |
+            dist/awg-manager_*_${{ matrix.arch }}-kn.ipk
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}
+            dist/VERSION
+          if-no-files-found: error
 
   test:
     name: Test
@@ -111,12 +186,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
-      - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - name: Download build results
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          key: result-${{ github.sha }}
+          pattern: result-*
           path: dist
-          fail-on-cache-miss: true
+          merge-multiple: true
 
       - name: Publish pre-release
         env:

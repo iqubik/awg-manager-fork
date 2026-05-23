@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms/command"
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
@@ -68,7 +67,6 @@ type OperatorOS5Impl struct {
 	wg       wg.Client
 	backend  backend.Backend
 	firewall firewall.Manager
-	log      *logger.Logger
 	ipRun    ipRunFunc // ip command runner (mockable in tests)
 
 	appLog *logging.ScopedLogger
@@ -100,7 +98,6 @@ func NewOperatorOS5(
 	wgClient wg.Client,
 	backendImpl backend.Backend,
 	firewallMgr firewall.Manager,
-	log *logger.Logger,
 ) *OperatorOS5Impl {
 	o := &OperatorOS5Impl{
 		queries:        queries,
@@ -108,7 +105,6 @@ func NewOperatorOS5(
 		wg:             wgClient,
 		backend:        backendImpl,
 		firewall:       firewallMgr,
-		log:            log,
 		ipRun:          exec.Run,
 		endpointRoutes: make(map[string]string),
 		resolvedISP:    make(map[string]string),
@@ -946,18 +942,14 @@ func (o *OperatorOS5Impl) rollbackStart(ctx context.Context, tunnelID string, na
 	_ = o.backend.Stop(ctx, names.IfaceName)
 }
 
-// logInfo logs an info message.
+// logInfo logs an info message via the UI-visible scoped logger.
 func (o *OperatorOS5Impl) logInfo(action, target, message string) {
-	if o.log != nil {
-		o.log.Infof("[%s] %s: %s", action, target, message)
-	}
+	o.appLog.Info(action, target, message)
 }
 
-// logWarn logs a warning message.
+// logWarn logs a warning message via the UI-visible scoped logger.
 func (o *OperatorOS5Impl) logWarn(action, target, message string) {
-	if o.log != nil {
-		o.log.Warnf("[%s] %s: %s", action, target, message)
-	}
+	o.appLog.Warn(action, target, message)
 }
 
 // HasWANIPv6 checks if a WAN interface has IPv6 connectivity via NDMS RCI.

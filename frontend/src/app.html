@@ -13,12 +13,46 @@
 		<link rel="preload" href="/fonts/ibm-plex-mono-cyrillic-400-normal.woff2" as="font" type="font/woff2" crossorigin="anonymous">
 		<meta name="theme-color" content="#16161e" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="black" />
-		<link rel="icon" type="image/png" href="%sveltekit.assets%/favicon-96x96.png" sizes="96x96" />
-		<link rel="icon" type="image/svg+xml" href="%sveltekit.assets%/favicon.svg" />
-		<link rel="shortcut icon" href="%sveltekit.assets%/favicon.ico" />
+		<link data-awgm-static-favicon rel="icon" type="image/png" href="%sveltekit.assets%/favicon-96x96.png" sizes="96x96" />
+		<link data-awgm-static-favicon rel="icon" type="image/svg+xml" href="%sveltekit.assets%/favicon.svg" />
+		<link data-awgm-static-favicon rel="shortcut icon" href="%sveltekit.assets%/favicon.ico" />
 		<link rel="apple-touch-icon" sizes="180x180" href="%sveltekit.assets%/apple-touch-icon.png" />
 		<meta name="apple-mobile-web-app-title" content="AWGM" />
 		<link rel="manifest" href="%sveltekit.assets%/site.webmanifest" />
+		<script>
+			(() => {
+				try {
+					const raw = localStorage.getItem('awg-manager-dynamic-favicon');
+					if (!raw) return;
+
+					const cached = JSON.parse(raw);
+					if (
+						!cached ||
+						cached.version !== 1 ||
+						typeof cached.accent !== 'string' ||
+						typeof cached.href !== 'string' ||
+						!cached.href.startsWith('data:image/svg+xml')
+					) {
+						return;
+					}
+
+					document
+						.querySelectorAll('link[data-awgm-static-favicon], link[data-awgm-dynamic-favicon]')
+						.forEach((link) => link.remove());
+
+					const link = document.createElement('link');
+					link.rel = 'icon';
+					link.type = 'image/svg+xml';
+					link.href = cached.href;
+					link.setAttribute('sizes', 'any');
+					link.setAttribute('data-awgm-dynamic-favicon', '');
+					link.setAttribute('data-awgm-accent', cached.accent);
+					document.head.appendChild(link);
+				} catch {
+					/* keep static favicon fallback */
+				}
+			})();
+		</script>
 		<title>AWG Manager</title>
 		%sveltekit.head%
 	</head>

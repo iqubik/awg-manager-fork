@@ -1,7 +1,6 @@
 package ops
 
 import (
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/ndms/command"
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
 	"github.com/hoaxisr/awg-manager/internal/sys/osdetect"
@@ -19,10 +18,9 @@ func NewOperator(
 	wgClient wg.Client,
 	backendImpl backend.Backend,
 	firewallMgr firewall.Manager,
-	log *logger.Logger,
 ) Operator {
 	if osdetect.Is5() {
-		return NewOperatorOS5(queries, commands, wgClient, backendImpl, firewallMgr, log)
+		return NewOperatorOS5(queries, commands, wgClient, backendImpl, firewallMgr)
 	}
-	return NewOperatorOS4(queries, commands, wgClient, backendImpl, firewallMgr, log)
+	return NewOperatorOS4(queries, commands, wgClient, backendImpl, firewallMgr)
 }

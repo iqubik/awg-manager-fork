@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
+	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/sys/exec"
 	"github.com/hoaxisr/awg-manager/internal/sys/kmod"
 	"github.com/hoaxisr/awg-manager/internal/sys/semver"
@@ -28,7 +28,7 @@ type KmodManager struct {
 	mu      sync.Mutex
 	tunnels map[string]kmodEntry // tunnelID → endpoint for del
 	koPath  string
-	log     *logger.Logger
+	appLog  *logging.ScopedLogger
 }
 
 // kmodEntry tracks a loaded tunnel's endpoint and proxy listen port.
@@ -58,10 +58,10 @@ type KmodResult struct {
 }
 
 // NewKmodManager creates a new KmodManager.
-func NewKmodManager(log *logger.Logger) *KmodManager {
+func NewKmodManager(appLogger logging.AppLogger) *KmodManager {
 	return &KmodManager{
 		tunnels: make(map[string]kmodEntry),
-		log:     log,
+		appLog:  logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubKmod),
 	}
 }
 
@@ -81,7 +81,7 @@ func (km *KmodManager) resolveKoPath() string {
 	if model != "" {
 		modelPath := fmt.Sprintf(awgProxyDir+"/awg_proxy-%s.ko", model)
 		if _, err := os.Stat(modelPath); err == nil {
-			km.log.Infof("kmod: using model-specific awg_proxy for %s", model)
+			km.appLog.Info("select-binary", model, "using model-specific awg_proxy")
 			return modelPath
 		}
 	}
@@ -91,7 +91,7 @@ func (km *KmodManager) resolveKoPath() string {
 	if soc != kmod.SoCUnknown {
 		socPath := fmt.Sprintf(awgProxyDir+"/awg_proxy-%s.ko", string(soc))
 		if _, err := os.Stat(socPath); err == nil {
-			km.log.Infof("kmod: using SoC-specific awg_proxy for %s", string(soc))
+			km.appLog.Info("select-binary", string(soc), "using SoC-specific awg_proxy")
 			return socPath
 		}
 	}
@@ -118,11 +118,10 @@ func (km *KmodManager) EnsureLoaded() error {
 			// Don't reload if there are active proxy entries —
 			// rmmod would destroy ALL running tunnels' proxies.
 			if activeSlots := km.loadedSlotCountLocked(); activeSlots > 0 {
-				km.log.Warnf("kmod: outdated (loaded=%s, want>=%s) but %d active proxy slots, skipping reload",
-					loaded, expectedKmodVersion, activeSlots)
+				km.appLog.Warn("reload", "", fmt.Sprintf("outdated (loaded=%s, want>=%s), %d active slots — skipping reload", loaded, expectedKmodVersion, activeSlots))
 				return nil
 			}
-			km.log.Infof("kmod: outdated (loaded=%s, want>=%s), reloading", loaded, expectedKmodVersion)
+			km.appLog.Info("reload", "", fmt.Sprintf("outdated (loaded=%s, want>=%s), reloading", loaded, expectedKmodVersion))
 			_, _ = exec.Run(context.Background(), "rmmod", "awg_proxy")
 			// Fall through to insmod below.
 		} else {
@@ -141,7 +140,7 @@ func (km *KmodManager) EnsureLoaded() error {
 		return fmt.Errorf("insmod %s: exit %d: %s", km.koPath, result.ExitCode, result.Stderr)
 	}
 
-	km.log.Infof("kmod: awg_proxy.ko loaded (expected>=%s)", expectedKmodVersion)
+	km.appLog.Info("load", "", "awg_proxy.ko loaded (expected>="+expectedKmodVersion+")")
 	return nil
 }
 
@@ -178,7 +177,7 @@ func (km *KmodManager) AddTunnel(tunnelID string, cfg KmodConfig) (KmodResult, e
 				endpointPort: cfg.EndpointPort,
 				listenPort:   listenPort,
 			}
-			km.log.Infof("kmod: adopted existing tunnel %s (%s -> 127.0.0.1:%d)", tunnelID, delLine, listenPort)
+			km.appLog.Info("adopt-tunnel", tunnelID, fmt.Sprintf("%s -> 127.0.0.1:%d", delLine, listenPort))
 			return KmodResult{ListenPort: listenPort, Adopted: true}, nil
 		}
 	}
@@ -197,9 +196,9 @@ func (km *KmodManager) AddTunnel(tunnelID string, cfg KmodConfig) (KmodResult, e
 	if err != nil {
 		// Dump list contents for debugging
 		if raw, rerr := os.ReadFile("/proc/awg_proxy/list"); rerr == nil {
-			km.log.Warnf("kmod: /proc/awg_proxy/list contents:\n%s", string(raw))
+			km.appLog.Warn("read-listen-port", "", "/proc/awg_proxy/list contents:\n"+string(raw))
 		}
-		km.log.Warnf("kmod: added tunnel %s but failed to read listen port: %v (endpoint=%s:%d)", tunnelID, err, cfg.EndpointIP, cfg.EndpointPort)
+		km.appLog.Warn("add-tunnel", tunnelID, fmt.Sprintf("failed to read listen port (endpoint=%s:%d): %s", cfg.EndpointIP, cfg.EndpointPort, err.Error()))
 		return KmodResult{}, fmt.Errorf("kmod read listen port for %s: %w", tunnelID, err)
 	}
 
@@ -209,7 +208,7 @@ func (km *KmodManager) AddTunnel(tunnelID string, cfg KmodConfig) (KmodResult, e
 		listenPort:   listenPort,
 	}
 
-	km.log.Infof("kmod: added tunnel %s (%s:%d -> 127.0.0.1:%d)", tunnelID, cfg.EndpointIP, cfg.EndpointPort, listenPort)
+	km.appLog.Info("add-tunnel", tunnelID, fmt.Sprintf("%s:%d -> 127.0.0.1:%d", cfg.EndpointIP, cfg.EndpointPort, listenPort))
 	return KmodResult{ListenPort: listenPort}, nil
 }
 
@@ -285,7 +284,7 @@ func (km *KmodManager) RemoveTunnel(tunnelID string) error {
 	}
 
 	delete(km.tunnels, tunnelID)
-	km.log.Infof("kmod: removed tunnel %s", tunnelID)
+	km.appLog.Info("remove-tunnel", tunnelID, "removed")
 	return nil
 }
 
@@ -321,7 +320,7 @@ func (km *KmodManager) RemoveAllTunnels() {
 
 	for _, id := range ids {
 		if err := km.RemoveTunnel(id); err != nil {
-			km.log.Warnf("kmod: failed to remove tunnel %s on shutdown: %v", id, err)
+			km.appLog.Warn("remove-tunnel", id, "on shutdown: "+err.Error())
 		}
 	}
 }

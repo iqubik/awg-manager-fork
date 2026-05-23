@@ -8,6 +8,7 @@
 	import { api } from '$lib/api/client';
 	import {
 		TunnelCard,
+		TunnelTestIcon,
 		ExternalTunnelCard,
 		AdoptTunnelDialog,
 		SystemTunnelCard,
@@ -51,6 +52,7 @@
 	import {
 		SINGBOX_LAYOUT_STORAGE_KEY,
 		TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX,
+		parseSingboxLayoutMode,
 		type SingboxLayoutMode,
 	} from '$lib/constants/singboxLayout';
 	import { isMockDevMode as getIsMockDevMode } from '$lib/env';
@@ -504,19 +506,19 @@
 	let awgViewModeReady = false;
 	let isAwgMobile = $state(false);
 	let showAwgViewModeSwitch = $derived($usageLevel !== 'basic');
-	let singboxTunnelsLayoutMode = $state<SingboxLayoutMode>('grid');
-	let singboxSubscriptionsLayoutMode = $state<SingboxLayoutMode>('grid');
+	let singboxTunnelsLayoutMode = $state<SingboxLayoutMode>('compact');
+	let singboxSubscriptionsLayoutMode = $state<SingboxLayoutMode>('compact');
 	let singboxTunnelsLayoutReady = false;
 	let singboxSubscriptionsLayoutReady = false;
 	let showSingboxListOption = $derived($usageLevel !== 'basic');
 	let singboxTunnelsEffectiveLayout = $derived<SingboxLayoutMode>(
 		isAwgMobile || (!showSingboxListOption && singboxTunnelsLayoutMode === 'list')
-			? 'grid'
+			? 'compact'
 			: singboxTunnelsLayoutMode,
 	);
 	let singboxSubscriptionsEffectiveLayout = $derived<SingboxLayoutMode>(
 		isAwgMobile || (!showSingboxListOption && singboxSubscriptionsLayoutMode === 'list')
-			? 'grid'
+			? 'compact'
 			: singboxSubscriptionsLayoutMode,
 	);
 	let showSingboxGridListToggle = $derived(showSingboxListOption && !isAwgMobile);
@@ -526,10 +528,6 @@
 
 	function isAwgTunnelViewMode(value: string | null): value is AwgTunnelViewMode {
 		return value === 'cards' || value === 'compact' || value === 'list';
-	}
-
-	function isSingboxLayoutMode(value: string | null): value is SingboxLayoutMode {
-		return value === 'grid' || value === 'list';
 	}
 
 	const tunnelTabs = $derived(
@@ -563,16 +561,14 @@
 		const legacyShared = localStorage.getItem(SINGBOX_LAYOUT_STORAGE_KEY);
 
 		const sbTunnels = localStorage.getItem(SINGBOX_TUNNELS_LAYOUT_STORAGE_KEY) ?? legacyShared;
-		if (isSingboxLayoutMode(sbTunnels)) {
-			singboxTunnelsLayoutMode = sbTunnels;
-		}
+		const parsedTunnels = parseSingboxLayoutMode(sbTunnels);
+		if (parsedTunnels) singboxTunnelsLayoutMode = parsedTunnels;
 		singboxTunnelsLayoutReady = true;
 
 		const sbSubscriptions =
 			localStorage.getItem(SINGBOX_SUBSCRIPTIONS_LAYOUT_STORAGE_KEY) ?? legacyShared;
-		if (isSingboxLayoutMode(sbSubscriptions)) {
-			singboxSubscriptionsLayoutMode = sbSubscriptions;
-		}
+		const parsedSubscriptions = parseSingboxLayoutMode(sbSubscriptions);
+		if (parsedSubscriptions) singboxSubscriptionsLayoutMode = parsedSubscriptions;
 		singboxSubscriptionsLayoutReady = true;
 	});
 
@@ -1270,6 +1266,7 @@
 				</div>
 
 				<div class="awg-list-table">
+					<div class="awg-list-table-track">
 					<div class="awg-list-row awg-list-row--head">
 						<span></span>
 						<span>Туннель</span>
@@ -1446,7 +1443,7 @@
 									aria-label="Тест туннеля «{tunnel.name}»"
 									onclick={() => openAwgDiagnostics(tunnel.id, tunnel.name)}
 								>
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+									<TunnelTestIcon />
 								</button>
 								<button
 									type="button"
@@ -1578,7 +1575,7 @@
 										aria-label="Тест туннеля «{tunnel.description || tunnel.id}»"
 										onclick={() => openAwgDiagnostics(tunnel.id, tunnel.description || tunnel.id, 'system')}
 									>
-										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>
+										<TunnelTestIcon />
 									</button>
 									<button
 										type="button"
@@ -1683,6 +1680,7 @@
 							</div>
 						{/each}
 					{/if}
+					</div>
 				</div>
 			{:else}
 				<div
@@ -1786,20 +1784,20 @@
 								/>
 							</StatStrip>
 						</div>
-						{#if subscriptionsActiveCards.length > 0}
-							<h2 class="section-title">В работе</h2>
-							<div class="awg-list-table singbox-sub-list-table singbox-sub-list-table--active">
-								<div class="sbx-sub-list-row sbx-sub-list-row--head">
-									<span>Delay</span>
-									<span>Подписка</span>
-									<span>Режим</span>
-									<span>Активный сервер</span>
-									<span>Серверов</span>
-									<span>Обновлено</span>
-									<span>Трафик</span>
-									<span>Ping</span>
-									<span class="sbx-sub-list-head-actions">Действия</span>
-								</div>
+						<div class="awg-list-table singbox-sub-list-table">
+							<div class="awg-list-table-track">
+							<div class="sbx-sub-list-row sbx-sub-list-row--head">
+								<span>Delay</span>
+								<span>Подписка</span>
+								<span>Режим</span>
+								<span>Активный сервер</span>
+								<span>Серверов</span>
+								<span>Обновлено</span>
+								<span>Трафик</span>
+								<span>Ping</span>
+								<span class="sbx-sub-list-head-actions">Действия</span>
+							</div>
+							{#if subscriptionsActiveCards.length > 0}
 								{#each subscriptionsActiveCards as card, i (card.subscription.id)}
 									<SubscriptionActiveCard
 										subscription={card.subscription}
@@ -1810,21 +1808,12 @@
 										ondetail={(tag) => openSingboxDetail(tag)}
 									/>
 								{/each}
-							</div>
-						{/if}
-						{#if subscriptionsListRows.length > 0}
-							<h2 class="section-title">Не активные</h2>
-							<div class="awg-list-table singbox-sub-list-table singbox-sub-list-table--inactive">
-								<div class="sbx-sub-list-row sbx-sub-list-row--head sbx-sub-inactive-head">
-									<span>Статус</span>
-									<span>Delay</span>
-									<span>Подписка</span>
-									<span>Серверов</span>
-									<span>Активен</span>
-									<span>Трафик</span>
-									<span>Ping</span>
-									<span>Обновлено</span>
-									<span class="sbx-sub-list-head-actions"></span>
+							{/if}
+							{#if subscriptionsListRows.length > 0}
+								<div class="awg-list-row awg-list-row--section">
+									<div class="awg-list-section-title">
+										Не активные · {subscriptionsListRows.length}
+									</div>
 								</div>
 								{#each subscriptionsListRows as sub (sub.id)}
 									<SubscriptionCard
@@ -1835,36 +1824,49 @@
 										ondetail={(tag) => openSingboxDetail(tag)}
 									/>
 								{/each}
+							{/if}
 							</div>
-						{/if}
+						</div>
 					{:else}
 						{#if subscriptionsActiveCards.length > 0}
-							<h2 class="section-title">В работе</h2>
-							<div class="subscription-active-grid">
+							<div
+								class="tunnel-grid"
+								class:tunnel-grid--dense={singboxSubscriptionsEffectiveLayout === 'dense'}
+								class:tunnel-grid--compact={singboxSubscriptionsEffectiveLayout === 'compact'}
+							>
 								{#each subscriptionsActiveCards as card, i (card.subscription.id)}
 									<SubscriptionActiveCard
 										subscription={card.subscription}
 										activeMember={card.activeMember}
 										autoDelayCheckNonce={singboxAutoDelayCheckNonce}
 										autoDelayCheckDelayMs={i * 180}
-										layout="grid"
+										layout={singboxSubscriptionsEffectiveLayout}
 										ondetail={(tag) => openSingboxDetail(tag)}
 									/>
 								{/each}
 							</div>
 						{/if}
 						{#if subscriptionsListRows.length > 0}
-							<h2 class="section-title">Не активные</h2>
-							<div class="subscription-active-grid">
-								{#each subscriptionsListRows as sub (sub.id)}
-									<SubscriptionCard
-										subscription={sub}
-										liveActiveMember={liveActives[sub.id] || null}
-										layout="grid"
-										ondelete={requestSubscriptionDelete}
-										ondetail={(tag) => openSingboxDetail(tag)}
-									/>
-								{/each}
+							<div
+								class="external-section"
+								class:singbox-sub-inactive-section={subscriptionsActiveCards.length === 0}
+							>
+								<h2 class="section-title">Не активные</h2>
+								<div
+									class="tunnel-grid"
+									class:tunnel-grid--dense={singboxSubscriptionsEffectiveLayout === 'dense'}
+									class:tunnel-grid--compact={singboxSubscriptionsEffectiveLayout === 'compact'}
+								>
+									{#each subscriptionsListRows as sub (sub.id)}
+										<SubscriptionCard
+											subscription={sub}
+											liveActiveMember={liveActives[sub.id] || null}
+											layout={singboxSubscriptionsEffectiveLayout}
+											ondelete={requestSubscriptionDelete}
+											ondetail={(tag) => openSingboxDetail(tag)}
+										/>
+									{/each}
+								</div>
 							</div>
 						{/if}
 					{/if}
@@ -1970,6 +1972,7 @@
 						</StatStrip>
 					</div>
 					<div class="awg-list-table singbox-tunnel-list-table">
+						<div class="awg-list-table-track">
 						<div class="sbx-tunnel-list-row sbx-tunnel-list-row--head">
 							<span>Delay</span>
 							<span>Туннель</span>
@@ -1989,13 +1992,18 @@
 								ondetail={(tag) => openSingboxDetail(tag)}
 							/>
 						{/each}
+						</div>
 					</div>
 				{:else}
-					<div class="tunnel-grid">
+					<div
+						class="tunnel-grid"
+						class:tunnel-grid--dense={singboxTunnelsEffectiveLayout === 'dense'}
+						class:tunnel-grid--compact={singboxTunnelsEffectiveLayout === 'compact'}
+					>
 						{#each singboxTunnelsList as tunnel, i (tunnel.tag)}
 							<SingboxTunnelCard
 								{tunnel}
-								layout="grid"
+								layout={singboxTunnelsEffectiveLayout}
 								autoDelayCheckNonce={singboxAutoDelayCheckNonce}
 								autoDelayCheckDelayMs={i * 180}
 								ondetail={(tag) => openSingboxDetail(tag)}
@@ -2241,7 +2249,7 @@
 	}
 
 	:global(.tunnel-grid--dense) {
-		grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(min(100%, 248px), 1fr));
 		gap: 8px;
 	}
 
@@ -2271,6 +2279,26 @@
 		font-size: 12px;
 	}
 
+	:global(.tunnel-grid--dense) :global(.title) {
+		font-size: 13px;
+	}
+
+	:global(.tunnel-grid--dense) :global(.iface),
+	:global(.tunnel-grid--dense) :global(.label),
+	:global(.tunnel-grid--dense) :global(.chart-label) {
+		font-size: 10px;
+	}
+
+	:global(.tunnel-grid--dense) :global(.badge) {
+		font-size: 9px;
+		padding: 1px 5px;
+	}
+
+	:global(.tunnel-grid--dense) :global(.value),
+	:global(.tunnel-grid--dense) :global(.port) {
+		font-size: 12px;
+	}
+
 	:global(.tunnel-grid--compact) {
 		grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
 		gap: 12px;
@@ -2286,11 +2314,22 @@
 	}
 
 	.awg-list-table {
+		/* Floor for narrow viewports; real width comes from grid max-content on rows */
+		--awg-list-min-width: 1200px;
 		border: 1px solid var(--color-border);
 		border-radius: 12px;
 		background: var(--color-bg-secondary);
 		overflow-x: auto;
 		overflow-y: hidden;
+		/* width/max-width/min-width — в app.css, чтобы подписки не раздували страницу */
+	}
+
+	.singbox-tunnel-list-table {
+		--awg-list-min-width: 980px;
+	}
+
+	.singbox-sub-list-table {
+		--awg-list-min-width: 940px;
 	}
 
 	.awg-list-row {
@@ -2303,12 +2342,12 @@
 			minmax(210px, 1.3fr)
 			110px
 			90px
-			minmax(100px, 0.95fr);
+			minmax(76px, 0.7fr);
 		gap: 14px;
 		align-items: center;
 		padding: 0.875rem 1rem;
 		border-bottom: 1px solid var(--color-border);
-		min-width: 1040px;
+		min-width: max(100%, max(var(--awg-list-min-width, 0px), max-content));
 	}
 
 	.awg-list-row:last-child {
@@ -2397,7 +2436,7 @@
 		margin-top: 0.25rem;
 		font-size: 0.75rem;
 		color: var(--color-text-muted);
-		white-space: nowrap;
+		white-space: break-spaces;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
@@ -2734,6 +2773,10 @@
 	}
 
 	@media (max-width: 1280px) {
+		.awg-list-table:not(.singbox-tunnel-list-table):not(.singbox-sub-list-table) {
+			--awg-list-min-width: 1140px;
+		}
+
 		.awg-list-row {
 			grid-template-columns:
 				40px
@@ -2743,26 +2786,28 @@
 				minmax(180px, 1.15fr)
 				100px
 				84px
-				minmax(100px, 0.95fr);
+				minmax(76px, 0.7fr);
 			gap: 12px;
-			min-width: 960px;
 		}
 	}
 
 	@media (max-width: 1120px) {
+		.awg-list-table:not(.singbox-tunnel-list-table):not(.singbox-sub-list-table) {
+			--awg-list-min-width: 1180px;
+		}
+
 		.awg-list-row {
 			grid-template-columns:
 				36px
 				minmax(180px, 1.45fr)
-				minmax(132px, 0.9fr)
+				minmax(112px, 0.9fr)
 				minmax(145px, 1fr)
-				minmax(170px, 1.05fr)
+				minmax(180px, 1.05fr)
 				92px
 				78px
-				minmax(100px, 0.95fr);
+				minmax(76px, 0.7fr);
 			padding: 0.8125rem 0.875rem;
 			gap: 10px;
-			min-width: 990px;
 		}
 
 		.awg-list-name-button,
@@ -3124,18 +3169,15 @@
 		padding-top: 1.5rem;
 		border-top: 1px solid var(--border);
 	}
-
+	.singbox-sub-inactive-section {
+		margin-top: 0;
+		padding-top: 0;
+		border-top: none;
+	}
 	.section-title {
 		font-size: 1rem;
 		font-weight: 600;
 		color: var(--text-secondary);
-		margin-bottom: 1rem;
-	}
-
-	.subscription-active-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-		gap: 1rem;
 		margin-bottom: 1rem;
 	}
 
@@ -3161,19 +3203,19 @@
 	.singbox-tunnel-list-table :global(.sbx-tunnel-list-row) {
 		display: grid;
 		grid-template-columns:
-			minmax(88px, 1fr)
+			minmax(80px, 80px)
 			minmax(0, 1.2fr)
 			minmax(0, 1fr)
-			minmax(0, 1.05fr)
-			minmax(76px, 0.95fr)
+			minmax(132px, 1.1fr)
+			minmax(96px, 0.85fr)
 			minmax(150px, 1.1fr)
-			minmax(128px, 0.95fr)
-			minmax(100px, 0.95fr);
+			minmax(80px, 80px)
+			minmax(70px, 0.7fr);
 		gap: 0.75rem 1rem;
 		align-items: center;
 		padding: 0.75rem 1rem;
 		border-bottom: 1px solid var(--color-border);
-		min-width: 1000px;
+		min-width: max(100%, max(var(--awg-list-min-width, 0px), max-content));
 	}
 	.singbox-tunnel-list-table :global(.sbx-tunnel-list-row:last-child) {
 		border-bottom: none;
@@ -3185,8 +3227,8 @@
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		color: var(--color-text-muted);
-		padding-top: 0.65rem;
-		padding-bottom: 0.65rem;
+		padding-top: 0.75rem;
+		padding-bottom: 0.75rem;
 	}
 	.sbx-tunnel-list-head-actions {
 		text-align: right;
@@ -3195,17 +3237,11 @@
 	.singbox-sub-list-table {
 		margin-bottom: 1.25rem;
 	}
-	.singbox-sub-list-table :global(.sbx-sub-active-row) {
-		min-width: 920px;
-	}
-	.singbox-sub-list-table--inactive :global(.sbx-sub-inactive-row) {
-		min-width: 960px;
-	}
 	.singbox-sub-list-table .sbx-sub-list-row--head {
 		display: grid;
 		gap: 0 1rem;
 		align-items: center;
-		padding: 0.65rem 1rem;
+		padding: 0.75rem 1rem;
 		background: var(--color-bg-tertiary);
 		font-size: 0.6875rem;
 		font-weight: 700;
@@ -3213,32 +3249,17 @@
 		text-transform: uppercase;
 		color: var(--color-text-muted);
 		border-bottom: 1px solid var(--color-border);
-	}
-	.singbox-sub-list-table--active .sbx-sub-list-row--head {
 		grid-template-columns:
-			minmax(92px, 1fr)
+			minmax(80px, 80px)
 			minmax(132px, 1.1fr)
-			minmax(72px, 0.9fr)
-			minmax(112px, 1fr)
-			minmax(52px, 0.75fr)
-			minmax(88px, 0.95fr)
+			minmax(52px, 0.9fr)
+			minmax(162px, 1fr)
+			minmax(60px, 0.85fr)
+			minmax(100px, 1.05fr)
 			minmax(148px, 1.1fr)
-			minmax(120px, 0.95fr)
-			minmax(100px, 0.95fr);
-		min-width: 920px;
-	}
-	.singbox-sub-list-table--inactive .sbx-sub-inactive-head {
-		grid-template-columns:
-			minmax(64px, 0.9fr)
-			minmax(84px, 1fr)
-			minmax(140px, 1.25fr)
-			minmax(56px, 0.85fr)
-			minmax(88px, 1fr)
-			minmax(150px, 1.15fr)
-			minmax(56px, 0.85fr)
-			minmax(88px, 1fr)
-			minmax(44px, 0.75fr);
-		min-width: 960px;
+			minmax(80px, 80px)
+			minmax(76px, 0.7fr);
+		min-width: max(100%, max(var(--awg-list-min-width, 0px), max-content));
 	}
 	.sbx-sub-list-head-actions {
 		text-align: right;

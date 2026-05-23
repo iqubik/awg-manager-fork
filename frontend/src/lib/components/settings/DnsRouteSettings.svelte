@@ -59,75 +59,73 @@
 	<div class="flex flex-col gap-1">
 		<span class="font-medium">Автообновление подписок DNS</span>
 		<span class="setting-description">
-			Периодически обновлять списки доменов из подписок DNS-маршрутизации
+			Периодически обновлять списки доменов из подписок DNS-маршрутизации.
 		</span>
 	</div>
 	<Toggle checked={settings.dnsRoute.autoRefreshEnabled} onchange={onToggle} disabled={saving} />
 </div>
 
 {#if settings.dnsRoute.autoRefreshEnabled}
-	<div style="padding: 0 0 0.875rem 0;">
-		<div class="settings-panel">
-			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label class="form-label">Режим обновления:</label>
-			<div class="mode-options">
-				<label class="mode-option">
-					<input type="radio" value="interval" bind:group={localMode} disabled={saving} />
-					<span>каждые N часов</span>
-				</label>
-				<label class="mode-option">
-					<input type="radio" value="daily" bind:group={localMode} disabled={saving} />
-					<span>ежедневно</span>
-				</label>
-			</div>
-
-			{#if localMode === 'interval'}
-				<div class="inline-form">
-					<input
-						type="number"
-						id="dnsRefreshInterval"
-						bind:value={localInterval}
-						min="1"
-						max="48"
-						disabled={saving}
-					/>
-					<span class="input-suffix">ч.</span>
-					{#if settingsChanged}
-						<Button
-							variant="primary"
-							size="sm"
-							onclick={handleSave}
-							loading={saving}
-						>
-							{saving ? 'Сохранение...' : 'Сохранить'}
-						</Button>
-					{/if}
-				</div>
-				<p class="form-hint">Рекомендуется от 6 до 24 часов</p>
-			{/if}
-
-			{#if localMode === 'daily'}
-				<div class="inline-form">
-					<input
-						type="time"
-						id="dnsRefreshTime"
-						bind:value={localDailyTime}
-						disabled={saving}
-					/>
-					{#if settingsChanged}
-						<Button
-							variant="primary"
-							size="sm"
-							onclick={handleSave}
-							loading={saving}
-						>
-							{saving ? 'Сохранение...' : 'Сохранить'}
-						</Button>
-					{/if}
-				</div>
-				<p class="form-hint">Локальное время роутера</p>
-			{/if}
+	<div class="settings-panel">
+		<!-- svelte-ignore a11y_label_has_associated_control -->
+		<label class="form-label">Режим обновления:</label>
+		<div class="mode-options">
+			<label class="mode-option">
+				<input type="radio" value="interval" bind:group={localMode} disabled={saving} />
+				<span>каждые N часов</span>
+			</label>
+			<label class="mode-option">
+				<input type="radio" value="daily" bind:group={localMode} disabled={saving} />
+				<span>ежедневно</span>
+			</label>
 		</div>
+
+		{#if localMode === 'interval'}
+			<div class="inline-form">
+				<input
+					type="number"
+					id="dnsRefreshInterval"
+					bind:value={localInterval}
+					min="1"
+					max="48"
+					disabled={saving}
+				/>
+				<span class="input-suffix">ч.</span>
+				{#if settingsChanged}
+					<Button
+						variant="primary"
+						size="sm"
+						onclick={handleSave}
+						loading={saving}
+					>
+						{saving ? 'Сохранение...' : 'Сохранить'}
+					</Button>
+				{/if}
+			</div>
+			<p class="form-hint">Рекомендуется от 6 до 24 часов</p>
+		{/if}
+
+		{#if localMode === 'daily'}
+			<div class="inline-form">
+				<input
+					type="time"
+					id="dnsRefreshTime"
+					bind:value={localDailyTime}
+					disabled={saving}
+				/>
+				{#if settingsChanged}
+					<Button
+						variant="primary"
+						size="sm"
+						onclick={handleSave}
+						loading={saving}
+					>
+						{saving ? 'Сохранение...' : 'Сохранить'}
+					</Button>
+				{/if}
+			</div>
+			<p class="form-hint">Локальное время роутера</p>
+		{/if}
 	</div>
 {/if}
 

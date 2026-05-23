@@ -11,7 +11,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
 	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/storage"
@@ -204,7 +203,6 @@ func TestEnable_AllDevicesMode_DoesNotRequirePolicyMark(t *testing.T) {
 	singbox := newTestSingbox(t)
 	singbox.isRunningFn = func() (bool, int) { return true, 1234 }
 	svc := newTestService(t, Deps{
-		Log:                logger.New(),
 		Settings:           settingsStore,
 		Policies:           policies,
 		IPTables:           newStubIPTables(func(_ context.Context, input string) error { restoreInput = input; return nil }),
@@ -223,6 +221,30 @@ func TestEnable_AllDevicesMode_DoesNotRequirePolicyMark(t *testing.T) {
 	}
 }
 
+func TestSetRouteFinal_AllowsSubscriptionCompositeTag(t *testing.T) {
+	singbox := newTestSingbox(t)
+	svc := &ServiceImpl{
+		deps: Deps{
+			Singbox: singbox,
+			SubscriptionComposites: NewSubscriptionCompositesAdapter(
+				&fakeSubscriptionSource{tags: []string{"sub-test"}},
+			),
+		},
+	}
+
+	if err := svc.SetRouteFinal(context.Background(), "sub-test"); err != nil {
+		t.Fatalf("SetRouteFinal(sub-test): %v", err)
+	}
+
+	cfg, err := LoadConfig(filepath.Join(singbox.dir, "20-router.json"))
+	if err != nil {
+		t.Fatalf("LoadConfig(20-router.json): %v", err)
+	}
+	if cfg.Route.Final != "sub-test" {
+		t.Fatalf("route.final: want sub-test, got %q", cfg.Route.Final)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Reconcile tests
 // ---------------------------------------------------------------------------
@@ -237,7 +259,6 @@ func TestReconcile_PolicyMarkChanged_Reinstalls(t *testing.T) {
 
 	svc := &ServiceImpl{
 		deps: Deps{
-			Log:            logger.New(),
 			Policies:       &fakeAccessPolicyProvider{mark: "0xffffaab"},
 			IPTables:       ipt,
 			WANIPCollector: collector,
@@ -311,8 +332,7 @@ func TestReconcile_WANIPsChanged_Reinstalls(t *testing.T) {
 
 	svc := &ServiceImpl{
 		deps: Deps{
-			Log:                logger.New(),
-			Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
+				Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
 			IPTables:           ipt,
 			WANIPCollector:     collector,
 			Singbox:            newTestSingbox(t),
@@ -349,8 +369,7 @@ func TestReconcile_WANIPsSame_NoOp(t *testing.T) {
 	// stored values, so no re-install should be triggered.
 	svc := &ServiceImpl{
 		deps: Deps{
-			Log:                logger.New(),
-			Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
+				Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
 			IPTables:           ipt,
 			WANIPCollector:     collector,
 			Singbox:            newTestSingbox(t),
@@ -412,8 +431,7 @@ func TestReconcile_DeviceModeChanged_ReinstallsImmediately(t *testing.T) {
 			policies := &fakeAccessPolicyProvider{mark: "0xffffaaa"}
 			svc := &ServiceImpl{
 				deps: Deps{
-					Log:                logger.New(),
-					Policies:           policies,
+								Policies:           policies,
 					IPTables:           newStubIPTables(func(_ context.Context, input string) error { restoreInput = input; restoreCalls++; return nil }),
 					WANIPCollector:     &fakeWANIPCollector{},
 					Singbox:            newTestSingbox(t),
@@ -520,7 +538,6 @@ func TestReconcile_StateUnknown_ForcesInitialReinstall(t *testing.T) {
 	// binary upgrade.
 	svc := &ServiceImpl{
 		deps: Deps{
-			Log:            logger.New(),
 			Policies:       &fakeAccessPolicyProvider{mark: "0xffffaaa"},
 			IPTables:       ipt,
 			WANIPCollector: collector,
@@ -924,7 +941,7 @@ func TestUpdateRuleSet_InlineOverwritesSameSRSFile(t *testing.T) {
 	}
 }
 
-func TestDeleteRuleSet_InlineRemovesSRSCompanionAndFiles(t *testing.T) {
+func TestDeleteRuleSet_StagedInlineKeepsSRSCompanionFiles(t *testing.T) {
 	svc, dir := newOrchedTestService(t)
 	svc.deps.Singbox.(*fakeSingbox).binary = "/opt/bin/sing-box"
 	withFakeRuleSetCompiler(t, func(binary string, args []string) (string, string, error) {
@@ -955,9 +972,78 @@ func TestDeleteRuleSet_InlineRemovesSRSCompanionAndFiles(t *testing.T) {
 	}
 	for _, ext := range []string{".json", ".srs"} {
 		p := filepath.Join(dir, "rule-sets", "inline", "to-delete"+ext)
-		if _, err := os.Stat(p); !os.IsNotExist(err) {
-			t.Fatalf("expected %s removed, stat err=%v", p, err)
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("expected staged delete to keep %s, stat err=%v", p, err)
 		}
+	}
+}
+
+func TestDiscardStaging_RecompilesInlineSRSForActiveAfterStagedDelete(t *testing.T) {
+	svc, dir := newOrchedTestService(t)
+	svc.deps.Singbox.(*fakeSingbox).binary = "/opt/bin/sing-box"
+	compileCalls := 0
+	withFakeRuleSetCompiler(t, func(binary string, args []string) (string, string, error) {
+		compileCalls++
+		writeCompiledOutput(t, args, "compiled")
+		return "", "", nil
+	})
+
+	if err := svc.AddRuleSet(context.Background(), RuleSet{
+		Tag:   "rollback-inline",
+		Type:  "inline",
+		Rules: []map[string]any{{"domain_suffix": []any{".rollback.example"}}},
+	}); err != nil {
+		t.Fatalf("AddRuleSet: %v", err)
+	}
+	res, err := svc.ApplyStaging(context.Background())
+	if err != nil || !res.Ok() {
+		t.Fatalf("ApplyStaging: err=%v res=%s", err, res.Error())
+	}
+	activeRaw, err := os.ReadFile(filepath.Join(dir, "20-router.json"))
+	if err != nil {
+		t.Fatalf("read active router config: %v", err)
+	}
+	var activeCfg RouterConfig
+	if err := json.Unmarshal(activeRaw, &activeCfg); err != nil {
+		t.Fatalf("active config json: %v", err)
+	}
+	if len(activeCfg.Route.RuleSet) != 1 {
+		t.Fatalf("active rule_set len = %d", len(activeCfg.Route.RuleSet))
+	}
+	srsPath := activeCfg.Route.RuleSet[0].Path
+	if err := os.Remove(srsPath); err != nil {
+		t.Fatalf("remove active .srs to simulate missing artifact: %v", err)
+	}
+
+	if err := svc.DeleteRuleSet(context.Background(), "rollback-inline", false); err != nil {
+		t.Fatalf("DeleteRuleSet: %v", err)
+	}
+	pendingRaw, err := os.ReadFile(filepath.Join(dir, "pending", "20-router.json"))
+	if err != nil {
+		t.Fatalf("read pending router config: %v", err)
+	}
+	var pendingCfg RouterConfig
+	if err := json.Unmarshal(pendingRaw, &pendingCfg); err != nil {
+		t.Fatalf("pending config json: %v", err)
+	}
+	if len(pendingCfg.Route.RuleSet) != 0 {
+		t.Fatalf("expected staged delete to remove rule_set from pending, got %+v", pendingCfg.Route.RuleSet)
+	}
+	if _, err := os.Stat(srsPath); !os.IsNotExist(err) {
+		t.Fatalf("expected simulated .srs removal to still be in effect before discard, stat err=%v", err)
+	}
+
+	if err := svc.DiscardStaging(context.Background()); err != nil {
+		t.Fatalf("DiscardStaging: %v", err)
+	}
+	if _, err := os.Stat(srsPath); err != nil {
+		t.Fatalf("expected discard to recompile active .srs, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pending", "20-router.json")); !os.IsNotExist(err) {
+		t.Fatalf("discard must not recreate pending draft, stat err=%v", err)
+	}
+	if compileCalls < 2 {
+		t.Fatalf("expected initial compile and discard recompile, got %d calls", compileCalls)
 	}
 }
 
@@ -971,8 +1057,7 @@ func TestReconcile_BypassPresetsChanged_Reinstalls(t *testing.T) {
 
 	svc := &ServiceImpl{
 		deps: Deps{
-			Log:                logger.New(),
-			Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
+				Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
 			IPTables:           ipt,
 			WANIPCollector:     collector,
 			Singbox:            newTestSingbox(t),
@@ -1009,8 +1094,7 @@ func TestReconcile_BypassPresetsSame_NoOp(t *testing.T) {
 
 	svc := &ServiceImpl{
 		deps: Deps{
-			Log:                logger.New(),
-			Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
+				Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
 			IPTables:           ipt,
 			WANIPCollector:     collector,
 			Singbox:            newTestSingbox(t),

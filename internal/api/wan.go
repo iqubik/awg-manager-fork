@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/response"
 	wanpkg "github.com/hoaxisr/awg-manager/internal/tunnel/wan"
@@ -24,15 +23,13 @@ type WANStatusEnvelope struct {
 // by HookHandler (/api/hook/ndms layer=ipv4).
 type WANHandler struct {
 	svc    TunnelService
-	log    *logger.Logger
 	appLog *logging.ScopedLogger
 }
 
 // NewWANHandler creates a new WAN status handler.
-func NewWANHandler(svc TunnelService, log *logger.Logger, appLogger logging.AppLogger) *WANHandler {
+func NewWANHandler(svc TunnelService, appLogger logging.AppLogger) *WANHandler {
 	return &WANHandler{
 		svc:    svc,
-		log:    log,
 		appLog: logging.NewScopedLogger(appLogger, logging.GroupSystem, logging.SubWan),
 	}
 }

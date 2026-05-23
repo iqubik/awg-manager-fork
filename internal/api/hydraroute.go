@@ -1,12 +1,23 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
 
+	"github.com/hoaxisr/awg-manager/internal/deviceproxy"
 	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/hydraroute"
 	"github.com/hoaxisr/awg-manager/internal/response"
+	"github.com/hoaxisr/awg-manager/internal/singbox"
+	singboxorch "github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 )
 
 // ── Response DTOs ────────────────────────────────────────────────
@@ -44,6 +55,24 @@ type GeoFileEntryDTO struct {
 	TagCount int    `json:"tagCount" example:"420"`
 	Updated  string `json:"updated" example:"2024-01-15T02:00:00Z"`
 	External bool   `json:"external,omitempty" example:"true"`
+}
+
+type DownloadRouteDTO struct {
+	Tag  string `json:"tag" example:"direct"`
+	Kind string `json:"kind,omitempty" example:"direct"`
+}
+
+type DownloadOutboundDTO struct {
+	Tag       string `json:"tag" example:"direct"`
+	Kind      string `json:"kind" example:"direct"`
+	Label     string `json:"label" example:"Direct (WAN)"`
+	Detail    string `json:"detail,omitempty" example:"без туннеля"`
+	Available bool   `json:"available" example:"true"`
+}
+
+type DownloadOutboundsResponse struct {
+	Success bool                  `json:"success" example:"true"`
+	Data    []DownloadOutboundDTO `json:"data"`
 }
 
 // GeoFilesResponse is the envelope for GET /hydraroute/geo-files.
@@ -142,14 +171,16 @@ type OversizedTagsResponse struct {
 
 // AddGeoFileRequest is the body for POST /hydraroute/geo-files/add.
 type AddGeoFileRequest struct {
-	Type string `json:"type" example:"geosite"`
-	URL  string `json:"url" example:"https://cdn.example.com/geosite.db"`
+	Type  string            `json:"type" example:"geosite"`
+	URL   string            `json:"url" example:"https://cdn.example.com/geosite.db"`
+	Route *DownloadRouteDTO `json:"route,omitempty"`
 }
 
 // UpdateGeoFileRequest is the body for POST /hydraroute/geo-files/update.
 // Empty path triggers a bulk refresh of every tracked geo file.
 type UpdateGeoFileRequest struct {
-	Path string `json:"path" example:"/opt/etc/hrneo/geosite.db"`
+	Path  string            `json:"path" example:"/opt/etc/hrneo/geosite.db"`
+	Route *DownloadRouteDTO `json:"route,omitempty"`
 }
 
 // TakeGeoFileControlRequest is the body for POST /hydraroute/geo-files/take-control.
@@ -165,7 +196,7 @@ type GeoFilesRescannedData struct {
 // GeoFilesRescannedResponse is the envelope for POST /hydraroute/geo-files/rescan.
 type GeoFilesRescannedResponse struct {
 	Success bool                  `json:"success" example:"true"`
-	Data    GeoFilesRescannedData   `json:"data"`
+	Data    GeoFilesRescannedData `json:"data"`
 }
 
 // SetPolicyOrderRequest is the body for POST /hydraroute/policy-order.
@@ -175,14 +206,75 @@ type SetPolicyOrderRequest struct {
 
 // HydraRouteHandler handles HydraRoute Neo settings API endpoints.
 type HydraRouteHandler struct {
-	svc *hydraroute.Service
-	bus *events.Bus
+	svc            *hydraroute.Service
+	bus            *events.Bus
+	deviceProxySvc downloadOutboundsProvider
+	singboxOp      downloadSingboxOperator
+	downloadOrch   downloadSlotController
+	downloadMu     sync.Mutex
+}
+
+type downloadOutboundsProvider interface {
+	ListOutbounds(ctx context.Context) []deviceproxy.Outbound
+}
+
+type downloadSingboxOperator interface {
+	IsRunning() (bool, int)
+	SetSelectorDefault(ctx context.Context, selectorTag, memberTag string) error
+	GetSelectorActive(ctx context.Context, selectorTag string) (string, error)
+}
+
+type downloadSlotController interface {
+	SaveSilent(slot singboxorch.Slot, jsonBytes []byte) error
+	SetEnabledSilent(slot singboxorch.Slot, enabled bool) error
+	Reload() error
+}
+
+type downloadSingboxAdapter struct {
+	op *singbox.Operator
+}
+
+var _ downloadSingboxOperator = (*downloadSingboxAdapter)(nil)
+
+func (a *downloadSingboxAdapter) IsRunning() (bool, int) {
+	return a.op.IsRunningPublic()
+}
+
+func (a *downloadSingboxAdapter) SetSelectorDefault(ctx context.Context, selectorTag, memberTag string) error {
+	return a.op.SetSelectorDefault(ctx, selectorTag, memberTag)
+}
+
+func (a *downloadSingboxAdapter) GetSelectorActive(ctx context.Context, selectorTag string) (string, error) {
+	return a.op.GetSelectorActive(ctx, selectorTag)
 }
 
 // NewHydraRouteHandler creates a new HydraRoute settings handler.
 func NewHydraRouteHandler(svc *hydraroute.Service) *HydraRouteHandler {
 	return &HydraRouteHandler{svc: svc}
 }
+
+func (h *HydraRouteHandler) SetDeviceProxyService(svc *deviceproxy.Service) {
+	h.deviceProxySvc = svc
+}
+
+func (h *HydraRouteHandler) SetSingboxOperator(op *singbox.Operator) {
+	if op == nil {
+		h.singboxOp = nil
+		return
+	}
+	h.singboxOp = &downloadSingboxAdapter{op: op}
+}
+
+func (h *HydraRouteHandler) SetSingboxOrchestrator(orch *singboxorch.Orchestrator) {
+	h.downloadOrch = orch
+}
+
+const (
+	downloadProxyInboundTag  = "awgm-download-in"
+	downloadProxySelectorTag = "awgm-download-selector"
+	downloadProxyListenHost  = "127.0.0.1"
+	downloadProxyListenPort  = 11998
+)
 
 // SetEventBus wires the SSE bus so HR Neo mutations that touch the DNS
 // route list (policy order, native rule import, config write) can emit
@@ -292,10 +384,7 @@ func (h *HydraRouteHandler) AddGeoFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Type string `json:"type"`
-		URL  string `json:"url"`
-	}
+	var req AddGeoFileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, "invalid request body: "+err.Error(), "BAD_REQUEST")
 		return
@@ -306,10 +395,20 @@ func (h *HydraRouteHandler) AddGeoFile(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, "geo data store not initialized", "NOT_INITIALIZED")
 		return
 	}
+	routeLabel := h.describeRouteLabel(r.Context(), req.Route)
 
-	entry, err := gds.Download(req.Type, req.URL)
+	client, restore, err := h.resolveDownloadClient(r.Context(), req.Route)
 	if err != nil {
-		response.Error(w, err.Error(), "GEO_DOWNLOAD_ERROR")
+		response.Error(w, err.Error(), "GEO_DOWNLOAD_ROUTE_ERROR")
+		return
+	}
+	if restore != nil {
+		defer restore()
+	}
+
+	entry, err := gds.DownloadWithClient(req.Type, req.URL, client)
+	if err != nil {
+		response.Error(w, fmt.Sprintf("download via %s: %v", routeLabel, err), "GEO_DOWNLOAD_ERROR")
 		return
 	}
 
@@ -466,22 +565,32 @@ func (h *HydraRouteHandler) UpdateGeoFile(w http.ResponseWriter, r *http.Request
 		response.Error(w, "geo data store not initialized", "NOT_INITIALIZED")
 		return
 	}
+	routeLabel := h.describeRouteLabel(r.Context(), req.Route)
+
+	client, restore, err := h.resolveDownloadClient(r.Context(), req.Route)
+	if err != nil {
+		response.Error(w, err.Error(), "GEO_DOWNLOAD_ROUTE_ERROR")
+		return
+	}
+	if restore != nil {
+		defer restore()
+	}
 
 	out := GeoFileUpdatedData{}
 	if req.Path == "" {
-		count, err := gds.UpdateAll()
+		count, err := gds.UpdateAllWithClient(client)
 		out.Updated = count
 		if err != nil {
 			out.Partial = count > 0
-			out.Error = err.Error()
+			out.Error = fmt.Sprintf("update via %s: %v", routeLabel, err)
 			if count == 0 {
-				response.Error(w, err.Error(), "GEO_UPDATE_ERROR")
+				response.Error(w, fmt.Sprintf("update via %s: %v", routeLabel, err), "GEO_UPDATE_ERROR")
 				return
 			}
 		}
 	} else {
-		if _, err := gds.Update(req.Path); err != nil {
-			response.Error(w, err.Error(), "GEO_UPDATE_ERROR")
+		if _, err := gds.UpdateWithClient(req.Path, client); err != nil {
+			response.Error(w, fmt.Sprintf("update via %s: %v", routeLabel, err), "GEO_UPDATE_ERROR")
 			return
 		}
 		out.Updated = 1
@@ -502,6 +611,303 @@ func (h *HydraRouteHandler) UpdateGeoFile(w http.ResponseWriter, r *http.Request
 	}
 
 	response.Success(w, out)
+}
+
+// ListDownloadOutbounds returns existing route options for geo downloads.
+//
+//	@Summary		List geo download outbounds
+//	@Tags			hydraroute
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Success		200	{object}	DownloadOutboundsResponse
+//	@Failure		500	{object}	APIErrorEnvelope
+//	@Router			/download/outbounds [get]
+func (h *HydraRouteHandler) ListDownloadOutbounds(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.MethodNotAllowed(w)
+		return
+	}
+
+	if h.deviceProxySvc == nil {
+		response.Success(w, []DownloadOutboundDTO{{
+			Tag:       "direct",
+			Kind:      "direct",
+			Label:     "Direct (WAN)",
+			Detail:    "без туннеля",
+			Available: true,
+		}})
+		return
+	}
+
+	out := h.deviceProxySvc.ListOutbounds(r.Context())
+	sbRunning := false
+	if h.singboxOp != nil {
+		sbRunning, _ = h.singboxOp.IsRunning()
+	}
+	downloadReady := sbRunning && h.downloadOrch != nil
+	resp := make([]DownloadOutboundDTO, 0, len(out))
+	for _, ob := range out {
+		available := ob.Tag == "direct" || (downloadReady && strings.TrimSpace(ob.Tag) != "")
+		resp = append(resp, DownloadOutboundDTO{
+			Tag:       ob.Tag,
+			Kind:      ob.Kind,
+			Label:     ob.Label,
+			Detail:    ob.Detail,
+			Available: available,
+		})
+	}
+	response.Success(w, resp)
+}
+
+func (h *HydraRouteHandler) resolveDownloadClient(ctx context.Context, route *DownloadRouteDTO) (*http.Client, func(), error) {
+	tag := "direct"
+	if route != nil && strings.TrimSpace(route.Tag) != "" {
+		tag = strings.TrimSpace(route.Tag)
+	}
+	if tag == "direct" {
+		return nil, nil, nil
+	}
+	if h.singboxOp == nil {
+		return nil, nil, fmt.Errorf("selected outbound %q is unavailable: sing-box operator is not configured", tag)
+	}
+	if h.downloadOrch == nil {
+		return nil, nil, fmt.Errorf("selected outbound %q is unavailable: sing-box orchestrator is not configured", tag)
+	}
+	isRunning, _ := h.singboxOp.IsRunning()
+	if !isRunning {
+		return nil, nil, fmt.Errorf("selected outbound %q is unavailable: sing-box is not running", tag)
+	}
+
+	members := []string{"direct"}
+	var selected *deviceproxy.Outbound
+	found := false
+	if h.deviceProxySvc != nil {
+		for _, ob := range h.deviceProxySvc.ListOutbounds(ctx) {
+			if ob.Tag == "" {
+				continue
+			}
+			if ob.Tag != "direct" {
+				members = append(members, ob.Tag)
+			}
+			if ob.Tag == tag {
+				found = true
+				choice := ob
+				selected = &choice
+			}
+		}
+	}
+	if !found {
+		return nil, nil, fmt.Errorf("selected outbound %q is unavailable for geo download transport", tag)
+	}
+
+	h.downloadMu.Lock()
+	proxyURL := &url.URL{
+		Scheme: "http",
+		Host:   net.JoinHostPort(downloadProxyListenHost, fmt.Sprintf("%d", downloadProxyListenPort)),
+	}
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		},
+	}
+	restore := func() {
+		client.CloseIdleConnections()
+		h.cleanupDownloadProxySlotLocked()
+		h.downloadMu.Unlock()
+	}
+
+	selectedTag := selectedTagForSlot(tag)
+	if err := h.applyDownloadProxySlotLocked(members, selectedTag); err != nil {
+		h.downloadMu.Unlock()
+		return nil, nil, err
+	}
+	if err := h.selectDownloadOutboundWithRetry(ctx, selectedTag); err != nil {
+		restore()
+		return nil, nil, fmt.Errorf("select download outbound %q: %w", tag, err)
+	}
+	active, err := h.readSelectorActiveWithRetry(ctx, downloadProxySelectorTag)
+	if err != nil {
+		restore()
+		return nil, nil, fmt.Errorf("verify download selector active member: %w", err)
+	}
+	slog.Info("hydraroute: download selector state",
+		"requestedTag", tag,
+		"requestedKind", selected.Kind,
+		"activeTag", active,
+		"members", members,
+		"proxy", net.JoinHostPort(downloadProxyListenHost, fmt.Sprintf("%d", downloadProxyListenPort)),
+	)
+	if active != selectedTag {
+		restore()
+		return nil, nil, fmt.Errorf("download selector mismatch: requested %s, active %s", selectedTag, active)
+	}
+
+	return client, restore, nil
+}
+
+func selectedTagForSlot(tag string) string {
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return "direct"
+	}
+	return tag
+}
+
+func describeDownloadOutbound(ob deviceproxy.Outbound) string {
+	if ob.Tag == "direct" {
+		return "direct"
+	}
+	if ob.Kind != "" {
+		return fmt.Sprintf("%s (%s)", ob.Tag, ob.Kind)
+	}
+	return ob.Tag
+}
+
+func (h *HydraRouteHandler) describeRouteLabel(ctx context.Context, route *DownloadRouteDTO) string {
+	tag := "direct"
+	if route != nil && strings.TrimSpace(route.Tag) != "" {
+		tag = strings.TrimSpace(route.Tag)
+	}
+	if tag == "direct" {
+		return "direct"
+	}
+	if h.deviceProxySvc != nil {
+		for _, ob := range h.deviceProxySvc.ListOutbounds(ctx) {
+			if ob.Tag == tag {
+				return describeDownloadOutbound(ob)
+			}
+		}
+	}
+	return tag
+}
+
+func (h *HydraRouteHandler) applyDownloadProxySlotLocked(members []string, selectedTag string) error {
+	if h.downloadOrch == nil {
+		return fmt.Errorf("download proxy orchestrator is not configured")
+	}
+	uniq := make([]string, 0, len(members))
+	seen := map[string]struct{}{}
+	uniq = append(uniq, "direct")
+	seen["direct"] = struct{}{}
+	for _, m := range members {
+		m = strings.TrimSpace(m)
+		if m == "" {
+			continue
+		}
+		if _, ok := seen[m]; ok {
+			continue
+		}
+		seen[m] = struct{}{}
+		uniq = append(uniq, m)
+	}
+
+	slot := map[string]any{
+		"inbounds": []any{
+			map[string]any{
+				"type":        "mixed",
+				"tag":         downloadProxyInboundTag,
+				"listen":      downloadProxyListenHost,
+				"listen_port": downloadProxyListenPort,
+			},
+		},
+		"outbounds": []any{
+			map[string]any{
+				"type":                        "selector",
+				"tag":                         downloadProxySelectorTag,
+				"outbounds":                   uniq,
+				"default":                     selectedTag,
+				"interrupt_exist_connections": false,
+			},
+		},
+		"route": map[string]any{
+			"rules": []any{
+				map[string]any{
+					"inbound":  downloadProxyInboundTag,
+					"outbound": downloadProxySelectorTag,
+				},
+			},
+		},
+	}
+
+	raw, err := json.MarshalIndent(slot, "", "  ")
+	if err != nil {
+		return fmt.Errorf("build download transport slot: %w", err)
+	}
+	if err := h.downloadOrch.SaveSilent(singboxorch.SlotDownloadProxy, raw); err != nil {
+		return fmt.Errorf("save download transport slot: %w", err)
+	}
+	if err := h.downloadOrch.SetEnabledSilent(singboxorch.SlotDownloadProxy, true); err != nil {
+		return fmt.Errorf("enable download transport slot: %w", err)
+	}
+	if err := h.downloadOrch.Reload(); err != nil {
+		_ = h.downloadOrch.SetEnabledSilent(singboxorch.SlotDownloadProxy, false)
+		_ = h.downloadOrch.Reload()
+		return fmt.Errorf("reload sing-box with download transport slot: %w", err)
+	}
+	return nil
+}
+
+func (h *HydraRouteHandler) selectDownloadOutboundWithRetry(ctx context.Context, memberTag string) error {
+	const (
+		attempts = 20
+		pause    = 250 * time.Millisecond
+	)
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		lastErr = h.singboxOp.SetSelectorDefault(ctx, downloadProxySelectorTag, memberTag)
+		if lastErr == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pause):
+		}
+	}
+	return lastErr
+}
+
+func (h *HydraRouteHandler) readSelectorActiveWithRetry(ctx context.Context, selectorTag string) (string, error) {
+	const (
+		attempts = 20
+		pause    = 250 * time.Millisecond
+	)
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		active, err := h.singboxOp.GetSelectorActive(ctx, selectorTag)
+		if err == nil && strings.TrimSpace(active) != "" {
+			return active, nil
+		}
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = fmt.Errorf("empty active member")
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(pause):
+		}
+	}
+	return "", lastErr
+}
+
+func (h *HydraRouteHandler) cleanupDownloadProxySlotLocked() {
+	if h.singboxOp != nil {
+		if err := h.singboxOp.SetSelectorDefault(context.Background(), downloadProxySelectorTag, "direct"); err != nil {
+			slog.Warn("hydraroute: failed to restore download selector to direct", "error", err)
+		}
+	}
+	if h.downloadOrch == nil {
+		return
+	}
+	if err := h.downloadOrch.SetEnabledSilent(singboxorch.SlotDownloadProxy, false); err != nil {
+		slog.Warn("hydraroute: failed to disable download proxy slot", "error", err)
+		return
+	}
+	if err := h.downloadOrch.Reload(); err != nil {
+		slog.Warn("hydraroute: failed to reload after disabling download proxy slot", "error", err)
+	}
 }
 
 // GetGeoTags returns the tag list for a specific geo data file.

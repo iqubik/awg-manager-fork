@@ -264,7 +264,7 @@ func TestServiceDedup_CreateRemovesCrossListDupes(t *testing.T) {
 
 	resolver := &noopResolver{}
 	q, c, _, _ := newTestNDMS()
-	svc := NewService(store, q, c, resolver, noopLogger(), nil)
+	svc := NewService(store, q, c, resolver, nil)
 
 	// Create first list with example.com.
 	list1, err := svc.Create(context.Background(), DomainList{

@@ -456,7 +456,7 @@ const MOCK_EXTERNAL_TUNNELS = [
 
 const MOCK_SINGBOX_TUNNELS = [
 	{
-		tag: 'vless-de-main',
+		tag: 'Kto-VLESS-kto-po-drova',
 		protocol: 'vless',
 		server: 'de01.demo.example',
 		port: 443,
@@ -576,7 +576,7 @@ const TRAFFIC_PROFILES = {
 		burstRx: 0,
 		burstTx: 0,
 	},
-	'vless-de-main': {
+	'Kto-VLESS-kto-po-drova': {
 		baseRx: 260_000,
 		baseTx: 96_000,
 		waveRx: 42_000,
@@ -1096,6 +1096,30 @@ function currentSingboxDelays() {
 // Pre-populated for visual testing — shows non-empty list state, selector with members.
 let mockSubscriptions = [
 	{
+		// Inline server group (wizard «Группа серверов») — no subscription URL.
+		id: 'sub-inlinegrp',
+		label: 'Neo Inline Group',
+		url: '',
+		isInline: true,
+		headers: [],
+		refreshHours: 0,
+		lastFetched: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+		lastError: '',
+		selectorTag: 'sub-inlinegrp',
+		inboundTag: 'sb2',
+		listenPort: 11020,
+		proxyIndex: 2,
+		memberTags: ['sub-inlinegrp-node-a', 'sub-inlinegrp-node-b', 'sub-inlinegrp-node-c'],
+		members: [
+			{ tag: 'sub-inlinegrp-node-a', label: 'Frankfurt', protocol: 'vless', server: 'de.inline.example', port: 443, transport: 'tcp', security: 'reality' },
+			{ tag: 'sub-inlinegrp-node-b', label: 'Amsterdam', protocol: 'vless', server: 'nl.inline.example', port: 443, transport: 'ws', security: 'tls' },
+			{ tag: 'sub-inlinegrp-node-c', label: 'Helsinki', protocol: 'trojan', server: 'fi.inline.example', port: 443, transport: 'tcp', security: 'tls' },
+		],
+		orphanTags: [],
+		activeMember: 'sub-inlinegrp-node-a',
+		enabled: true,
+	},
+	{
 		id: 'sub-demo0001',
 		label: 'Provider Demo',
 		url: 'https://demo-provider.example/sub/aaa',
@@ -1251,18 +1275,114 @@ let mockSubscriptions = [
 		activeMember: 'sub-legacy-dead0001',
 		enabled: false,
 	},
+	// enabled: false — чекбокс «Включена» снят в настройках подписки.
+	{
+		id: 'sub-off-eu',
+		label: 'EU Nodes',
+		url: 'https://eu-nodes.example/sub/off',
+		headers: [{ name: 'User-Agent', value: 'sing-box/1.14.0' }],
+		refreshHours: 12,
+		lastFetched: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+		lastError: '',
+		selectorTag: 'sub-off-eu',
+		inboundTag: 'sub-off-eu-in',
+		listenPort: 11006,
+		proxyIndex: 16,
+		memberTags: [
+			'sub-off-eu-de01',
+			'sub-off-eu-pl02',
+			'sub-off-eu-se03',
+		],
+		members: [
+			{ tag: 'sub-off-eu-de01', label: '🇩🇪 Germany', protocol: 'vless', server: 'de01.eu-nodes.example', port: 443, transport: 'tcp', security: 'reality' },
+			{ tag: 'sub-off-eu-pl02', label: '🇵🇱 Poland', protocol: 'trojan', server: 'pl02.eu-nodes.example', port: 443, transport: 'ws', security: 'tls' },
+			{ tag: 'sub-off-eu-se03', label: '🇸🇪 Sweden', protocol: 'vless', server: 'se03.eu-nodes.example', port: 8443, transport: 'grpc', security: 'tls' },
+		],
+		orphanTags: [],
+		activeMember: 'sub-off-eu-de01',
+		enabled: false,
+	},
+	{
+		id: 'sub-off-amer',
+		label: 'Americas Pool',
+		url: 'https://americas.example/sub/off',
+		headers: [],
+		refreshHours: 6,
+		lastFetched: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+		lastError: '',
+		selectorTag: 'sub-off-amer',
+		inboundTag: 'sub-off-amer-in',
+		listenPort: 11007,
+		proxyIndex: 17,
+		memberTags: [
+			'sub-off-amer-us01',
+			'sub-off-amer-ca02',
+			'sub-off-amer-mx03',
+		],
+		members: [
+			{ tag: 'sub-off-amer-us01', label: '🇺🇸 USA — NYC', protocol: 'vless', server: 'us01.americas.example', port: 443, transport: 'tcp', security: 'reality' },
+			{ tag: 'sub-off-amer-ca02', label: '🇨🇦 Canada — Vancouver', protocol: 'trojan', server: 'ca02.americas.example', port: 443, transport: 'tcp', security: 'tls' },
+			{ tag: 'sub-off-amer-mx03', label: '🇲🇽 Mexico — CDMX', protocol: 'hysteria2', server: 'mx03.americas.example', port: 443, transport: 'tcp', security: 'tls' },
+		],
+		orphanTags: ['sub-off-amer-stale99'],
+		activeMember: 'sub-off-amer-us01',
+		enabled: false,
+	},
+	{
+		id: 'sub-off-err',
+		label: 'Stale Feed',
+		url: 'https://stale-feed.example/sub/expired',
+		headers: [],
+		refreshHours: 24,
+		lastFetched: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString(),
+		lastError: 'fetch: HTTP 402 Payment Required',
+		selectorTag: 'sub-off-err',
+		inboundTag: 'sub-off-err-in',
+		listenPort: 11008,
+		proxyIndex: 18,
+		memberTags: ['sub-off-err-only01'],
+		members: [
+			{ tag: 'sub-off-err-only01', protocol: 'shadowsocks', server: 'stale01.example', port: 8388, transport: 'tcp', security: '' },
+		],
+		orphanTags: [],
+		activeMember: 'sub-off-err-only01',
+		enabled: false,
+	},
 ];
 let mockSubID = mockSubscriptions.length;
+
+/** Align list/get payloads with production SubscriptionDTO (incl. isInline). */
+function toMockSubscriptionDTO(sub) {
+	const url = sub.url ?? '';
+	const isInline = sub.isInline ?? !String(url).trim();
+	const mode = sub.mode ?? 'selector';
+	const dto = {
+		...sub,
+		url,
+		isInline,
+		mode,
+		enabled: sub.enabled !== false,
+		headers: sub.headers ?? [],
+		memberTags: sub.memberTags ?? [],
+		members: sub.members ?? [],
+		orphanTags: sub.orphanTags ?? [],
+	};
+	if (mode === 'urltest' && sub.urlTest) dto.urlTest = sub.urlTest;
+	return dto;
+}
 
 function newSub(input) {
 	mockSubID++;
 	const id = `sub-${mockSubID.toString().padStart(8, '0')}`;
 	const shortID = id.slice(0, 8);
 	const memberTags = [`sub-${shortID}-aaaa`, `sub-${shortID}-bbbb`];
+	const url = input.url ?? (input.inline ? '' : 'https://test');
+	const isInline = !!input.inline || !String(url).trim();
 	return {
 		id,
 		label: input.label || 'Test',
-		url: input.url || 'https://test',
+		url,
+		isInline,
 		headers: input.headers || [],
 		refreshHours: input.refreshHours || 0,
 		lastFetched: new Date().toISOString(),
@@ -3206,7 +3326,10 @@ const server = http.createServer(async (req, res) => {
 	// === Subscriptions mock overrides ===
 
 	if (req.method === 'GET' && path === '/singbox/subscriptions') {
-		send(res, 200, { success: true, data: mockSubscriptions });
+		send(res, 200, {
+			success: true,
+			data: mockSubscriptions.map(toMockSubscriptionDTO),
+		});
 		return;
 	}
 
@@ -3268,7 +3391,7 @@ const server = http.createServer(async (req, res) => {
 					sub.orphanTags = [];
 				}
 				mockSubscriptions.push(sub);
-				send(res, 200, { success: true, data: sub });
+				send(res, 200, { success: true, data: toMockSubscriptionDTO(sub) });
 			} catch (e) {
 				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
 			}
@@ -3283,7 +3406,7 @@ const server = http.createServer(async (req, res) => {
 			send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'no such id' } });
 			return;
 		}
-		send(res, 200, { success: true, data: sub });
+		send(res, 200, { success: true, data: toMockSubscriptionDTO(sub) });
 		return;
 	}
 
@@ -3381,7 +3504,7 @@ const server = http.createServer(async (req, res) => {
 					return;
 				}
 				Object.assign(sub, body);
-				send(res, 200, { success: true, data: sub });
+				send(res, 200, { success: true, data: toMockSubscriptionDTO(sub) });
 			} catch (e) {
 				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
 			}

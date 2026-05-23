@@ -2,10 +2,10 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/hoaxisr/awg-manager/internal/events"
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/tunnel"
@@ -74,7 +74,6 @@ type Orchestrator struct {
 	bus *events.Bus
 
 	// Logging
-	log    *logger.Logger
 	appLog *logging.ScopedLogger
 }
 
@@ -85,18 +84,16 @@ func New(
 	nwgOp *nwg.OperatorNativeWG,
 	stateMgr state.Manager,
 	wanModel *wan.Model,
-	log *logger.Logger,
 	appLogger logging.AppLogger,
 ) *Orchestrator {
 	return &Orchestrator{
-		state:      newState(),
-		store:      store,
-		kernelOp:   kernelOp,
-		nwgOp:      nwgOp,
-		stateMgr:   stateMgr,
-		wanModel:   wanModel,
-		log:        log,
-		appLog:     logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubLifecycle),
+		state:    newState(),
+		store:    store,
+		kernelOp: kernelOp,
+		nwgOp:    nwgOp,
+		stateMgr: stateMgr,
+		wanModel: wanModel,
+		appLog:   logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubOrchestrator),
 	}
 }
 
@@ -149,8 +146,6 @@ func (o *Orchestrator) RefreshTunnelState(tunnelID string) {
 	if cur, ok := o.state.tunnels[tunnelID]; ok {
 		fresh.Running = cur.Running
 		fresh.Monitoring = cur.Monitoring
-		fresh.ExternalRestartCount = cur.ExternalRestartCount
-		fresh.LastExternalRestart = cur.LastExternalRestart
 	}
 	o.state.tunnels[tunnelID] = fresh
 }
@@ -274,7 +269,7 @@ func (o *Orchestrator) executeActions(ctx context.Context, actions []Action) err
 	var firstErr error
 	for _, action := range actions {
 		if err := o.executeOne(ctx, action); err != nil {
-			o.logWarn(action.Tunnel, "execute %d failed: %s", action.Type, err.Error())
+			o.appLog.Warn("execute-action", action.Tunnel, fmt.Sprintf("action type %d failed: %s", action.Type, err.Error()))
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -322,8 +317,6 @@ func (o *Orchestrator) updateState(action Action) {
 		t.Monitoring = false
 	case ActionDeleteKernel, ActionDeleteNativeWG:
 		delete(o.state.tunnels, action.Tunnel)
-	case ActionExternalRestart:
-		// State already updated inside executeExternalRestart directly.
 	}
 
 	// Publish SSE event
@@ -371,16 +364,3 @@ func publishInvalidatedBus(bus *events.Bus, resource, reason string) {
 	})
 }
 
-// logWarn logs a warning.
-func (o *Orchestrator) logWarn(target, format string, args ...interface{}) {
-	if o.log != nil {
-		o.log.Warnf("[orchestrator] %s: "+format, append([]interface{}{target}, args...)...)
-	}
-}
-
-// logInfo logs an info message.
-func (o *Orchestrator) logInfo(target, format string, args ...interface{}) {
-	if o.log != nil {
-		o.log.Infof("[orchestrator] %s: "+format, append([]interface{}{target}, args...)...)
-	}
-}

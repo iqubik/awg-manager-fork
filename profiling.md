@@ -12,12 +12,11 @@ Go-бинарник awg-manager поддерживает встроенный HT
 
 Файл на роутере: `/opt/etc/init.d/S99awg-manager`
 
-Найди блок `start()` и строку `start-stop-daemon`. Добавь флаги после `-web-root "$WEB_ROOT"` (по умолчанию в бинарнике и в штатном init-скрипте профилирование **выключено**):
+Найди блок `start()` и строку `start-stop-daemon`. Добавь флаги после `-data-dir "$DATA_DIR"` (по умолчанию в бинарнике и в штатном init-скрипте профилирование **выключено**):
 
 ```sh
 start-stop-daemon -S -b -m -p "$PID_FILE" -x "$BIN" -- \
     -data-dir "$DATA_DIR" \
-    -web-root "$WEB_ROOT" \
     -pprof-listen 192.168.1.1:6060 \
     -slow-request-ms 500
 ```

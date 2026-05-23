@@ -82,6 +82,26 @@ cd "$PROJECT_ROOT"
 mkdir -p dist build
 
 echo "Building sing-box $SINGBOX_VERSION for $ENTWARE_ARCH using $($SINGBOX_GO version)"
+echo "Using sing-box git ref: $SINGBOX_REF"
+
+checkout_singbox_ref() {
+    local dir="$1"
+    local ref="$2"
+
+    if [[ ! -d "$dir/.git" ]]; then
+        rm -rf "$dir"
+        mkdir -p "$dir"
+        git init "$dir"
+        git -C "$dir" remote add origin https://github.com/sagernet/sing-box.git
+    elif git -C "$dir" remote get-url origin >/dev/null 2>&1; then
+        git -C "$dir" remote set-url origin https://github.com/sagernet/sing-box.git
+    else
+        git -C "$dir" remote add origin https://github.com/sagernet/sing-box.git
+    fi
+
+    git -C "$dir" fetch --depth=1 origin "$ref"
+    git -C "$dir" checkout --force FETCH_HEAD
+}
 
 if [[ -n "${SINGBOX_SRC:-}" ]]; then
     SINGBOX_DIR="$SINGBOX_SRC"
@@ -91,13 +111,7 @@ if [[ -n "${SINGBOX_SRC:-}" ]]; then
     fi
 else
     SINGBOX_DIR="${RUNNER_TEMP:-$PROJECT_ROOT/build}/sing-box-src"
-    if [[ ! -d "$SINGBOX_DIR/.git" ]]; then
-        rm -rf "$SINGBOX_DIR"
-        git clone --depth=1 --branch "$SINGBOX_REF" https://github.com/sagernet/sing-box.git "$SINGBOX_DIR"
-    else
-        git -C "$SINGBOX_DIR" fetch --depth=1 origin "$SINGBOX_REF"
-        git -C "$SINGBOX_DIR" checkout --force FETCH_HEAD
-    fi
+    checkout_singbox_ref "$SINGBOX_DIR" "$SINGBOX_REF"
 fi
 
 cd "$SINGBOX_DIR"

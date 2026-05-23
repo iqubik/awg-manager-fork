@@ -675,9 +675,13 @@
 		gap: 8px;
 		min-width: 0;
 	}
-	.tile-bg-caption {
-		font-size: 0.6875rem;
+	.tile-bg-caption,
+	.tile-bg-editor-col .field-label {
+		font-size: 0.75rem;
 		line-height: 1.35;
+	}
+
+	.tile-bg-caption {
 		color: var(--text-muted);
 		min-width: 0;
 	}
@@ -690,24 +694,31 @@
 	}
 	.tile-bg-editor-col .field-label {
 		margin: 0;
-		font-size: 0.75rem;
+		color: var(--text-muted);
 	}
 	.tile-bg-row {
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		--tile-bg-control-h: 28px;
 	}
 	.color-picker {
 		position: relative;
-		width: 2rem;
-		height: 2rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: var(--tile-bg-control-h);
+		height: var(--tile-bg-control-h);
+		margin: 0;
 		flex-shrink: 0;
 		cursor: pointer;
+		vertical-align: middle;
 	}
 	.color-picker-swatch {
 		display: block;
 		width: 100%;
 		height: 100%;
+		box-sizing: border-box;
 		border-radius: 6px;
 		border: 1px solid var(--border);
 		box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
@@ -717,7 +728,6 @@
 		inset: 0;
 		width: 100%;
 		height: 100%;
-		margin-top: 4px;
 		padding: 0;
 		margin: 0;
 		border: none;
@@ -730,26 +740,38 @@
 	}
 	.hex-input {
 		width: 6rem !important;
+		height: var(--tile-bg-control-h);
+		margin: 0;
 		flex-shrink: 0;
+		box-sizing: border-box;
 		background: var(--bg-tertiary);
 		border: 1px solid var(--border);
 		border-radius: 6px;
-		padding: 5px 6px;
+		padding: 0 8px !important;
 		color: var(--text-primary);
-		font-size: 0.75rem;
+		font-size: 0.75rem !important;
+		line-height: calc(var(--tile-bg-control-h) - 2px);
 		font-family: ui-monospace, monospace;
+		vertical-align: middle;
 	}
 	.hex-input:focus {
 		outline: none;
 		border-color: var(--accent);
 	}
 	.auto-bg-btn {
-		padding: 5px 8px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: var(--tile-bg-control-h);
+		margin: 0;
+		box-sizing: border-box;
+		padding: 0 10px;
 		border: 1px solid var(--border);
 		border-radius: 6px;
 		background: transparent;
 		color: var(--text-secondary);
-		font-size: 0.6875rem;
+		font-size: 0.75rem;
+		line-height: 1;
 		white-space: nowrap;
 		cursor: pointer;
 		font-family: inherit;

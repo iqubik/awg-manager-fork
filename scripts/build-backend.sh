@@ -16,6 +16,12 @@ ARCH="${1:-mipsle}"
 
 cd "$PROJECT_ROOT"
 
+if [[ ! -f "$PROJECT_ROOT/frontend/build/index.html" ]]; then
+    echo "ERROR: Missing frontend/build/index.html"
+    echo "Run scripts/build-frontend.sh first."
+    exit 1
+fi
+
 mkdir -p build/bin
 
 # MIPS targets run on Keenetic routers with Linux kernel 3.4.
@@ -46,16 +52,19 @@ case "$ARCH" in
     mipsle|mipsel)
         GOOS=linux GOARCH=mipsle GOMIPS=softfloat CGO_ENABLED=0 \
             $GO_CMD build -ldflags="-s -w -X main.version=${VERSION} -X main.buildArch=${ENTWARE_ARCH}" \
+            -tags embed_frontend \
             -o build/bin/awg-manager ./cmd/awg-manager
         ;;
     mips)
         GOOS=linux GOARCH=mips GOMIPS=softfloat CGO_ENABLED=0 \
             $GO_CMD build -ldflags="-s -w -X main.version=${VERSION} -X main.buildArch=${ENTWARE_ARCH}" \
+            -tags embed_frontend \
             -o build/bin/awg-manager ./cmd/awg-manager
         ;;
     arm64|aarch64)
         GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
             $GO_CMD build -ldflags="-s -w -X main.version=${VERSION} -X main.buildArch=${ENTWARE_ARCH}" \
+            -tags embed_frontend \
             -o build/bin/awg-manager ./cmd/awg-manager
         ;;
     *)

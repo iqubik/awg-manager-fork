@@ -32,7 +32,6 @@ const (
 	ActionStopMonitoring
 	ActionConfigurePingCheck
 	ActionRemovePingCheck
-	ActionExternalRestart // soft-stop + restart for externally-disabled tunnels
 
 	// Routing
 	ActionApplyDNSRoutes

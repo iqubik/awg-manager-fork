@@ -52,10 +52,7 @@ func (s *Service) CreateRule(rule HRRule) (*HRRule, error) {
 	if err := s.saveEntries(entries); err != nil {
 		return nil, err
 	}
-	if s.log != nil {
-		s.log.Infof("hydraroute: created rule %q (target=%q, domains=%d, subnets=%d)",
-			rule.Name, rule.Target, len(rule.Domains), len(rule.Subnets))
-	}
+	s.appLog.Info("create-rule", rule.Name, fmt.Sprintf("target=%q domains=%d subnets=%d", rule.Target, len(rule.Domains), len(rule.Subnets)))
 	return &rule, nil
 }
 
@@ -88,10 +85,7 @@ func (s *Service) UpdateRule(originalName string, rule HRRule) (*HRRule, error) 
 	if err := s.saveEntries(entries); err != nil {
 		return nil, err
 	}
-	if s.log != nil {
-		s.log.Infof("hydraroute: updated rule %q (target=%q, domains=%d, subnets=%d)",
-			rule.Name, rule.Target, len(rule.Domains), len(rule.Subnets))
-	}
+	s.appLog.Info("update-rule", rule.Name, fmt.Sprintf("target=%q domains=%d subnets=%d", rule.Target, len(rule.Domains), len(rule.Subnets)))
 	return &rule, nil
 }
 
@@ -111,9 +105,7 @@ func (s *Service) DeleteRule(name string) error {
 	if err := s.saveEntries(entries); err != nil {
 		return err
 	}
-	if s.log != nil {
-		s.log.Infof("hydraroute: deleted rule %q", name)
-	}
+	s.appLog.Info("delete-rule", name, "rule deleted")
 	return nil
 }
 

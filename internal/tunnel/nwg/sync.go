@@ -37,7 +37,7 @@ func (o *OperatorNativeWG) SyncDNS(ctx context.Context, stored *storage.AWGTunne
 	names := NewNWGNames(stored.NWGIndex)
 	if len(oldDNS) > 0 {
 		if err := o.commands.Interfaces.ClearDNS(ctx, names.NDMSName, oldDNS); err != nil {
-			o.log.Warnf("nwg: clear DNS for %s: %v", names.NDMSName, err)
+			o.appLog.Warn("clear-dns", names.NDMSName, err.Error())
 		}
 	}
 	if len(newDNS) > 0 {
@@ -86,7 +86,7 @@ func (o *OperatorNativeWG) SyncAddressMTU(ctx context.Context, stored *storage.A
 	ipv6 := extractIPv6(stored.Interface.Address)
 	if ipv6 != "" {
 		if err := o.commands.Interfaces.SetIPv6Address(ctx, ndmsName, ipv6); err != nil {
-			o.log.Warnf("nwg: sync ipv6 address on %s: %v", ndmsName, err)
+			o.appLog.Warn("sync-address-mtu", ndmsName, "ipv6: "+err.Error())
 		}
 	} else {
 		_ = o.commands.Interfaces.ClearIPv6Address(ctx, ndmsName)
@@ -96,7 +96,7 @@ func (o *OperatorNativeWG) SyncAddressMTU(ctx context.Context, stored *storage.A
 		return fmt.Errorf("sync mtu: %w", err)
 	}
 
-	o.log.Infof("nwg: synced address=%s ipv6=%s mtu=%d on %s", ipv4, ipv6, stored.Interface.MTU, ndmsName)
+	o.appLog.Info("sync-address-mtu", ndmsName, fmt.Sprintf("address=%s ipv6=%s mtu=%d", ipv4, ipv6, stored.Interface.MTU))
 	return nil
 }
 
@@ -118,7 +118,7 @@ func (o *OperatorNativeWG) SyncPrivateKey(ctx context.Context, stored *storage.A
 	if _, err := o.transport.PostBatch(ctx, cmds); err != nil {
 		return fmt.Errorf("sync private-key: %w", err)
 	}
-	o.log.Infof("nwg: synced private-key on %s", ndmsName)
+	o.appLog.Info("sync-private-key", ndmsName, "private-key synced")
 	return nil
 }
 
@@ -189,12 +189,12 @@ func (o *OperatorNativeWG) SyncPeer(ctx context.Context, stored *storage.AWGTunn
 
 	if stored.ISPInterface != "" {
 		if _, err := o.transport.Post(ctx, payloads.CmdWireguardPeerConnect(ndmsName, stored.Peer.PublicKey, stored.ISPInterface)); err != nil {
-			o.log.Warnf("nwg: sync peer connect via on %s: %v", ndmsName, err)
+			o.appLog.Warn("sync-peer", ndmsName, "peer connect via: "+err.Error())
 		}
 	}
 
 	o.appLog.Full("replace-config", stored.Name, "Peer sync complete")
-	o.log.Infof("nwg: synced peer on %s (allowed v4=%d, v6=%d)", ndmsName, len(peerCfg.AllowedIPv4), len(peerCfg.AllowedIPv6))
+	o.appLog.Info("sync-peer", ndmsName, fmt.Sprintf("allowed v4=%d, v6=%d", len(peerCfg.AllowedIPv4), len(peerCfg.AllowedIPv6)))
 	return nil
 }
 

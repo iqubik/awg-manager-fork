@@ -54,22 +54,8 @@ func TestKernelBackend_Basic(t *testing.T) {
 	}
 }
 
-type testLogger struct {
-	infos []string
-	warns []string
-}
-
-func (l *testLogger) Info(msg string, fields ...map[string]interface{}) {
-	l.infos = append(l.infos, msg)
-}
-
-func (l *testLogger) Warn(msg string, fields ...map[string]interface{}) {
-	l.warns = append(l.warns, msg)
-}
-
 func TestNew(t *testing.T) {
-	log := &testLogger{}
-	b := New(log)
+	b := New(nil)
 	if b.Type() != TypeKernel {
 		t.Errorf("New() type = %v, want TypeKernel", b.Type())
 	}

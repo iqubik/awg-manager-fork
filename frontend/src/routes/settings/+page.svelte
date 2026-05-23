@@ -26,6 +26,7 @@
 	} from "$lib/types";
 	import {
 		USAGE_LEVEL_LABELS,
+		isAppearanceSettingsVisible,
 		isSectionVisible,
 		isRoutingSubTabVisible,
 		type UsageLevel,
@@ -220,6 +221,7 @@ onMount(() => {
 				api.getSettings(),
 			]);
 			settings = appSettings;
+			setGlobalSettings(appSettings);
 		} catch (e) {
 			notifications.error(e instanceof Error ? e.message : "Не удалось загрузить настройки");
 		} finally {
@@ -518,7 +520,7 @@ onMount(() => {
 				highlighted={expandUsageLevel}
 			/>
 
-			{#if $usageLevel === "advanced" || $usageLevel === "expert"}
+			{#if isAppearanceSettingsVisible(settings.usageLevel)}
 				<ThemeSchemeCard />
 			{/if}
 
@@ -528,7 +530,7 @@ onMount(() => {
 						<div class="flex flex-col gap-1">
 							<span class="font-medium">Авторизация</span>
 							<span class="setting-description">
-								Требовать вход через учётную запись роутера для доступа к панели управления
+								Требовать вход через учётную запись роутера для доступа к панели управления.
 							</span>
 						</div>
 						<Toggle checked={settings.authEnabled} onchange={toggleAuth} disabled={saving} />
@@ -540,7 +542,7 @@ onMount(() => {
 					<div class="setting-row toggle-inline-row">
 						<div class="flex flex-col gap-1">
 							<span class="font-medium">Автопроверка обновлений</span>
-							<span class="setting-description">Проверять наличие новых версий раз в сутки</span>
+							<span class="setting-description">Проверять наличие новых версий раз в сутки.</span>
 						</div>
 						<Toggle
 							checked={settings.updates.checkEnabled}

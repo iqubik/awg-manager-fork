@@ -31,6 +31,26 @@ const storageKey = 'awg-manager-theme';
 const presetCycleOrder: ThemePreset[] = ['legacy', 'neo', 'mint', 'custom'];
 const SYSTEM_LIGHT_MEDIA_QUERY = '(prefers-color-scheme: light)';
 
+const faviconStorageKey = 'awg-manager-dynamic-favicon';
+const faviconCacheVersion = 1;
+const faviconTemplateUrl = '/favicon.svg';
+const dynamicFaviconSelector = 'link[data-awgm-dynamic-favicon]';
+const staticFaviconSelector = 'link[data-awgm-static-favicon]';
+const faviconAccentPattern = /#7aa1f7|#7aa2f7/gi;
+
+interface CachedDynamicFavicon {
+	version: number;
+	accent: string;
+	href: string;
+}
+
+interface ApplyThemeStateOptions {
+	refreshDynamicFavicon?: boolean;
+}
+
+let faviconSvgTemplatePromise: Promise<string> | null = null;
+let dynamicFaviconUpdateSeq = 0;
+
 export const DEFAULT_CUSTOM_THEME: ThemeCustomPalette = {
 	accent: '#8b5cf6',
 	background: '#111827',
@@ -252,7 +272,7 @@ export const THEME_PRESETS = {
 	legacy: {
 		label: 'AWGM - Legacy',
 		summary:
-			'Классическая тема AWGM с глубокими тёмно-синими оттенками, полюбившаяся многим.',
+			'Классическая тема AWGM с глубокими тёмно-синими оттенками.',
 		supportsModeToggle: true,
 	},
 	neo: {
@@ -264,7 +284,7 @@ export const THEME_PRESETS = {
 	mint: {
 		label: 'AWGM - Mint',
 		summary:
-			'Мягкие аквамариновые тона и нейтральная серо-синяя стилистика.',
+			'Мягкая аквамариновая палитра и нейтральная серо-синяя стилистика.',
 		supportsModeToggle: true,
 	},
 	custom: {
@@ -304,6 +324,161 @@ function normalizeHexColor(value: string | null | undefined, fallback: string): 
 	if (!value) return fallback;
 	const match = /^#([0-9a-f]{6})$/i.exec(value.trim());
 	return match ? `#${match[1].toLowerCase()}` : fallback;
+}
+
+function getFaviconAccent(tokens: ThemeTokenMap): string {
+	return normalizeHexColor(tokens['--color-accent'], DEFAULT_CUSTOM_THEME.accent);
+}
+
+function getStateAccent(state: ThemeState): string {
+	return getFaviconAccent(resolveThemeTokens(selectionFromState(state)));
+}
+
+function readDynamicFaviconCache(): CachedDynamicFavicon | null {
+	if (!browser) return null;
+
+	try {
+		const raw = localStorage.getItem(faviconStorageKey);
+		if (!raw) return null;
+
+		const parsed = JSON.parse(raw) as Partial<CachedDynamicFavicon> | null;
+		if (
+			parsed?.version !== faviconCacheVersion ||
+			typeof parsed.accent !== 'string' ||
+			typeof parsed.href !== 'string' ||
+			!parsed.href.startsWith('data:image/svg+xml')
+		) {
+			return null;
+		}
+
+		const accent = normalizeHexColor(parsed.accent, '');
+		if (!accent) return null;
+
+		return {
+			version: faviconCacheVersion,
+			accent,
+			href: parsed.href,
+		};
+	} catch {
+		return null;
+	}
+}
+
+function writeDynamicFaviconCache(accent: string, href: string): void {
+	if (!browser) return;
+
+	try {
+		localStorage.setItem(
+			faviconStorageKey,
+			JSON.stringify({
+				version: faviconCacheVersion,
+				accent,
+				href,
+			} satisfies CachedDynamicFavicon),
+		);
+	} catch {
+		// Ignore quota/private-mode errors; static favicon remains as fallback.
+	}
+}
+
+function removeActiveFaviconLinks(): void {
+	if (!browser) return;
+
+	document
+		.querySelectorAll<HTMLLinkElement>(`${staticFaviconSelector}, ${dynamicFaviconSelector}`)
+		.forEach((link) => link.remove());
+}
+
+function createDynamicFaviconLink(accent: string, href: string): HTMLLinkElement {
+	removeActiveFaviconLinks();
+
+	const link = document.createElement('link');
+	link.rel = 'icon';
+	link.type = 'image/svg+xml';
+	link.href = href;
+	link.setAttribute('sizes', 'any');
+	link.setAttribute('data-awgm-dynamic-favicon', '');
+	link.setAttribute('data-awgm-accent', accent);
+	document.head.appendChild(link);
+
+	return link;
+}
+
+function applyDynamicFaviconHref(accent: string, href: string): void {
+	if (!browser) return;
+
+	const currentLink = document.querySelector<HTMLLinkElement>(dynamicFaviconSelector);
+	const staticLinks = document.querySelectorAll<HTMLLinkElement>(staticFaviconSelector);
+
+	if (
+		currentLink?.dataset.awgmAccent === accent &&
+		currentLink.getAttribute('href') === href &&
+		staticLinks.length === 0
+	) {
+		return;
+	}
+
+	createDynamicFaviconLink(accent, href);
+}
+
+function applyCachedDynamicFavicon(tokens: ThemeTokenMap): void {
+	if (!browser) return;
+
+	const accent = getFaviconAccent(tokens);
+	const cached = readDynamicFaviconCache();
+
+	if (cached?.accent === accent) {
+		applyDynamicFaviconHref(accent, cached.href);
+	}
+}
+
+function loadFaviconSvgTemplate(): Promise<string> {
+	if (!browser) return Promise.resolve('');
+
+	if (!faviconSvgTemplatePromise) {
+		faviconSvgTemplatePromise = fetch(faviconTemplateUrl, { cache: 'force-cache' })
+			.then((response) => (response.ok ? response.text() : ''))
+			.catch(() => '');
+	}
+
+	return faviconSvgTemplatePromise;
+}
+
+function buildDynamicFaviconHref(template: string, accent: string): string {
+	const tintedSvg = template.replace(faviconAccentPattern, accent);
+	return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(tintedSvg)}`;
+}
+
+function refreshDynamicFavicon(tokens: ThemeTokenMap): void {
+	if (!browser) return;
+
+	const accent = getFaviconAccent(tokens);
+	const seq = ++dynamicFaviconUpdateSeq;
+
+	const currentLink = document.querySelector<HTMLLinkElement>(dynamicFaviconSelector);
+	const staticLinks = document.querySelectorAll<HTMLLinkElement>(staticFaviconSelector);
+	const cached = readDynamicFaviconCache();
+
+	if (
+		currentLink?.dataset.awgmAccent === accent &&
+		cached?.accent === accent &&
+		staticLinks.length === 0
+	) {
+		return;
+	}
+
+	if (cached?.accent === accent) {
+		applyDynamicFaviconHref(accent, cached.href);
+		return;
+	}
+
+	void loadFaviconSvgTemplate().then((template) => {
+		if (!template || seq !== dynamicFaviconUpdateSeq) return;
+
+		const href = buildDynamicFaviconHref(template, accent);
+		writeDynamicFaviconCache(accent, href);
+		applyDynamicFaviconHref(accent, href);
+	});
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -515,7 +690,7 @@ function applyThemeChromeMetadata(tokens: ThemeTokenMap, mode: ThemeMode): void 
 	appleStatusMeta.setAttribute('content', mode === 'light' ? 'default' : 'black');
 }
 
-function applyThemeState(state: ThemeState): void {
+function applyThemeState(state: ThemeState, options: ApplyThemeStateOptions = {}): void {
 	const root = document.documentElement;
 	const tokens = resolveThemeTokens(selectionFromState(state));
 
@@ -531,6 +706,12 @@ function applyThemeState(state: ThemeState): void {
 	root.classList.toggle('light', state.mode === 'light');
 	root.style.colorScheme = state.mode;
 	applyThemeChromeMetadata(tokens, state.mode);
+
+	if (options.refreshDynamicFavicon) {
+		refreshDynamicFavicon(tokens);
+	} else {
+		applyCachedDynamicFavicon(tokens);
+	}
 }
 
 function getSystemPreferredMode(): ThemeMode {
@@ -576,11 +757,20 @@ function createThemeStore() {
 	const { subscribe, set } = writable<ThemeState>(currentState);
 	let mediaQueryList: MediaQueryList | null = null;
 
-	function commit(selection: ThemeSelection): ThemeState {
+	function commit(
+		selection: ThemeSelection,
+		options: { refreshDynamicFavicon?: boolean } = {},
+	): ThemeState {
+		const previousAccent = getStateAccent(currentState);
 		const nextState = buildThemeState(selection);
+		const nextAccent = getStateAccent(nextState);
+		const accentChanged = previousAccent !== nextAccent;
+
 		if (browser) {
 			persistSelection(selectionFromState(nextState));
-			applyThemeState(nextState);
+			applyThemeState(nextState, {
+				refreshDynamicFavicon: (options.refreshDynamicFavicon ?? true) && accentChanged,
+			});
 		}
 		currentState = nextState;
 		set(nextState);
@@ -612,7 +802,7 @@ function createThemeStore() {
 		subscribe,
 		init: () => {
 			startSystemPreferenceSync();
-			commit(getInitialSelection());
+			commit(getInitialSelection(), { refreshDynamicFavicon: false });
 		},
 		cyclePreset: () => {
 			mutate((current) => {

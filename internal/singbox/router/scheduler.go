@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 )
 
@@ -17,18 +16,16 @@ const (
 type Scheduler struct {
 	svc      *ServiceImpl
 	settings *storage.SettingsStore
-	log      *logger.Logger
 	stop     chan struct{}
 	done     chan struct{}
 
 	lastRefresh time.Time
 }
 
-func NewScheduler(svc *ServiceImpl, settings *storage.SettingsStore, log *logger.Logger) *Scheduler {
+func NewScheduler(svc *ServiceImpl, settings *storage.SettingsStore) *Scheduler {
 	return &Scheduler{
 		svc:      svc,
 		settings: settings,
-		log:      log,
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
 	}
@@ -69,8 +66,8 @@ func (s *Scheduler) tickPolicySync(ctx context.Context) {
 	if err != nil || !settings.SingboxRouter.Enabled {
 		return
 	}
-	if err := s.svc.Reconcile(ctx); err != nil && s.log != nil {
-		s.log.Warnf("router scheduler: policy sync: %v", err)
+	if err := s.svc.Reconcile(ctx); err != nil {
+		s.svc.appLog.Warn("scheduler-policy-sync", "", err.Error())
 	}
 }
 
@@ -96,9 +93,7 @@ func (s *Scheduler) tickRuleSetRefresh(ctx context.Context) {
 	}
 	if s.svc.deps.Singbox != nil {
 		if err := s.svc.deps.Singbox.Reload(); err != nil {
-			if s.log != nil {
-				s.log.Warnf("router scheduler: reload for refresh: %v", err)
-			}
+			s.svc.appLog.Warn("scheduler-reload", "", err.Error())
 			return
 		}
 	}

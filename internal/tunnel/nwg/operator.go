@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms"
 	"github.com/hoaxisr/awg-manager/internal/ndms/command"
@@ -37,19 +36,17 @@ type OperatorNativeWG struct {
 	commands     *command.Commands
 	transport    *transport.Client
 	kmod         *KmodManager
-	log          *logger.Logger
 	appLog       *logging.ScopedLogger
 	hookNotifier tunnel.HookNotifier
 }
 
 // NewOperator creates a new NativeWG operator.
-func NewOperator(log *logger.Logger, queries *query.Queries, commands *command.Commands, tr *transport.Client, appLogger logging.AppLogger) *OperatorNativeWG {
+func NewOperator(queries *query.Queries, commands *command.Commands, tr *transport.Client, appLogger logging.AppLogger) *OperatorNativeWG {
 	return &OperatorNativeWG{
 		queries:   queries,
 		commands:  commands,
 		transport: tr,
-		kmod:      NewKmodManager(log),
-		log:       log,
+		kmod:      NewKmodManager(appLogger),
 		appLog:    logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubOps),
 	}
 }
@@ -114,7 +111,7 @@ func (o *OperatorNativeWG) createViaImport(ctx context.Context, stored *storage.
 	}
 
 	o.appLog.Full("create", stored.Name, fmt.Sprintf("Created NDMS interface %s via import", ndmsName))
-	o.log.Infof("nwg: created %s (import path)", ndmsName)
+	o.appLog.Info("create", ndmsName, "via import path")
 	return idx, nil
 }
 
@@ -197,13 +194,13 @@ func (o *OperatorNativeWG) createViaBatch(ctx context.Context, stored *storage.A
 	if ndmsinfo.SupportsWireguardASC() {
 		if ascJSON, err := buildASCJSON(&stored.Interface); err == nil && ascJSON != nil {
 			if err := o.commands.Wireguard.SetASCParams(ctx, ndmsName, ascJSON); err != nil {
-				o.log.Warnf("nwg: SetASCParams via RCI failed (non-fatal): %v", err)
+				o.appLog.Warn("set-asc-params", "", "RCI failed (non-fatal): "+err.Error())
 			}
 		}
 	}
 
 	o.appLog.Full("create", stored.Name, fmt.Sprintf("Creating NDMS interface %s", ndmsName))
-	o.log.Infof("nwg: created %s", ndmsName)
+	o.appLog.Info("create", ndmsName, "interface created")
 	return idx, nil
 }
 
@@ -241,7 +238,7 @@ func (o *OperatorNativeWG) startNative(ctx context.Context, stored *storage.AWGT
 	o.appLog.Full("start", stored.Name, "Syncing ASC params to NDMS")
 	if ascJSON, err := buildASCJSON(&stored.Interface); err == nil && ascJSON != nil {
 		if err := o.commands.Wireguard.SetASCParams(ctx, names.NDMSName, ascJSON); err != nil {
-			o.log.Warnf("nwg: sync ASC params on start for %s: %v", names.NDMSName, err)
+			o.appLog.Warn("sync-asc", names.NDMSName, err.Error())
 		}
 	}
 
@@ -259,12 +256,12 @@ func (o *OperatorNativeWG) startNative(ctx context.Context, stored *storage.AWGT
 
 	// Sync address/MTU from storage
 	if err := o.SyncAddressMTU(ctx, stored); err != nil {
-		o.log.Warnf("nwg: sync address/mtu on start: %v", err)
+		o.appLog.Warn("sync-address-mtu", names.NDMSName, "on start: "+err.Error())
 	}
 
 	// Register DNS servers with the router's DNS proxy
 	if err := o.SyncDNS(ctx, stored, nil, tunnel.ParseDNSList(stored.Interface.DNS)); err != nil {
-		o.log.Warnf("nwg: apply DNS: %v", err)
+		o.appLog.Warn("apply-dns", names.NDMSName, err.Error())
 	}
 
 	o.appLog.Full("start", stored.Name, "Setting peer endpoint, interface up")
@@ -286,7 +283,7 @@ func (o *OperatorNativeWG) startNative(ctx context.Context, stored *storage.AWGT
 	if stored.ISPInterface != "" {
 		viaInfo = " via " + stored.ISPInterface
 	}
-	o.log.Infof("nwg: started %s (native ASC, endpoint %s%s)", names.NDMSName, realEndpoint, viaInfo)
+	o.appLog.Info("start", names.NDMSName, fmt.Sprintf("native ASC, endpoint %s%s", realEndpoint, viaInfo))
 	return nil
 }
 
@@ -335,12 +332,12 @@ func (o *OperatorNativeWG) startProxy(ctx context.Context, stored *storage.AWGTu
 
 	// Sync address/MTU from storage
 	if err := o.SyncAddressMTU(ctx, stored); err != nil {
-		o.log.Warnf("nwg: sync address/mtu on start: %v", err)
+		o.appLog.Warn("sync-address-mtu", names.NDMSName, "on start: "+err.Error())
 	}
 
 	// Register DNS servers with the router's DNS proxy
 	if err := o.SyncDNS(ctx, stored, nil, tunnel.ParseDNSList(stored.Interface.DNS)); err != nil {
-		o.log.Warnf("nwg: apply DNS: %v", err)
+		o.appLog.Warn("apply-dns", names.NDMSName, err.Error())
 	}
 
 	if o.hookNotifier != nil {
@@ -362,7 +359,7 @@ func (o *OperatorNativeWG) startProxy(ctx context.Context, stored *storage.AWGTu
 	if stored.ISPInterface != "" {
 		viaInfo = " via " + stored.ISPInterface
 	}
-	o.log.Infof("nwg: started %s (proxy %s -> %s:%d%s)", names.NDMSName, proxyEndpoint, endpointIP, endpointPort, viaInfo)
+	o.appLog.Info("start", names.NDMSName, fmt.Sprintf("proxy %s -> %s:%d%s", proxyEndpoint, endpointIP, endpointPort, viaInfo))
 	return nil
 }
 
@@ -386,12 +383,12 @@ func (o *OperatorNativeWG) SuspendProxy(ctx context.Context, stored *storage.AWG
 		payloads.CmdWireguardPeerDisconnect(names.NDMSName, pubkey),
 	}
 	if _, err := o.transport.PostBatch(ctx, cmds); err != nil {
-		o.log.Warnf("nwg: suspend proxy %s: peer disconnect: %v", names.NDMSName, err)
+		o.appLog.Warn("suspend", names.NDMSName, "peer disconnect: "+err.Error())
 		return fmt.Errorf("peer disconnect: %w", err)
 	}
 
 	o.appLog.Info("suspend", stored.Name, "Proxy suspended (WAN down)")
-	o.log.Infof("nwg: suspended proxy %s", names.NDMSName)
+	o.appLog.Info("suspend", names.NDMSName, "proxy suspended")
 	return nil
 }
 
@@ -413,7 +410,7 @@ func (o *OperatorNativeWG) Stop(ctx context.Context, stored *storage.AWGTunnel) 
 
 	// Clear DNS servers from the router's DNS proxy
 	if err := o.SyncDNS(ctx, stored, tunnel.ParseDNSList(stored.Interface.DNS), nil); err != nil {
-		o.log.Warnf("nwg: clear DNS: %v", err)
+		o.appLog.Warn("clear-dns", names.NDMSName, err.Error())
 	}
 	o.appLog.Full("stop", stored.Name, "DNS cleared")
 
@@ -422,7 +419,7 @@ func (o *OperatorNativeWG) Stop(ctx context.Context, stored *storage.AWGTunnel) 
 		_ = o.kmod.RemoveTunnel(stored.ID)
 	}
 
-	o.log.Infof("nwg: stopped %s", names.NDMSName)
+	o.appLog.Info("stop", names.NDMSName, "tunnel stopped")
 	return nil
 }
 
@@ -447,7 +444,7 @@ func (o *OperatorNativeWG) Delete(ctx context.Context, stored *storage.AWGTunnel
 	// 4. Persist
 	_, _ = o.transport.Post(ctx, payloads.CmdSave())
 
-	o.log.Infof("nwg: deleted %s", names.NDMSName)
+	o.appLog.Info("delete", names.NDMSName, "tunnel deleted")
 	return nil
 }
 
@@ -513,9 +510,9 @@ func pingCheckProfile(tunnelID string) string {
 func (o *OperatorNativeWG) ConfigurePingCheck(ctx context.Context, stored *storage.AWGTunnel, cfg ndms.PingCheckConfig) error {
 	profile := pingCheckProfile(stored.ID)
 	ifaceName := NewNWGNames(stored.NWGIndex).NDMSName
-	o.log.Infof("pingcheck: configure profile=%s iface=%s host=%s mode=%s", profile, ifaceName, cfg.Host, cfg.Mode)
+	o.appLog.Info("configure-pingcheck", profile, fmt.Sprintf("iface=%s host=%s mode=%s", ifaceName, cfg.Host, cfg.Mode))
 	if err := o.commands.PingCheck.ConfigureProfile(ctx, profile, ifaceName, cfg); err != nil {
-		o.log.Warnf("pingcheck: configure failed: %v", err)
+		o.appLog.Warn("configure-pingcheck", profile, err.Error())
 		return err
 	}
 	return nil
@@ -542,7 +539,7 @@ func (o *OperatorNativeWG) GetPingCheckStatus(ctx context.Context, stored *stora
 
 	profiles, perr := o.queries.PingCheckProfile.List(ctx)
 	if perr != nil {
-		o.log.Warnf("pingcheck: list profiles: %v", perr)
+		o.appLog.Warn("list-profiles", "", perr.Error())
 	} else {
 		for _, p := range profiles {
 			if p.Profile == profile {
@@ -564,7 +561,7 @@ func (o *OperatorNativeWG) GetPingCheckStatus(ctx context.Context, stored *stora
 	if status.Exists {
 		statuses, serr := o.queries.PingCheckStatus.List(ctx)
 		if serr != nil {
-			o.log.Warnf("pingcheck: list statuses: %v", serr)
+			o.appLog.Warn("list-statuses", "", serr.Error())
 		} else {
 			for _, s := range statuses {
 				if s.Profile == profile && s.Interface == ifaceName {
@@ -601,7 +598,7 @@ func (o *OperatorNativeWG) GetPingCheckStatus(ctx context.Context, stored *stora
 			status.Port = stored.PingCheck.Port
 		}
 	}
-	o.log.Infof("pingcheck: show %s -> exists=%v host=%s status=%s", profile, status.Exists, status.Host, status.Status)
+	o.appLog.Info("show-pingcheck", profile, fmt.Sprintf("exists=%v host=%s status=%s", status.Exists, status.Host, status.Status))
 	return status, nil
 }
 
@@ -630,7 +627,7 @@ func (o *OperatorNativeWG) RestoreKmodTunnel(ctx context.Context, stored *storag
 	proxyEndpoint := fmt.Sprintf("127.0.0.1:%d", result.ListenPort)
 	_, err = o.transport.Post(ctx, payloads.CmdWireguardPeerEndpoint(names.NDMSName, stored.Peer.PublicKey, proxyEndpoint))
 	if err != nil {
-		o.log.Warnf("nwg: restored kmod but failed to update endpoint to %s: %v", proxyEndpoint, err)
+		o.appLog.Warn("restore-kmod", names.NDMSName, "failed to update endpoint to "+proxyEndpoint+": "+err.Error())
 	}
 
 	return nil
@@ -662,10 +659,10 @@ func (o *OperatorNativeWG) ResolveActiveWAN(ctx context.Context, stored *storage
 		// ResolveSystemName failed to translate (e.g. /show/interface/system-name
 		// unavailable on firmware < 4.1). Return "" so the kmod proxy socket
 		// uses the default route instead of crashing with ENODEV.
-		o.log.Warnf("nwg: %s peer via %s: could not resolve kernel name, using default route", names.NDMSName, rciState.PeerVia)
+		o.appLog.Warn("resolve-wan", names.NDMSName, "peer via "+rciState.PeerVia+": could not resolve kernel name")
 		return ""
 	}
-	o.log.Infof("nwg: %s peer via %s -> kernel %s", names.NDMSName, rciState.PeerVia, sysName)
+	o.appLog.Info("resolve-wan", names.NDMSName, fmt.Sprintf("peer via %s -> kernel %s", rciState.PeerVia, sysName))
 	return sysName
 }
 
@@ -737,7 +734,7 @@ func (o *OperatorNativeWG) fallbackResolve(stored *storage.AWGTunnel, resolveErr
 		return "", 0, fmt.Errorf("resolve endpoint: %w", resolveErr)
 	}
 	port, _ := strconv.Atoi(portStr)
-	o.log.Warnf("nwg: DNS failed for %s, using cached IP %s", stored.Peer.Endpoint, stored.ResolvedEndpointIP)
+	o.appLog.Warn("resolve-endpoint", stored.Peer.Endpoint, "DNS failed, using cached IP "+stored.ResolvedEndpointIP)
 	return stored.ResolvedEndpointIP, port, nil
 }
 

@@ -180,6 +180,9 @@ definitions:
         items:
           $ref: '#/definitions/api.AccessPolicyInterfaceDTO'
         type: array
+      isStandard:
+        example: true
+        type: boolean
       name:
         example: default
         type: string
@@ -224,6 +227,8 @@ definitions:
     type: object
   api.AddGeoFileRequest:
     properties:
+      route:
+        $ref: '#/definitions/api.DownloadRouteDTO'
       type:
         example: geosite
         type: string
@@ -841,6 +846,43 @@ definitions:
       success:
         example: true
         type: boolean
+    type: object
+  api.DownloadOutboundDTO:
+    properties:
+      available:
+        example: true
+        type: boolean
+      detail:
+        example: без туннеля
+        type: string
+      kind:
+        example: direct
+        type: string
+      label:
+        example: Direct (WAN)
+        type: string
+      tag:
+        example: direct
+        type: string
+    type: object
+  api.DownloadOutboundsResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/api.DownloadOutboundDTO'
+        type: array
+      success:
+        example: true
+        type: boolean
+    type: object
+  api.DownloadRouteDTO:
+    properties:
+      kind:
+        example: direct
+        type: string
+      tag:
+        example: direct
+        type: string
     type: object
   api.EnabledToggleRequest:
     properties:
@@ -4072,6 +4114,8 @@ definitions:
       path:
         example: /opt/etc/hrneo/geosite.db
         type: string
+      route:
+        $ref: '#/definitions/api.DownloadRouteDTO'
     type: object
   api.UpdateInfoData:
     properties:
@@ -5462,6 +5506,24 @@ paths:
       summary: Update DNS route list
       tags:
       - dns-routes
+  /download/outbounds:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.DownloadOutboundsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: List geo download outbounds
+      tags:
+      - hydraroute
   /events:
     get:
       produces:

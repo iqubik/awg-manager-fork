@@ -45,6 +45,8 @@ import type {
 	HydraRouteStatus,
 	HydraRouteConfig,
 	GeoFileEntry,
+	DownloadRoute,
+	DownloadOutbound,
 	GeoTag,
 	HydraRouteOversizedResponse,
 	IpsetUsage,
@@ -454,10 +456,14 @@ class ApiClient {
 		return this.request('/hydraroute/geo-files');
 	}
 
-	async addGeoFile(type: 'geosite' | 'geoip', url: string): Promise<GeoFileEntry> {
+	async listDownloadOutbounds(): Promise<DownloadOutbound[]> {
+		return this.request('/download/outbounds');
+	}
+
+	async addGeoFile(type: 'geosite' | 'geoip', url: string, route?: DownloadRoute): Promise<GeoFileEntry> {
 		return this.request('/hydraroute/geo-files/add', {
 			method: 'POST',
-			body: JSON.stringify({ type, url }),
+			body: JSON.stringify({ type, url, route }),
 		});
 	}
 
@@ -465,10 +471,10 @@ class ApiClient {
 		await this.request(`/hydraroute/geo-files/delete?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
 	}
 
-	async updateGeoFile(path?: string): Promise<{ updated: number; partial?: boolean; error?: string }> {
+	async updateGeoFile(path?: string, route?: DownloadRoute): Promise<{ updated: number; partial?: boolean; error?: string }> {
 		return this.request('/hydraroute/geo-files/update', {
 			method: 'POST',
-			body: JSON.stringify({ path: path || '' }),
+			body: JSON.stringify({ path: path || '', route }),
 		});
 	}
 
@@ -1374,7 +1380,7 @@ class ApiClient {
 				memberTags,
 				members: baseMembers,
 				activeMember,
-				enabled: true,
+				enabled: normalized.enabled,
 			};
 		}
 
@@ -1411,7 +1417,7 @@ class ApiClient {
 			memberTags,
 			members: baseMembers,
 			activeMember,
-			enabled: true,
+			enabled: normalized.enabled,
 		};
 	}
 

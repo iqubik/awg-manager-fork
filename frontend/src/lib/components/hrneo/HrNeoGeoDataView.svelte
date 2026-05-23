@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
-	import type { GeoFileEntry } from '$lib/types';
+	import type { GeoFileEntry, DownloadOutbound, DownloadRoute } from '$lib/types';
 	import { ConfirmModal, Button, Dropdown } from '$lib/components/ui';
 	import { geoDownloadProgress } from '$lib/stores/geoDownload';
 
@@ -22,6 +23,11 @@
 	// lookup keyed by the live `addUrl` value would lose the bar
 	// mid-download.
 	let inFlightAddUrl = $state<string | null>(null);
+	let outbounds = $state<DownloadOutbound[]>([]);
+	let routeTag = $state('');
+	let outboundsLoaded = $state(false);
+
+	const DOWNLOAD_ROUTE_STORAGE_KEY = 'awgm:geo-download-route';
 
 	const GROUND_ZERRO_GEOIP_URL =
 		'https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geoip_GA.dat';
@@ -32,6 +38,110 @@
 	// URL captured at submit time, not the live input value.
 	let progress = $derived(inFlightAddUrl ? ($geoDownloadProgress[inFlightAddUrl] ?? null) : null);
 	let progressByPath = $derived($geoDownloadProgress);
+
+	type DownloadOperation = {
+		kind: 'add' | 'preset' | 'update' | 'sync';
+		target: string;
+		route: DownloadRoute;
+		routeLabel: string;
+	};
+
+	type LastDownload = {
+		ok: boolean;
+		action: string;
+		routeLabel: string;
+		message: string;
+	};
+
+	let activeDownload = $state<DownloadOperation | null>(null);
+	let lastDownload = $state<LastDownload | null>(null);
+
+	function loadSavedRoute(): string {
+		try {
+			if (typeof localStorage === 'undefined') return 'direct';
+			return localStorage.getItem(DOWNLOAD_ROUTE_STORAGE_KEY) || 'direct';
+		} catch {
+			return 'direct';
+		}
+	}
+
+	function saveRoute(tag: string) {
+		try {
+			if (typeof localStorage === 'undefined') return;
+			localStorage.setItem(DOWNLOAD_ROUTE_STORAGE_KEY, tag);
+		} catch {
+			// ignore storage errors
+		}
+	}
+
+	function outboundLabel(tag: string): string {
+		const ob = outbounds.find((item) => item.tag === tag);
+		if (!ob) return !tag || tag === 'direct' ? 'Direct (WAN) — без туннеля' : tag;
+		return `${maskSensitiveInText(ob.label)}${ob.detail ? ` — ${maskSensitiveInText(ob.detail)}` : ''}`;
+	}
+
+	function maskSensitiveToken(token: string): string {
+		if (!token) return token;
+		if (token.length <= 6) return '*'.repeat(token.length);
+		return `${token.slice(0, 3)}${'*'.repeat(token.length - 6)}${token.slice(-3)}`;
+	}
+
+	function maskSensitiveInText(text: string): string {
+		if (!text) return text;
+		const hostLike = /\b([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+|\d{1,3}(?:\.\d{1,3}){3})\b/g;
+		return text.replace(hostLike, (m) => maskSensitiveToken(m));
+	}
+
+	function captureRoute(): { route: DownloadRoute; routeLabel: string } {
+		const tag = routeTag || 'direct';
+		const ob = outbounds.find((item) => item.tag === tag);
+		return {
+			route: { tag, kind: ob?.kind },
+			routeLabel: outboundLabel(tag),
+		};
+	}
+
+	async function loadOutbounds() {
+		outboundsLoaded = false;
+		const wanted = routeTag || loadSavedRoute();
+		try {
+			const list = await api.listDownloadOutbounds();
+			outbounds = list.length
+				? list
+				: [{ tag: 'direct', kind: 'direct', label: 'Direct (WAN)', available: true }];
+			if (!outbounds.some((o) => o.tag === wanted && o.available)) {
+				const fallback = outbounds.find((o) => o.available)?.tag ?? 'direct';
+				routeTag = fallback;
+				saveRoute(routeTag);
+			} else {
+				routeTag = wanted;
+			}
+		} catch {
+			outbounds = [{ tag: 'direct', kind: 'direct', label: 'Direct (WAN)', available: true }];
+			routeTag = 'direct';
+			saveRoute(routeTag);
+		} finally {
+			outboundsLoaded = true;
+		}
+	}
+
+	onMount(() => {
+		void loadOutbounds();
+	});
+
+	$effect(() => {
+		if (!outboundsLoaded) return;
+		if (!outbounds.some((o) => o.tag === routeTag && o.available)) {
+			const fallback = outbounds.find((o) => o.available)?.tag ?? 'direct';
+			routeTag = fallback;
+			saveRoute(routeTag);
+		}
+	});
+
+	$effect(() => {
+		if (!outboundsLoaded || !routeTag) return;
+		saveRoute(routeTag);
+	});
 
 	function progressFor(url: string) {
 		// Progress events are keyed by the source URL; we look up by the
@@ -45,50 +155,100 @@
 		return `${Math.min(100, Math.round((p.downloaded / p.total) * 100))}%`;
 	}
 
-
 	async function add() {
 		const submitted = addUrl.trim();
 		if (!submitted) return;
+		const { route, routeLabel } = captureRoute();
 		busy = 'add';
 		err = '';
+		lastDownload = null;
 		inFlightAddUrl = submitted;
+		activeDownload = { kind: 'add', target: submitted, route, routeLabel };
 		try {
-			await api.addGeoFile(addType, submitted);
+			await api.addGeoFile(addType, submitted, route);
 			addUrl = '';
+			lastDownload = {
+				ok: true,
+				action: 'Добавление geo-файла',
+				routeLabel,
+				message: 'Файл скачан',
+			};
 			onrefresh();
 		} catch (e: unknown) {
-			err = e instanceof Error ? e.message : String(e);
+			const msg = e instanceof Error ? e.message : String(e);
+			err = `Не удалось скачать через «${routeLabel}»: ${msg}`;
+			lastDownload = {
+				ok: false,
+				action: 'Добавление geo-файла',
+				routeLabel,
+				message: msg,
+			};
 		} finally {
 			busy = null;
 			inFlightAddUrl = null;
+			activeDownload = null;
 		}
 	}
 
 	async function addPreset(type: 'geoip' | 'geosite', url: string) {
+		const { route, routeLabel } = captureRoute();
 		busy = 'add';
 		err = '';
+		lastDownload = null;
 		inFlightAddUrl = url;
+		activeDownload = { kind: 'preset', target: url, route, routeLabel };
 		try {
-			await api.addGeoFile(type, url);
+			await api.addGeoFile(type, url, route);
+			lastDownload = {
+				ok: true,
+				action: 'Добавление пресета',
+				routeLabel,
+				message: 'Пресет скачан',
+			};
 			onrefresh();
 		} catch (e: unknown) {
-			err = e instanceof Error ? e.message : String(e);
+			const msg = e instanceof Error ? e.message : String(e);
+			err = `Не удалось скачать через «${routeLabel}»: ${msg}`;
+			lastDownload = {
+				ok: false,
+				action: 'Добавление пресета',
+				routeLabel,
+				message: msg,
+			};
 		} finally {
 			busy = null;
 			inFlightAddUrl = null;
+			activeDownload = null;
 		}
 	}
 
 	async function update(path: string) {
+		const { route, routeLabel } = captureRoute();
 		busy = path;
 		err = '';
+		lastDownload = null;
+		activeDownload = { kind: 'update', target: path, route, routeLabel };
 		try {
-			await api.updateGeoFile(path);
+			await api.updateGeoFile(path, route);
+			lastDownload = {
+				ok: true,
+				action: `Обновление ${fileName(path)}`,
+				routeLabel,
+				message: 'Файл обновлён',
+			};
 			onrefresh();
 		} catch (e: unknown) {
-			err = e instanceof Error ? e.message : String(e);
+			const msg = e instanceof Error ? e.message : String(e);
+			err = `Не удалось обновить через «${routeLabel}»: ${msg}`;
+			lastDownload = {
+				ok: false,
+				action: `Обновление ${fileName(path)}`,
+				routeLabel,
+				message: msg,
+			};
 		} finally {
 			busy = null;
+			activeDownload = null;
 		}
 	}
 
@@ -100,8 +260,11 @@
 	}
 
 	async function syncFromHR() {
+		const { route, routeLabel } = captureRoute();
 		busy = 'sync';
 		err = '';
+		lastDownload = null;
+		activeDownload = { kind: 'sync', target: 'all', route, routeLabel };
 		const notes: string[] = [];
 		try {
 			try {
@@ -114,7 +277,7 @@
 			await onrefresh();
 
 			try {
-				const upd = await api.updateGeoFile();
+				const upd = await api.updateGeoFile('', route);
 				await onrefresh();
 				if (upd.partial && upd.error) {
 					notes.push(
@@ -130,9 +293,23 @@
 
 			if (notes.length > 0) {
 				err = notes.join('; ');
+				lastDownload = {
+					ok: false,
+					action: 'Синхронизация geo-файлов',
+					routeLabel,
+					message: notes.join('; '),
+				};
+			} else {
+				lastDownload = {
+					ok: true,
+					action: 'Синхронизация geo-файлов',
+					routeLabel,
+					message: 'Синхронизация выполнена',
+				};
 			}
 		} finally {
 			busy = null;
+			activeDownload = null;
 		}
 	}
 
@@ -191,7 +368,7 @@
 		<Button
 			variant="ghost"
 			size="sm"
-			disabled={busy !== null}
+			disabled={busy !== null || !outboundsLoaded}
 			loading={busy === 'sync'}
 			onclick={syncFromHR}
 			title="Подтянуть пути из hrneo.conf (External) и перекачать файлы AWGM (External не трогаем — обновляйте в HR Neo)"
@@ -234,17 +411,17 @@
 							<Button
 								variant="secondary"
 								size="sm"
-								disabled={busy === f.path}
+								disabled={busy !== null}
 								onclick={() => (pendingTakeControl = f)}
 							>
-								Взять под контроль
+								Взять под управление
 							</Button>
 						{/if}
 						{#if canUpdate(f)}
 							<Button
 								variant="ghost"
 								size="sm"
-								disabled={busy === f.path || busy === 'sync'}
+								disabled={busy !== null || !outboundsLoaded}
 								loading={busy === f.path}
 								onclick={() => update(f.path)}
 							>
@@ -255,7 +432,7 @@
 						<Button
 							variant="ghost"
 							size="sm"
-							disabled={busy === f.path}
+							disabled={busy !== null}
 							onclick={() => requestRemove(f)}
 						>
 							Удалить
@@ -266,13 +443,51 @@
 		</div>
 	{/if}
 
+	<div class="route-box">
+		<div class="route-head">
+			<div class="form-label">Скачивать через</div>
+			<div class="route-current">Выбрано: {outboundLabel(routeTag)}</div>
+		</div>
+		<div class="route-row">
+			<select class="form-input" bind:value={routeTag} disabled={busy !== null || !outboundsLoaded}>
+				{#each outbounds as ob}
+					<option value={ob.tag} disabled={!ob.available}>
+						{maskSensitiveInText(ob.label)}{ob.detail ? ` — ${maskSensitiveInText(ob.detail)}` : ''}{ob.available
+							? ''
+							: ' (недоступно)'}
+					</option>
+				{/each}
+			</select>
+			<Button
+				size="sm"
+				variant="secondary"
+				disabled={busy !== null}
+				onclick={() => void loadOutbounds()}
+			>
+				Обновить список
+			</Button>
+		</div>
+		{#if activeDownload}
+			<div class="route-status route-status-live">
+				Текущая операция через <strong>{activeDownload.routeLabel}</strong>
+			</div>
+		{:else if lastDownload}
+			<div class="route-status {lastDownload.ok ? 'route-status-ok' : 'route-status-error'}">
+				{lastDownload.ok ? 'Последняя операция успешна' : 'Последняя операция завершилась ошибкой'}:
+				{lastDownload.action} ({lastDownload.routeLabel}){#if lastDownload.message}
+					— {lastDownload.message}
+				{/if}
+			</div>
+		{/if}
+	</div>
+
 	<div class="add-form">
 		<div class="form-label">Пресеты Ground-Zerro</div>
 		<div class="preset-row">
 			<Button
 				variant="secondary"
 				size="sm"
-				disabled={busy === 'add'}
+				disabled={busy !== null || !outboundsLoaded}
 				onclick={() => addPreset('geoip', GROUND_ZERRO_GEOIP_URL)}
 			>
 				+ geoip_GA.dat
@@ -280,7 +495,7 @@
 			<Button
 				variant="secondary"
 				size="sm"
-				disabled={busy === 'add'}
+				disabled={busy !== null || !outboundsLoaded}
 				onclick={() => addPreset('geosite', GROUND_ZERRO_GEOSITE_URL)}
 			>
 				+ geosite_GA.dat
@@ -296,7 +511,7 @@
 						{ value: 'geosite' as const, label: 'geosite' },
 						{ value: 'geoip' as const, label: 'geoip' },
 					]}
-					disabled={busy === 'add'}
+					disabled={busy !== null || !outboundsLoaded}
 					fullWidth
 				/>
 			</div>
@@ -305,13 +520,13 @@
 				type="url"
 				placeholder="https://.../{addType}.dat"
 				bind:value={addUrl}
-				disabled={busy === 'add'}
+				disabled={busy !== null || !outboundsLoaded}
 			/>
 			<Button
 				variant="primary"
 				size="sm"
 				onclick={add}
-				disabled={!addUrl.trim()}
+				disabled={!addUrl.trim() || busy !== null || !outboundsLoaded}
 				loading={busy === 'add'}
 			>
 				+ Добавить
@@ -320,14 +535,15 @@
 		{#if busy === 'add'}
 			<div class="busy-hint">
 				{#if progress?.phase === 'download'}
-					Скачивание {fmtPercent(progress)} —
+					Скачивание через {activeDownload?.routeLabel ?? outboundLabel(routeTag)}:
+					{fmtPercent(progress)} —
 					{humanSize(progress.downloaded)}{progress.total > 0
 						? ` из ${humanSize(progress.total)}`
 						: ''}
 				{:else if progress?.phase === 'validate'}
 					Валидация файла…
 				{:else}
-					Подключение к серверу…
+					Подключение через {activeDownload?.routeLabel ?? outboundLabel(routeTag)}…
 				{/if}
 				<div class="progress-bar">
 					{#if progress && progress.total > 0}
@@ -352,7 +568,7 @@
 	{@const pt = pendingTakeControl}
 	<ConfirmModal
 		open={true}
-		title="Взять под контроль"
+		title="Взять под управление"
 		message={`Перенести «${fileName(pt.path)}» в каталог awg-manager?`}
 		secondary="Файл будет перенесён из директории HydraRoute (/opt/etc/HydraRoute) и дальше управляться из AWGM. Путь в hrneo.conf обновится при синхронизации."
 		confirmLabel="Перенести"
@@ -382,9 +598,10 @@
 
 <style>
 	.geo-pane {
+		--geo-block-gap: 0.875rem;
 		display: flex;
 		flex-direction: column;
-		gap: 14px;
+		gap: var(--geo-block-gap);
 	}
 
 	.pane-header {
@@ -515,7 +732,7 @@
 	}
 
 	.form-label-spaced {
-		margin-top: 12px;
+		margin-top: var(--geo-block-gap);
 	}
 
 	.preset-row {
@@ -534,6 +751,68 @@
 		display: grid;
 		grid-template-columns: auto 1fr auto;
 		gap: 6px;
+		align-items: center;
+	}
+
+	.route-box {
+		padding: 12px;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--bg-primary);
+	}
+
+	.route-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		margin-bottom: 6px;
+	}
+
+	.route-head .form-label {
+		margin: 0;
+	}
+
+	.route-row {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		gap: 8px;
+		align-items: center;
+	}
+
+	.route-row .form-input {
+		width: 100%;
+	}
+
+	.route-current {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		text-align: right;
+	}
+
+	.route-status {
+		margin-top: 0.75rem;
+		padding: 8px 10px;
+		border-radius: 6px;
+		font-size: 0.8125rem;
+	}
+
+	.route-status-live {
+		background: rgba(122, 162, 247, 0.1);
+		color: var(--text-primary);
+		border-left: 3px solid var(--accent);
+	}
+
+	.route-status-ok {
+		background: rgba(74, 222, 128, 0.1);
+		color: var(--text-primary);
+		border-left: 3px solid var(--success, #4ade80);
+	}
+
+	.route-status-error {
+		background: rgba(247, 118, 142, 0.1);
+		color: var(--error);
+		border-left: 3px solid var(--error);
 	}
 
 	.add-type-select {
@@ -541,7 +820,7 @@
 	}
 
 	.busy-hint {
-		margin-top: 8px;
+		margin-top: 0.75rem;
 		padding: 8px 10px;
 		background: rgba(122, 162, 247, 0.1);
 		border-left: 3px solid var(--accent);
@@ -551,7 +830,7 @@
 	}
 
 	.form-hint {
-		margin-top: 8px;
+		margin-top: 0.75rem;
 		color: var(--text-muted);
 		font-size: 0.75rem;
 	}
@@ -609,6 +888,19 @@
 		}
 		.add-row {
 			grid-template-columns: 1fr;
+		}
+		.route-row .form-input {
+			width: 100%;
+		}
+		.route-row {
+			grid-template-columns: 1fr;
+		}
+		.route-head {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+		.route-current {
+			text-align: left;
 		}
 	}
 </style>

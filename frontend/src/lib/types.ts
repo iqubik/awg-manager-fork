@@ -511,6 +511,19 @@ export interface GeoFileEntry {
 	external?: boolean;
 }
 
+export interface DownloadRoute {
+	tag: string;
+	kind?: 'direct' | 'awg' | 'singbox' | 'subscription';
+}
+
+export interface DownloadOutbound {
+	tag: string;
+	kind: 'direct' | 'awg' | 'singbox' | 'subscription';
+	label: string;
+	detail?: string;
+	available: boolean;
+}
+
 export interface GeoTag {
 	name: string;
 	count: number;

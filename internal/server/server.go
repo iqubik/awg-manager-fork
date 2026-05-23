@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
+	"path"
 	"strings"
 	"sync"
 	"syscall"
@@ -29,8 +31,8 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/routing"
 	"github.com/hoaxisr/awg-manager/internal/singbox"
+	singboxorch "github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 
-	"github.com/hoaxisr/awg-manager/internal/logger"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/managed"
 	"github.com/hoaxisr/awg-manager/internal/monitoring"
@@ -54,14 +56,13 @@ const (
 	DefaultPort       = 2222
 	FallbackPortStart = 8080
 	FallbackPortEnd   = 8090
-	DefaultWebRoot    = "/opt/share/www/awg-manager"
 )
 
 // Config holds server configuration.
 type Config struct {
 	ListenAddr         string
 	LoopbackListenAddr string // optional: 127.0.0.1:port for reverse proxy support
-	WebRoot            string // Path to static files (SPA)
+	FrontendFS         fs.FS
 	Version            string
 
 	// PprofStandaloneAddr, if non-empty, starts an additional listener that
@@ -78,7 +79,7 @@ type Config struct {
 // Server is the HTTP server for awg-manager.
 type Server struct {
 	config                 Config
-	log                    *logger.Logger
+	appLog                 *logging.ScopedLogger
 	tunnelService          api.TunnelService
 	externalService        api.ExternalTunnelService
 	testingService         *testing.Service
@@ -115,6 +116,7 @@ type Server struct {
 	subscriptionHandler    *api.SubscriptionHandler
 	clashProxy             *api.ClashProxy
 	singboxOp              *singbox.Operator
+	singboxOrch            *singboxorch.Orchestrator
 	deviceProxySvc         *deviceproxy.Service
 	monitoringService      *monitoring.Service
 	singboxSubMembersFn    func() []diagnostics.SingboxSubMember
@@ -148,7 +150,6 @@ type Server struct {
 // via the existing post-construction Set*Handler() / SetSingboxOperator()
 // setters — see SetSingboxRouterHandler etc. below in this file.
 type Deps struct {
-	Log                  *logger.Logger
 	TunnelService        api.TunnelService
 	ExternalService      api.ExternalTunnelService
 	TestingService       *testing.Service
@@ -177,6 +178,7 @@ type Deps struct {
 	Bus                  *events.Bus
 	HydraService         *hydraroute.Service
 	SingboxHandler       *api.SingboxHandler
+	SingboxOrch          *singboxorch.Orchestrator
 	ClashProxy           *api.ClashProxy
 	SingboxConnsHandler  *api.SingboxConnectionsHandler
 	MonitoringService    *monitoring.Service
@@ -184,14 +186,28 @@ type Deps struct {
 	SingboxConfigPreview func() (string, error)
 }
 
+// authLoggerAdapter narrows ScopedLogger to the AuthLogger interface
+// (Warnf) required by auth.NewMiddleware.
+type authLoggerAdapter struct {
+	log *logging.ScopedLogger
+}
+
+func (a *authLoggerAdapter) Warnf(format string, args ...interface{}) {
+	if a.log == nil {
+		return
+	}
+	a.log.Warn("auth", "", fmt.Sprintf(format, args...))
+}
+
 // New creates a new server instance.
 func New(cfg Config, deps Deps) *Server {
 	id := generateInstanceID()
-	deps.Log.Infof("Server instance: %s", id)
+	appLog := logging.NewScopedLogger(deps.LoggingService, logging.GroupServer, logging.SubHTTP)
+	appLog.Info("startup", "", "Server instance: "+id)
 
 	return &Server{
 		config:                 cfg,
-		log:                    deps.Log,
+		appLog:                 appLog,
 		tunnelService:          deps.TunnelService,
 		externalService:        deps.ExternalService,
 		testingService:         deps.TestingService,
@@ -220,12 +236,13 @@ func New(cfg Config, deps Deps) *Server {
 		orch:                   deps.Orch,
 		bus:                    deps.Bus,
 		singboxHandler:         deps.SingboxHandler,
+		singboxOrch:            deps.SingboxOrch,
 		singboxConnsHandler:    deps.SingboxConnsHandler,
 		clashProxy:             deps.ClashProxy,
 		monitoringService:      deps.MonitoringService,
 		singboxSubMembersFn:    deps.SingboxSubMembers,
 		singboxConfigPreviewFn: deps.SingboxConfigPreview,
-		authMiddleware:         auth.NewMiddleware(deps.Sessions, deps.Settings, deps.Log),
+		authMiddleware:         auth.NewMiddleware(deps.Sessions, deps.Settings, &authLoggerAdapter{log: appLog}),
 		instanceID:             id,
 	}
 }
@@ -377,7 +394,7 @@ func (s *Server) Start() error {
 		}
 		go func() {
 			if err := s.pprofServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				s.log.Warn("pprof listener stopped", map[string]interface{}{"error": err.Error(), "addr": addr})
+				s.appLog.Warn("pprof", addr, "listener stopped: "+err.Error())
 			}
 		}()
 		fmt.Fprintf(os.Stderr, "awg-manager: pprof (standalone): http://%s/debug/pprof/\n", addr)
@@ -413,10 +430,7 @@ func (s *Server) Start() error {
 	if s.config.LoopbackListenAddr != "" {
 		ln, err := net.Listen("tcp", s.config.LoopbackListenAddr)
 		if err != nil {
-			s.log.Warn("Failed to start loopback listener", map[string]interface{}{
-				"addr":  s.config.LoopbackListenAddr,
-				"error": err.Error(),
-			})
+			s.appLog.Warn("loopback-listener", s.config.LoopbackListenAddr, "failed to start: "+err.Error())
 		} else {
 			s.loopbackListener = ln
 			loopbackSrv := &http.Server{
@@ -426,9 +440,7 @@ func (s *Server) Start() error {
 				MaxHeaderBytes:    8192,
 			}
 			go loopbackSrv.Serve(ln)
-			s.log.Info("Loopback listener started", map[string]interface{}{
-				"addr": s.config.LoopbackListenAddr,
-			})
+			s.appLog.Info("loopback-listener", s.config.LoopbackListenAddr, "started")
 		}
 	}
 
@@ -474,13 +486,13 @@ func (s *Server) ScheduleRestart() {
 
 			executable, err := os.Executable()
 			if err != nil {
-				s.log.Error("Failed to get executable path for restart", map[string]interface{}{"error": err.Error()})
+				s.appLog.Error("restart", "", "failed to get executable path: "+err.Error())
 				return
 			}
-			s.log.Info("Restarting daemon", map[string]interface{}{"executable": executable})
+			s.appLog.Info("restart", executable, "restarting daemon")
 
 			if err := syscall.Exec(executable, os.Args, os.Environ()); err != nil {
-				s.log.Error("Failed to exec for restart", map[string]interface{}{"error": err.Error()})
+				s.appLog.Error("restart", "", "exec failed: "+err.Error())
 			}
 		}()
 	})
@@ -530,7 +542,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	importHandler.SetPingCheckService(s.pingCheckService)
 	importHandler.SetTunnelsHandler(tunnelsHandler)
 	statusHandler := api.NewStatusHandler(s.tunnelService)
-	wanHandler := api.NewWANHandler(s.tunnelService, s.log, appLog)
+	wanHandler := api.NewWANHandler(s.tunnelService, appLog)
 	pingCheckHandler := api.NewPingCheckHandler(s.pingCheckService, s.tunnels, s.nwgOp, appLog)
 	pingCheckHandler.SetEventBus(s.bus)
 	pingCheckHandler.SetOrchestrator(s.orch)
@@ -666,8 +678,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	if s.hydraService != nil {
 		hrHandler := api.NewHydraRouteHandler(s.hydraService)
 		hrHandler.SetEventBus(s.bus)
+		hrHandler.SetDeviceProxyService(s.deviceProxySvc)
+		hrHandler.SetSingboxOperator(s.singboxOp)
+		hrHandler.SetSingboxOrchestrator(s.singboxOrch)
 		mux.HandleFunc("/api/hydraroute/config", guarded(hrHandler.GetConfig))
 		mux.HandleFunc("/api/hydraroute/config/update", guarded(hrHandler.UpdateConfig))
+		mux.HandleFunc("/api/download/outbounds", guarded(hrHandler.ListDownloadOutbounds))
 		mux.HandleFunc("/api/hydraroute/geo-files", guarded(hrHandler.ListGeoFiles))
 		mux.HandleFunc("/api/hydraroute/geo-files/add", guarded(hrHandler.AddGeoFile))
 		mux.HandleFunc("/api/hydraroute/geo-files/delete", guarded(hrHandler.DeleteGeoFile))
@@ -1128,46 +1144,38 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/api/singbox/subscriptions/members/remove", guarded(sh.RemoveMember))
 	}
 
-	// Static files (SPA) - must be last
-	if s.config.WebRoot != "" {
-		mux.Handle("/", s.spaHandler())
+	// Static files (SPA) - must be last.
+	if s.config.FrontendFS != nil {
+		mux.Handle("/", spaHandler(s.config.FrontendFS))
 	}
 }
 
-// spaHandler serves static files with SPA fallback to index.html
-func (s *Server) spaHandler() http.Handler {
+// spaHandler serves static files with SPA fallback to index.html.
+func spaHandler(staticFS fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Clean and join path
-		path := filepath.Join(s.config.WebRoot, filepath.Clean(r.URL.Path))
-
-		// Check if file exists
-		info, err := os.Stat(path)
-		if err != nil || info.IsDir() {
-			// File doesn't exist or is directory - serve index.html (SPA fallback)
-			path = filepath.Join(s.config.WebRoot, "index.html")
+		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+		if name == "" {
+			name = "index.html"
 		}
 
-		// Set content type based on extension
-		ext := filepath.Ext(path)
-		switch ext {
-		case ".html":
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		case ".css":
-			w.Header().Set("Content-Type", "text/css; charset=utf-8")
-		case ".js":
-			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-		case ".json":
-			w.Header().Set("Content-Type", "application/json")
-		case ".svg":
-			w.Header().Set("Content-Type", "image/svg+xml")
-		case ".png":
-			w.Header().Set("Content-Type", "image/png")
-		case ".ico":
-			w.Header().Set("Content-Type", "image/x-icon")
-		case ".woff":
-			w.Header().Set("Content-Type", "font/woff")
-		case ".woff2":
-			w.Header().Set("Content-Type", "font/woff2")
+		info, err := fs.Stat(staticFS, name)
+		if err != nil || info.IsDir() {
+			name = "index.html"
+		}
+
+		contentType := mime.TypeByExtension(path.Ext(name))
+		switch {
+		case strings.HasSuffix(name, ".html"):
+			contentType = "text/html; charset=utf-8"
+		case strings.HasSuffix(name, ".js"):
+			contentType = "application/javascript; charset=utf-8"
+		case strings.HasSuffix(name, ".json"):
+			contentType = "application/json"
+		case strings.HasSuffix(name, ".webmanifest"):
+			contentType = "application/manifest+json"
+		}
+		if contentType != "" {
+			w.Header().Set("Content-Type", contentType)
 		}
 
 		// Cache control: immutable files (content-hashed by vite) cache forever,
@@ -1178,7 +1186,7 @@ func (s *Server) spaHandler() http.Handler {
 			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		}
 
-		http.ServeFile(w, r, path)
+		http.ServeFileFS(w, r, staticFS, name)
 	})
 }
 

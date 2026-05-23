@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { Button } from '$lib/components/ui';
+	import { Button, Toggle } from '$lib/components/ui';
+	import { compactLayout } from '$lib/stores/compactLayout';
+	import { usageLevel } from '$lib/stores/settings';
 	import {
 		theme,
 		THEME_PRESETS,
@@ -22,6 +24,8 @@
 	];
 
 	let expanded = $state(false);
+	const compactForced = $derived($usageLevel === 'basic');
+	const compactChecked = $derived(compactForced || $compactLayout);
 
 	const currentThemeLabel = $derived.by(() => {
 		if ($theme.preset !== 'custom') {
@@ -47,37 +51,57 @@
 </script>
 
 <div class="card">
-	<button
-		type="button"
-		class="collapsible-header"
-		aria-expanded={expanded}
-		aria-controls="theme-scheme-body"
-		onclick={() => (expanded = !expanded)}
-	>
-		<span class="section-label">Цветовая схема</span>
-		<span class="header-meta">
-			<span class="current-theme">{currentThemeLabel}</span>
-			<svg
-				class="chevron"
-				class:open={expanded}
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				stroke-width="2"
-				aria-hidden="true"
-			>
-				<polyline points="6 9 12 15 18 9" />
-			</svg>
-		</span>
-	</button>
+	<div class="section-label">Внешний вид</div>
+	<div class="setting-row compact-layout-row">
+		<div class="flex flex-col gap-1">
+			<span class="font-medium">Компактный режим</span>
+			<span class="setting-description">
+				{#if compactForced}
+					В базовом режиме всегда включена: колонка 960px и меньшие боковые отступы.
+				{:else}
+					Сужает интерфейс с краев как в версии 2.8.2, фокусируя внимание на центре экрана (автоматически включается в базовом режиме).
+				{/if}
+			</span>
+		</div>
+		<Toggle
+			checked={compactChecked}
+			disabled={compactForced}
+			onchange={(enabled) => compactLayout.setEnabled(enabled)}
+		/>
+	</div>
+	<div class="setting-row">
+		<button
+			type="button"
+			class="collapsible-header scheme-toggle"
+			aria-expanded={expanded}
+			aria-controls="theme-scheme-body"
+			onclick={() => (expanded = !expanded)}
+		>
+			<div class="flex flex-col gap-1">
+				<span class="font-medium">Цветовая схема</span>
+				<span class="setting-description">
+					Применяется сразу и сохраняется локально в этом браузере.
+				</span>
+			</div>
+			<span class="header-meta">
+				<span class="current-theme">{currentThemeLabel}</span>
+				<svg
+					class="chevron"
+					class:open={expanded}
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<polyline points="6 9 12 15 18 9" />
+				</svg>
+			</span>
+		</button>
+	</div>
 
 	{#if expanded}
 		<div id="theme-scheme-body" class="collapsible-body">
-			<p class="card-hint">
-				Применяется сразу и сохраняется локально в этом браузере. <code>Custom</code>
-				управляет только тремя цветами, остальные оттенки выводятся автоматически.
-			</p>
-
 			<div class="theme-grid" role="radiogroup" aria-label="Цветовая схема">
 				{#each PRESET_ORDER as preset (preset)}
 					{@const selected = $theme.preset === preset}
@@ -123,13 +147,6 @@
 							</div>
 						</div>
 
-						<div class="theme-foot">
-							{#if preset !== 'custom'}
-								<span class="theme-tag">Темная / Светлая</span>
-							{:else}
-								<span class="theme-tag">3 базовых цвета</span>
-							{/if}
-						</div>
 					</button>
 				{/each}
 			</div>
@@ -202,6 +219,24 @@
 </div>
 
 <style>
+	.compact-layout-row {
+		align-items: center;
+	}
+
+	@media (max-width: 640px) {
+		.compact-layout-row {
+			flex-direction: row;
+			align-items: center;
+			flex-wrap: nowrap;
+			gap: 0.75rem;
+		}
+
+		.compact-layout-row > *:first-child {
+			flex: 1 1 auto;
+			min-width: 0;
+		}
+	}
+
 	.collapsible-header {
 		display: flex;
 		align-items: center;
@@ -219,9 +254,18 @@
 		text-align: left;
 	}
 
-	.collapsible-header > .section-label {
+	.setting-row > .scheme-toggle {
+		width: 100%;
 		min-width: 0;
-		flex-shrink: 1;
+	}
+
+	.scheme-toggle {
+		align-items: center;
+	}
+
+	.scheme-toggle > :first-child {
+		min-width: 0;
+		flex: 1 1 auto;
 	}
 
 	.collapsible-header:focus-visible {
@@ -258,12 +302,6 @@
 
 	.collapsible-body {
 		margin-top: 0.75rem;
-	}
-
-	.card-hint {
-		color: var(--color-text-muted);
-		font-size: 0.8125rem;
-		margin: 0 0 0.75rem 0;
 	}
 
 	.theme-grid {

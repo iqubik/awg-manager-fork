@@ -210,10 +210,11 @@ func NewOperator(d OperatorDeps) *Operator {
 	configPath := filepath.Join(dir, "config.d")
 	pidPath := filepath.Join(dir, "sing-box.pid")
 
-	ensureBaseConfig(configPath)
+	ensureBaseConfig(configPath, log)
 	ensureLegacyConfigMigrated(dir)
 	patchTunnelsSlotStripBaseDNS(filepath.Join(configPath, "10-tunnels.json"))
 	stripStrayDirectPlaceholder(configPath)
+	removeFinalFromBase(filepath.Join(configPath, "00-base.json"), log)
 
 	op := &Operator{
 		log:               log,
@@ -396,18 +397,36 @@ func (o *Operator) tunnelsFile() string {
 // that hard-coded the wrong Clash API port (9090 instead of
 // clashAPIAddr's 9099), which silently broke our LogForwarder /
 // DelayChecker on existing installs.
-func ensureBaseConfig(configDir string) {
+func ensureBaseConfig(configDir string, loggers ...*slog.Logger) {
+	var log *slog.Logger
+	if len(loggers) > 0 {
+		log = loggers[0]
+	}
 	basePath := filepath.Join(configDir, "00-base.json")
 	if _, err := os.Stat(basePath); err == nil {
 		patchBaseClashPort(basePath)
 		patchBaseLogLevel(basePath)
 		patchBaseDomainResolver(basePath)
-		patchBaseDirectOutbound(basePath)
+		patchBaseDirectOutbound(basePath, log)
 		patchBaseCacheFilePath(basePath)
 		return
 	}
 	_ = os.MkdirAll(configDir, 0755)
 	_ = writeJSONFile(basePath, freshBaseConfig())
+}
+
+func logConfigPatchInfo(log *slog.Logger, msg string, args ...any) {
+	if log == nil {
+		return
+	}
+	log.Info(msg, args...)
+}
+
+func logConfigPatchWarn(log *slog.Logger, msg string, args ...any) {
+	if log == nil {
+		return
+	}
+	log.Warn(msg, args...)
 }
 
 // ensureLegacyConfigMigrated copies user-added sing-box tunnels from a
@@ -687,12 +706,17 @@ func patchBaseDomainResolver(basePath string) {
 // (commit 56bbab35), every merged config references that tag — but
 // older base files written before freshBaseConfig included the entry
 // never had it, so sing-box FATALs on start with
-// "default outbound not found: direct". Adds the entry when missing;
-// preserves any pre-existing outbounds (including a user-customised
-// direct, e.g. one with bind_interface). No-op when outbounds is
-// missing entirely AND the merged config never references "direct" —
-// but cheaper to always inject than to second-guess the merge.
-func patchBaseDirectOutbound(basePath string) {
+// "default outbound not found: direct".
+//
+// Behavior:
+//   - If a direct-tagged outbound is missing, prepend canonical direct.
+//   - If direct exists but is not first, move that exact outbound to index 0.
+//
+// Keeping direct first preserves the documented sing-box fallback
+// behavior when route.final is absent ("first outbound is used"), so
+// disabling router slot does not accidentally switch fallback to some
+// other custom outbound on legacy/custom base files.
+func patchBaseDirectOutbound(basePath string, log *slog.Logger) {
 	data, err := os.ReadFile(basePath)
 	if err != nil {
 		return
@@ -702,17 +726,97 @@ func patchBaseDirectOutbound(basePath string) {
 		return
 	}
 	obs, _ := m["outbounds"].([]any)
-	for _, v := range obs {
+	directIdx := -1
+	for i, v := range obs {
 		ob, ok := v.(map[string]any)
 		if !ok {
 			continue
 		}
 		if tag, _ := ob["tag"].(string); tag == "direct" {
-			return
+			directIdx = i
+			break
 		}
 	}
-	m["outbounds"] = append(obs, map[string]any{"type": "direct", "tag": "direct"})
-	_ = writeJSONFile(basePath, m)
+	action := ""
+	switch {
+	case directIdx == 0:
+		return
+	case directIdx > 0:
+		action = "move-direct-first"
+		direct := obs[directIdx]
+		rest := make([]any, 0, len(obs)-1)
+		rest = append(rest, obs[:directIdx]...)
+		rest = append(rest, obs[directIdx+1:]...)
+		m["outbounds"] = append([]any{direct}, rest...)
+	default:
+		action = "prepend-direct"
+		m["outbounds"] = append([]any{map[string]any{"type": "direct", "tag": "direct"}}, obs...)
+	}
+	if err := writeJSONFile(basePath, m); err != nil {
+		logConfigPatchWarn(log, "singbox base config self-heal failed",
+			"patch", "direct-first",
+			"action", action,
+			"path", basePath,
+			"err", err,
+		)
+		return
+	}
+	logConfigPatchInfo(log, "singbox base config self-healed",
+		"patch", "direct-first",
+		"action", action,
+		"path", basePath,
+	)
+}
+
+// removeFinalFromBase strips the legacy route.final key from
+// 00-base.json. Pre-spec installs wrote {route:{final:"direct"}} in
+// base; this could shadow the router-slot final in merged runtime
+// configs. This patch lets 20-router.json own route.final exclusively.
+//
+// Sing-box behavior when route.final is absent: "The first outbound
+// will be used if empty" (per upstream docs). 00-base.json's outbound
+// list starts with {type:"direct", tag:"direct"} (also self-healed by
+// patchBaseDirectOutbound), so the implicit fallback stays direct —
+// same observable behavior as the old explicit "final":"direct".
+//
+// Idempotent: no-op when route.final is already absent. Silent skip on
+// missing file / read error / malformed JSON / missing route section
+// (matches patchBaseDirectOutbound and patchTunnelsSlotStripBaseDNS).
+func removeFinalFromBase(basePath string, loggers ...*slog.Logger) {
+	var log *slog.Logger
+	if len(loggers) > 0 {
+		log = loggers[0]
+	}
+	data, err := os.ReadFile(basePath)
+	if err != nil {
+		return
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return
+	}
+	route, _ := m["route"].(map[string]any)
+	if route == nil {
+		return
+	}
+	if _, has := route["final"]; !has {
+		return
+	}
+	oldFinal, _ := route["final"]
+	delete(route, "final")
+	if err := writeJSONFile(basePath, m); err != nil {
+		logConfigPatchWarn(log, "singbox base config migration failed",
+			"patch", "remove-route-final",
+			"path", basePath,
+			"err", err,
+		)
+		return
+	}
+	logConfigPatchInfo(log, "singbox base config migrated",
+		"patch", "remove-route-final",
+		"path", basePath,
+		"oldFinal", oldFinal,
+	)
 }
 
 // stripStrayDirectPlaceholder removes the canonical
@@ -932,7 +1036,10 @@ func freshBaseConfig() map[string]any {
 			map[string]any{"type": "direct", "tag": "direct"},
 		},
 		"route": map[string]any{
-			"final":                   "direct",
+			// route.final intentionally omitted — owned by 20-router.json.
+			// Sing-box uses first outbound (= direct, see outbounds above)
+			// as fallback when final is absent. See spec
+			// 2026-05-21-route-final-router-owned-design.md.
 			"default_domain_resolver": "dns-bootstrap",
 		},
 	}
