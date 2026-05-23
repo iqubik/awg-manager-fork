@@ -367,11 +367,30 @@ func (s *InterfaceStore) ResolveSystemName(ctx context.Context, ndmsName string)
 	return resolved
 }
 
-// fetchSystemName queries `/show/interface/system-name?name=X`. NDMS
-// returns the kernel name as either a bare JSON string ("nwg0") or an
-// object ({"result":"nwg0"}). Returns "" on any error or empty body.
+// fetchSystemName resolves an NDMS interface id to its kernel name via
+// {"show":{"interface":{"system-name":{"name":X}}}} POST payload.
+//
+// Earlier this used GET /show/interface/system-name?name=X. NDMS treats
+// slashes inside <X> as URL path separators, so names like
+// "WifiMaster0/WifiStation0" or "GigabitEthernet0/Vlan2" came back with
+// 'Core::Configurator: not found: "show/interface/system-name?name=..."'
+// in the router log. Same gotcha that fetchOne already solves by using
+// POST — see the comment block on that function. The POST form carries
+// the name inside the JSON body where the RCI parser handles it
+// regardless of contained slashes.
+//
+// NDMS response shape (verified curl'd on 5.00.C.11):
+//
+//	{"show":{"interface":{"system-name":"apcli0"}}}
+//
+// Older firmware also produced bare "nwg0" or {"result":"nwg0"} for the
+// GET form — kept as fallbacks for safety.
 func (s *InterfaceStore) fetchSystemName(ctx context.Context, ndmsName string) string {
-	raw, err := s.getter.GetRaw(ctx, "/show/interface/system-name?name="+ndmsName)
+	payload := transport.ShowQuery(
+		[]string{"interface", "system-name"},
+		map[string]any{"name": ndmsName},
+	)
+	raw, err := s.getter.Post(ctx, payload)
 	if err != nil {
 		return ""
 	}
@@ -379,6 +398,37 @@ func (s *InterfaceStore) fetchSystemName(ctx context.Context, ndmsName string) s
 	if len(trimmed) == 0 {
 		return ""
 	}
+
+	// POST-form: walk into .show.interface."system-name"; value is the
+	// bare kernel-name string.
+	var wrap struct {
+		Show struct {
+			Interface struct {
+				SystemName json.RawMessage `json:"system-name"`
+			} `json:"interface"`
+		} `json:"show"`
+	}
+	if err := json.Unmarshal(trimmed, &wrap); err == nil && len(wrap.Show.Interface.SystemName) > 0 {
+		inner := bytes.TrimSpace(wrap.Show.Interface.SystemName)
+		if len(inner) > 0 {
+			if inner[0] == '"' {
+				var str string
+				if json.Unmarshal(inner, &str) == nil {
+					return str
+				}
+			}
+			if inner[0] == '{' {
+				var resp struct {
+					Result string `json:"result"`
+				}
+				if json.Unmarshal(inner, &resp) == nil {
+					return resp.Result
+				}
+			}
+		}
+	}
+
+	// Legacy GET-form fallbacks: bare string или {"result": "..."}.
 	if trimmed[0] == '"' {
 		var str string
 		if json.Unmarshal(trimmed, &str) == nil {
@@ -389,7 +439,7 @@ func (s *InterfaceStore) fetchSystemName(ctx context.Context, ndmsName string) s
 		var resp struct {
 			Result string `json:"result"`
 		}
-		if json.Unmarshal(trimmed, &resp) == nil {
+		if json.Unmarshal(trimmed, &resp) == nil && resp.Result != "" {
 			return resp.Result
 		}
 	}

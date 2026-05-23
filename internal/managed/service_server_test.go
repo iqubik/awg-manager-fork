@@ -148,11 +148,29 @@ func (g *stateAwareGetter) GetRaw(ctx context.Context, path string) ([]byte, err
 	return nil, errors.New("stateAwareGetter: GetRaw not faked: " + path)
 }
 
-// Post is unused by these tests (managed-server flow goes through GETs
-// and POST writes via the Poster, not Getter.Post) but required by
-// query.Getter. Returns an error if hit so a misroute fails loudly.
-func (g *stateAwareGetter) Post(_ context.Context, _ any) (json.RawMessage, error) {
-	return nil, errors.New("stateAwareGetter: Post not faked")
+// Post handles the system-name resolver payload (used by
+// InterfaceStore.fetchSystemName for slash-safe lookups via POST).
+// Payload shape: {"show":{"interface":{"system-name":{"name":<NDMS-id>}}}}.
+// Maps "WireguardN" → "nwgN" and wraps the response back into the same
+// show.interface.system-name envelope NDMS emits. Other POST shapes
+// are intentionally unsupported — managed-server writes go through the
+// Poster, not Getter.Post.
+func (g *stateAwareGetter) Post(_ context.Context, payload any) (json.RawMessage, error) {
+	top, _ := payload.(map[string]any)
+	show, _ := top["show"].(map[string]any)
+	iface, _ := show["interface"].(map[string]any)
+	sn, _ := iface["system-name"].(map[string]any)
+	name, _ := sn["name"].(string)
+	if name == "" {
+		return nil, errors.New("stateAwareGetter: Post payload not recognised")
+	}
+	kernel := ""
+	if strings.HasPrefix(name, "Wireguard") {
+		kernel = "nwg" + strings.TrimPrefix(name, "Wireguard")
+	}
+	// Bare-string response wrapped in show.interface.system-name envelope.
+	inner, _ := json.Marshal(kernel)
+	return []byte(`{"show":{"interface":{"system-name":` + string(inner) + `}}}`), nil
 }
 
 // recordingPoster is a thread-safe variant of fakePoster — Create uses three

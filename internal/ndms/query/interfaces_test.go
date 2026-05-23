@@ -258,9 +258,9 @@ func TestInterfaceStore_ResolveSystemName_FromMap(t *testing.T) {
 	if got != "nwg0" {
 		t.Errorf("ResolveSystemName: want nwg0, got %q", got)
 	}
-	// system-name endpoint must not be hit — mapping is in the list response.
-	if got := fg.Calls("/show/interface/system-name?name=Wireguard0"); got != 0 {
-		t.Errorf("system-name endpoint must not be probed, got %d calls", got)
+	// system-name resolver must not be hit — mapping is in the list response.
+	if got := fg.PostSystemNameCalls("Wireguard0"); got != 0 {
+		t.Errorf("system-name resolver must not be probed, got %d calls", got)
 	}
 }
 
@@ -294,7 +294,7 @@ func TestInterfaceStore_ResolveSystemName_FallbackOnEmptyCachedName(t *testing.T
 		"Wireguard0": {"id":"Wireguard0","type":"Wireguard","state":"up"}
 	}`)
 	// Fallback resolver returns the kernel name.
-	fg.SetRaw("/show/interface/system-name?name=Wireguard0", []byte(`"nwg0"`))
+	fg.SetPostSystemName("Wireguard0", `"nwg0"`)
 
 	s := NewInterfaceStore(fg, NopLogger())
 	got := s.ResolveSystemName(context.Background(), "Wireguard0")
@@ -310,14 +310,14 @@ func TestInterfaceStore_ResolveSystemName_FallbackMemoised(t *testing.T) {
 	fg.SetJSON(ifaceListPath, `{
 		"Wireguard0": {"id":"Wireguard0","type":"Wireguard","state":"up"}
 	}`)
-	fg.SetRaw("/show/interface/system-name?name=Wireguard0", []byte(`"nwg0"`))
+	fg.SetPostSystemName("Wireguard0", `"nwg0"`)
 	s := NewInterfaceStore(fg, NopLogger())
 
 	_ = s.ResolveSystemName(context.Background(), "Wireguard0")
 	_ = s.ResolveSystemName(context.Background(), "Wireguard0")
 	_ = s.ResolveSystemName(context.Background(), "Wireguard0")
 
-	if got := fg.Calls("/show/interface/system-name?name=Wireguard0"); got != 1 {
+	if got := fg.PostSystemNameCalls("Wireguard0"); got != 1 {
 		t.Errorf("fallback resolver must be probed once and memoised, got %d calls", got)
 	}
 }
@@ -338,7 +338,7 @@ func TestInterfaceStore_ResolveSystemName_FallbackWhenSystemNameEqualsID(t *test
 		"Wireguard0": {"id":"Wireguard0","interface-name":"Wireguard0","type":"Wireguard","state":"up","link":"up"}
 	}`)
 	// Resolver returns the actual kernel name.
-	fg.SetRaw("/show/interface/system-name?name=Wireguard0", []byte(`"nwg0"`))
+	fg.SetPostSystemName("Wireguard0", `"nwg0"`)
 
 	s := NewInterfaceStore(fg, NopLogger())
 	got := s.ResolveSystemName(context.Background(), "Wireguard0")
@@ -349,7 +349,7 @@ func TestInterfaceStore_ResolveSystemName_FallbackWhenSystemNameEqualsID(t *test
 	// Subsequent calls memoised — only one resolver probe.
 	_ = s.ResolveSystemName(context.Background(), "Wireguard0")
 	_ = s.ResolveSystemName(context.Background(), "Wireguard0")
-	if calls := fg.Calls("/show/interface/system-name?name=Wireguard0"); calls != 1 {
+	if calls := fg.PostSystemNameCalls("Wireguard0"); calls != 1 {
 		t.Errorf("resolver must be probed once and memoised, got %d calls", calls)
 	}
 }
@@ -360,7 +360,7 @@ func TestInterfaceStore_ResolveSystemName_FallbackObjectShape(t *testing.T) {
 	fg.SetJSON(ifaceListPath, `{
 		"Wireguard0": {"id":"Wireguard0","type":"Wireguard","state":"up"}
 	}`)
-	fg.SetRaw("/show/interface/system-name?name=Wireguard0", []byte(`{"result":"nwg0"}`))
+	fg.SetPostSystemName("Wireguard0", `{"result":"nwg0"}`)
 	s := NewInterfaceStore(fg, NopLogger())
 
 	if got := s.ResolveSystemName(context.Background(), "Wireguard0"); got != "nwg0" {
@@ -384,7 +384,7 @@ func TestInterfaceStore_ResolveSystemName_DropsNonKernelInterfaceName(t *testing
 	fg.SetJSON(ifaceListPath, `{
 		"GigabitEthernet1": {"id":"GigabitEthernet1","interface-name":"ISP","type":"GigabitEthernet","state":"up","link":"up"}
 	}`)
-	fg.SetRaw("/show/interface/system-name?name=GigabitEthernet1", []byte(`"eth3"`))
+	fg.SetPostSystemName("GigabitEthernet1", `"eth3"`)
 
 	s := NewInterfaceStore(fg, NopLogger())
 	got := s.ResolveSystemName(context.Background(), "GigabitEthernet1")
@@ -414,7 +414,7 @@ func TestInterfaceStore_ResolveSystemName_RejectsMissingKernelIface(t *testing.T
 	fg.SetJSON(ifaceListPath, `{
 		"WeirdPort": {"id":"WeirdPort","interface-name":"ghost0","type":"Ethernet","state":"up"}
 	}`)
-	fg.SetRaw("/show/interface/system-name?name=WeirdPort", []byte(`"eth3"`))
+	fg.SetPostSystemName("WeirdPort", `"eth3"`)
 
 	s := NewInterfaceStore(fg, NopLogger())
 	if got := s.ResolveSystemName(context.Background(), "WeirdPort"); got != "eth3" {

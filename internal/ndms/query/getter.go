@@ -94,7 +94,13 @@ type FakeGetter struct {
 	postIfaceResp  map[string][]byte
 	postIfaceErr   map[string]error
 	postIfaceCalls map[string]int
-	postHandler    func(payload any) (json.RawMessage, error)
+
+	// system-name resolver POSTs.
+	postSystemName      map[string][]byte
+	postSystemNameErr   map[string]error
+	postSystemNameCalls map[string]int
+
+	postHandler func(payload any) (json.RawMessage, error)
 }
 
 // NewFakeGetter returns a FakeGetter ready to be scripted via SetJSON /
@@ -235,6 +241,68 @@ func (f *FakeGetter) SetPostHandler(fn func(payload any) (json.RawMessage, error
 	f.mu.Unlock()
 }
 
+// SetPostSystemName scripts the POST response for the system-name
+// resolver — payload shape {"show":{"interface":{"system-name":{"name":X}}}}.
+// body is the inner system-name value as NDMS returns it: a bare string
+// ("nwg0"), a {"result":"..."} object, or any raw JSON that the resolver
+// parser should be able to digest. The fake automatically wraps it back
+// into {"show":{"interface":{"system-name":<body>}}} so the call shape
+// matches what the live server emits.
+func (f *FakeGetter) SetPostSystemName(name, body string) {
+	f.mu.Lock()
+	if f.postSystemName == nil {
+		f.postSystemName = make(map[string][]byte)
+	}
+	f.postSystemName[name] = []byte(body)
+	f.mu.Unlock()
+}
+
+// SetPostSystemNameError scripts an error for a system-name POST against
+// the given NDMS id. nil clears the entry.
+func (f *FakeGetter) SetPostSystemNameError(name string, err error) {
+	f.mu.Lock()
+	if err == nil {
+		delete(f.postSystemNameErr, name)
+	} else {
+		if f.postSystemNameErr == nil {
+			f.postSystemNameErr = make(map[string]error)
+		}
+		f.postSystemNameErr[name] = err
+	}
+	f.mu.Unlock()
+}
+
+// PostSystemNameCalls returns how many Post calls hit the system-name
+// resolver with the given NDMS id.
+func (f *FakeGetter) PostSystemNameCalls(name string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.postSystemNameCalls[name]
+}
+
+// extractShowSystemName walks a {"show":{"interface":{"system-name":{"name":X}}}}
+// payload and returns X. Returns "" for any other shape.
+func extractShowSystemName(payload any) string {
+	top, ok := payload.(map[string]any)
+	if !ok {
+		return ""
+	}
+	show, ok := top["show"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	iface, ok := show["interface"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	sn, ok := iface["system-name"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	name, _ := sn["name"].(string)
+	return name
+}
+
 // PostInterfaceCalls returns how many Post calls targeted the given
 // interface name via a ShowInterface payload.
 func (f *FakeGetter) PostInterfaceCalls(name string) int {
@@ -244,8 +312,35 @@ func (f *FakeGetter) PostInterfaceCalls(name string) int {
 }
 
 // Post implements Getter.Post. ShowInterface-shaped payloads dispatch on
-// the embedded "name"; everything else falls through to postHandler.
+// the embedded "name"; system-name resolver payloads dispatch on the
+// embedded id; everything else falls through to postHandler.
 func (f *FakeGetter) Post(_ context.Context, payload any) (json.RawMessage, error) {
+	if name := extractShowSystemName(payload); name != "" {
+		f.mu.Lock()
+		if f.postSystemNameCalls == nil {
+			f.postSystemNameCalls = make(map[string]int)
+		}
+		f.postSystemNameCalls[name]++
+		body, haveBody := f.postSystemName[name]
+		err, haveErr := f.postSystemNameErr[name]
+		defaultErr := f.defaultErr
+		f.mu.Unlock()
+
+		if haveErr {
+			return nil, err
+		}
+		if !haveBody {
+			if defaultErr != nil {
+				return nil, defaultErr
+			}
+			return nil, errNoFakeResponse("POST show.interface.system-name name=" + name)
+		}
+		// Wrap inner body back into the show.interface.system-name envelope
+		// the real NDMS emits.
+		wrapped := []byte(`{"show":{"interface":{"system-name":` + string(body) + `}}}`)
+		return wrapped, nil
+	}
+
 	if name := extractShowInterfaceName(payload); name != "" {
 		f.mu.Lock()
 		f.postIfaceCalls[name]++
