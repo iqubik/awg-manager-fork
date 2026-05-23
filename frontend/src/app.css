@@ -314,10 +314,6 @@ html, body {
   overflow-x: hidden;
 }
 
-.setting-description {
-  overflow-wrap: anywhere;
-}
-
 #app {
   min-height: 100%;
   display: flex;
@@ -711,8 +707,10 @@ label {
 }
 
 .setting-description {
+	overflow-wrap: anywhere;
 	font-size: 0.8125rem;
 	color: var(--text-muted);
+	text-wrap: balance;
 }
 
 .settings-panel {

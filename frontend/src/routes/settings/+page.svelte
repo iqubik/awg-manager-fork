@@ -6,7 +6,7 @@
 	import { notifications } from "$lib/stores/notifications";
 	import { singboxStatus } from "$lib/stores/singbox";
 	import { PageContainer, PageHeader, LoadingSpinner } from "$lib/components/layout";
-	import { Toggle, Modal, Button, ConfirmModal, FormToggle } from "$lib/components/ui";
+	import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	import {
 		SystemInfoGrid,
 		LoggingSettings,
@@ -603,6 +603,28 @@ onMount(() => {
 							</div>
 						</div>
 					</div>
+					{#if singboxInstalled && showSingboxIntegration}
+						<div class="setting-row toggle-inline-row">
+							<div class="flex flex-col gap-1">
+								<span class="font-medium">NDMS Proxy для sing-box туннелей</span>
+								<span class="setting-description">
+									{#if ndmsProxyEnabled}
+										Если включено — для каждого туннеля sing-box создаётся интерфейс ProxyX в роутере.
+										<br>
+										Необходимо, если используете NDMS-маршрутизацию (Access Policy, политики роутера) для sing-box.
+									{:else}
+										Выключено — sing-box работает только через свою маршрутизацию. ProxyX-интерфейсы не создаются
+										(решает проблему зависания роутера при потере WAN).
+									{/if}
+								</span>
+							</div>
+							<Toggle
+								checked={ndmsProxyEnabled}
+								disabled={ndmsProxyBusy}
+								onchange={handleNDMSProxyToggleClick}
+							/>
+						</div>
+					{/if}
 				</div>
 				{/if}
 			</main>
@@ -650,27 +672,6 @@ onMount(() => {
 						{:else}
 							<Button variant="success" size="sm" onclick={() => controlSingbox('start')} loading={singboxBusy}>Запустить</Button>
 						{/if}
-					</div>
-				</div>
-
-				<div class="setting-row">
-					<div class="flex flex-col gap-1">
-						<span class="font-medium">NDMS Proxy для туннелей sing-box</span>
-						<span class="setting-description">
-							{#if ndmsProxyEnabled}
-								Включено — для каждого туннеля sing-box создаётся интерфейс ProxyX в роутере.
-								Нужно если вы используете NDMS-маршрутизацию (Access Policy, политики роутера) для sing-box.
-							{:else}
-								Выключено — sing-box работает только через свою маршрутизацию. ProxyX-интерфейсы не создаются (решает проблему зависания роутера при потере WAN).
-							{/if}
-						</span>
-					</div>
-					<div class="action-buttons">
-						<FormToggle
-							checked={ndmsProxyEnabled}
-							disabled={ndmsProxyBusy}
-							onchange={handleNDMSProxyToggleClick}
-						/>
 					</div>
 				</div>
 			{/if}
