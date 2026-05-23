@@ -1256,6 +1256,54 @@ func allocUniqueTunnelTag(used map[string]bool, base string) string {
 	}
 }
 
+// outboundFingerprint извлекает identity-поля outbound для проверки дублей
+// при импорте: совпавший fingerprint = тот же VPN-аккаунт. Возвращает ""
+// для нераспознанных типов — такие пропускаются (не считаем дублём).
+//
+// Используется только для prevention двойного добавления через AddTunnels:
+// двойной POST от nginx-proxy retry, открытие приложения в двух вкладках,
+// и т.п.
+func outboundFingerprint(ob map[string]any) string {
+	typ, _ := ob["type"].(string)
+	server, _ := ob["server"].(string)
+	port, _ := toInt(ob["server_port"])
+	if server == "" || port == 0 {
+		return ""
+	}
+	var secret string
+	switch typ {
+	case "vless", "vmess":
+		secret, _ = ob["uuid"].(string)
+	case "trojan", "hysteria2", "shadowsocks":
+		secret, _ = ob["password"].(string)
+	case "naive":
+		u, _ := ob["username"].(string)
+		p, _ := ob["password"].(string)
+		secret = u + ":" + p
+	default:
+		return ""
+	}
+	if secret == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s|%s|%d|%s", typ, server, port, secret)
+}
+
+// existingOutboundFingerprints собирает fingerprints из текущей config.json.
+// Используется AddTunnels для prevention дублей.
+func existingOutboundFingerprints(cfg *Config) map[string]string {
+	out := make(map[string]string)
+	for _, ob := range cfg.userOutbounds() {
+		fp := outboundFingerprint(ob)
+		if fp == "" {
+			continue
+		}
+		tag, _ := ob["tag"].(string)
+		out[fp] = tag
+	}
+	return out
+}
+
 func outboundJSONWithTag(raw json.RawMessage, tag string) (json.RawMessage, error) {
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
@@ -1295,11 +1343,11 @@ func nextFreeListenPortSlot(cfg *Config, reserved map[int]bool) int {
 // AddTunnels parses one or more links and atomically adds them.
 // Returns successfully-added tunnels and parse errors.
 func (o *Operator) AddTunnels(ctx context.Context, linksText string) ([]TunnelInfo, []BatchError, error) {
+	o.migrationMu.Lock()
+	defer o.migrationMu.Unlock()
+
 	// Snapshot the flag once for the whole operation — a flip mid-AddTunnels
 	// would split the tunnel's NDMS state from its config.json.
-	// Не держим migrationMu на весь AddTunnels: applyConfig делает sing-box
-	// reload (5-15s на медленных роутерах), а Reconcile/watchdog тогда
-	// тормозит на каждый тик. Migrate*/On держат mutex кратко — этого хватает.
 	ndmsProxyEnabled := o.isNDMSProxyEnabled()
 
 	if o.runtimeLogger != nil {
@@ -1322,12 +1370,30 @@ func (o *Operator) AddTunnels(ctx context.Context, linksText string) ([]TunnelIn
 		return nil, parseErrs, err
 	}
 	tagOccupied := tunnelTagsInUse(cfg)
+	// fingerprints существующих туннелей — для отбраковки дублей при двойном
+	// POST (nginx proxy_next_upstream, две вкладки UI, и т.п.). См.
+	// outboundFingerprint выше — сравнение по (protocol, server, port, secret).
+	existingFps := existingOutboundFingerprints(cfg)
 	// reserved tracks indices we've handed out in this batch so the slot
 	// allocator doesn't reuse the same slot twice before the batch is
 	// committed (NDMS path) or written to config (port-only path).
 	reserved := make(map[int]bool)
 	var addedTags []string
 	for _, p := range batchResult.Outbounds {
+		// Idempotency: пропускаем если такой же outbound уже есть в config.
+		var obParsed map[string]any
+		if err := json.Unmarshal(p.Outbound, &obParsed); err == nil {
+			if fp := outboundFingerprint(obParsed); fp != "" {
+				if existingTag, dup := existingFps[fp]; dup {
+					parseErrs = append(parseErrs, BatchError{
+						Input: p.Tag,
+						Err:   fmt.Errorf("duplicate of existing tunnel %q", existingTag),
+					})
+					continue
+				}
+				existingFps[fp] = p.Tag // защита от повтора внутри одного batch
+			}
+		}
 		var freeIdx int
 		if ndmsProxyEnabled {
 			var idxErr error
@@ -1413,9 +1479,9 @@ func (o *Operator) AddTunnels(ctx context.Context, linksText string) ([]TunnelIn
 }
 
 // RemoveTunnel removes outbound+inbound+route+Proxy for a tag.
-// Mutex не берём: применяется applyConfig (sing-box reload, 5-15s).
-// Migrate*/On всё равно сериализуются собственным mutex'ом.
 func (o *Operator) RemoveTunnel(ctx context.Context, tag string) error {
+	o.migrationMu.Lock()
+	defer o.migrationMu.Unlock()
 	if o.runtimeLogger != nil {
 		o.runtimeLogger.Info("single-remove", tag, "start")
 	}

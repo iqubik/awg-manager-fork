@@ -1204,6 +1204,62 @@ func TestListTunnels_Running_NDMSDisabled_UsesClash(t *testing.T) {
 	}
 }
 
+func TestOutboundFingerprint(t *testing.T) {
+	tests := []struct {
+		name string
+		ob   map[string]any
+		want string
+	}{
+		{
+			"vless full",
+			map[string]any{"type": "vless", "server": "ex.com", "server_port": 443, "uuid": "uuid-1"},
+			"vless|ex.com|443|uuid-1",
+		},
+		{
+			"trojan password",
+			map[string]any{"type": "trojan", "server": "ex.com", "server_port": 443, "password": "secret"},
+			"trojan|ex.com|443|secret",
+		},
+		{
+			"hysteria2 password",
+			map[string]any{"type": "hysteria2", "server": "ex.com", "server_port": 8443, "password": "p"},
+			"hysteria2|ex.com|8443|p",
+		},
+		{
+			"naive concat",
+			map[string]any{"type": "naive", "server": "ex.com", "server_port": 443, "username": "u", "password": "p"},
+			"naive|ex.com|443|u:p",
+		},
+		{
+			"unknown type → empty",
+			map[string]any{"type": "wireguard", "server": "ex.com", "server_port": 443},
+			"",
+		},
+		{
+			"missing server → empty",
+			map[string]any{"type": "vless", "server_port": 443, "uuid": "x"},
+			"",
+		},
+		{
+			"missing port → empty",
+			map[string]any{"type": "vless", "server": "ex.com", "uuid": "x"},
+			"",
+		},
+		{
+			"missing uuid → empty (для vless)",
+			map[string]any{"type": "vless", "server": "ex.com", "server_port": 443},
+			"",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := outboundFingerprint(tc.ob); got != tc.want {
+				t.Errorf("outboundFingerprint = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Helpers for constructing a minimal Operator in tests.
 // ---------------------------------------------------------------------------
