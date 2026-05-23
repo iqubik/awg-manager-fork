@@ -1,8 +1,9 @@
 # AWG Manager
 
 > Веб-интерфейс для управления AmneziaWG VPN-туннелями на роутерах Keenetic.
+В тестовое режиме идёт добавление Sign-box (vless tcp, hysteria, trojan, etc...)
 
-> **Disclaimer:** AWG Manager — независимый open-source проект, не аффилированный с [Amnezia.org](https://amnezia.org) и не являющийся его официальным продуктом.
+> **Disclaimer:** AWG Manager — независимый open-source проект, не аффилированный с [Amnezia.org](https://amnezia.org) и Sing-box [SagerNet](https://github.com/SagerNet/sing-box) и не являющийся их официальным продуктом.
 
 ![awgm-showcase](https://raw.githubusercontent.com/hoaxisr/awg-manager/develop/scripts/dev/awgm-showcase.webp)
 
@@ -10,11 +11,12 @@
 
 ## Возможности
 
-- Управление туннелями AmneziaWG через браузер
+- Управление туннелями AmneziaWG/Sing-box через браузер
 - Добавление, удаление и мониторинг peer-ов
 - Тест скорости с отображением в реальном времени
 - График трафика с периодами 1ч / 3ч / 24ч
-- DNS-маршрутизация через туннели с поддержкой системных WireGuard-интерфейсов NDMS
+- Создание AWG серверов на роутере
+- DNS-маршрутизация через туннели с поддержкой системных WireGuard-интерфейсов NDMS и системы правил Sing-box
 - Просмотр статуса соединения в реальном времени
 - Совместимость с Keenetic c использованием Entware (OPKG)
 
@@ -49,9 +51,10 @@ rm -rf /opt/etc/awg-manager
 
 ## О проекте
 
-AWG Manager создан как независимый инструмент для управления туннелями AmneziaWG непосредственно на роутере, без CLI.
+AWG Manager создан как независимый инструмент для управления туннелями AmneziaWG/Sing-box непосредственно на роутере, без CLI.
 
 Проект **не аффилирован с Amnezia.org**, не разрабатывается и не поддерживается командой Amnezia. AmneziaWG используется как транспортный протокол.
+Проект **не аффилирован с SagerNet**, не разрабатывается и не поддерживается командой SagerNet. Sing-box используется как транспортный протокол.
 
 ---
 
