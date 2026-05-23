@@ -122,45 +122,72 @@ func (s *ServiceImpl) SetOrchestrator(orch *orchestrator.Orchestrator) {
 func (s *ServiceImpl) SetEventBus(bus *events.Bus) { s.bus = bus }
 
 // RunningTunnels returns the list of currently running tunnels for the traffic collector.
+//
+// Per-tunnel GetState вызовы идут в горутинах: each ждёт NDMS RCI ~150ms,
+// последовательно = O(N×150ms). Параллельные сабмиты прилетают в
+// transport batcher одновременно (за <1ms) и объединяются в один HTTP
+// POST с массивом запросов → O(150ms) total независимо от N.
 func (s *ServiceImpl) RunningTunnels(ctx context.Context) []traffic.RunningTunnel {
 	stored, err := s.store.List()
 	if err != nil {
 		return nil
 	}
-	var result []traffic.RunningTunnel
-	for _, t := range stored {
+	type slot struct {
+		idx int
+		rt  traffic.RunningTunnel
+		ok  bool
+	}
+	slots := make([]slot, len(stored))
+	var wg sync.WaitGroup
+	for i := range stored {
+		t := stored[i]
 		if !t.Enabled {
 			continue
 		}
-		var si tunnel.StateInfo
-		if t.Backend == "nativewg" && s.nwgOperator != nil {
-			si = s.nwgOperator.GetState(ctx, &t)
-		} else {
-			si = s.state.GetState(ctx, t.ID)
+		wg.Add(1)
+		go func(i int, t storage.AWGTunnel) {
+			defer wg.Done()
+			var si tunnel.StateInfo
+			if t.Backend == "nativewg" && s.nwgOperator != nil {
+				si = s.nwgOperator.GetState(ctx, &t)
+			} else {
+				si = s.state.GetState(ctx, t.ID)
+			}
+			if si.State != tunnel.StateRunning {
+				return
+			}
+			var ifaceName, ndmsName string
+			if t.Backend == "nativewg" {
+				names := nwg.NewNWGNames(t.NWGIndex)
+				ifaceName = names.IfaceName
+				ndmsName = names.NDMSName
+			} else {
+				names := tunnel.NewNames(t.ID)
+				ifaceName = names.IfaceName
+				ndmsName = names.NDMSName
+			}
+			slots[i] = slot{
+				idx: i,
+				ok:  true,
+				rt: traffic.RunningTunnel{
+					ID:            t.ID,
+					BackendType:   s.backendLabel(&t),
+					IfaceName:     ifaceName,
+					NDMSName:      ndmsName,
+					RxBytes:       si.RxBytes,
+					TxBytes:       si.TxBytes,
+					LastHandshake: si.LastHandshake,
+					ConnectedAt:   si.ConnectedAt,
+				},
+			}
+		}(i, t)
+	}
+	wg.Wait()
+	result := make([]traffic.RunningTunnel, 0, len(stored))
+	for _, s := range slots {
+		if s.ok {
+			result = append(result, s.rt)
 		}
-		if si.State != tunnel.StateRunning {
-			continue
-		}
-		var ifaceName, ndmsName string
-		if t.Backend == "nativewg" {
-			names := nwg.NewNWGNames(t.NWGIndex)
-			ifaceName = names.IfaceName
-			ndmsName = names.NDMSName
-		} else {
-			names := tunnel.NewNames(t.ID)
-			ifaceName = names.IfaceName
-			ndmsName = names.NDMSName
-		}
-		result = append(result, traffic.RunningTunnel{
-			ID:            t.ID,
-			BackendType:   s.backendLabel(&t),
-			IfaceName:     ifaceName,
-			NDMSName:      ndmsName,
-			RxBytes:       si.RxBytes,
-			TxBytes:       si.TxBytes,
-			LastHandshake: si.LastHandshake,
-			ConnectedAt:   si.ConnectedAt,
-		})
 	}
 	return result
 }
@@ -270,51 +297,59 @@ func (s *ServiceImpl) Get(ctx context.Context, tunnelID string) (*TunnelWithStat
 }
 
 // List returns all tunnels with their current states.
+//
+// Per-tunnel GetState вызовы идут параллельно: каждый блокируется на
+// NDMS RCI ~150ms, последовательно = O(N×150ms). Параллельные сабмиты
+// объединяются transport batcher'ом в один HTTP POST → O(150ms) total
+// независимо от N туннелей.
 func (s *ServiceImpl) List(ctx context.Context) ([]TunnelWithStatus, error) {
 	stored, err := s.store.List()
 	if err != nil {
 		return nil, fmt.Errorf("list tunnels: %w", err)
 	}
 
-	result := make([]TunnelWithStatus, 0, len(stored))
-	for _, t := range stored {
-		var stateInfo tunnel.StateInfo
-		if !t.Enabled {
-			// Disabled tunnel: skip NDMS/sysfs query — return Disabled directly.
-			// This avoids "not found: OpkgTunX" errors in router logs for
-			// tunnels that don't have an NDMS interface created.
-			stateInfo = tunnel.StateInfo{State: tunnel.StateDisabled}
-		} else if t.Backend == "nativewg" && s.nwgOperator != nil {
-			stateInfo = s.nwgOperator.GetState(ctx, &t)
-		} else {
-			stateInfo = s.state.GetState(ctx, t.ID)
-		}
+	result := make([]TunnelWithStatus, len(stored))
+	var wg sync.WaitGroup
+	for i := range stored {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			t := stored[i]
+			var stateInfo tunnel.StateInfo
+			if !t.Enabled {
+				stateInfo = tunnel.StateInfo{State: tunnel.StateDisabled}
+			} else if t.Backend == "nativewg" && s.nwgOperator != nil {
+				stateInfo = s.nwgOperator.GetState(ctx, &t)
+			} else {
+				stateInfo = s.state.GetState(ctx, t.ID)
+			}
 
-		var ifaceName, ndmsName string
-		if t.Backend == "nativewg" {
-			names := nwg.NewNWGNames(t.NWGIndex)
-			ifaceName = names.IfaceName
-			ndmsName = names.NDMSName
-		} else {
-			ifaceName = tunnel.NewNames(t.ID).IfaceName
-		}
-		result = append(result, TunnelWithStatus{
-			ID:            t.ID,
-			Name:          t.Name,
-			Config:        orchestrator.StoredToConfig(&t),
-			State:         stateInfo.State,
-			StateInfo:     stateInfo,
-			Enabled:       t.Enabled,
-			AutoStart:     t.Enabled,
-			PingCheckOn:   t.PingCheck != nil && t.PingCheck.Enabled,
-			DefaultRoute:  t.DefaultRoute,
-			ISPInterface:  t.ISPInterface,
-			InterfaceName: ifaceName,
-			NDMSName:      ndmsName,
-			Backend:       s.backendLabel(&t),
-		})
+			var ifaceName, ndmsName string
+			if t.Backend == "nativewg" {
+				names := nwg.NewNWGNames(t.NWGIndex)
+				ifaceName = names.IfaceName
+				ndmsName = names.NDMSName
+			} else {
+				ifaceName = tunnel.NewNames(t.ID).IfaceName
+			}
+			result[i] = TunnelWithStatus{
+				ID:            t.ID,
+				Name:          t.Name,
+				Config:        orchestrator.StoredToConfig(&t),
+				State:         stateInfo.State,
+				StateInfo:     stateInfo,
+				Enabled:       t.Enabled,
+				AutoStart:     t.Enabled,
+				PingCheckOn:   t.PingCheck != nil && t.PingCheck.Enabled,
+				DefaultRoute:  t.DefaultRoute,
+				ISPInterface:  t.ISPInterface,
+				InterfaceName: ifaceName,
+				NDMSName:      ndmsName,
+				Backend:       s.backendLabel(&t),
+			}
+		}(i)
 	}
-
+	wg.Wait()
 	return result, nil
 }
 
