@@ -103,9 +103,18 @@ func (o *OperatorNativeWG) createViaImport(ctx context.Context, stored *storage.
 
 	// Import via RCI — NDMS creates the interface and parses all params.
 	// ImportWireguardConfig is a multipart-upload helper with no new-layer equivalent yet.
-	ndmsName, err := o.commands.Wireguard.ImportWireguardConfig(ctx, []byte(confData), stored.Name+".conf")
+	res, err := o.commands.Wireguard.ImportWireguardConfig(ctx, []byte(confData), stored.Name+".conf")
 	if err != nil {
 		return 0, fmt.Errorf("import wireguard config: %w", err)
+	}
+	ndmsName := res.Created
+
+	// The router may create the interface yet report that its config collides
+	// with an existing one (same keys) — surface it so the context is not lost.
+	if res.Intersects != "" {
+		o.appLog.Warn("create", stored.Name,
+			fmt.Sprintf("imported %s intersects existing %s; status: %s",
+				ndmsName, res.Intersects, strings.Join(res.Messages, "; ")))
 	}
 
 	// Extract index from "WireguardN"

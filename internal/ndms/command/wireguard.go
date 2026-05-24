@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
 )
@@ -40,10 +41,21 @@ func (c *WireguardCommands) SetASCParams(ctx context.Context, name string, param
 		c.queries.RunningConfig.InvalidateAll)
 }
 
-// ImportWireguardConfig uploads a .conf file to NDMS and returns the
-// NDMS interface name created from the import (e.g. "Wireguard1").
+// ImportResult holds the parsed outcome of a wireguard config import.
+// Intersects names a pre-existing interface the imported config collides
+// with (empty if none); Messages are the human-readable status[] lines the
+// router returned. Both are kept so the caller does not lose context even
+// on a successful import.
+type ImportResult struct {
+	Created    string
+	Intersects string
+	Messages   []string
+}
+
+// ImportWireguardConfig uploads a .conf file to NDMS and returns the import
+// result, including the created NDMS interface name (e.g. "Wireguard1").
 // confData is the raw .conf body (NOT base64 — encoded internally).
-func (c *WireguardCommands) ImportWireguardConfig(ctx context.Context, confData []byte, filename string) (string, error) {
+func (c *WireguardCommands) ImportWireguardConfig(ctx context.Context, confData []byte, filename string) (ImportResult, error) {
 	encoded := base64.StdEncoding.EncodeToString(confData)
 	payload := map[string]any{
 		"interface": map[string]any{
@@ -56,25 +68,49 @@ func (c *WireguardCommands) ImportWireguardConfig(ctx context.Context, confData 
 	}
 	resp, err := c.poster.Post(ctx, payload)
 	if err != nil {
-		return "", fmt.Errorf("import wireguard: %w", err)
+		return ImportResult{}, fmt.Errorf("import wireguard: %w", err)
 	}
 
-	// Real NDMS response shape:
-	// {"interface":{"wireguard":{"import":{"created":"Wireguard0",...}}}}
+	// Real NDMS response shape (captured on 5.01.A.x):
+	// {"interface":{"wireguard":{"import":{
+	//   "intersects":"", "created":"Wireguard3",
+	//   "status":[{"status":"message","code":"...","ident":"...","message":"..."}]}}}}
 	var parsed struct {
 		Interface struct {
 			Wireguard struct {
 				Import struct {
-					Created string `json:"created"`
+					Intersects string `json:"intersects"`
+					Created    string `json:"created"`
+					Status     []struct {
+						Status  string `json:"status"`
+						Message string `json:"message"`
+					} `json:"status"`
 				} `json:"import"`
 			} `json:"wireguard"`
 		} `json:"interface"`
 	}
 	if err := json.Unmarshal(resp, &parsed); err != nil {
-		return "", fmt.Errorf("import wireguard: decode: %w", err)
+		return ImportResult{}, fmt.Errorf("import wireguard: decode: %w", err)
 	}
-	if parsed.Interface.Wireguard.Import.Created == "" {
-		return "", fmt.Errorf("import wireguard: empty created field in response")
+	imp := parsed.Interface.Wireguard.Import
+
+	var msgs []string
+	for _, s := range imp.Status {
+		if s.Message != "" {
+			msgs = append(msgs, s.Message)
+		}
 	}
-	return parsed.Interface.Wireguard.Import.Created, nil
+
+	if imp.Created == "" {
+		// The router accepted the request (HTTP 200) but did not return a
+		// created interface. The reason lives in the nested status[] array,
+		// which the top-level error envelope check does not inspect — surface
+		// it instead of an opaque message.
+		detail := strings.Join(msgs, "; ")
+		if detail == "" {
+			detail = "no status message"
+		}
+		return ImportResult{}, fmt.Errorf("import wireguard: router returned no created interface (intersects=%q; status: %s)", imp.Intersects, detail)
+	}
+	return ImportResult{Created: imp.Created, Intersects: imp.Intersects, Messages: msgs}, nil
 }

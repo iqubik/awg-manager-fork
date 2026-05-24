@@ -3,11 +3,99 @@ package command
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
 )
+
+// respPoster returns a fixed body, mimicking a real NDMS POST response.
+type respPoster struct{ body string }
+
+func (r *respPoster) Post(ctx context.Context, payload any) (json.RawMessage, error) {
+	return json.RawMessage(r.body), nil
+}
+
+// Real success response captured from a router (5.01.A.x): the import
+// command returns the created interface name in import.created, plus an
+// informational status[] entry and an empty intersects field.
+const realImportSuccess = `{
+  "interface": {
+    "wireguard": {
+      "import": {
+        "intersects": "",
+        "created": "Wireguard3",
+        "status": [
+          {"status": "message", "code": "75507472", "ident": "Wireguard::Interface", "message": "\"Wireguard3\": imported settings."}
+        ]
+      }
+    }
+  }
+}`
+
+func TestImportWireguardConfig_Success_ReturnsCreated(t *testing.T) {
+	c := NewWireguardCommands(&respPoster{body: realImportSuccess}, nil, nil)
+
+	res, err := c.ImportWireguardConfig(context.Background(), []byte("conf"), "x.conf")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Created != "Wireguard3" {
+		t.Errorf("created name: want Wireguard3, got %q", res.Created)
+	}
+}
+
+func TestImportWireguardConfig_Success_PreservesIntersectAndMessages(t *testing.T) {
+	// Importing a config whose keys collide with an existing interface still
+	// creates a new one, but the router reports the collision in intersects.
+	// The caller must not lose that context.
+	body := `{"interface":{"wireguard":{"import":{"intersects":"Wireguard3","created":"Wireguard4","status":[{"status":"message","code":"75507472","ident":"Wireguard::Interface","message":"\"Wireguard4\": imported settings."}]}}}}`
+	c := NewWireguardCommands(&respPoster{body: body}, nil, nil)
+
+	res, err := c.ImportWireguardConfig(context.Background(), []byte("conf"), "x.conf")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Created != "Wireguard4" {
+		t.Errorf("created: want Wireguard4, got %q", res.Created)
+	}
+	if res.Intersects != "Wireguard3" {
+		t.Errorf("intersects: want Wireguard3, got %q", res.Intersects)
+	}
+	if len(res.Messages) != 1 || !strings.Contains(res.Messages[0], "imported settings") {
+		t.Errorf("messages: want one 'imported settings', got %v", res.Messages)
+	}
+}
+
+func TestImportWireguardConfig_EmptyCreated_SurfacesStatusMessage(t *testing.T) {
+	// Same object schema as the real response, but created is empty and the
+	// status[] carries the router's explanation. The current code throws
+	// this message away and reports an opaque "empty created field".
+	body := `{"interface":{"wireguard":{"import":{"intersects":"","created":"","status":[{"status":"error","code":"75507473","ident":"Wireguard::Interface","message":"interface limit reached"}]}}}}`
+	c := NewWireguardCommands(&respPoster{body: body}, nil, nil)
+
+	_, err := c.ImportWireguardConfig(context.Background(), []byte("conf"), "x.conf")
+	if err == nil {
+		t.Fatal("expected error when created is empty")
+	}
+	if !strings.Contains(err.Error(), "interface limit reached") {
+		t.Errorf("error should surface router status message, got: %v", err)
+	}
+}
+
+func TestImportWireguardConfig_EmptyCreated_IncludesIntersects(t *testing.T) {
+	body := `{"interface":{"wireguard":{"import":{"intersects":"Wireguard5","created":"","status":[]}}}}`
+	c := NewWireguardCommands(&respPoster{body: body}, nil, nil)
+
+	_, err := c.ImportWireguardConfig(context.Background(), []byte("conf"), "x.conf")
+	if err == nil {
+		t.Fatal("expected error when created is empty")
+	}
+	if !strings.Contains(err.Error(), "Wireguard5") {
+		t.Errorf("error should name the intersecting interface, got: %v", err)
+	}
+}
 
 func TestWireguardCommands_SetASCParams(t *testing.T) {
 	poster := &fakePoster{}
