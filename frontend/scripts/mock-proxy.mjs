@@ -79,6 +79,13 @@ const MOCK_DOWNLOAD_OUTBOUNDS = [
 		available: true,
 	},
 	{
+		tag: 'sb-subscription-1',
+		kind: 'subscription',
+		label: 'Sing subscription RU',
+		detail: 'sub-ru.demo.example',
+		available: true,
+	},
+	{
 		tag: 'sb-wg-reserve',
 		kind: 'wireguard',
 		label: 'WireGuard Reserve',

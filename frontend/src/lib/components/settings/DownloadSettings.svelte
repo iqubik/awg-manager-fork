@@ -34,8 +34,34 @@
 		return text.replace(hostLike, (m) => maskSensitiveToken(m));
 	}
 
+	function kindLabel(kind?: string): string {
+		const k = (kind ?? '').trim();
+		if (!k) return '';
+		if (k.toLowerCase() === 'subscription') return 'SUB';
+		return k.toUpperCase();
+	}
+
+	function inferKindFromLabel(label: string): string {
+		const s = label.toUpperCase();
+		if (s.includes('VLESS')) return 'VLESS';
+		if (s.includes('AWG') || s.includes('AMNEZIA')) return 'AWG';
+		if (s.includes('SUB')) return 'SUB';
+		if (s.includes('WIREGUARD') || s.includes('WG')) return 'WG';
+		return '';
+	}
+
+	function displayRouteName(ob: DownloadOutbound): string {
+		const base = maskSensitiveInText(ob.label);
+		const k = kindLabel(ob.kind) || inferKindFromLabel(base);
+		if (!k || k.toLowerCase() === 'direct') return base;
+		if (base.toUpperCase().includes(`(${k})`) || base.toUpperCase().endsWith(`- ${k}`)) {
+			return base;
+		}
+		return `${base} (${k})`;
+	}
+
 	function optionLabel(ob: DownloadOutbound): string {
-		return `${maskSensitiveInText(ob.label)}${ob.detail ? ` - ${maskSensitiveInText(ob.detail)}` : ''}${ob.available ? '' : ' (unavailable)'}`;
+		return `${displayRouteName(ob)}${ob.available ? '' : ' (unavailable)'}`;
 	}
 
 	const selectedTag = $derived(settings.download?.routeTag || 'direct');

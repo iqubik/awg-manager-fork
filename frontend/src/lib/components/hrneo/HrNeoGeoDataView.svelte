@@ -67,6 +67,32 @@
 		return text.replace(hostLike, (m) => maskSensitiveToken(m));
 	}
 
+	function kindLabel(kind?: string): string {
+		const k = (kind ?? '').trim();
+		if (!k) return '';
+		if (k.toLowerCase() === 'subscription') return 'SUB';
+		return k.toUpperCase();
+	}
+
+	function inferKindFromLabel(label: string): string {
+		const s = label.toUpperCase();
+		if (s.includes('VLESS')) return 'VLESS';
+		if (s.includes('AWG') || s.includes('AMNEZIA')) return 'AWG';
+		if (s.includes('SUB')) return 'SUB';
+		if (s.includes('WIREGUARD') || s.includes('WG')) return 'WG';
+		return '';
+	}
+
+	function displayRouteName(label: string, kind?: string): string {
+		const base = maskSensitiveInText(label);
+		const k = kindLabel(kind) || inferKindFromLabel(base);
+		if (!k || k.toLowerCase() === 'direct') return base;
+		if (base.toUpperCase().includes(`(${k})`) || base.toUpperCase().endsWith(`- ${k}`)) {
+			return base;
+		}
+		return `${base} (${k})`;
+	}
+
 	function currentRouteTag(): string {
 		return $appSettings?.download?.routeTag?.trim() || 'direct';
 	}
@@ -75,7 +101,7 @@
 		const normalized = tag?.trim() || 'direct';
 		const ob = outbounds.find((item) => item.tag === normalized);
 		if (ob) {
-			return `${maskSensitiveInText(ob.label)}${ob.detail ? ` — ${maskSensitiveInText(ob.detail)}` : ''}${ob.available ? '' : ' (недоступно)'}`;
+			return `${displayRouteName(ob.label, ob.kind)}${ob.available ? '' : ' (недоступно)'}`;
 		}
 		if (normalized === 'direct') {
 			return 'Direct (WAN) — без туннеля';
