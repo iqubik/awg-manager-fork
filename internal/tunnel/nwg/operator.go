@@ -15,6 +15,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/logging"
@@ -38,6 +39,16 @@ type OperatorNativeWG struct {
 	kmod         *KmodManager
 	appLog       *logging.ScopedLogger
 	hookNotifier tunnel.HookNotifier
+
+	// resolveFn resolves "host:port" to (ip, port). Defaults to
+	// netutil.ResolveEndpoint; overridable in tests.
+	resolveFn func(endpoint string) (string, int, error)
+
+	// trackedIP holds the last freshly-resolved endpoint IP per tunnel ID
+	// (NOT cache fallbacks). The orchestrator reads it via GetTrackedEndpointIP
+	// to persist storage.AWGTunnel.ResolvedEndpointIP.
+	trackedMu sync.RWMutex
+	trackedIP map[string]string
 }
 
 // NewOperator creates a new NativeWG operator.
@@ -48,6 +59,7 @@ func NewOperator(queries *query.Queries, commands *command.Commands, tr *transpo
 		transport: tr,
 		kmod:      NewKmodManager(appLogger),
 		appLog:    logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubOps),
+		resolveFn: netutil.ResolveEndpoint,
 	}
 }
 
@@ -736,6 +748,25 @@ func (o *OperatorNativeWG) fallbackResolve(stored *storage.AWGTunnel, resolveErr
 	port, _ := strconv.Atoi(portStr)
 	o.appLog.Warn("resolve-endpoint", stored.Peer.Endpoint, "DNS failed, using cached IP "+stored.ResolvedEndpointIP)
 	return stored.ResolvedEndpointIP, port, nil
+}
+
+// trackEndpointIP records a freshly-resolved endpoint IP for a tunnel.
+// Lazy-inits the map so struct-literal construction (tests) is safe.
+func (o *OperatorNativeWG) trackEndpointIP(tunnelID, ip string) {
+	o.trackedMu.Lock()
+	defer o.trackedMu.Unlock()
+	if o.trackedIP == nil {
+		o.trackedIP = make(map[string]string)
+	}
+	o.trackedIP[tunnelID] = ip
+}
+
+// GetTrackedEndpointIP returns the last freshly-resolved endpoint IP for a
+// tunnel, or "" if none has been resolved this process lifetime.
+func (o *OperatorNativeWG) GetTrackedEndpointIP(tunnelID string) string {
+	o.trackedMu.RLock()
+	defer o.trackedMu.RUnlock()
+	return o.trackedIP[tunnelID]
 }
 
 // splitAddressMask splits a CIDR or bare IP into (address, mask).
