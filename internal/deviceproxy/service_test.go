@@ -185,6 +185,14 @@ func (f *fakeAWGOutboundsCatalog) ListTags(_ context.Context) ([]AWGTagInfo, err
 	return f.tags, f.err
 }
 
+type fakeSubscriptionOutboundsCatalog struct {
+	items []SubscriptionOutboundInfo
+}
+
+func (f *fakeSubscriptionOutboundsCatalog) ListDeviceProxyOutbounds() []SubscriptionOutboundInfo {
+	return append([]SubscriptionOutboundInfo(nil), f.items...)
+}
+
 func TestService_ListOutbounds_IncludesSystemTunnels(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
 	awgCatalog := &fakeAWGOutboundsCatalog{
@@ -237,6 +245,28 @@ func TestService_ListOutbounds_IncludesSingboxTunnelDetail(t *testing.T) {
 		return
 	}
 	t.Fatalf("vless-1 not found in outbounds: %+v", out)
+}
+
+func TestService_ListOutbounds_ClassifiesSubscriptionOutbounds(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
+	sub := &fakeSubscriptionOutboundsCatalog{
+		items: []SubscriptionOutboundInfo{
+			{Tag: "subscription-test-outbound", Label: "Subscription Test Route"},
+		},
+	}
+	s := NewService(Deps{Store: store, SubscriptionOutbounds: sub})
+
+	out := s.ListOutbounds(context.Background())
+	for _, ob := range out {
+		if ob.Tag != "subscription-test-outbound" {
+			continue
+		}
+		if ob.Kind != "subscription" {
+			t.Fatalf("expected kind=subscription, got %q", ob.Kind)
+		}
+		return
+	}
+	t.Fatalf("subscription-test-outbound not found in outbounds: %+v", out)
 }
 
 func TestService_SaveConfig_AppliesToSingbox_SystemTunnels(t *testing.T) {

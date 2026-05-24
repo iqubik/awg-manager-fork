@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
 	import type { GeoFileEntry, DownloadOutbound } from '$lib/types';
+	import { displayRouteName, maskSensitiveInText } from '$lib/utils/downloadRouteLabel';
 	import { settings as appSettings, reloadSettings } from '$lib/stores/settings';
 	import { ConfirmModal, Button, Dropdown } from '$lib/components/ui';
 	import { geoDownloadProgress } from '$lib/stores/geoDownload';
@@ -54,44 +55,6 @@
 
 	let activeDownload = $state<DownloadOperation | null>(null);
 	let lastDownload = $state<LastDownload | null>(null);
-
-	function maskSensitiveToken(token: string): string {
-		if (!token) return token;
-		if (token.length <= 6) return '*'.repeat(token.length);
-		return `${token.slice(0, 3)}${'*'.repeat(token.length - 6)}${token.slice(-3)}`;
-	}
-
-	function maskSensitiveInText(text: string): string {
-		if (!text) return text;
-		const hostLike = /\b([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+|\d{1,3}(?:\.\d{1,3}){3})\b/g;
-		return text.replace(hostLike, (m) => maskSensitiveToken(m));
-	}
-
-	function kindLabel(kind?: string): string {
-		const k = (kind ?? '').trim();
-		if (!k) return '';
-		if (k.toLowerCase() === 'subscription') return 'SUB';
-		return k.toUpperCase();
-	}
-
-	function inferKindFromLabel(label: string): string {
-		const s = label.toUpperCase();
-		if (s.includes('VLESS')) return 'VLESS';
-		if (s.includes('AWG') || s.includes('AMNEZIA')) return 'AWG';
-		if (s.includes('SUB')) return 'SUB';
-		if (s.includes('WIREGUARD') || s.includes('WG')) return 'WG';
-		return '';
-	}
-
-	function displayRouteName(label: string, kind?: string): string {
-		const base = maskSensitiveInText(label);
-		const k = kindLabel(kind) || inferKindFromLabel(base);
-		if (!k || k.toLowerCase() === 'direct') return base;
-		if (base.toUpperCase().includes(`(${k})`) || base.toUpperCase().endsWith(`- ${k}`)) {
-			return base;
-		}
-		return `${base} (${k})`;
-	}
 
 	function currentRouteTag(): string {
 		return $appSettings?.download?.routeTag?.trim() || 'direct';

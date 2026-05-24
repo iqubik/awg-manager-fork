@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button, Dropdown, type DropdownOption } from '$lib/components/ui';
 	import type { DownloadOutbound, Settings } from '$lib/types';
+	import { displayOutboundName, maskSensitiveInText } from '$lib/utils/downloadRouteLabel';
 
 	interface Props {
 		settings: Settings;
@@ -22,46 +23,8 @@
 		onSelectRoute,
 	}: Props = $props();
 
-	function maskSensitiveToken(token: string): string {
-		if (!token) return token;
-		if (token.length <= 6) return '*'.repeat(token.length);
-		return `${token.slice(0, 3)}${'*'.repeat(token.length - 6)}${token.slice(-3)}`;
-	}
-
-	function maskSensitiveInText(text: string): string {
-		if (!text) return text;
-		const hostLike = /\b([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+|\d{1,3}(?:\.\d{1,3}){3})\b/g;
-		return text.replace(hostLike, (m) => maskSensitiveToken(m));
-	}
-
-	function kindLabel(kind?: string): string {
-		const k = (kind ?? '').trim();
-		if (!k) return '';
-		if (k.toLowerCase() === 'subscription') return 'SUB';
-		return k.toUpperCase();
-	}
-
-	function inferKindFromLabel(label: string): string {
-		const s = label.toUpperCase();
-		if (s.includes('VLESS')) return 'VLESS';
-		if (s.includes('AWG') || s.includes('AMNEZIA')) return 'AWG';
-		if (s.includes('SUB')) return 'SUB';
-		if (s.includes('WIREGUARD') || s.includes('WG')) return 'WG';
-		return '';
-	}
-
-	function displayRouteName(ob: DownloadOutbound): string {
-		const base = maskSensitiveInText(ob.label);
-		const k = kindLabel(ob.kind) || inferKindFromLabel(base);
-		if (!k || k.toLowerCase() === 'direct') return base;
-		if (base.toUpperCase().includes(`(${k})`) || base.toUpperCase().endsWith(`- ${k}`)) {
-			return base;
-		}
-		return `${base} (${k})`;
-	}
-
 	function optionLabel(ob: DownloadOutbound): string {
-		return `${displayRouteName(ob)}${ob.available ? '' : ' (unavailable)'}`;
+		return `${displayOutboundName(ob)}${ob.available ? '' : ' (unavailable)'}`;
 	}
 
 	const selectedTag = $derived(settings.download?.routeTag || 'direct');

@@ -35,6 +35,7 @@
 	} from "$lib/types/usageLevel";
 	import { usageLevel } from "$lib/stores/settings";
 	import { waitForBackendRestart } from "$lib/restartRecovery";
+	import { displayRouteName, maskSensitiveInText } from "$lib/utils/downloadRouteLabel";
 
 	const expandUsageLevel = $derived($page.url.searchParams.has('mode'));
 
@@ -262,49 +263,12 @@
 		}
 	}
 
-	function maskSensitiveToken(token: string): string {
-		if (!token) return token;
-		if (token.length <= 6) return '*'.repeat(token.length);
-		return `${token.slice(0, 3)}${'*'.repeat(token.length - 6)}${token.slice(-3)}`;
-	}
-
-	function maskSensitiveInText(text: string): string {
-		if (!text) return text;
-		const hostLike = /\b([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+|\d{1,3}(?:\.\d{1,3}){3})\b/g;
-		return text.replace(hostLike, (m) => maskSensitiveToken(m));
-	}
-
-	function kindLabel(kind?: string): string {
-		const k = (kind ?? '').trim();
-		if (!k) return '';
-		if (k.toLowerCase() === 'subscription') return 'SUB';
-		return k.toUpperCase();
-	}
-
-	function inferKindFromLabel(label: string): string {
-		const s = label.toUpperCase();
-		if (s.includes('VLESS')) return 'VLESS';
-		if (s.includes('AWG') || s.includes('AMNEZIA')) return 'AWG';
-		if (s.includes('SUB')) return 'SUB';
-		if (s.includes('WIREGUARD') || s.includes('WG')) return 'WG';
-		return '';
-	}
-
-	function displayRouteName(label: string, kind?: string): string {
-		const base = maskSensitiveInText(label);
-		const k = kindLabel(kind) || inferKindFromLabel(base);
-		if (!k || k.toLowerCase() === 'direct') return base;
-		if (base.toUpperCase().includes(`(${k})`) || base.toUpperCase().endsWith(`- ${k}`)) {
-			return base;
-		}
-		return `${base} (${k})`;
-	}
-
 	function currentDownloadRouteLabel(): string {
 		const tag = settings?.download?.routeTag?.trim() || 'direct';
 		const match = downloadOutbounds.find((ob) => ob.tag === tag);
 		if (match) {
-			return `${displayRouteName(match.label, match.kind)}${match.available ? '' : ' (недоступен)'}`;
+			const rendered = displayRouteName(match.label, match.kind);
+			return `${rendered}${match.available ? '' : ' (недоступен)'}`;
 		}
 		if (tag === 'direct') {
 			return 'Direct (WAN) - без туннеля';

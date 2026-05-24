@@ -643,7 +643,7 @@ func (s *Service) GetInstanceRuntimeState(ctx context.Context, id string) (Runti
 // Outbound describes one selectable proxy target exposed to the UI.
 type Outbound struct {
 	Tag    string `json:"tag"`
-	Kind   string `json:"kind"` // "direct" | "singbox" | "awg"
+	Kind   string `json:"kind"` // "direct" | "singbox" | "subscription" | "awg"
 	Label  string `json:"label"`
 	Detail string `json:"detail"` // extra info for UI (kernel iface, protocol, etc)
 }
@@ -709,7 +709,7 @@ func (s *Service) listOutboundsLocked(ctx context.Context) []Outbound {
 		for _, sub := range subs {
 			out = append(out, Outbound{
 				Tag:    sub.Tag,
-				Kind:   "singbox",
+				Kind:   "subscription",
 				Label:  sub.Label,
 				Detail: sub.Detail,
 			})
