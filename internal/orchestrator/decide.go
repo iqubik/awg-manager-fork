@@ -211,7 +211,15 @@ func decideNDMSHook(event Event, state *State) []Action {
 
 	switch event.Level {
 	case "running":
-		if t.Running || !t.Enabled || !state.anyWANUp() {
+		// A conf=running edge that reaches decide is genuinely external —
+		// self-induced ones (our own Start) are filtered upstream by
+		// consumeExpectedHook. So an external enable (router web UI, manual
+		// NDMS toggle) must start the tunnel even when our store says
+		// Enabled=false: the user's "on" intent wins, and decideStart's
+		// ActionPersistRunning re-syncs Enabled=true. We deliberately do NOT
+		// guard on !t.Enabled here (issue #183 — router-UI enable left a
+		// NativeWG interface up but without its kmod proxy → dead handshake).
+		if t.Running || !state.anyWANUp() {
 			return nil
 		}
 		return decideStart(Event{Type: EventStart, Tunnel: t.ID}, state)

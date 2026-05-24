@@ -329,6 +329,54 @@ func TestDecide_Start_NativeWGTunnel(t *testing.T) {
 	}
 }
 
+// External conf=running (e.g. user enabled the interface from the router's
+// own web UI) must start the tunnel even when awg-manager's store says
+// Enabled=false. The user's intent ("on") wins; the start path re-persists
+// Enabled=true. Self-induced hooks are already filtered upstream by
+// consumeExpectedHook, so a conf=running reaching decide is genuinely
+// external. (issue #183 — router-UI enable case.)
+func TestDecide_NDMSHook_Running_ExternalEnableWhileDisabled_Starts(t *testing.T) {
+	s := newState()
+	s.anyWANUpFn = func() bool { return true }
+	s.tunnels["awg0"] = &tunnelState{
+		ID: "awg0", Backend: "nativewg", Enabled: false, Running: false, NWGIndex: 0,
+	}
+
+	// NDMSName for NWGIndex 0 is "Wireguard0".
+	actions := decide(Event{Type: EventNDMSHook, NDMSName: "Wireguard0", Layer: "conf", Level: "running"}, &s)
+
+	if !hasAction(actions, ActionStartNativeWG) {
+		t.Error("expected ActionStartNativeWG — external conf=running must start even when Enabled=false")
+	}
+	if !hasAction(actions, ActionPersistRunning) {
+		t.Error("expected ActionPersistRunning to sync Enabled=true to the router-UI intent")
+	}
+}
+
+// The other two guards stay: no WAN up → no start (can't), and a tunnel we
+// already consider Running → no restart (avoids flap).
+func TestDecide_NDMSHook_Running_NoWAN_NoStart(t *testing.T) {
+	s := newState()
+	s.anyWANUpFn = func() bool { return false }
+	s.tunnels["awg0"] = &tunnelState{ID: "awg0", Backend: "nativewg", Enabled: false, Running: false, NWGIndex: 0}
+
+	actions := decide(Event{Type: EventNDMSHook, NDMSName: "Wireguard0", Layer: "conf", Level: "running"}, &s)
+	if len(actions) != 0 {
+		t.Errorf("no WAN up: expected no actions, got %d", len(actions))
+	}
+}
+
+func TestDecide_NDMSHook_Running_AlreadyRunning_NoStart(t *testing.T) {
+	s := newState()
+	s.anyWANUpFn = func() bool { return true }
+	s.tunnels["awg0"] = &tunnelState{ID: "awg0", Backend: "nativewg", Enabled: true, Running: true, NWGIndex: 0}
+
+	actions := decide(Event{Type: EventNDMSHook, NDMSName: "Wireguard0", Layer: "conf", Level: "running"}, &s)
+	if len(actions) != 0 {
+		t.Errorf("already running: expected no actions, got %d", len(actions))
+	}
+}
+
 func TestDecide_Start_AlreadyRunning(t *testing.T) {
 	s := newState()
 	s.tunnels["awg0"] = &tunnelState{ID: "awg0", Backend: "kernel", Running: true}
@@ -495,19 +543,10 @@ func TestDecide_NDMSHook_IgnoresAlreadyRunning(t *testing.T) {
 	}
 }
 
-func TestDecide_NDMSHook_IgnoresDisabled(t *testing.T) {
-	s := newState()
-	s.anyWANUpFn = func() bool { return true }
-	s.tunnels["awg0"] = &tunnelState{
-		ID: "awg0", Backend: "nativewg", Running: false, Enabled: false, NWGIndex: 0,
-	}
-
-	actions := decide(Event{Type: EventNDMSHook, NDMSName: "Wireguard0", Layer: "conf", Level: "running"}, &s)
-
-	if len(actions) != 0 {
-		t.Errorf("disabled tunnel should not be started, got %d actions", len(actions))
-	}
-}
+// NOTE: the former TestDecide_NDMSHook_IgnoresDisabled was removed — an
+// external conf=running now intentionally starts a disabled tunnel (the
+// user's router-UI "on" intent wins). See
+// TestDecide_NDMSHook_Running_ExternalEnableWhileDisabled_Starts.
 
 func TestDecide_NDMSHook_IgnoresNoWAN(t *testing.T) {
 	s := newState()
