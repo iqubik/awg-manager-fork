@@ -772,6 +772,10 @@ func main() {
 	subSvc := subscription.NewService(subStore, subAdapter)
 	subSvc.SetAppLogger(loggingService)
 
+	// Let NDMS-proxy enable/disable + orphan cleanup manage subscription
+	// composite proxies (a set separate from Tunnels()).
+	singboxOp.SetSubscriptionProxySet(subProxySet{store: subStore})
+
 	// Wire orchestrator into Operator so ApplyConfig writes 10-tunnels.json
 	// through SlotTunnels rather than an in-place write that bypasses
 	// the orchestrator's validate / debounced reload.
@@ -2050,4 +2054,29 @@ type orchValidatorAdapter struct {
 
 func (a *orchValidatorAdapter) Validate(ctx context.Context, configDir string) error {
 	return a.v.Validate(configDir)
+}
+
+// subProxySet adapts the subscription store to singbox.SubscriptionProxySet,
+// exposing each subscription's allocated NDMS composite proxy (index/port/label)
+// so the NDMS-proxy migration and orphan cleanup manage them.
+type subProxySet struct {
+	store *subscription.Store
+}
+
+func (a subProxySet) SubscriptionProxies() []singbox.SubscriptionProxy {
+	if a.store == nil {
+		return nil
+	}
+	var out []singbox.SubscriptionProxy
+	for _, sub := range a.store.List() {
+		if sub.ProxyIndex < 0 || sub.ListenPort == 0 {
+			continue
+		}
+		out = append(out, singbox.SubscriptionProxy{
+			Index: sub.ProxyIndex,
+			Port:  int(sub.ListenPort),
+			Label: sub.Label,
+		})
+	}
+	return out
 }

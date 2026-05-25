@@ -114,7 +114,7 @@ func (pm *ProxyManager) RemoveProxy(ctx context.Context, index int) error {
 // Прочие ProxyN остаются нетронутыми — это пользовательские интерфейсы.
 // Best-effort: при ошибке удаления одного proxy переходит к следующему,
 // возвращает первую ошибку.
-func (pm *ProxyManager) RemoveOrphanSingboxProxies(ctx context.Context, tunnelTags map[string]bool, ourPortSlots map[int]bool) error {
+func (pm *ProxyManager) RemoveOrphanSingboxProxies(ctx context.Context, tunnelTags map[string]bool, ourPortSlots, subProxyIdx map[int]bool) error {
 	ifaces, err := pm.queries.Interfaces.List(ctx)
 	if err != nil {
 		return fmt.Errorf("list interfaces: %w", err)
@@ -128,13 +128,7 @@ func (pm *ProxyManager) RemoveOrphanSingboxProxies(ctx context.Context, tunnelTa
 		if n, e := fmt.Sscanf(iface.ID, proxyIfacePrefix+"%d", &idx); e != nil || n != 1 {
 			continue
 		}
-		var isOurs bool
-		if iface.Description != "" {
-			isOurs = tunnelTags[iface.Description]
-		} else {
-			isOurs = ourPortSlots[idx]
-		}
-		if !isOurs {
+		if !proxyIsOurs(idx, iface.Description, tunnelTags, ourPortSlots, subProxyIdx) {
 			continue
 		}
 		if err := pm.RemoveProxy(ctx, idx); err != nil && firstErr == nil {
@@ -142,6 +136,37 @@ func (pm *ProxyManager) RemoveOrphanSingboxProxies(ctx context.Context, tunnelTa
 		}
 	}
 	return firstErr
+}
+
+// SubscriptionProxy describes an NDMS ProxyN created for a subscription
+// composite (urltest/selector). These live in a separate managed set from
+// tunnel proxies (Tunnels()): their port and proxy index are allocated by the
+// subscription system, not derived from listen_port-firstPort.
+type SubscriptionProxy struct {
+	Index int
+	Port  int
+	Label string
+}
+
+// SubscriptionProxySet enumerates active subscription composite proxies.
+// Implemented by the wiring layer over the subscription store.
+type SubscriptionProxySet interface {
+	SubscriptionProxies() []SubscriptionProxy
+}
+
+// proxyIsOurs reports whether ProxyN (index idx, interface description desc) was
+// created by awg-manager for sing-box. Tunnel proxies are matched by their tag
+// description or port slot; subscription composites carry the user label as
+// description (not a tunnel tag), so they are recognised by their explicitly
+// tracked proxy index instead.
+func proxyIsOurs(idx int, desc string, tunnelTags map[string]bool, ourPortSlots, subProxyIdx map[int]bool) bool {
+	if subProxyIdx[idx] {
+		return true
+	}
+	if desc != "" {
+		return tunnelTags[desc]
+	}
+	return ourPortSlots[idx]
 }
 
 // SyncProxies reconciles NDMS Proxy interfaces with current config.json tunnels.

@@ -110,6 +110,12 @@ type Operator struct {
 	clash     *ClashClient
 	bus       *events.Bus
 
+	// subProxies enumerates NDMS proxies created for subscription composites
+	// (a managed set separate from Tunnels()). Used by the NDMS-proxy
+	// enable/disable migration and orphan cleanup so composite proxies are
+	// removed/recreated symmetrically with tunnel proxies. nil-safe.
+	subProxies SubscriptionProxySet
+
 	// processLogger forwards sing-box stdout/stderr lines into the app
 	// log under singbox/process so users can see daemon output at
 	// /diagnostics?tab=logs without ssh'ing in. nil-safe (ScopedLogger
@@ -407,6 +413,20 @@ func (o *Operator) Process() *Process { return o.proc }
 // uses it (when non-nil) to write 10-tunnels.json through the slot
 // writer instead of the legacy direct-write path.
 func (o *Operator) SetOrch(orch *orchestrator.Orchestrator) { o.orch = orch }
+
+// SetSubscriptionProxySet wires the enumerator of subscription composite
+// proxies, so NDMS-proxy enable/disable and orphan cleanup manage them
+// alongside tunnel proxies. nil-safe.
+func (o *Operator) SetSubscriptionProxySet(s SubscriptionProxySet) { o.subProxies = s }
+
+// subscriptionProxies returns the current subscription composite proxies, or
+// nil when no enumerator is wired.
+func (o *Operator) subscriptionProxies() []SubscriptionProxy {
+	if o.subProxies == nil {
+		return nil
+	}
+	return o.subProxies.SubscriptionProxies()
+}
 
 // SetOutboundReferenceRenamer wires the singbox-router reference updater.
 // Optional: when nil, RenameTunnel only updates 10-tunnels.json.
@@ -1937,7 +1957,13 @@ func (o *Operator) removeOrphanSingboxProxies(ctx context.Context) error {
 			}
 		}
 	}
-	return o.proxyMgr.RemoveOrphanSingboxProxies(ctx, tunnelTags, portSlots)
+	// Subscription composites are tracked by explicit proxy index (their
+	// description is the user label, not a tunnel tag).
+	subProxyIdx := map[int]bool{}
+	for _, sp := range o.subscriptionProxies() {
+		subProxyIdx[sp.Index] = true
+	}
+	return o.proxyMgr.RemoveOrphanSingboxProxies(ctx, tunnelTags, portSlots, subProxyIdx)
 }
 
 // Reconcile: ensure process is running if config has tunnels; ensure Proxies are up.

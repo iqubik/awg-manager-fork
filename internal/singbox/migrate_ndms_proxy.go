@@ -69,6 +69,16 @@ func (m *Migrator) MigrateOff(ctx context.Context) error {
 		}
 	}
 
+	// Subscription composite proxies are a separate managed set, invisible to
+	// Tunnels() — remove them explicitly so disabling NDMS Proxy also tears
+	// down the ProxyN behind selector/urltest subscriptions.
+	for _, sp := range m.op.subscriptionProxies() {
+		if rerr := m.op.proxyMgr.RemoveProxy(ctx, sp.Index); rerr != nil {
+			m.log.Warn("MigrateOff: RemoveProxy (subscription) failed",
+				"label", sp.Label, "idx", sp.Index, "err", rerr)
+		}
+	}
+
 	m.op.MarkNeedsOrphanCleanup()
 	if m.op.bus != nil {
 		m.op.bus.Publish("resource:invalidated", map[string]any{"resource": "singbox.status"})
@@ -98,6 +108,15 @@ func (m *Migrator) MigrateOn(ctx context.Context) error {
 		// Tunnels() заполнит ProxyInterface "Proxy<slot>" из listen_port.
 		if serr := m.op.proxyMgr.SyncProxies(ctx, cfg.Tunnels()); serr != nil {
 			m.log.Warn("MigrateOn: SyncProxies failed", "err", serr)
+		}
+	}
+
+	// Recreate subscription composite proxies symmetrically (SyncProxies only
+	// covers Tunnels()). EnsureProxy is idempotent.
+	for _, sp := range m.op.subscriptionProxies() {
+		if eerr := m.op.proxyMgr.EnsureProxy(ctx, sp.Index, sp.Port, sp.Label); eerr != nil {
+			m.log.Warn("MigrateOn: EnsureProxy (subscription) failed",
+				"label", sp.Label, "idx", sp.Index, "err", eerr)
 		}
 	}
 
