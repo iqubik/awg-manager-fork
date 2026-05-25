@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/hoaxisr/awg-manager/internal/downloader"
 )
 
 // --- archSuffix sanity check (the function lives in repo.go now) ---
@@ -192,39 +194,36 @@ func TestCheck_HTTPError(t *testing.T) {
 	}
 }
 
-// newMockDevelopServer serves gzipped Packages for /develop/<arch>/Packages.gz.
-func newMockDevelopServer(t *testing.T, packagesContent string, statusCode int) *httptest.Server {
-	gzData := gzipBytes(t, packagesContent)
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/develop/") {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.WriteHeader(statusCode)
-		if statusCode == http.StatusOK {
-			w.Write(gzData)
-		}
-	}))
-}
-
 func TestCheck_DevelopDetectsNewerRevision(t *testing.T) {
 	arch := archSuffix()
+	archDir := archSuffixToRepoDir(arch)
 	ipk := "awg-manager_2.11.2+r71_" + arch + "-kn.ipk"
-	body := "Package: awg-manager\nVersion: 2.11.2+r71\nFilename: " + ipk + "\n"
+	packages := "Package: awg-manager\nVersion: 2.11.2+r71\nFilename: " + ipk + "\n"
 
-	srv := newMockDevelopServer(t, body, http.StatusOK)
-	defer srv.Close()
-	withMockRepo(t, srv)
+	var seen downloader.Request
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			seen = req
+			return gzipBytes(t, packages), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+		},
+	}
 
-	info := checkWithDownloader(context.Background(), "2.11.2+r70", "develop", newDefaultDownloader())
+	info := checkWithDownloader(context.Background(), "2.11.2+r70", "develop", dl)
+
+	if !strings.Contains(seen.URL, "/develop/") {
+		t.Errorf("request URL %q does not contain /develop/", seen.URL)
+	}
+	wantSuffix := archDir + "/Packages.gz"
+	if !strings.HasSuffix(seen.URL, wantSuffix) {
+		t.Errorf("request URL %q does not end with %q", seen.URL, wantSuffix)
+	}
 	if !info.Available {
 		t.Fatal("expected Available=true: r71 > r70 on develop")
 	}
 	if info.LatestVersion != "2.11.2+r71" {
 		t.Errorf("LatestVersion = %q, want 2.11.2+r71", info.LatestVersion)
 	}
-	wantURL := srv.URL + "/develop/" + archSuffixToRepoDir(arch) + "/" + ipk
+	wantURL := entwareRepoURL + "/develop/" + archDir + "/" + ipk
 	if info.DownloadURL != wantURL {
 		t.Errorf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
 	}
@@ -232,14 +231,31 @@ func TestCheck_DevelopDetectsNewerRevision(t *testing.T) {
 
 func TestCheck_DevelopSameRevisionUpToDate(t *testing.T) {
 	arch := archSuffix()
-	body := "Package: awg-manager\nVersion: 2.11.2+r70\nFilename: awg-manager_2.11.2+r70_" + arch + "-kn.ipk\n"
+	archDir := archSuffixToRepoDir(arch)
+	ipk := "awg-manager_2.11.2+r70_" + arch + "-kn.ipk"
+	packages := "Package: awg-manager\nVersion: 2.11.2+r70\nFilename: " + ipk + "\n"
 
-	srv := newMockDevelopServer(t, body, http.StatusOK)
-	defer srv.Close()
-	withMockRepo(t, srv)
+	var seen downloader.Request
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			seen = req
+			return gzipBytes(t, packages), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+		},
+	}
 
-	info := checkWithDownloader(context.Background(), "2.11.2+r70", "develop", newDefaultDownloader())
+	info := checkWithDownloader(context.Background(), "2.11.2+r70", "develop", dl)
+
+	if !strings.Contains(seen.URL, "/develop/") {
+		t.Errorf("request URL %q does not contain /develop/", seen.URL)
+	}
+	wantSuffix := archDir + "/Packages.gz"
+	if !strings.HasSuffix(seen.URL, wantSuffix) {
+		t.Errorf("request URL %q does not end with %q", seen.URL, wantSuffix)
+	}
 	if info.Available {
 		t.Fatal("expected Available=false: same revision")
+	}
+	if info.DownloadURL != "" {
+		t.Errorf("DownloadURL = %q, want empty", info.DownloadURL)
 	}
 }
