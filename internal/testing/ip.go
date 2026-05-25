@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hoaxisr/awg-manager/internal/sys/exec"
+	"github.com/hoaxisr/awg-manager/internal/sys/httpclient"
 )
 
 // defaultIPCheckServices is the built-in list of IP detection services.
@@ -20,7 +20,7 @@ var defaultIPCheckServices = []IPCheckService{
 const (
 	directIPTimeout   = 10 * time.Second
 	vpnIPTimeout      = 20 * time.Second
-	perServiceTimeout = 4
+	perServiceTimeout = 4 * time.Second
 )
 
 // GetIPCheckServices returns the list of available IP check services.
@@ -35,23 +35,23 @@ func (s *Service) CheckIP(ctx context.Context, tunnelID string, serviceURL strin
 		return nil, err
 	}
 
-	// Build direct IP options: bind to WAN interface if known
-	var directOpts []string
-	if wanIface := s.GetWANInterface(tunnelID); wanIface != "" {
-		directOpts = []string{"--interface", wanIface}
+	// Determine WAN interface for direct (non-VPN) check.
+	var wanIface string
+	if w := s.GetWANInterface(tunnelID); w != "" {
+		wanIface = w
 	}
 
-	// Get direct IP (through WAN, bypassing tunnel default route)
+	// Get direct IP (through WAN, bypassing tunnel default route).
 	directCtx, directCancel := context.WithTimeout(ctx, directIPTimeout)
 	defer directCancel()
 
-	directIP, err := s.fetchIPAuto(directCtx, serviceURL, directOpts)
+	directIP, err := s.fetchIPAuto(directCtx, serviceURL, wanIface)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get WAN IP: %w", err)
 	}
 
-	// Get VPN IP (through tunnel)
-	curlOpts, err := s.GetCurlOptions(tunnelID)
+	// Get VPN IP (through tunnel).
+	iface, err := s.GetInterfaceName(tunnelID)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (s *Service) CheckIP(ctx context.Context, tunnelID string, serviceURL strin
 	vpnCtx, vpnCancel := context.WithTimeout(ctx, vpnIPTimeout)
 	defer vpnCancel()
 
-	vpnIP, err := s.fetchIPAuto(vpnCtx, serviceURL, curlOpts)
+	vpnIP, err := s.fetchIPAuto(vpnCtx, serviceURL, iface)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get IP through tunnel: %w", err)
 	}
@@ -75,22 +75,22 @@ func (s *Service) CheckIP(ctx context.Context, tunnelID string, serviceURL strin
 }
 
 // fetchIPAuto delegates to the standalone fetchIPAuto function.
-func (s *Service) fetchIPAuto(ctx context.Context, serviceURL string, extraCurlOpts []string) (string, error) {
-	return fetchIPAuto(ctx, serviceURL, extraCurlOpts)
+func (s *Service) fetchIPAuto(ctx context.Context, serviceURL string, iface string) (string, error) {
+	return fetchIPAuto(ctx, serviceURL, iface)
 }
 
 // fetchIP queries a single IP check service.
-func fetchIP(ctx context.Context, url string, extraCurlOpts []string) (string, error) {
-	args := []string{"-s", "--max-time", fmt.Sprintf("%d", perServiceTimeout)}
-	args = append(args, extraCurlOpts...)
-	args = append(args, url)
-
-	result, err := exec.Run(ctx, "/opt/bin/curl", args...)
+func fetchIP(ctx context.Context, url string, iface string) (string, error) {
+	res, err := httpclient.DefaultClient.Do(ctx, httpclient.CallConfig{
+		URL:       url,
+		Interface: iface,
+		MaxTime:   perServiceTimeout,
+	})
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", url, exec.FormatError(result, err))
+		return "", fmt.Errorf("%s: %w", url, err)
 	}
 
-	ip := strings.TrimSpace(result.Stdout)
+	ip := strings.TrimSpace(res.Body)
 	if isValidIP(ip) {
 		return ip, nil
 	}
@@ -113,22 +113,20 @@ func truncate(s string, n int) string {
 // CheckIPByInterface tests IP through a kernel interface directly.
 // Used for system tunnels. Fetches both direct (WAN) and VPN IPs, compares them.
 func CheckIPByInterface(ctx context.Context, ifaceName string, serviceURL string) (*IPResult, error) {
-	// Get direct IP (without interface binding — through default route)
+	// Get direct IP (without interface binding — through default route).
 	directCtx, directCancel := context.WithTimeout(ctx, directIPTimeout)
 	defer directCancel()
 
-	directIP, err := fetchIPAuto(directCtx, serviceURL, nil)
+	directIP, err := fetchIPAuto(directCtx, serviceURL, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get WAN IP: %w", err)
 	}
 
-	// Get VPN IP (through the specified interface)
-	curlOpts := []string{"--interface", ifaceName}
-
+	// Get VPN IP (through the specified interface).
 	vpnCtx, vpnCancel := context.WithTimeout(ctx, vpnIPTimeout)
 	defer vpnCancel()
 
-	vpnIP, err := fetchIPAuto(vpnCtx, serviceURL, curlOpts)
+	vpnIP, err := fetchIPAuto(vpnCtx, serviceURL, ifaceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get IP through interface: %w", err)
 	}
@@ -151,7 +149,7 @@ type WANIPFallback func(ctx context.Context) (string, error)
 // returns whatever it produces. Errors from the fallback are surfaced;
 // the original external-probe error is only returned if fallback is nil.
 func GetWANIPWithFallback(ctx context.Context, fallback WANIPFallback) (string, error) {
-	ip, err := fetchIPAuto(ctx, "", nil)
+	ip, err := fetchIPAuto(ctx, "", "")
 	if err == nil {
 		return ip, nil
 	}
@@ -166,14 +164,14 @@ func GetWANIPWithFallback(ctx context.Context, fallback WANIPFallback) (string, 
 }
 
 // fetchIPAuto fetches IP using a specific service or falls back through the default list.
-func fetchIPAuto(ctx context.Context, serviceURL string, extraCurlOpts []string) (string, error) {
+func fetchIPAuto(ctx context.Context, serviceURL string, iface string) (string, error) {
 	if serviceURL != "" {
-		return fetchIP(ctx, serviceURL, extraCurlOpts)
+		return fetchIP(ctx, serviceURL, iface)
 	}
 
 	var lastErr error
 	for _, svc := range defaultIPCheckServices {
-		ip, err := fetchIP(ctx, svc.URL, extraCurlOpts)
+		ip, err := fetchIP(ctx, svc.URL, iface)
 		if err != nil {
 			lastErr = err
 			continue

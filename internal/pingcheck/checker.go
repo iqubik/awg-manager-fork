@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/sys/exec"
+	"github.com/hoaxisr/awg-manager/internal/sys/httpclient"
 )
 
 const (
@@ -18,39 +19,24 @@ const (
 
 // checkHTTP performs HTTP 204 connectivity check through the tunnel.
 func checkHTTP(ctx context.Context, ifaceName string) CheckResult {
-	iface := ifaceName
-
-	args := []string{
-		"-s", "-o", "/dev/null",
-		"--max-time", curlMaxTime,
-		"-w", "%{http_code}|%{time_total}",
-		"--interface", iface,
-		connectivityURL,
-	}
-
 	checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
 
-	result, err := exec.Run(checkCtx, "/opt/bin/curl", args...)
+	res, err := httpclient.DefaultClient.Do(checkCtx, httpclient.CallConfig{
+		URL:            connectivityURL,
+		Interface:      ifaceName,
+		MaxTime:        5 * time.Second,
+		DiscardBody:    true,
+	})
 	if err != nil {
 		return CheckResult{
 			Success: false,
-			Error:   fmt.Sprintf("curl failed: %v", exec.FormatError(result, err)),
+			Error:   fmt.Sprintf("HTTP check failed: %v", err),
 		}
 	}
 
-	output := strings.TrimSpace(result.Stdout)
-	parts := strings.Split(output, "|")
-	if len(parts) != 2 {
-		return CheckResult{
-			Success: false,
-			Error:   fmt.Sprintf("unexpected curl output: %s", output),
-		}
-	}
-
-	httpCode, _ := strconv.Atoi(parts[0])
-	timeTotal, _ := strconv.ParseFloat(parts[1], 64)
-	latencyMs := int(timeTotal * 1000)
+	httpCode := res.Metrics.HTTPCode
+	latencyMs := int(res.Metrics.TimeTotal * 1000)
 
 	if httpCode == 204 {
 		return CheckResult{

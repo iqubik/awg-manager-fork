@@ -1,0 +1,249 @@
+// Package httpclient provides a lightweight HTTP client with interface binding,
+// proxy support, and precise timing metrics. It replaces curl CLI invocations
+// for all runtime HTTP operations in the application.
+package httpclient
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptrace"
+	"net/url"
+	"strings"
+	"time"
+)
+
+// Metrics mirrors curl's -w output fields used across the codebase.
+type Metrics struct {
+	HTTPCode       int     // e.g. 204, 200, 404
+	TimeNameLookup float64 // DNS resolution in seconds
+	TimeConnect    float64 // TCP connect in seconds
+	TimeTotal      float64 // Full request in seconds
+}
+
+// Result is the unified return type for all operations.
+type Result struct {
+	Body    string  // Response body (may be empty when discardBody is used)
+	Metrics Metrics
+}
+
+// CallConfig captures all the variation in how curl is invoked.
+// Every field is optional — zero value means "not applicable".
+type CallConfig struct {
+	// URL is the request target. Required.
+	URL string
+
+	// Interface binds the request to a kernel device (curl --interface).
+	// Implemented via SO_BINDTODEVICE on the dialer.
+	Interface string
+
+	// ProxyURL routes through an HTTP/SOCKS proxy (curl -x / --proxy).
+	// Supports "http://", "socks5://", "socks5h://" schemes.
+	ProxyURL string
+
+	// Method defaults to GET; set to "HEAD" for monitoring probes.
+	Method string
+
+	// MaxTime is the overall request timeout (curl --max-time).
+	MaxTime time.Duration
+
+	// ConnectTimeout is the TCP connect timeout (curl --connect-timeout).
+	ConnectTimeout time.Duration
+
+	// DiscardBody when true skips reading the response body (curl -o /dev/null).
+	DiscardBody bool
+
+	// PostData, if non-nil, makes this a POST request with form data
+	// (replaces curl --data-urlencode, -X POST).
+	PostData url.Values
+}
+
+// HTTPDoer is the interface satisfied by Client for test stubs.
+type HTTPDoer interface {
+	Do(ctx context.Context, cfg CallConfig) (*Result, error)
+}
+
+// Client wraps http.Client with interface-binding dialer.
+// Safe for concurrent use after construction.
+// Reuse the same Client instance; per-call state (interface, proxy) is
+// isolated inside each Do call.
+type Client struct {
+	// baseTransport is pre-built with clean defaults. Cloned per-call
+	// when interface or proxy override is needed.
+	baseTransport *http.Transport
+}
+
+// New creates a Client with sensible defaults.
+func New() *Client {
+	return &Client{
+		baseTransport: &http.Transport{
+			MaxIdleConns:          10,
+			IdleConnTimeout:       30 * time.Second,
+			DisableKeepAlives:     true, // Most calls are one-shot probes
+			TLSHandshakeTimeout:   5 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			// Match curl behaviour: HTTP/1.1 only. Not every target
+			// (especially inside VPNs) handles HTTP/2 well.
+			ForceAttemptHTTP2: false,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: false,
+			},
+		},
+	}
+}
+
+// DefaultClient is the package-level client for convenient use.
+var DefaultClient = New()
+
+// Do executes an HTTP request per cfg and returns the result and metrics.
+// Context cancellation and timeouts are respected.
+func (c *Client) Do(ctx context.Context, cfg CallConfig) (*Result, error) {
+	if cfg.URL == "" {
+		return nil, fmt.Errorf("httpclient: URL is required")
+	}
+
+	method := cfg.Method
+	if method == "" {
+		if cfg.PostData != nil {
+			method = http.MethodPost
+		} else {
+			method = http.MethodGet
+		}
+	}
+
+	var bodyReader io.Reader
+	if cfg.PostData != nil {
+		bodyReader = strings.NewReader(cfg.PostData.Encode())
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, cfg.URL, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("httpclient: new request: %w", err)
+	}
+
+	if cfg.PostData != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+
+	// Timing trace setup — mirrors curl -w %{time_namelookup}|%{time_connect}
+	timings := &traceTimings{}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), buildTrace(timings)))
+
+	// Build per-call transport (interface binding + proxy).
+	transport := c.buildTransport(cfg)
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   cfg.MaxTime,
+	}
+
+	start := time.Now()
+	resp, err := client.Do(req)
+	if err != nil {
+		// Map timeout errors to predictable message, matching curl behaviour.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("httpclient: %w", ctxErr)
+		}
+		if client.Timeout > 0 && time.Since(start) >= client.Timeout {
+			return nil, fmt.Errorf("httpclient: request timed out")
+		}
+		return nil, fmt.Errorf("httpclient: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read metrics from response and timing.
+	metrics := Metrics{
+		HTTPCode: resp.StatusCode,
+	}
+	if !timings.dnsStart.IsZero() && !timings.dnsDone.IsZero() {
+		metrics.TimeNameLookup = timings.dnsDone.Sub(timings.dnsStart).Seconds()
+	}
+	if !timings.connectStart.IsZero() && !timings.connectDone.IsZero() {
+		metrics.TimeConnect = timings.connectDone.Sub(timings.connectStart).Seconds()
+	}
+
+	// Read body (or discard).
+	var body string
+	if cfg.DiscardBody {
+		_, _ = io.Copy(io.Discard, resp.Body)
+	} else {
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
+		if readErr != nil {
+			// Not fatal — we still have status code and partial data.
+			// Log or ignore per project convention.
+		} else {
+			body = string(data)
+		}
+	}
+
+	metrics.TimeTotal = time.Since(start).Seconds()
+
+	return &Result{
+		Body:    body,
+		Metrics: metrics,
+	}, nil
+}
+
+// traceTimings holds intermediate timing data collected by httptrace.
+type traceTimings struct {
+	dnsStart     time.Time
+	dnsDone      time.Time
+	connectStart time.Time
+	connectDone  time.Time
+}
+
+func buildTrace(t *traceTimings) *httptrace.ClientTrace {
+	return &httptrace.ClientTrace{
+		DNSStart:     func(_ httptrace.DNSStartInfo) { t.dnsStart = time.Now() },
+		DNSDone:      func(_ httptrace.DNSDoneInfo) { t.dnsDone = time.Now() },
+		ConnectStart: func(_, _ string) { t.connectStart = time.Now() },
+		ConnectDone:  func(_, _ string, _ error) { t.connectDone = time.Now() },
+	}
+}
+
+// buildTransport creates a *http.Transport for a specific call config.
+// Each call gets its own transport because:
+//   - Interface binding is per-socket (SO_BINDTODEVICE on the dialer).
+//   - Proxy can vary per call.
+func (c *Client) buildTransport(cfg CallConfig) *http.Transport {
+	t := c.baseTransport.Clone()
+
+	// Set up the custom dialer with interface binding.
+	connectTimeout := cfg.ConnectTimeout
+	if connectTimeout == 0 {
+		connectTimeout = 5 * time.Second
+	}
+	dialer := bindDialer(cfg.Interface, connectTimeout)
+	t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return dialer.DialContext(ctx, network, addr)
+	}
+
+	// Set up proxy if specified.
+	if cfg.ProxyURL != "" {
+		proxyURL, err := url.Parse(cfg.ProxyURL)
+		if err == nil {
+			t.Proxy = http.ProxyURL(proxyURL)
+		}
+	}
+
+	// Enforce ForceAttemptHTTP2 = false — some VPN endpoints behind
+	// restrictive firewalls choke on HTTP/2 ALPN negotiation.
+	t.ForceAttemptHTTP2 = false
+
+	return t
+}
+
+// SecToMs converts seconds (float64) to milliseconds (int) with the same
+// floor-to-1ms rule used by the existing curl-based callers.
+func SecToMs(sec float64) int {
+	if sec <= 0 {
+		return 0
+	}
+	ms := int(sec * 1000)
+	if ms < 1 {
+		ms = 1
+	}
+	return ms
+}

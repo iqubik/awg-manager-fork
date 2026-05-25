@@ -189,7 +189,7 @@ done
 cat > "$IPK_ROOT/CONTROL/control" << EOF
 Package: awg-manager
 Version: ${VERSION}
-Depends: curl, iptables, ip-full, wireguard-tools
+Depends: iptables, ip-full, wireguard-tools
 Section: net
 Architecture: ${PKG_ARCH}
 Maintainer: hoaxisr

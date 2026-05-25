@@ -9,8 +9,14 @@
 # The HOOK_TYPE is derived from the directory name at invocation time.
 #
 # Runs under NDMS with BusyBox /bin/sh. Uses absolute paths for Entware
-# tools (ip, curl) and BusyBox-portable text extraction (sed/awk) — the
+# tools (ip) and BusyBox-portable text extraction (sed/awk) — the
 # /bin/grep on Keenetic is BusyBox grep and does NOT support -P/\K.
+#
+# Uses BusyBox wget (always present on Keenetic) instead of curl to
+# eliminate the curl runtime dependency. Form values are passed raw
+# inside --post-data because all hook parameters (interface names,
+# layer strings, IPv4/IPv6 addresses) use characters safe for
+# application/x-www-form-urlencoded without extra encoding.
 
 HOOK_TYPE=$(basename "$(dirname "$0")" .d)
 
@@ -24,15 +30,13 @@ AWG_HOST=$(/opt/sbin/ip -4 addr show br0 2>/dev/null | awk '/inet /{split($2,a,"
 # Forward all relevant env vars. Unspecified vars are empty strings — the
 # server side ignores them per EventType discriminator. Max 3s timeout so
 # the NDMS hook queue never stalls on our process being slow or down.
-/opt/bin/curl -s -o /dev/null --max-time 3 -X POST \
+
+# Build the POST body. Values are safe URL characters (alphanumeric, dot,
+# colon, underscore, hyphen) so no extra encoding is required.
+BODY="type=${HOOK_TYPE}&id=${id}&system_name=${system_name}&layer=${layer}&level=${level}&address=${address}&up=${up}&connected=${connected}"
+
+/bin/wget -qO- --post-data="$BODY" --timeout=3 \
     "http://${AWG_HOST}:${AWG_PORT}/api/hook/ndms" \
-    --data-urlencode "type=${HOOK_TYPE}" \
-    --data-urlencode "id=${id}" \
-    --data-urlencode "system_name=${system_name}" \
-    --data-urlencode "layer=${layer}" \
-    --data-urlencode "level=${level}" \
-    --data-urlencode "address=${address}" \
-    --data-urlencode "up=${up}" \
-    --data-urlencode "connected=${connected}" \
-    2>/dev/null
+    >/dev/null 2>&1
+
 exit 0

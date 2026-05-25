@@ -13,7 +13,7 @@ import (
 
 	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/logging"
-	"github.com/hoaxisr/awg-manager/internal/sys/exec"
+	"github.com/hoaxisr/awg-manager/internal/sys/httpclient"
 )
 
 // Deps groups the external collaborators Service needs. Wired once at
@@ -1020,24 +1020,25 @@ func parseIPResult(stdout string) (string, bool) {
 	return ip, net.ParseIP(ip) != nil
 }
 
-func fetchIPViaCurl(ctx context.Context, serviceURL string, extraArgs []string) (string, string, error) {
+func fetchIPViaHTTP(ctx context.Context, serviceURL string, proxyURL string) (string, string, error) {
 	if serviceURL != "" {
-		args := []string{"-s", "--max-time", fmt.Sprintf("%d", instanceIPMaxTimeSec)}
-		args = append(args, extraArgs...)
-		args = append(args, serviceURL)
-		res, err := exec.Run(ctx, "/opt/bin/curl", args...)
+		res, err := httpclient.DefaultClient.Do(ctx, httpclient.CallConfig{
+			URL:       serviceURL,
+			ProxyURL:  proxyURL,
+			MaxTime:   instanceIPMaxTimeSec * time.Second,
+		})
 		if err != nil {
-			return "", "", fmt.Errorf("%s: %w", serviceURL, exec.FormatError(res, err))
+			return "", "", fmt.Errorf("%s: %w", serviceURL, err)
 		}
-		if ip, ok := parseIPResult(res.Stdout); ok {
+		if ip, ok := parseIPResult(res.Body); ok {
 			return ip, serviceURL, nil
 		}
-		return "", "", fmt.Errorf("%s: invalid response %q", serviceURL, strings.TrimSpace(res.Stdout))
+		return "", "", fmt.Errorf("%s: invalid response %q", serviceURL, strings.TrimSpace(res.Body))
 	}
 
 	var lastErr error
 	for _, svcURL := range instanceIPCheckServices {
-		ip, usedService, err := fetchIPViaCurl(ctx, svcURL, extraArgs)
+		ip, usedService, err := fetchIPViaHTTP(ctx, svcURL, proxyURL)
 		if err != nil {
 			lastErr = err
 			continue
@@ -1089,14 +1090,14 @@ func (s *Service) CheckInstanceExternalIP(ctx context.Context, id, serviceURL st
 
 	directCtx, directCancel := context.WithTimeout(ctx, instanceIPDirectTimeout)
 	defer directCancel()
-	directIP, _, err := fetchIPViaCurl(directCtx, serviceURL, nil)
+	directIP, _, err := fetchIPViaHTTP(directCtx, serviceURL, "")
 	if err != nil {
 		return InstanceIPCheckResult{}, fmt.Errorf("failed to get WAN IP: %w", err)
 	}
 
 	proxyCtx, proxyCancel := context.WithTimeout(ctx, instanceIPProxyTimeout)
 	defer proxyCancel()
-	proxyIP, usedService, err := fetchIPViaCurl(proxyCtx, serviceURL, []string{"--proxy", proxyURL.String()})
+	proxyIP, usedService, err := fetchIPViaHTTP(proxyCtx, serviceURL, proxyURL.String())
 	if err != nil {
 		return InstanceIPCheckResult{}, fmt.Errorf("failed to get IP through proxy instance %q: %w", id, err)
 	}

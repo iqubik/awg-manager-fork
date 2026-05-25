@@ -56,12 +56,21 @@ func (s *Service) GetInterface(id string) (string, error) {
 	return s.resolveIfaceName(id), nil
 }
 
-// GetCurlOptions returns curl command-line arguments for routing traffic through the tunnel.
-func (s *Service) GetCurlOptions(id string) ([]string, error) {
+// GetInterfaceName returns the kernel interface name for a tunnel.
+func (s *Service) GetInterfaceName(id string) (string, error) {
 	if !IsAWGID(id) {
-		return nil, ErrInvalidTunnelID
+		return "", ErrInvalidTunnelID
 	}
-	iface := s.resolveIfaceName(id)
+	return s.resolveIfaceName(id), nil
+}
+
+// GetCurlOptions returns curl command-line arguments for routing traffic through the tunnel.
+// Deprecated: use GetInterfaceName with httpclient.CallConfig.Interface instead.
+func (s *Service) GetCurlOptions(id string) ([]string, error) {
+	iface, err := s.GetInterfaceName(id)
+	if err != nil {
+		return nil, err
+	}
 	return []string{"--interface", iface}, nil
 }
 

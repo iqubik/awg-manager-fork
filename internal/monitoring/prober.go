@@ -2,11 +2,13 @@ package monitoring
 
 import (
 	"context"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/sys/exec"
+	"github.com/hoaxisr/awg-manager/internal/sys/httpclient"
 )
 
 // Prober probes a single host through a specific interface and returns
@@ -16,29 +18,28 @@ type Prober interface {
 	Probe(ctx context.Context, host, ifaceName string, timeout time.Duration) (latencyMs int, ok bool)
 }
 
-// Runner abstracts the exec call so tests can stub responses.
-type Runner interface {
-	Run(ctx context.Context, name string, args ...string) (*exec.Result, error)
+// HTTPDoer is the minimal surface needed by HTTPProber.
+type HTTPDoer interface {
+	Do(ctx context.Context, cfg httpclient.CallConfig) (*httpclient.Result, error)
 }
 
-// HTTPProber probes via curl HTTPS HEAD and reports the **TCP RTT** —
-// `time_connect - time_namelookup` — as latency. This matches the metric
-// reported by the per-tunnel connectivity-check service so numbers in the
-// matrix line up with what cards used to display.
+// HTTPProber probes via HTTPS HEAD through a Go-native HTTP client with
+// SO_BINDTODEVICE and reports the **TCP RTT** — `time_connect - time_namelookup`.
+// This matches the metric reported by the per-tunnel connectivity-check service
+// so numbers in the monitoring matrix line up.
 //
-// "Reachable" is defined as: curl received any HTTP status code (>0)
-// before the timeout. 4xx/5xx still counts — TCP+TLS handshake completed
-// through the tunnel, so the host is alive.
+// "Reachable" is defined as: any HTTP status code (>0) before the timeout.
+// 4xx/5xx still counts — TCP+TLS handshake completed through the tunnel.
 type HTTPProber struct {
-	Runner Runner
+	Doer HTTPDoer
 }
 
-// NewHTTPProber builds a curl-based prober backed by the package-level
-// exec.Run.
+// NewHTTPProber builds a prober backed by the package-level httpclient.
 func NewHTTPProber() *HTTPProber {
-	return &HTTPProber{Runner: defaultRunner{}}
+	return &HTTPProber{Doer: httpclient.DefaultClient}
 }
 
+// defaultRunner is preserved for ICMPProber only.
 type defaultRunner struct{}
 
 func (defaultRunner) Run(ctx context.Context, name string, args ...string) (*exec.Result, error) {
@@ -46,51 +47,35 @@ func (defaultRunner) Run(ctx context.Context, name string, args ...string) (*exe
 }
 
 // Probe issues a single HTTPS HEAD request through ifaceName.
-// ok=false on context cancellation, exec error, non-zero exit code, or
-// http_code == 0 (no response received).
+// ok=false on context cancellation, client error, or http_code == 0 (no response).
 func (p *HTTPProber) Probe(ctx context.Context, host, ifaceName string, timeout time.Duration) (int, bool) {
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout+1*time.Second)
 	defer cancel()
 
-	timeoutSec := int(timeout.Seconds())
-	if timeoutSec < 1 {
-		timeoutSec = 1
-	}
-	args := []string{
-		"-sI",
-		"-o", "/dev/null",
-		"--max-time", strconv.Itoa(timeoutSec),
-		"--connect-timeout", "3",
-		"--interface", ifaceName,
-		"-w", "%{http_code}|%{time_namelookup}|%{time_connect}|%{time_total}",
-		"https://" + host + "/",
-	}
-	res, err := p.Runner.Run(timeoutCtx, "/opt/bin/curl", args...)
+	res, err := p.Doer.Do(timeoutCtx, httpclient.CallConfig{
+		URL:            "https://" + host + "/",
+		Method:         http.MethodHead,
+		Interface:      ifaceName,
+		ConnectTimeout: 3 * time.Second,
+		MaxTime:        timeout,
+		DiscardBody:    true,
+	})
 	if err != nil || res == nil {
 		return 0, false
 	}
 
-	output := strings.TrimSpace(res.Stdout)
-	parts := strings.Split(output, "|")
-	if len(parts) != 4 {
+	if res.Metrics.HTTPCode == 0 {
 		return 0, false
 	}
-	httpCode, _ := strconv.Atoi(parts[0])
-	if httpCode == 0 {
-		return 0, false
-	}
-	timeNameLookup, _ := strconv.ParseFloat(parts[1], 64)
-	timeConnect, _ := strconv.ParseFloat(parts[2], 64)
-	timeTotal, _ := strconv.ParseFloat(parts[3], 64)
 
 	// Prefer pure TCP RTT — DNS resolution can dominate time_total on first
 	// requests after a tunnel comes up. Fall back to time_total when the
 	// per-phase timings look bogus.
 	var latencyMs int
-	if timeConnect > 0 && timeConnect >= timeNameLookup {
-		latencyMs = int((timeConnect - timeNameLookup) * 1000)
+	if res.Metrics.TimeConnect > 0 && res.Metrics.TimeConnect >= res.Metrics.TimeNameLookup {
+		latencyMs = int((res.Metrics.TimeConnect - res.Metrics.TimeNameLookup) * 1000)
 	} else {
-		latencyMs = int(timeTotal * 1000)
+		latencyMs = int(res.Metrics.TimeTotal * 1000)
 	}
 	if latencyMs <= 0 {
 		latencyMs = 1
@@ -102,7 +87,12 @@ func (p *HTTPProber) Probe(ctx context.Context, host, ifaceName string, timeout 
 // interface. Used for matrix cells whose target is the tunnel's
 // connectivity-check self host AND the tunnel's method is "ping".
 type ICMPProber struct {
-	Runner Runner
+	Runner runner
+}
+
+// runner is the subset of the old Runner interface still used by ICMPProber.
+type runner interface {
+	Run(ctx context.Context, name string, args ...string) (*exec.Result, error)
 }
 
 // NewICMPProber builds an ICMP prober backed by the package-level exec.Run.

@@ -3,56 +3,71 @@ package testing
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
 
-	sysexec "github.com/hoaxisr/awg-manager/internal/sys/exec"
+	"github.com/hoaxisr/awg-manager/internal/sys/httpclient"
 )
 
 // PingByIface measures TCP connect time (in milliseconds) to `host:port` through
-// the specified kernel interface. Uses curl as a cross-tool ping substitute since
-// it supports binding to an interface, doesn't require root for ICMP, and works
-// with HTTP endpoints.
+// the specified kernel interface. Uses a Go-native HTTP client with SO_BINDTODEVICE
+// instead of curl for zero external dependencies.
 //
 // Returns (-1, err) on execution failure, (0, nil) on timeout (configurable via ctx).
 func (s *Service) PingByIface(ctx context.Context, ifaceName, host string, port int) (int, error) {
 	target := fmt.Sprintf("http://%s:%d/", host, port)
-	args := []string{
-		"--interface", ifaceName,
-		"--connect-timeout", "5",
-		"-m", "10",
-		"-o", "/dev/null",
-		"-s",
-		"-w", "%{time_connect}",
-		target,
-	}
-	result, err := sysexec.RunWithOptions(ctx, "curl", args, sysexec.Options{
-		Timeout: 12 * time.Second,
+
+	res, err := httpclient.DefaultClient.Do(ctx, httpclient.CallConfig{
+		URL:            target,
+		Interface:      ifaceName,
+		ConnectTimeout: 5,
+		MaxTime:        10,
+		DiscardBody:    true,
 	})
 	if err != nil {
-		// curl returns exit code 28 on connect timeout — treat as 0ms (unreachable)
-		if result != nil && strings.Contains(result.Stderr, "timed out") {
+		if ctx.Err() == context.DeadlineExceeded {
+			return 0, nil
+		}
+		// Mimic curl exit-code-28 "timed out" → 0ms (unreachable).
+		if isTimeoutError(err) {
 			return 0, nil
 		}
 		return -1, fmt.Errorf("ping %s via %s: %w", host, ifaceName, err)
 	}
 
-	// curl -w "%{time_connect}" prints seconds as a float like "0.043"
-	raw := strings.TrimSpace(result.Stdout)
-	if raw == "" {
-		return 0, nil
-	}
-	sec, parseErr := strconv.ParseFloat(raw, 64)
-	if parseErr != nil {
-		return -1, fmt.Errorf("parse ping output %q: %w", raw, parseErr)
-	}
-	if sec <= 0 {
-		return 0, nil
-	}
-	ms := int(sec * 1000)
+	ms := httpclient.SecToMs(res.Metrics.TimeConnect)
 	if ms < 1 {
 		ms = 1
 	}
 	return ms, nil
+}
+
+// isTimeoutError reports whether an error from the HTTP client indicates a
+// timeout / unreachable host (curl exit code 28 equivalent).
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return containsAny(msg, "timeout", "timed out", "i/o timeout", "no route to host", "connection refused")
+}
+
+func containsAny(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(sub) > 0 && indexOf(s, sub) >= 0)
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }

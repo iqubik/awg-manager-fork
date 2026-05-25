@@ -9,6 +9,7 @@ import (
 
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/sys/exec"
+	"github.com/hoaxisr/awg-manager/internal/sys/httpclient"
 )
 
 const (
@@ -44,69 +45,54 @@ func (s *Service) CheckConnectivity(ctx context.Context, tunnelID string) (*Conn
 	}
 }
 
-// checkHTTP performs connectivity check using HTTP (curl to generate_204).
+// checkHTTP performs connectivity check using HTTP through the tunnel.
 func (s *Service) checkHTTP(ctx context.Context, tunnelID string) (*ConnectivityResult, error) {
-	curlOpts, err := s.GetCurlOptions(tunnelID)
+	iface, err := s.GetInterfaceName(tunnelID)
 	if err != nil {
-		s.appLog.Debug("http-check", tunnelID, "Tunnel not running, cannot get curl options")
+		s.appLog.Debug("http-check", tunnelID, "Tunnel not running, cannot get interface name")
 		return &ConnectivityResult{Connected: false, Reason: ReasonTunnelNotRunning}, nil
 	}
-
-	args := append([]string{
-		"-s", "-o", "/dev/null",
-		"--max-time", "5",
-		"--connect-timeout", "3", // Быстрый сброс при зависании
-		"-w", "%{http_code}|%{time_namelookup}|%{time_connect}|%{time_total}",
-	}, curlOpts...)
-	args = append(args, connectivityURL)
 
 	testCtx, cancel := context.WithTimeout(ctx, connectivityTestTimeout)
 	defer cancel()
 
 	s.appLog.Full("http-check", tunnelID, fmt.Sprintf("Executing HTTP check: %s", connectivityURL))
 
-	result, err := exec.Run(testCtx, "/opt/bin/curl", args...)
+	res, err := httpclient.DefaultClient.Do(testCtx, httpclient.CallConfig{
+		URL:            connectivityURL,
+		Interface:      iface,
+		ConnectTimeout: 3,
+		MaxTime:        5,
+		DiscardBody:    true,
+	})
 	if err != nil {
-		errDetail := exec.FormatError(result, err).Error()
-		s.appLog.Warn("http-check", tunnelID, fmt.Sprintf("HTTP check failed: %s, stdout=%s, stderr=%s", errDetail, result.Stdout, result.Stderr))
+		errDetail := err.Error()
+		s.appLog.Warn("http-check", tunnelID, fmt.Sprintf("HTTP check failed: %s", errDetail))
 		return &ConnectivityResult{Connected: false, Reason: ReasonConnectionFailed + ": " + errDetail}, nil
 	}
 
-	output := strings.TrimSpace(result.Stdout)
-	s.appLog.Debug("http-check", tunnelID, fmt.Sprintf("Curl output: %s", output))
-
-	parts := strings.Split(output, "|")
-	if len(parts) != 4 {
-		s.appLog.Warn("http-check", tunnelID, fmt.Sprintf("Unexpected curl output: %s", output))
-		return &ConnectivityResult{Connected: false, Reason: ReasonUnexpectedResponse}, nil
-	}
-
-	httpCode, _ := strconv.Atoi(parts[0])
-	timeNameLookup, _ := strconv.ParseFloat(parts[1], 64)
-	timeConnect, _ := strconv.ParseFloat(parts[2], 64)
-	timeTotal, _ := strconv.ParseFloat(parts[3], 64)
+	s.appLog.Debug("http-check", tunnelID, fmt.Sprintf("HTTP check result: code=%d, connect=%.3fs, total=%.3fs", res.Metrics.HTTPCode, res.Metrics.TimeConnect, res.Metrics.TimeTotal))
 
 	var latencyMs int
-	// Вычисляем чистый TCP RTT (исключая задержки DNS и HTTP-ответа)
-	if timeConnect > 0 && timeConnect >= timeNameLookup {
-		latencyMs = int((timeConnect - timeNameLookup) * 1000)
+	// Compute pure TCP RTT (excluding DNS and HTTP response overhead).
+	if res.Metrics.TimeConnect > 0 && res.Metrics.TimeConnect >= res.Metrics.TimeNameLookup {
+		latencyMs = int((res.Metrics.TimeConnect - res.Metrics.TimeNameLookup) * 1000)
 	} else {
-		// Fallback, если вдруг метрика отработала нетипично
-		latencyMs = int(timeTotal * 1000)
+		latencyMs = int(res.Metrics.TimeTotal * 1000)
 	}
 
-	// Ограничиваем минимум в 1ms, чтобы не показывать 0ms
-	if httpCode == 204 && latencyMs <= 0 {
+	// Minimum 1 ms display.
+	if res.Metrics.HTTPCode == 204 && latencyMs <= 0 {
 		latencyMs = 1
 	}
 
-	if httpCode == 204 {
+	if res.Metrics.HTTPCode == 204 {
 		s.appLog.Debug("http-check", tunnelID, fmt.Sprintf("HTTP check successful: code=204, latency=%dms", latencyMs))
 		return &ConnectivityResult{Connected: true, Latency: &latencyMs}, nil
 	}
 
-	s.appLog.Warn("http-check", tunnelID, fmt.Sprintf("HTTP check returned unexpected code: %d", httpCode))
-	return &ConnectivityResult{Connected: false, Reason: ReasonUnexpectedResponse, HTTPCode: &httpCode}, nil
+	s.appLog.Warn("http-check", tunnelID, fmt.Sprintf("HTTP check returned unexpected code: %d", res.Metrics.HTTPCode))
+	return &ConnectivityResult{Connected: false, Reason: ReasonUnexpectedResponse, HTTPCode: &res.Metrics.HTTPCode}, nil
 }
 
 // checkPing performs connectivity check using ICMP ping through the tunnel interface.
@@ -254,19 +240,16 @@ func (s *Service) checkHandshake(tunnelID string) (*ConnectivityResult, error) {
 // CheckConnectivityByInterface performs connectivity test using a kernel interface name directly.
 // Used for system tunnels where we don't have a managed tunnel ID.
 func CheckConnectivityByInterface(ctx context.Context, ifaceName string) *ConnectivityResult {
-	args := []string{
-		"-s", "-o", "/dev/null",
-		"--max-time", "5",
-		"--connect-timeout", "3",
-		"-w", "%{http_code}|%{time_namelookup}|%{time_connect}|%{time_total}",
-		"--interface", ifaceName,
-		connectivityURL,
-	}
-
 	testCtx, cancel := context.WithTimeout(ctx, connectivityTestTimeout)
 	defer cancel()
 
-	result, err := exec.Run(testCtx, "/opt/bin/curl", args...)
+	res, err := httpclient.DefaultClient.Do(testCtx, httpclient.CallConfig{
+		URL:            connectivityURL,
+		Interface:      ifaceName,
+		ConnectTimeout: 3,
+		MaxTime:        5,
+		DiscardBody:    true,
+	})
 	if err != nil {
 		return &ConnectivityResult{
 			Connected: false,
@@ -274,32 +257,18 @@ func CheckConnectivityByInterface(ctx context.Context, ifaceName string) *Connec
 		}
 	}
 
-	output := strings.TrimSpace(result.Stdout)
-	parts := strings.Split(output, "|")
-	if len(parts) != 4 {
-		return &ConnectivityResult{
-			Connected: false,
-			Reason:    ReasonUnexpectedResponse,
-		}
-	}
-
-	httpCode, _ := strconv.Atoi(parts[0])
-	timeNameLookup, _ := strconv.ParseFloat(parts[1], 64)
-	timeConnect, _ := strconv.ParseFloat(parts[2], 64)
-	timeTotal, _ := strconv.ParseFloat(parts[3], 64)
-
 	var latencyMs int
-	if timeConnect > 0 && timeConnect >= timeNameLookup {
-		latencyMs = int((timeConnect - timeNameLookup) * 1000)
+	if res.Metrics.TimeConnect > 0 && res.Metrics.TimeConnect >= res.Metrics.TimeNameLookup {
+		latencyMs = int((res.Metrics.TimeConnect - res.Metrics.TimeNameLookup) * 1000)
 	} else {
-		latencyMs = int(timeTotal * 1000)
+		latencyMs = int(res.Metrics.TimeTotal * 1000)
 	}
 
-	if httpCode == 204 && latencyMs <= 0 {
+	if res.Metrics.HTTPCode == 204 && latencyMs <= 0 {
 		latencyMs = 1
 	}
 
-	if httpCode == 204 {
+	if res.Metrics.HTTPCode == 204 {
 		return &ConnectivityResult{
 			Connected: true,
 			Latency:   &latencyMs,
@@ -309,6 +278,6 @@ func CheckConnectivityByInterface(ctx context.Context, ifaceName string) *Connec
 	return &ConnectivityResult{
 		Connected: false,
 		Reason:    ReasonUnexpectedResponse,
-		HTTPCode:  &httpCode,
+		HTTPCode:  &res.Metrics.HTTPCode,
 	}
 }

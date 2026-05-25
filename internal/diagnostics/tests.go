@@ -12,19 +12,15 @@ import (
 
 	"github.com/hoaxisr/awg-manager/internal/singbox"
 	"github.com/hoaxisr/awg-manager/internal/sys/exec"
+	"github.com/hoaxisr/awg-manager/internal/sys/httpclient"
 	"github.com/hoaxisr/awg-manager/internal/sys/ndmsinfo"
 	"github.com/hoaxisr/awg-manager/internal/sys/osdetect"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/netutil"
 )
 
-// curlPath returns the absolute path to curl, preferring the Entware
-// /opt/bin/curl when available and falling back to PATH lookup.
-func curlPath() string {
-	if _, err := os.Stat("/opt/bin/curl"); err == nil {
-		return "/opt/bin/curl"
-	}
-	return "curl"
-}
+// curlPath was the absolute path to curl; removed now that all HTTP
+// traffic uses the Go-native httpclient package.
+// Kept as a no-op migration marker.
 
 // ipPath returns the absolute path to the iproute2 `ip` binary,
 // preferring /opt/sbin/ip then standard locations and falling back to
@@ -319,21 +315,24 @@ func (r *Runner) testClockSkew(ctx context.Context) TestResult {
 func (r *Runner) testDirectConnectivity(ctx context.Context) TestResult {
 	res := TestResult{Name: "direct_connectivity", Description: "Direct связность (без прокси/туннеля)"}
 
-	curl := curlPath()
-	result, err := exec.Run(ctx, curl, "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "6", "https://www.gstatic.com/generate_204")
+	result, err := httpclient.DefaultClient.Do(ctx, httpclient.CallConfig{
+		URL:         "https://www.gstatic.com/generate_204",
+		MaxTime:     6 * time.Second,
+		DiscardBody: true,
+	})
 	if err != nil {
 		res.Status = StatusWarn
 		res.Detail = "Не удалось выполнить direct HTTP-проверку"
 		return res
 	}
-	code := strings.TrimSpace(result.Stdout)
-	if code == "204" || code == "200" {
+	code := result.Metrics.HTTPCode
+	if code == 204 || code == 200 {
 		res.Status = StatusPass
-		res.Detail = "Direct egress работает (HTTP " + code + ")"
+		res.Detail = fmt.Sprintf("Direct egress работает (HTTP %d)", code)
 		return res
 	}
 	res.Status = StatusWarn
-	res.Detail = "Direct egress ответил неожиданным кодом: " + code
+	res.Detail = fmt.Sprintf("Direct egress ответил неожиданным кодом: %d", code)
 	return res
 }
 
@@ -439,7 +438,6 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 	}
 
 	out := make([]TestResult, 0, len(tunnels)*2)
-	curl := curlPath()
 	for _, t := range tunnels {
 		tunnelID := "singbox:" + t.Tag
 		tunnelName := t.Tag
@@ -518,58 +516,56 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 
 		proxy := fmt.Sprintf("http://127.0.0.1:%d", t.ListenPort)
 
-		// Primary HTTP check (gstatic) — also captures RTT in one curl call.
+		// Primary HTTP check (gstatic).
 		probe := TestResult{
 			Name:        "singbox_tunnel_connectivity",
 			Description: "HTTP-check (gstatic)",
 			TunnelID:    tunnelID,
 			TunnelName:  tunnelName,
 		}
-		result, err := exec.Run(ctx, curl, "-s", "-o", "/dev/null", "-w", "%{http_code}|%{time_total}", "--max-time", "8", "-x", proxy, "https://www.gstatic.com/generate_204")
+		result, err := httpclient.DefaultClient.Do(ctx, httpclient.CallConfig{
+			URL:         "https://www.gstatic.com/generate_204",
+			ProxyURL:    proxy,
+			MaxTime:     8 * time.Second,
+			DiscardBody: true,
+		})
 
-		var httpCode, latencyRaw string
+		var httpCode int
+		var latencyRaw float64
 		if err == nil {
-			parts := strings.SplitN(strings.TrimSpace(result.Stdout), "|", 2)
-			httpCode = strings.TrimSpace(parts[0])
-			if len(parts) == 2 {
-				latencyRaw = strings.TrimSpace(parts[1])
-			}
+			httpCode = result.Metrics.HTTPCode
+			latencyRaw = result.Metrics.TimeTotal
 		}
 
 		if err != nil {
 			probe.Status = StatusFail
 			probe.Detail = fmt.Sprintf("Proxy-check не удался (%s)", proxy)
-		} else if httpCode == "204" || httpCode == "200" {
+		} else if httpCode == 204 || httpCode == 200 {
 			probe.Status = StatusPass
-			probe.Detail = fmt.Sprintf("HTTP %s через %s", httpCode, proxy)
+			probe.Detail = fmt.Sprintf("HTTP %d через %s", httpCode, proxy)
 		} else {
 			probe.Status = StatusFail
-			probe.Detail = fmt.Sprintf("Неожиданный HTTP-код %q через %s", httpCode, proxy)
+			probe.Detail = fmt.Sprintf("Неожиданный HTTP-код %d через %s", httpCode, proxy)
 		}
 		out = append(out, probe)
 
 		// Latency row — only emit when connectivity succeeded.
-		if probe.Status == StatusPass && latencyRaw != "" {
+		if probe.Status == StatusPass {
 			latProbe := TestResult{
 				Name:        "singbox_tunnel_latency",
 				Description: "Задержка (RTT)",
 				TunnelID:    tunnelID,
 				TunnelName:  tunnelName,
 			}
-			if f, ferr := strconv.ParseFloat(latencyRaw, 64); ferr == nil {
-				ms := int(f * 1000)
-				latProbe.Detail = fmt.Sprintf("%d мс", ms)
-				switch {
-				case ms <= 800:
-					latProbe.Status = StatusPass
-				case ms <= 3000:
-					latProbe.Status = StatusWarn
-				default:
-					latProbe.Status = StatusFail
-				}
-			} else {
+			ms := int(latencyRaw * 1000)
+			latProbe.Detail = fmt.Sprintf("%d мс", ms)
+			switch {
+			case ms <= 800:
+				latProbe.Status = StatusPass
+			case ms <= 3000:
 				latProbe.Status = StatusWarn
-				latProbe.Detail = fmt.Sprintf("Не удалось распарсить RTT: %q", latencyRaw)
+			default:
+				latProbe.Status = StatusFail
 			}
 			out = append(out, latProbe)
 		}
@@ -582,26 +578,28 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 			TunnelID:    tunnelID,
 			TunnelName:  tunnelName,
 		}
-		altResult, altErr := exec.Run(ctx, curl, "-s", "-o", "/dev/null", "-w", "%{http_code}|%{time_total}", "--max-time", "8", "-x", proxy, "https://cp.cloudflare.com/")
+		altResult, altErr := httpclient.DefaultClient.Do(ctx, httpclient.CallConfig{
+			URL:         "https://cp.cloudflare.com/",
+			ProxyURL:    proxy,
+			MaxTime:     8 * time.Second,
+			DiscardBody: true,
+		})
 		if altErr != nil {
 			altProbe.Status = StatusFail
 			altProbe.Detail = fmt.Sprintf("Alt-check не удался (%s)", proxy)
 		} else {
-			parts := strings.SplitN(strings.TrimSpace(altResult.Stdout), "|", 2)
-			altCode := strings.TrimSpace(parts[0])
+			altCode := altResult.Metrics.HTTPCode
 			altLatency := ""
-			if len(parts) == 2 {
-				if f, ferr := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64); ferr == nil {
-					altLatency = fmt.Sprintf(", %d мс", int(f*1000))
-				}
+			if ms := int(altResult.Metrics.TimeTotal * 1000); ms >= 0 {
+				altLatency = fmt.Sprintf(", %d мс", ms)
 			}
 			switch altCode {
-			case "200", "204", "301", "302":
+			case 200, 204, 301, 302:
 				altProbe.Status = StatusPass
-				altProbe.Detail = fmt.Sprintf("HTTP %s cf.com%s", altCode, altLatency)
+				altProbe.Detail = fmt.Sprintf("HTTP %d cf.com%s", altCode, altLatency)
 			default:
 				altProbe.Status = StatusWarn
-				altProbe.Detail = fmt.Sprintf("HTTP %q от cf.com%s", altCode, altLatency)
+				altProbe.Detail = fmt.Sprintf("HTTP %d от cf.com%s", altCode, altLatency)
 			}
 		}
 		out = append(out, altProbe)
@@ -773,14 +771,18 @@ func (r *Runner) testTunnelConnectivity(ctx context.Context, t TunnelInfo) TestR
 
 	// Try multiple IP check services. Egress uses default route (WAN).
 	urls := []string{"https://ifconfig.me", "https://icanhazip.com", "https://ip.me"}
-	curl := curlPath()
 	for _, url := range urls {
-		result, err := exec.Run(ctx, curl, "-s", "--max-time", "5", url)
-		if err == nil && strings.TrimSpace(result.Stdout) != "" {
-			ip := strings.TrimSpace(result.Stdout)
-			res.Status = StatusPass
-			res.Detail = fmt.Sprintf("IP: %s (via %s)", ip, url)
-			return res
+		result, err := httpclient.DefaultClient.Do(ctx, httpclient.CallConfig{
+			URL:     url,
+			MaxTime: 5 * time.Second,
+		})
+		if err == nil {
+			ip := strings.TrimSpace(result.Body)
+			if ip != "" {
+				res.Status = StatusPass
+				res.Detail = fmt.Sprintf("IP: %s (via %s)", ip, url)
+				return res
+			}
 		}
 	}
 
