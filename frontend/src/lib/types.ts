@@ -672,6 +672,7 @@ export interface LoggingSettings {
 
 export interface UpdateSettings {
 	checkEnabled: boolean;
+	channel: 'stable' | 'develop';
 }
 
 export interface DownloadSettings {

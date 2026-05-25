@@ -506,6 +506,29 @@ onMount(() => {
 		}
 	}
 
+	async function selectChannel(channel: 'stable' | 'develop') {
+		if (!settings || settings.updates.channel === channel) return;
+		saving = true;
+		try {
+			settings = await api.updateSettings({
+				...settings,
+				updates: { ...settings.updates, channel },
+			});
+			setGlobalSettings(settings);
+			// Кэш проверки относится к прежнему каналу — перепроверяем.
+			updateInfo = await api.checkUpdate(true);
+			notifications.success(
+				channel === 'develop'
+					? 'Канал обновлений: develop (нестабильный)'
+					: 'Канал обновлений: стабильный',
+			);
+		} catch {
+			notifications.error('Ошибка смены канала обновлений');
+		} finally {
+			saving = false;
+		}
+	}
+
 	async function selectUsageLevel(level: UsageLevel) {
 		if (!settings) return;
 		saving = true;
@@ -703,6 +726,34 @@ onMount(() => {
 							onchange={toggleUpdateCheck}
 							disabled={saving}
 						/>
+					</div>
+					<div class="setting-row toggle-inline-row">
+						<div class="flex flex-col gap-1">
+							<span class="font-medium">Канал обновлений</span>
+							<span class="setting-description">
+								develop — свежие, потенциально нестабильные сборки из ветки разработки.
+							</span>
+						</div>
+						<div class="channel-switch">
+							<button
+								type="button"
+								class="channel-option"
+								class:active={settings.updates.channel !== 'develop'}
+								disabled={saving}
+								onclick={() => selectChannel('stable')}
+							>
+								Стабильный
+							</button>
+							<button
+								type="button"
+								class="channel-option"
+								class:active={settings.updates.channel === 'develop'}
+								disabled={saving}
+								onclick={() => selectChannel('develop')}
+							>
+								Develop
+							</button>
+						</div>
 					</div>
 				</div>
 
@@ -1062,5 +1113,29 @@ onMount(() => {
 		.settings-left {
 			position: static;
 		}
+	}
+
+	.channel-switch {
+		display: inline-flex;
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		overflow: hidden;
+		flex-shrink: 0;
+	}
+	.channel-option {
+		padding: 0.35rem 0.75rem;
+		font-size: 0.85rem;
+		background: transparent;
+		color: var(--text-secondary);
+		border: none;
+		cursor: pointer;
+	}
+	.channel-option.active {
+		background: var(--accent);
+		color: #fff;
+	}
+	.channel-option:disabled {
+		opacity: 0.6;
+		cursor: default;
 	}
 </style>
