@@ -3,7 +3,6 @@ package query
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 )
@@ -96,6 +95,27 @@ const sampleWGRCInterfaceJSON = `{
 				"allow-ips": [
 					{"address": "10.0.1.2", "mask": "255.255.255.255"},
 					{"address": "0.0.0.0", "mask": "0.0.0.0"}
+				]
+			}
+		]
+	}
+}`
+const sampleWGRCInterfaceReversedAllowIPsJSON = `{
+	"description": "ourserver",
+	"ip": {
+		"address": {"address": "10.0.1.1", "mask": "255.255.255.0"},
+		"mtu": "1420"
+	},
+	"wireguard": {
+		"listen-port": {"port": 51821},
+		"peer": [
+			{
+				"key": "PEERB=",
+				"comment": "bob",
+				"preshared-key": "PSK==",
+				"allow-ips": [
+					{"address": "0.0.0.0", "mask": "0.0.0.0"},
+					{"address": "10.0.1.2", "mask": "255.255.255.255"}
 				]
 			}
 		]
@@ -195,19 +215,14 @@ func TestWGServerStore_GetAll_ParsesRuntime(t *testing.T) {
 		t.Fatalf("want 1 peer, got %d", len(servers[1].Peers))
 	}
 	peer := servers[1].Peers[0]
-	if len(peer.AllowedIPs) != 2 {
+	want := []string{"10.0.1.2/32", "0.0.0.0/0"}
+	if len(peer.AllowedIPs) != len(want) {
 		t.Fatalf("AllowedIPs enrichment missing: %+v", peer.AllowedIPs)
 	}
-	wantHave := func(s string) bool {
-		for _, v := range peer.AllowedIPs {
-			if strings.Contains(v, s) {
-				return true
-			}
+	for i := range want {
+		if peer.AllowedIPs[i] != want[i] {
+			t.Fatalf("AllowedIPs[%d]: want %q, got %q (all=%+v)", i, want[i], peer.AllowedIPs[i], peer.AllowedIPs)
 		}
-		return false
-	}
-	if !wantHave("10.0.1.2") {
-		t.Errorf("AllowedIPs missing peer IP: %+v", peer.AllowedIPs)
 	}
 }
 
@@ -248,6 +263,76 @@ func TestWGServerStore_Get_Single(t *testing.T) {
 	}
 	if len(srv.Peers) != 1 {
 		t.Errorf("peers: %d", len(srv.Peers))
+	}
+	want := []string{"10.0.1.2/32", "0.0.0.0/0"}
+	if len(srv.Peers[0].AllowedIPs) != len(want) {
+		t.Fatalf("AllowedIPs missing in Get(): %+v", srv.Peers[0].AllowedIPs)
+	}
+	for i := range want {
+		if srv.Peers[0].AllowedIPs[i] != want[i] {
+			t.Fatalf("AllowedIPs[%d]: want %q, got %q", i, want[i], srv.Peers[0].AllowedIPs[i])
+		}
+	}
+}
+
+func TestWGServerStore_GetAll_AllowedIPsPreservesRCOrderAndCIDR(t *testing.T) {
+	fg := newFakeGetter()
+	primeWGFakeGetter(fg)
+	fg.SetJSON("/show/rc/interface/Wireguard1", sampleWGRCInterfaceReversedAllowIPsJSON)
+	s := NewWGServerStore(fg, NopLogger(), NewInterfaceStore(fg, NopLogger()))
+
+	servers, err := s.List(context.Background())
+	if err != nil {
+		t.Fatalf("GetAll: %v", err)
+	}
+	if len(servers) != 2 || len(servers[1].Peers) != 1 {
+		t.Fatalf("unexpected shape: %+v", servers)
+	}
+	got := servers[1].Peers[0].AllowedIPs
+	want := []string{"0.0.0.0/0", "10.0.1.2/32"}
+	if len(got) != len(want) {
+		t.Fatalf("AllowedIPs: %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("AllowedIPs[%d]: want %q, got %q", i, want[i], got[i])
+		}
+	}
+}
+
+func TestWGServerStore_GetAll_SkipsInvalidNonContiguousMask(t *testing.T) {
+	fg := newFakeGetter()
+	primeWGFakeGetter(fg)
+	fg.SetJSON("/show/rc/interface/Wireguard1", `{
+		"description": "ourserver",
+		"wireguard": {
+			"peer": [
+				{
+					"key": "PEERB=",
+					"allow-ips": [
+						{"address": "10.0.1.2", "mask": "255.255.255.255"},
+						{"address": "10.0.1.99", "mask": "255.0.255.0"}
+					]
+				}
+			]
+		}
+	}`)
+	s := NewWGServerStore(fg, NopLogger(), NewInterfaceStore(fg, NopLogger()))
+
+	servers, err := s.List(context.Background())
+	if err != nil {
+		t.Fatalf("GetAll: %v", err)
+	}
+	if len(servers) != 2 || len(servers[1].Peers) != 1 {
+		t.Fatalf("unexpected shape: %+v", servers)
+	}
+	got := servers[1].Peers[0].AllowedIPs
+	want := []string{"10.0.1.2/32"}
+	if len(got) != len(want) {
+		t.Fatalf("AllowedIPs: want %+v, got %+v", want, got)
+	}
+	if got[0] != want[0] {
+		t.Fatalf("AllowedIPs[0]: want %q, got %q", want[0], got[0])
 	}
 }
 

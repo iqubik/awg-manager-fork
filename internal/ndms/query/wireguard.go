@@ -373,40 +373,27 @@ func (s *WGServerStore) fetchAll(ctx context.Context) ([]ndms.WireguardServer, e
 	// semaphore bounds concurrency; we only coordinate completion.
 	if len(servers) > 0 {
 		var wg sync.WaitGroup
-		type rcResult struct {
+		type enrichResult struct {
 			idx int
-			rc  rciRCInterface
+			m   map[string][]string
 			err error
 		}
-		results := make(chan rcResult, len(servers))
+		results := make(chan enrichResult, len(servers))
 		for i := range servers {
 			wg.Add(1)
 			go func(idx int, name string) {
 				defer wg.Done()
-				var rc rciRCInterface
-				err := s.getter.Get(ctx, "/show/rc/interface/"+name, &rc)
-				results <- rcResult{idx: idx, rc: rc, err: err}
+				allowedByKey, err := s.fetchPeerAllowedIPsByKey(ctx, name)
+				results <- enrichResult{idx: idx, m: allowedByKey, err: err}
 			}(i, servers[i].ID)
 		}
 		go func() { wg.Wait(); close(results) }()
 		for r := range results {
-			if r.err != nil || r.rc.Wireguard == nil {
+			if r.err != nil {
 				continue
 			}
-			allowedByKey := make(map[string][]string)
-			for _, rp := range r.rc.Wireguard.Peer {
-				var ips []string
-				for _, a := range rp.AllowIPs {
-					if a.Mask != "" {
-						ips = append(ips, a.Address+"/"+a.Mask)
-					} else {
-						ips = append(ips, a.Address)
-					}
-				}
-				allowedByKey[rp.Key] = ips
-			}
 			for j := range servers[r.idx].Peers {
-				if ips, ok := allowedByKey[servers[r.idx].Peers[j].PublicKey]; ok {
+				if ips, ok := r.m[servers[r.idx].Peers[j].PublicKey]; ok {
 					servers[r.idx].Peers[j].AllowedIPs = ips
 				}
 			}
@@ -423,7 +410,38 @@ func (s *WGServerStore) fetchItem(ctx context.Context, name string) (*ndms.Wireg
 	srv := rciToWireguardServer(detail)
 	srv.ID = name
 	srv.InterfaceName = s.resolveSystemName(ctx, name)
+	if allowedByKey, err := s.fetchPeerAllowedIPsByKey(ctx, name); err == nil {
+		for j := range srv.Peers {
+			if ips, ok := allowedByKey[srv.Peers[j].PublicKey]; ok {
+				srv.Peers[j].AllowedIPs = ips
+			}
+		}
+	}
 	return &srv, nil
+}
+
+func (s *WGServerStore) fetchPeerAllowedIPsByKey(ctx context.Context, name string) (map[string][]string, error) {
+	var rc rciRCInterface
+	if err := s.getter.Get(ctx, "/show/rc/interface/"+name, &rc); err != nil {
+		return nil, err
+	}
+	out := make(map[string][]string)
+	if rc.Wireguard == nil {
+		return out, nil
+	}
+	for _, rp := range rc.Wireguard.Peer {
+		var ips []string
+		for _, a := range rp.AllowIPs {
+			ones := ipMaskToPrefix(a.Mask)
+			if ones < 0 {
+				s.log.Warnf("wg server %s peer %s has invalid allow-ips mask %q for %q", name, rp.Key, a.Mask, a.Address)
+				continue
+			}
+			ips = append(ips, fmt.Sprintf("%s/%d", a.Address, ones))
+		}
+		out[rp.Key] = ips
+	}
+	return out, nil
 }
 
 func (s *WGServerStore) fetchConfig(ctx context.Context, name string) (*ndms.WireguardServerConfig, error) {
@@ -633,7 +651,10 @@ func ipMaskToPrefix(mask string) int {
 	if ip4 == nil {
 		return -1
 	}
-	ones, _ := net.IPMask(ip4).Size()
+	ones, bits := net.IPMask(ip4).Size()
+	if bits != 32 {
+		return -1
+	}
 	return ones
 }
 
