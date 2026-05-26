@@ -23,6 +23,8 @@ func (s stubDoer) Do(_ context.Context, _ httpclient.CallConfig) (*httpclient.Re
 }
 
 // HTTPProber latency = (time_connect - time_namelookup) * 1000 ms.
+// TimeConnect and TimeNameLookup are cumulative-from-start (matching curl
+// semantics), so the subtraction yields pure TCP RTT.
 func TestHTTPProber_ParseLatency(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -53,6 +55,14 @@ func TestHTTPProber_ParseLatency(t *testing.T) {
 				Metrics: httpclient.Metrics{HTTPCode: 0, TimeNameLookup: 0, TimeConnect: 0, TimeTotal: 5.0},
 			},
 			wantOK: false,
+		},
+		{
+			name: "DNS slow — cumulative timings preserve correct RTT",
+			result: &httpclient.Result{
+				Metrics: httpclient.Metrics{HTTPCode: 200, TimeNameLookup: 0.200, TimeConnect: 0.280, TimeTotal: 0.390},
+			},
+			wantOK: true,
+			wantMs: 80,
 		},
 		{
 			name: "fallback to time_total when timings invalid",

@@ -19,9 +19,9 @@ import (
 // Metrics mirrors curl's -w output fields used across the codebase.
 type Metrics struct {
 	HTTPCode       int     // e.g. 204, 200, 404
-	TimeNameLookup float64 // DNS resolution in seconds
-	TimeConnect    float64 // TCP connect in seconds
-	TimeTotal      float64 // Full request in seconds
+	TimeNameLookup float64 // Cumulative: time from start to DNS done (seconds)
+	TimeConnect    float64 // Cumulative: time from start to TCP connect done (seconds)
+	TimeTotal      float64 // Cumulative: full request duration (seconds)
 }
 
 // Result is the unified return type for all operations.
@@ -172,11 +172,14 @@ func (c *Client) Do(ctx context.Context, cfg CallConfig) (*Result, error) {
 	metrics := Metrics{
 		HTTPCode: resp.StatusCode,
 	}
-	if !timings.dnsStart.IsZero() && !timings.dnsDone.IsZero() {
-		metrics.TimeNameLookup = timings.dnsDone.Sub(timings.dnsStart).Seconds()
+	// Cumulative-from-start timings, matching curl's time_namelookup /
+	// time_connect semantics so downstream `TimeConnect - TimeNameLookup`
+	// yields pure TCP-RTT.
+	if !timings.dnsDone.IsZero() {
+		metrics.TimeNameLookup = timings.dnsDone.Sub(start).Seconds()
 	}
-	if !timings.connectStart.IsZero() && !timings.connectDone.IsZero() {
-		metrics.TimeConnect = timings.connectDone.Sub(timings.connectStart).Seconds()
+	if !timings.connectDone.IsZero() {
+		metrics.TimeConnect = timings.connectDone.Sub(start).Seconds()
 	}
 
 	// Read body (or discard).

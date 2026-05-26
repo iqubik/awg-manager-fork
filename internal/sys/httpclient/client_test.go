@@ -255,6 +255,30 @@ func TestDo_UserAgent_SetToCurl(t *testing.T) {
 	}
 }
 
+func TestDo_Metrics_CumulativeTimings(t *testing.T) {
+	// When DNS is involved, cumulative timings must satisfy:
+	// TimeNameLookup <= TimeConnect <= TimeTotal.
+	ts := newTestServer(t, handler200)
+	// Use "localhost" to trigger a DNS lookup (unlike 127.0.0.1).
+	uri := strings.Replace(ts.URL, "127.0.0.1", "localhost", 1)
+	c := New()
+	res, err := c.Do(context.Background(), CallConfig{URL: uri})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Metrics.TimeNameLookup < 0 {
+		t.Errorf("TimeNameLookup = %f, want >= 0", res.Metrics.TimeNameLookup)
+	}
+	if res.Metrics.TimeConnect < res.Metrics.TimeNameLookup {
+		t.Errorf("TimeConnect (%f) < TimeNameLookup (%f) — timings must be cumulative",
+			res.Metrics.TimeConnect, res.Metrics.TimeNameLookup)
+	}
+	if res.Metrics.TimeTotal < res.Metrics.TimeConnect {
+		t.Errorf("TimeTotal (%f) < TimeConnect (%f) — timings must be cumulative",
+			res.Metrics.TimeTotal, res.Metrics.TimeConnect)
+	}
+}
+
 func TestDo_URL_Missing(t *testing.T) {
 	c := New()
 	_, err := c.Do(context.Background(), CallConfig{})

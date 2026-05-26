@@ -34,7 +34,13 @@ func (s *Service) PingByIface(ctx context.Context, ifaceName, host string, port 
 		return -1, fmt.Errorf("ping %s via %s: %w", host, ifaceName, err)
 	}
 
-	ms := httpclient.SecToMs(res.Metrics.TimeConnect)
+	// TimeConnect and TimeNameLookup are cumulative from request start
+	// (matching curl semantics), so subtract to get pure TCP RTT.
+	rtt := res.Metrics.TimeConnect - res.Metrics.TimeNameLookup
+	if rtt <= 0 {
+		rtt = res.Metrics.TimeConnect
+	}
+	ms := httpclient.SecToMs(rtt)
 	if ms < 1 {
 		ms = 1
 	}
