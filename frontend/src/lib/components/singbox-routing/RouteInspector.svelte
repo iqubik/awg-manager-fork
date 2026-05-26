@@ -25,7 +25,42 @@
 	let elapsedSec = $state(0);
 	let progressTimer = $state<ReturnType<typeof setInterval> | null>(null);
 	let inspectStream = $state<EventSource | null>(null);
-	let progressEvents = $state<string[]>([]);
+	type StepStatus = 'done' | 'current' | 'next' | 'miss' | 'matched' | 'error' | 'info';
+	interface InspectorStep {
+		id: string;
+		label: string;
+		status: StepStatus;
+		meta?: string;
+		startedAt?: number;
+		finishedAt?: number;
+		durationMs?: number;
+		ruleIndex?: number;
+		ruleTotal?: number;
+		ruleSetTag?: string;
+		phase?: string;
+	}
+	interface InspectorReport {
+		totalDurationMs: number;
+		checkedRules: number;
+		totalRules: number;
+		destination: string;
+		final: string;
+		matchedRule: number;
+		slowestSteps: InspectorStep[];
+		ruleSetSteps: InspectorStep[];
+	}
+	let currentProgressMessage = $state('Ожидаем ответ backend…');
+	let previousStep = $state<InspectorStep | null>(null);
+	let currentStep = $state<InspectorStep | null>(null);
+	let nextStep = $state<InspectorStep | null>(null);
+	let completedSteps = $state<InspectorStep[]>([]);
+	let activeStepStartedAt = $state<Record<string, number>>({});
+	let checkedRuleIndexes = $state<Set<number>>(new Set());
+	let totalRules = $state(0);
+	let currentRule = $state<number | null>(null);
+	let activeRuleSetTag = $state('');
+	let inspectionStartedAt = $state<number | null>(null);
+	let inspectionReport = $state<InspectorReport | null>(null);
 	let result = $state<SingboxRouterInspectResult | null>(null);
 	let error = $state('');
 	let showAllRules = $state(false);
@@ -43,12 +78,251 @@
 			clearInterval(progressTimer);
 			progressTimer = null;
 		}
-		inspectStartedAt = null;
 		elapsedSec = 0;
 	}
 
-	function appendProgressEvent(line: string): void {
-		progressEvents = [...progressEvents, line].slice(-8);
+	function progressKind(progress: SingboxRouterInspectProgress): StepStatus {
+		switch (progress.phase) {
+			case 'rule_start':
+			case 'rule_set_start':
+			case 'rule_set_cache_check':
+			case 'rule_set_download_start':
+			case 'rule_set_match_start':
+			case 'load_config':
+				return 'current';
+			case 'rule_done':
+				if (/не совпало/i.test(progress.message)) return 'miss';
+				if (/совпало/i.test(progress.message)) return 'matched';
+				return 'done';
+			case 'rule_set_match_done':
+				return /не совпал/i.test(progress.message) ? 'miss' : 'matched';
+			case 'terminal_match':
+			case 'non_terminal_match':
+			case 'rule_set_cache_hit':
+			case 'rule_set_download_done':
+			case 'config_loaded':
+			case 'classify_input':
+			case 'done':
+				return 'done';
+			case 'rule_set_download_error':
+			case 'rule_set_match_error':
+			case 'rule_set_undefined':
+				return 'error';
+			default:
+				return 'info';
+		}
+	}
+
+	function formatDuration(ms?: number): string {
+		if (!ms || ms < 1000) return '';
+		return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} сек`;
+	}
+
+	function stepKey(progress: SingboxRouterInspectProgress): string {
+		const rule = typeof progress.ruleIndex === 'number' ? `rule:${progress.ruleIndex}` : '';
+		const rs = progress.ruleSetTag ? `rs:${progress.ruleSetTag}` : '';
+		if (progress.phase.startsWith('rule_set_download')) return `download:${progress.ruleSetTag ?? ''}`;
+		if (progress.phase.startsWith('rule_set_match')) return `match:${progress.ruleSetTag ?? ''}`;
+		if (progress.phase.startsWith('rule_set_cache')) return `cache:${progress.ruleSetTag ?? ''}`;
+		if (progress.phase.startsWith('rule_')) return rule || progress.phase;
+		return `${progress.phase}:${rule}:${rs}`;
+	}
+
+	function stepFromProgress(progress: SingboxRouterInspectProgress, status: StepStatus): InspectorStep {
+		const now = Date.now();
+		const ruleIndex = typeof progress.ruleIndex === 'number' ? progress.ruleIndex : undefined;
+		const ruleTotal = typeof progress.ruleTotal === 'number' ? progress.ruleTotal : undefined;
+		const ruleSetTag = progress.ruleSetTag || undefined;
+		let label = progress.message || formatProgressFallback(progress);
+		let meta = '';
+		if (typeof ruleIndex === 'number' && ruleTotal) {
+			meta = `Правило #${ruleIndex + 1} из ${ruleTotal}`;
+		}
+		if (ruleSetTag) {
+			meta = meta ? `${meta} · rule_set: ${ruleSetTag}` : `rule_set: ${ruleSetTag}`;
+		}
+		return {
+			id: `${stepKey(progress)}:${now}`,
+			label,
+			status,
+			meta,
+			startedAt: now,
+			ruleIndex,
+			ruleTotal,
+			ruleSetTag,
+			phase: progress.phase,
+		};
+	}
+
+	function stepCompletesCurrent(current: InspectorStep | null, finished: InspectorStep): boolean {
+		if (!current) return false;
+		if (
+			typeof current.ruleIndex === 'number' &&
+			typeof finished.ruleIndex === 'number' &&
+			current.ruleIndex === finished.ruleIndex &&
+			finished.phase === 'rule_done'
+		) {
+			return true;
+		}
+		if (
+			current.ruleSetTag &&
+			finished.ruleSetTag &&
+			current.ruleSetTag === finished.ruleSetTag &&
+			(
+				finished.phase === 'rule_set_cache_hit' ||
+				finished.phase === 'rule_set_download_done' ||
+				finished.phase === 'rule_set_download_error' ||
+				finished.phase === 'rule_set_match_done' ||
+				finished.phase === 'rule_set_match_error'
+			)
+		) {
+			return true;
+		}
+		if (current.phase === 'load_config' && finished.phase === 'config_loaded') return true;
+		if (current.phase === 'start' && finished.phase === 'config_loaded') return true;
+		return false;
+	}
+
+	function buildNextStep(): InspectorStep | null {
+		if (currentProgressMessage === 'Инспектор завершил проверку') return null;
+		if (totalRules <= 0) {
+			return {
+				id: `next:config:${Date.now()}`,
+				label: 'Ожидаем загрузку конфигурации',
+				status: 'next',
+				meta: '',
+			};
+		}
+		if (currentRule !== null) {
+			if (activeRuleSetTag) {
+				return {
+					id: `next:ruleset:${Date.now()}`,
+					label: `Завершить проверку rule_set и перейти к результату правила #${currentRule + 1}`,
+					status: 'next',
+					meta: activeRuleSetTag ? `rule_set: ${activeRuleSetTag}` : '',
+				};
+			}
+			if (currentRule + 1 < totalRules) {
+				return {
+					id: `next:rule:${Date.now()}`,
+					label: `Далее: правило #${currentRule + 2} из ${totalRules}`,
+					status: 'next',
+					meta: '',
+				};
+			}
+			return {
+				id: `next:final:${Date.now()}`,
+				label: 'Далее: финальное решение маршрута',
+				status: 'next',
+				meta: '',
+			};
+		}
+		return {
+			id: `next:wait:${Date.now()}`,
+			label: 'Ожидаем следующий шаг проверки',
+			status: 'next',
+			meta: '',
+		};
+	}
+
+	function handleProgress(progress: SingboxRouterInspectProgress): void {
+		const now = Date.now();
+		currentProgressMessage = progress.message || formatProgressFallback(progress);
+		const ruleIndex = typeof progress.ruleIndex === 'number' ? progress.ruleIndex : undefined;
+		const ruleTotal = typeof progress.ruleTotal === 'number' ? progress.ruleTotal : undefined;
+		const ruleSetTag = progress.ruleSetTag || undefined;
+
+		if (typeof ruleTotal === 'number') totalRules = Math.max(totalRules, ruleTotal);
+		if (progress.phase === 'rule_start' && typeof ruleIndex === 'number') currentRule = ruleIndex;
+		if (progress.phase === 'rule_done' && typeof ruleIndex === 'number') {
+			checkedRuleIndexes = new Set([...checkedRuleIndexes, ruleIndex]);
+		}
+		if (
+			ruleSetTag &&
+			['rule_set_start', 'rule_set_cache_check', 'rule_set_download_start', 'rule_set_match_start'].includes(progress.phase)
+		) {
+			activeRuleSetTag = ruleSetTag;
+		}
+		if (ruleSetTag && ['rule_set_match_done', 'rule_set_match_error', 'rule_set_download_error'].includes(progress.phase) && activeRuleSetTag === ruleSetTag) {
+			activeRuleSetTag = '';
+		}
+
+		const activePhases = new Set([
+			'start',
+			'load_config',
+			'rule_start',
+			'rule_set_start',
+			'rule_set_cache_check',
+			'rule_set_download_start',
+			'rule_set_match_start',
+		]);
+		const donePhases = new Set([
+			'config_loaded',
+			'classify_input',
+			'rule_done',
+			'rule_set_cache_hit',
+			'rule_set_download_done',
+			'rule_set_match_done',
+			'terminal_match',
+			'non_terminal_match',
+			'done',
+		]);
+		const errorPhases = new Set(['rule_set_download_error', 'rule_set_match_error', 'rule_set_undefined']);
+
+		if (activePhases.has(progress.phase)) {
+			const key = stepKey(progress);
+			activeStepStartedAt = { ...activeStepStartedAt, [key]: now };
+			currentStep = stepFromProgress(progress, 'current');
+			nextStep = buildNextStep();
+			return;
+		}
+
+		if (donePhases.has(progress.phase) || errorPhases.has(progress.phase)) {
+			const finished = stepFromProgress(progress, errorPhases.has(progress.phase) ? 'error' : progressKind(progress));
+			let startKey = stepKey(progress);
+			if (progress.phase === 'rule_done') startKey = `rule:${progress.ruleIndex ?? ''}`;
+			if (progress.phase === 'rule_set_download_done' || progress.phase === 'rule_set_download_error') {
+				startKey = `download:${progress.ruleSetTag ?? ''}`;
+			}
+			if (progress.phase === 'rule_set_match_done' || progress.phase === 'rule_set_match_error') {
+				startKey = `match:${progress.ruleSetTag ?? ''}`;
+			}
+			if (progress.phase === 'rule_set_cache_hit') startKey = `cache:${progress.ruleSetTag ?? ''}`;
+			const started = activeStepStartedAt[startKey];
+			if (started) {
+				finished.startedAt = started;
+				finished.finishedAt = now;
+				finished.durationMs = now - started;
+			}
+			previousStep = finished;
+			completedSteps = [...completedSteps, finished];
+			if (stepCompletesCurrent(currentStep, finished)) {
+				currentStep = null;
+			}
+			if (progress.phase === 'done') {
+				currentStep = null;
+				nextStep = null;
+			} else {
+				nextStep = buildNextStep();
+			}
+		}
+	}
+
+	function buildInspectionReport(nextResult: SingboxRouterInspectResult): InspectorReport {
+		const totalDurationMs = inspectionStartedAt ? Date.now() - inspectionStartedAt : elapsedSec * 1000;
+		const allCompleted = completedSteps.filter((s) => s.durationMs && s.durationMs > 0);
+		const slowestSteps = [...allCompleted].sort((a, b) => (b.durationMs ?? 0) - (a.durationMs ?? 0)).slice(0, 5);
+		const ruleSetSteps = allCompleted.filter((s) => s.ruleSetTag || s.phase?.startsWith('rule_set')).slice(-8);
+		return {
+			totalDurationMs,
+			checkedRules: nextResult.matches?.length ?? checkedRuleIndexes.size,
+			totalRules: nextResult.matches?.length ?? totalRules,
+			destination: nextResult.destination,
+			final: nextResult.final || 'direct',
+			matchedRule: nextResult.matchedRule,
+			slowestSteps,
+			ruleSetSteps,
+		};
 	}
 
 	function formatProgressFallback(progress: SingboxRouterInspectProgress): string {
@@ -66,13 +340,14 @@
 		}
 	}
 
-	const progressMessage = $derived.by(() => {
-		if (elapsedSec <= 1) return 'Загружаем конфигурацию маршрутизации…';
-		if (elapsedSec <= 15) return 'Проверяем правила маршрутизации…';
-		if (elapsedSec <= 30) return 'Проверяем rule_set. Для больших списков это может занять дольше…';
-		if (elapsedSec <= 50) return 'Инспектор всё ещё работает. Большие rule_set могут проверяться до 30 секунд…';
-		return 'Всё ещё ждём ответ backend. Не закрывайте окно — результат появится здесь.';
+	const currentRuleIndex = $derived(currentRule);
+	const ruleTotal = $derived(totalRules);
+	const checkedRules = $derived(checkedRuleIndexes.size);
+	const ruleProgressPercent = $derived.by(() => {
+		if (!ruleTotal) return 0;
+		return Math.min(100, Math.round((checkedRules / ruleTotal) * 100));
 	});
+	const currentRuleSet = $derived(activeRuleSetTag);
 
 	async function testRoute(): Promise<void> {
 		const trimmed = inputValue.trim();
@@ -82,6 +357,7 @@
 
 		testing = true;
 		inspectStartedAt = Date.now();
+		inspectionStartedAt = Date.now();
 		elapsedSec = 0;
 		if (progressTimer) clearInterval(progressTimer);
 		progressTimer = setInterval(() => {
@@ -93,7 +369,17 @@
 		showAllRules = false;
 
 		try {
-			progressEvents = [];
+			previousStep = null;
+			currentStep = null;
+			nextStep = null;
+			completedSteps = [];
+			currentProgressMessage = 'Ожидаем ответ backend…';
+			activeStepStartedAt = {};
+			checkedRuleIndexes = new Set();
+			totalRules = 0;
+			currentRule = null;
+			activeRuleSetTag = '';
+			inspectionReport = null;
 			inspectStream?.close();
 			inspectStream = api.singboxRouterInspectRouteStream(
 				{
@@ -104,10 +390,15 @@
 				{
 					onProgress: (progress: SingboxRouterInspectProgress) => {
 						if (runId !== inspectRunId) return;
-						appendProgressEvent(progress.message || formatProgressFallback(progress));
+						handleProgress(progress);
 					},
 					onResult: (next) => {
 						if (runId !== inspectRunId) return;
+						if (next.matches?.length) {
+							totalRules = Math.max(totalRules, next.matches.length);
+							checkedRuleIndexes = new Set(next.matches.map((m) => m.index));
+						}
+						inspectionReport = buildInspectionReport(next);
 						result = next;
 						testing = false;
 						stopProgressTimer();
@@ -173,7 +464,18 @@
 		error = '';
 		showAllRules = false;
 		advancedOpen = false;
-		progressEvents = [];
+		previousStep = null;
+		currentStep = null;
+		nextStep = null;
+		completedSteps = [];
+		currentProgressMessage = 'Ожидаем ответ backend…';
+		activeStepStartedAt = {};
+		checkedRuleIndexes = new Set();
+		totalRules = 0;
+		currentRule = null;
+		activeRuleSetTag = '';
+		inspectionStartedAt = null;
+		inspectionReport = null;
 	}
 
 	function close(): void {
@@ -280,17 +582,67 @@
 
 		{#if testing}
 			<section class="card progress-card" aria-live="polite">
-				<div class="progress-title">Идёт проверка маршрута</div>
-				<div class="progress-message">{progressMessage}</div>
-				<div class="progress-elapsed">Прошло: {elapsedSec} сек</div>
-				<div class="progress-hint">Инспектор симулирует правила и может проверять rule_set через sing-box.</div>
-				{#if progressEvents.length > 0}
-					<ul class="progress-log">
-						{#each progressEvents as line, idx (`${idx}-${line}`)}
-							<li>{line}</li>
-						{/each}
-					</ul>
+				<div class="progress-header-row">
+					<div>
+						<div class="progress-title">Идёт проверка маршрута</div>
+						<div class="progress-message">{currentProgressMessage}</div>
+					</div>
+					<div class="progress-elapsed">Общее время: {elapsedSec} сек</div>
+				</div>
+				{#if ruleTotal > 0}
+					<div class="progress-bar-wrap">
+						<div class="progress-bar" style={`--progress-width: ${ruleProgressPercent}%`}>
+							<div class="progress-bar-fill"></div>
+						</div>
+					</div>
 				{/if}
+				<div class="progress-summary">
+					{#if ruleTotal > 0}
+						<span class="progress-pill">Правила: {checkedRules} из {ruleTotal}</span>
+					{/if}
+					{#if typeof currentRuleIndex === 'number' && ruleTotal > 0}
+						<span class="progress-pill">Текущее правило: #{currentRuleIndex + 1}</span>
+					{/if}
+					{#if currentRuleSet}
+						<span class="progress-pill">Rule-set: <code>{currentRuleSet}</code></span>
+					{/if}
+				</div>
+				<div class="progress-hint">Инспектор симулирует правила и может проверять rule_set через sing-box.</div>
+				<div class="step-stack" aria-label="Ход проверки">
+					{#if previousStep}
+						<div class="step-card step-{previousStep.status}">
+							<span class="step-dot"></span>
+							<div class="step-content">
+								<div class="step-kicker">Проверено</div>
+								<div class="step-label">{previousStep.label}</div>
+								<div class="step-meta">
+									{#if previousStep.meta}<span>{previousStep.meta}</span>{/if}
+									{#if previousStep.durationMs}<span>{formatDuration(previousStep.durationMs)}</span>{/if}
+								</div>
+							</div>
+						</div>
+					{/if}
+					{#if currentStep}
+						<div class="step-card step-current">
+							<span class="step-dot"></span>
+							<div class="step-content">
+								<div class="step-kicker">Сейчас</div>
+								<div class="step-label">{currentStep.label}</div>
+								{#if currentStep.meta}<div class="step-meta"><span>{currentStep.meta}</span></div>{/if}
+							</div>
+						</div>
+					{/if}
+					{#if nextStep}
+						<div class="step-card step-next">
+							<span class="step-dot"></span>
+							<div class="step-content">
+								<div class="step-kicker">Далее</div>
+								<div class="step-label">{nextStep.label}</div>
+								{#if nextStep.meta}<div class="step-meta"><span>{nextStep.meta}</span></div>{/if}
+							</div>
+						</div>
+					{/if}
+				</div>
 			</section>
 		{/if}
 
@@ -359,6 +711,54 @@
 					<strong>Примечание:</strong>
 					{result.note}
 				</div>
+			{/if}
+
+			{#if inspectionReport}
+				<section class="card inspect-report">
+					<div class="report-header">
+						<div>
+							<div class="report-title">Отчёт проверки</div>
+							<div class="report-subtitle">Проверено правил: {inspectionReport.checkedRules} из {inspectionReport.totalRules}</div>
+						</div>
+						<div class="report-duration">{formatDuration(inspectionReport.totalDurationMs) || 'менее 1 сек'}</div>
+					</div>
+					<div class="report-grid">
+						<div class="report-item">
+							<span>Решение</span>
+							<strong>{inspectionReport.destination}</strong>
+						</div>
+						<div class="report-item">
+							<span>Сработало</span>
+							<strong>
+								{inspectionReport.matchedRule >= 0
+									? `Правило #${inspectionReport.matchedRule + 1}`
+									: `Final: ${inspectionReport.final}`}
+							</strong>
+						</div>
+					</div>
+					{#if inspectionReport.slowestSteps.length > 0}
+						<div class="report-section">
+							<div class="report-section-title">Самые долгие этапы</div>
+							{#each inspectionReport.slowestSteps as step (step.id)}
+								<div class="report-row">
+									<span>{step.label}</span>
+									<strong>{formatDuration(step.durationMs) || 'менее 1 сек'}</strong>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					{#if inspectionReport.ruleSetSteps.length > 0}
+						<div class="report-section">
+							<div class="report-section-title">Rule-set проверки</div>
+							{#each inspectionReport.ruleSetSteps as step (step.id)}
+								<div class="report-row">
+									<span>{step.label}</span>
+									<strong>{formatDuration(step.durationMs) || 'менее 1 сек'}</strong>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</section>
 			{/if}
 
 			{#if result.matches.length > 0}
@@ -834,24 +1234,31 @@
 	.progress-card {
 		display: flex;
 		flex-direction: column;
-		gap: 0.35rem;
+		gap: 0.75rem;
+	}
+
+	.progress-header-row {
+		display: flex;
+		justify-content: space-between;
+		gap: 1rem;
+		align-items: flex-start;
 	}
 
 	.progress-title {
 		font-size: 13px;
-		font-weight: 600;
+		font-weight: 700;
 		color: var(--color-text-primary);
 	}
 
 	.progress-message {
-		font-size: 12px;
-		color: var(--color-text-secondary);
+		font-size: 13px;
+		color: var(--color-text-primary);
 	}
 
 	.progress-elapsed {
-		font-size: 12px;
+		font-size: 11px;
 		color: var(--color-text-muted);
-		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+		white-space: nowrap;
 	}
 
 	.progress-hint {
@@ -859,10 +1266,229 @@
 		color: var(--color-text-muted);
 	}
 
-	.progress-log {
-		margin: 0.25rem 0 0;
-		padding-left: 1rem;
+	.progress-bar {
+		height: 6px;
+		border-radius: 999px;
+		background: var(--color-bg-primary);
+		overflow: hidden;
+		border: 1px solid var(--color-border);
+	}
+
+	.progress-bar-fill {
+		height: 100%;
+		width: var(--progress-width);
+		border-radius: inherit;
+		background: var(--color-accent);
+		transition: width 180ms ease;
+	}
+
+	.progress-summary {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
 		font-size: 11px;
+		color: var(--color-text-muted);
+	}
+
+	.progress-pill {
+		border: 1px solid var(--color-border);
+		background: var(--color-bg-primary);
+		border-radius: 999px;
+		padding: 0.2rem 0.5rem;
+	}
+
+	.step-stack {
+		display: flex;
+		flex-direction: column;
+		gap: 0.45rem;
+	}
+
+	.step-card {
+		display: grid;
+		grid-template-columns: 0.75rem 1fr;
+		gap: 0.55rem;
+		align-items: start;
+		padding: 0.55rem 0.65rem;
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-primary);
+		border: 1px solid transparent;
+		transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+	}
+
+	.step-current {
+		border-color: var(--color-accent);
+		background: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg-primary));
+	}
+
+	.step-next {
+		opacity: 0.7;
+		border-style: dashed;
+		border-color: var(--color-border);
+	}
+
+	.step-done,
+	.step-matched {
+		background: color-mix(in srgb, var(--color-success) 6%, var(--color-bg-primary));
+	}
+
+	.step-miss {
+		background: var(--color-bg-primary);
+	}
+
+	.step-error {
+		background: var(--color-error-tint);
+		border-color: var(--color-error-border);
+	}
+
+	.step-dot {
+		width: 0.5rem;
+		height: 0.5rem;
+		margin-top: 0.35rem;
+		border-radius: 999px;
+		background: var(--color-text-muted);
+	}
+
+	.step-current .step-dot {
+		background: var(--color-accent);
+		box-shadow: 0 0 0 3px var(--color-accent-tint);
+	}
+
+	.step-matched .step-dot,
+	.step-done .step-dot {
+		background: var(--color-success);
+	}
+
+	.step-error .step-dot {
+		background: var(--color-error);
+	}
+
+	.step-kicker {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--color-text-muted);
+		margin-bottom: 0.1rem;
+	}
+
+	.step-label {
+		font-size: 12px;
+		color: var(--color-text-primary);
+		font-weight: 600;
+	}
+
+	.step-meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+		margin-top: 0.15rem;
+		font-size: 10px;
+		color: var(--color-text-muted);
+	}
+
+	.inspect-report {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.report-header {
+		display: flex;
+		justify-content: space-between;
+		gap: 1rem;
+		align-items: flex-start;
+	}
+
+	.report-title {
+		font-size: 13px;
+		font-weight: 700;
+		color: var(--color-text-primary);
+	}
+
+	.report-subtitle {
+		font-size: 11px;
+		color: var(--color-text-muted);
+	}
+
+	.report-duration {
+		font-size: 12px;
+		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+		color: var(--color-text-primary);
+	}
+
+	.report-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.5rem;
+	}
+
+	.report-item {
+		padding: 0.5rem 0.6rem;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-primary);
+	}
+
+	.report-item span {
+		display: block;
+		font-size: 10px;
+		color: var(--color-text-muted);
+		margin-bottom: 0.15rem;
+	}
+
+	.report-item strong {
+		font-size: 12px;
+		color: var(--color-text-primary);
+		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	}
+
+	.report-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.report-section-title {
+		font-size: 11px;
+		font-weight: 600;
 		color: var(--color-text-secondary);
+	}
+
+	.report-row {
+		display: flex;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.35rem 0.5rem;
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-primary);
+		font-size: 11px;
+	}
+
+	.report-row span {
+		color: var(--color-text-secondary);
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+
+	.report-row strong {
+		color: var(--color-text-primary);
+		white-space: nowrap;
+	}
+
+	@media (max-width: 640px) {
+		.progress-header-row {
+			flex-direction: column;
+		}
+
+		.progress-elapsed {
+			white-space: normal;
+		}
+
+		.report-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.report-header {
+			flex-direction: column;
+		}
 	}
 </style>
