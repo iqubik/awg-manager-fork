@@ -1475,7 +1475,7 @@ export interface SingboxRouterAvailableClient {
 	active?: boolean;
 }
 
-export type SingboxRouterDNSType = 'udp' | 'tls' | 'https' | 'quic' | 'h3';
+export type SingboxRouterDNSType = 'udp' | 'tls' | 'https' | 'quic' | 'h3' | 'local';
 
 export type SingboxRouterDNSStrategy =
 	| ''

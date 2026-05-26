@@ -23,6 +23,7 @@
 		{ value: 'https', label: 'DoH (DNS over HTTPS)' },
 		{ value: 'quic', label: 'DoQ (DNS over QUIC)' },
 		{ value: 'h3', label: 'DoH3' },
+		{ value: 'local', label: 'Local (системный resolver роутера)' },
 	];
 
 	const STRATEGY_OPTIONS: DropdownOption<SingboxRouterDNSStrategy>[] = [
@@ -136,13 +137,13 @@
 		error = '';
 		try {
 			if (!tag.trim()) { error = 'Tag обязателен'; busy = false; return; }
-			if (!serverAddr.trim()) { error = 'Server обязателен'; busy = false; return; }
+			if (type !== 'local' && !serverAddr.trim()) { error = 'Server обязателен'; busy = false; return; }
 			if (resolverEnabled && !resolverServer) { error = 'Укажите domain_resolver'; busy = false; return; }
 
 			const built: SingboxRouterDNSServer = {
 				tag: tag.trim(),
 				type,
-				server: serverAddr.trim(),
+				server: type === 'local' ? '' : serverAddr.trim(),
 			};
 			if (serverPort !== '' && Number(serverPort) > 0) built.server_port = Number(serverPort);
 			if (path.trim()) built.path = path.trim();
@@ -181,21 +182,27 @@
 				<Dropdown bind:value={type} options={TYPE_OPTIONS} fullWidth />
 			</label>
 
-			<label class="field span-full">
-				<div class="lbl">Server <span class="req">*</span></div>
-				<input bind:value={serverAddr} placeholder={type === 'udp' ? '1.1.1.1' : 'cloudflare-dns.com'} />
-			</label>
-
-			<label class="field" class:span-full={type !== 'https'}>
-				<div class="lbl">Server port</div>
-				<input type="number" bind:value={serverPort} placeholder={type === 'udp' ? '53' : type === 'https' ? '443' : '853'} />
-			</label>
-
-			{#if type === 'https'}
-				<label class="field">
-					<div class="lbl">Path</div>
-					<input bind:value={path} placeholder="/dns-query" />
+			{#if type !== 'local'}
+				<label class="field span-full">
+					<div class="lbl">Server <span class="req">*</span></div>
+					<input bind:value={serverAddr} placeholder={type === 'udp' ? '1.1.1.1' : 'cloudflare-dns.com'} />
 				</label>
+
+				<label class="field" class:span-full={type !== 'https'}>
+					<div class="lbl">Server port</div>
+					<input type="number" bind:value={serverPort} placeholder={type === 'udp' ? '53' : type === 'https' ? '443' : '853'} />
+				</label>
+
+				{#if type === 'https'}
+					<label class="field">
+						<div class="lbl">Path</div>
+						<input bind:value={path} placeholder="/dns-query" />
+					</label>
+				{/if}
+			{:else}
+				<div class="field span-full hint">
+					Local-сервер резолвит через системный resolver роутера (NDMS/AdGuard/Pi-hole). Адрес и порт не требуются.
+				</div>
 			{/if}
 		</div>
 
