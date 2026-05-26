@@ -13,7 +13,7 @@ type fakeOrch struct {
 func newFakeOrch() *fakeOrch {
 	return &fakeOrch{saved: map[string][]byte{}, enabled: map[string]bool{}}
 }
-func (f *fakeOrch) Save(slot string, data []byte) error    { f.saved[slot] = data; return nil }
+func (f *fakeOrch) Save(slot string, data []byte) error   { f.saved[slot] = data; return nil }
 func (f *fakeOrch) SetEnabled(slot string, on bool) error { f.enabled[slot] = on; return nil }
 
 type fakeStore struct{ items []DNSRewrite }

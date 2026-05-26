@@ -16,11 +16,11 @@ var validDNSTypes = map[string]bool{
 }
 
 var validDNSStrategies = map[string]bool{
-	"":             true,
-	"prefer_ipv4":  true,
-	"prefer_ipv6":  true,
-	"ipv4_only":    true,
-	"ipv6_only":    true,
+	"":            true,
+	"prefer_ipv4": true,
+	"prefer_ipv6": true,
+	"ipv4_only":   true,
+	"ipv6_only":   true,
 }
 
 var validDNSRuleActions = map[string]bool{

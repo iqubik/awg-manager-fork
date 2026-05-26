@@ -62,7 +62,7 @@ func (h *DNSRewritesHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Index   int                  `json:"index"`
+		Index   int                   `json:"index"`
 		Rewrite dnsrewrite.DNSRewrite `json:"rewrite"`
 	}
 	if err := decodeBody(r, &req); err != nil {
