@@ -121,7 +121,7 @@
 		);
 	});
 
-	const needsResolver = $derived(type !== 'udp' && !isIPLiteral(serverAddr));
+	const needsResolver = $derived(type !== 'udp' && type !== 'local' && !isIPLiteral(serverAddr));
 	const availableResolvers = $derived(servers.filter((s) => s.tag !== tag).map((s) => s.tag));
 	const resolverServerOptions = $derived<DropdownOption[]>([
 		{ value: '', label: '— выберите —' },
@@ -145,14 +145,16 @@
 				type,
 				server: type === 'local' ? '' : serverAddr.trim(),
 			};
-			if (serverPort !== '' && Number(serverPort) > 0) built.server_port = Number(serverPort);
-			if (path.trim()) built.path = path.trim();
+			if (type !== 'local') {
+				if (serverPort !== '' && Number(serverPort) > 0) built.server_port = Number(serverPort);
+				if (path.trim()) built.path = path.trim();
+				if (resolverEnabled && resolverServer) {
+					built.domain_resolver = { server: resolverServer };
+					if (resolverStrategy) built.domain_resolver.strategy = resolverStrategy;
+				}
+			}
 			if (detour) built.detour = detour;
 			if (strategy) built.domain_strategy = strategy;
-			if (resolverEnabled && resolverServer) {
-				built.domain_resolver = { server: resolverServer };
-				if (resolverStrategy) built.domain_resolver.strategy = resolverStrategy;
-			}
 
 			await onSave(built);
 		} catch (e) {
