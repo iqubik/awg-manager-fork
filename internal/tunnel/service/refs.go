@@ -15,6 +15,7 @@ type ErrTunnelReferenced struct {
 	TunnelID    string
 	DeviceProxy bool
 	RouterRules []int
+	RouterOther []string
 }
 
 func (e ErrTunnelReferenced) Error() string {
@@ -24,6 +25,9 @@ func (e ErrTunnelReferenced) Error() string {
 	}
 	if len(e.RouterRules) > 0 {
 		parts = append(parts, fmt.Sprintf("%d router rule(s)", len(e.RouterRules)))
+	}
+	if len(e.RouterOther) > 0 {
+		parts = append(parts, fmt.Sprintf("%d router outbound reference(s)", len(e.RouterOther)))
 	}
 	return "tunnel " + e.TunnelID + " is referenced by: " + strings.Join(parts, ", ")
 }
@@ -35,9 +39,10 @@ type DeviceProxyRefChecker interface {
 }
 
 // RouterRefChecker returns the indices of router rules whose outbound
-// equals tag. Empty slice = no references.
+// equals tag, and other locations referencing the tag. Empty slice = no references.
 type RouterRefChecker interface {
 	RulesReferencing(tag string) []int
+	OutboundReferenceLocations(tag string) []string
 }
 
 // checkTunnelReferences returns ErrTunnelReferenced if any checker
@@ -55,6 +60,10 @@ func checkTunnelReferences(tunnelID string, dp DeviceProxyRefChecker, r RouterRe
 	if r != nil {
 		if rules := r.RulesReferencing(tag); len(rules) > 0 {
 			refs.RouterRules = rules
+			refused = true
+		}
+		if locs := r.OutboundReferenceLocations(tag); len(locs) > 0 {
+			refs.RouterOther = locs
 			refused = true
 		}
 	}

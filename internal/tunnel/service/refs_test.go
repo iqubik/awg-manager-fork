@@ -16,10 +16,15 @@ func (f *fakeDeviceProxyRefs) HasSelectorReference(tag string) bool {
 
 type fakeRouterRefs struct {
 	rules map[string][]int
+	other map[string][]string
 }
 
 func (f *fakeRouterRefs) RulesReferencing(tag string) []int {
 	return f.rules[tag]
+}
+
+func (f *fakeRouterRefs) OutboundReferenceLocations(tag string) []string {
+	return f.other[tag]
 }
 
 func TestCheckTunnelReferences_NoRefs(t *testing.T) {
@@ -81,6 +86,30 @@ func TestCheckTunnelReferences_BothRefs(t *testing.T) {
 func TestCheckTunnelReferences_NilCheckers(t *testing.T) {
 	if err := checkTunnelReferences("tun-a", nil, nil); err != nil {
 		t.Errorf("nil checkers should yield no error, got %v", err)
+	}
+}
+
+func TestCheckTunnelReferences_RouterOtherRef(t *testing.T) {
+	dp := &fakeDeviceProxyRefs{}
+	r := &fakeRouterRefs{other: map[string][]string{
+		"awg-tun-a": {"route.final", `dns.servers[0="dns1"].detour`},
+	}}
+	err := checkTunnelReferences("tun-a", dp, r)
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	refErr, ok := err.(ErrTunnelReferenced)
+	if !ok {
+		t.Fatalf("expected ErrTunnelReferenced, got %T", err)
+	}
+	if refErr.DeviceProxy {
+		t.Errorf("expected DeviceProxy=false, got true")
+	}
+	if len(refErr.RouterRules) != 0 {
+		t.Errorf("expected no router rules, got %v", refErr.RouterRules)
+	}
+	if len(refErr.RouterOther) != 2 {
+		t.Errorf("expected 2 router-other refs, got %v", refErr.RouterOther)
 	}
 }
 
