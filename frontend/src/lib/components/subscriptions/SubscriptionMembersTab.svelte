@@ -8,6 +8,7 @@
 	import { notifications } from '$lib/stores/notifications';
 	import SubscriptionMemberCard from './SubscriptionMemberCard.svelte';
 	import type { SingboxLayoutMode } from '$lib/constants/singboxLayout';
+	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
 
 	interface Props {
 		subscription: Subscription;
@@ -210,6 +211,10 @@
 	});
 </script>
 
+{#snippet createIcon()}
+	<CreateIcon />
+{/snippet}
+
 <header class="head">
 	<div class="head-info">
 		<div class="lbl">{modeLabel}</div>
@@ -217,8 +222,8 @@
 	</div>
 	<div class="actions">
 		{#if subscription.isInline}
-			<Button variant="primary" size="sm" onclick={() => (addOpen = true)}>
-				+ Добавить сервер
+			<Button variant="primary" size="sm" onclick={() => (addOpen = true)} iconBefore={createIcon}>
+				Добавить сервер
 			</Button>
 		{:else}
 			<Button variant="primary" size="sm" disabled={refreshing} loading={refreshing} onclick={refresh}>

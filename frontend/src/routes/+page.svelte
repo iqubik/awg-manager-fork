@@ -57,6 +57,7 @@
 		type SingboxLayoutMode,
 	} from '$lib/constants/singboxLayout';
 	import { isMockDevMode as getIsMockDevMode } from '$lib/env';
+	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
 
 	type TunnelTab = 'awg' | 'singbox' | 'subscriptions';
 	type AwgTunnelViewMode = 'cards' | 'compact' | 'list';
@@ -1027,6 +1028,10 @@
 
 </script>
 
+{#snippet createIcon()}
+	<CreateIcon />
+{/snippet}
+
 <svelte:head>
 	<title>Туннели - AWG Manager</title>
 </svelte:head>
@@ -1758,7 +1763,14 @@
 									onchange={(v) => (singboxSubscriptionsLayoutMode = v)}
 								/>
 							{/if}
-							<Button variant="primary" size="md" onclick={() => openWizard('url')}>+ Добавить</Button>
+							<Button
+								variant="primary"
+								size="md"
+								onclick={() => openWizard('url')}
+								iconBefore={createIcon}
+							>
+								Добавить
+							</Button>
 						</div>
 					</div>
 					{#if subscriptionsList.length === 0}
@@ -1767,7 +1779,14 @@
 							<p class="subscription-empty-desc">
 								Добавьте подписку — мастер скачает список серверов и создаст selector-туннель.
 							</p>
-							<Button variant="primary" size="md" onclick={() => openWizard('url')}>+ Добавить подписку</Button>
+							<Button
+								variant="primary"
+								size="md"
+								onclick={() => openWizard('url')}
+								iconBefore={createIcon}
+							>
+								Добавить подписку
+							</Button>
 						</div>
 					{:else if singboxSubscriptionsEffectiveLayout === 'list'}
 						<div class="awg-summary-row">
@@ -1890,7 +1909,14 @@
 								onchange={(v) => (singboxTunnelsLayoutMode = v)}
 							/>
 						{/if}
-						<Button variant="primary" size="md" onclick={() => openWizard('choose')}>+ Добавить</Button>
+						<Button
+							variant="primary"
+							size="md"
+							onclick={() => openWizard('choose')}
+							iconBefore={createIcon}
+						>
+							Добавить
+						</Button>
 					</div>
 				</div>
 			{/if}
@@ -2150,13 +2176,6 @@
 		<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
 		<polyline points="7 10 12 15 17 10"/>
 		<line x1="12" y1="15" x2="12" y2="3"/>
-	</svg>
-{/snippet}
-
-{#snippet createIcon()}
-	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-		<path d="M12 5v14"/>
-		<path d="M5 12h14"/>
 	</svg>
 {/snippet}
 
@@ -3325,6 +3344,7 @@
 		.toolbar-actions > :global(.btn):only-child {
 			grid-column: 2 / 3;
 			justify-self: stretch;
+			justify-content: center;
 		}
 	}
 </style>

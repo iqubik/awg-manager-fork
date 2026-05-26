@@ -23,6 +23,7 @@
         resolveDownloadRouteLabel,
     } from '$lib/stores/downloadRoute';
     import RoutingTabBodySkeleton from './RoutingTabBodySkeleton.svelte';
+    import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
 
     interface Props {
         dnsRoutes: DnsRoute[];
@@ -319,6 +320,10 @@
     }
 </script>
 
+{#snippet createIcon()}
+    <CreateIcon />
+{/snippet}
+
 {#if !hasDnsEngine}
     <div class="empty-state">
         <p>Для DNS-маршрутизации требуется прошивка OS5 или <a href="https://github.com/Ground-Zerro/HydraRoute" target="_blank" rel="noopener">HydraRoute Neo</a></p>
@@ -340,8 +345,14 @@
                 <Button variant="ghost" size="sm" onclick={() => { dnsSelectionMode = true; dnsSelected = new Set(); }} disabled={bodyLoading}>Выбрать</Button>
             {/if}
             <div class="dropdown-wrapper">
-                <Button variant="primary" size="sm" disabled={bodyLoading} onclick={(e) => { e.stopPropagation(); addMenuOpen = !addMenuOpen; }}>
-                    + Добавить
+                <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={bodyLoading}
+                    onclick={(e) => { e.stopPropagation(); addMenuOpen = !addMenuOpen; }}
+                    iconBefore={createIcon}
+                >
+                    Добавить
                     {#snippet iconAfter()}
                         <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M2 4l3 3 3-3"/></svg>
                     {/snippet}

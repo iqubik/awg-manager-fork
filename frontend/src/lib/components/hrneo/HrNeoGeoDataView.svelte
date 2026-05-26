@@ -14,6 +14,7 @@
 	} from '$lib/stores/downloadRoute';
 	import { ConfirmModal, Button, Dropdown } from '$lib/components/ui';
 	import { geoDownloadProgress } from '$lib/stores/geoDownload';
+	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
 
 	interface Props {
 		files: GeoFileEntry[];
@@ -343,6 +344,10 @@
 	}
 </script>
 
+{#snippet createIcon()}
+	<CreateIcon />
+{/snippet}
+
 <div class="geo-pane">
 	<header class="pane-header">
 		<h2>Гео-данные</h2>
@@ -517,9 +522,10 @@
 				size="sm"
 				onclick={add}
 				disabled={!addUrl.trim() || routeActionsDisabled}
+				iconBefore={createIcon}
 				loading={busy === 'add'}
 			>
-				+ Добавить
+				Добавить
 			</Button>
 		</div>
 		{#if busy === 'add'}

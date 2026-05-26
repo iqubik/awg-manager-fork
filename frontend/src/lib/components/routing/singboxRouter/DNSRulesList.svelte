@@ -5,6 +5,7 @@
 	import DNSRuleEditModal from './DNSRuleEditModal.svelte';
 	import { Button } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
+	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
 
 	interface Props {
 		rules: SingboxRouterDNSRule[];
@@ -64,6 +65,10 @@
 	}
 </script>
 
+{#snippet createIcon()}
+	<CreateIcon />
+{/snippet}
+
 <div class="header">
 	<div class="hint">{rules.length} правил · first-match-wins</div>
 	<Button
@@ -71,8 +76,9 @@
 		size="sm"
 		onclick={() => { addMode = true; editIndex = null; }}
 		disabled={servers.length === 0}
+		iconBefore={createIcon}
 	>
-		+ Добавить правило
+		Добавить правило
 	</Button>
 </div>
 

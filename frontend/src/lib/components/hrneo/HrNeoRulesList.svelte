@@ -2,6 +2,7 @@
 	import type { DnsRoute } from '$lib/types';
 	import { Button } from '$lib/components/ui';
 	import HrNeoRuleCard from './HrNeoRuleCard.svelte';
+	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
 
 	interface Props {
 		target: string;
@@ -26,6 +27,10 @@
 	let sortedRules = $derived([...rules].sort((a, b) => a.name.localeCompare(b.name)));
 </script>
 
+{#snippet createIcon()}
+	<CreateIcon />
+{/snippet}
+
 <div class="hr-list">
 	<header class="list-header">
 		<div class="list-title">
@@ -33,7 +38,9 @@
 			<span class="kind-badge kind-{targetKind}">{targetKind}</span>
 			<span class="count">{rules.length} правил</span>
 		</div>
-		<Button variant="primary" size="sm" onclick={onaddrule}>+ Добавить правило</Button>
+		<Button variant="primary" size="sm" onclick={onaddrule} iconBefore={createIcon}>
+			Добавить правило
+		</Button>
 	</header>
 
 	{#if sortedRules.length === 0}

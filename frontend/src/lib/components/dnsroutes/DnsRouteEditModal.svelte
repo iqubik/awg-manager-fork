@@ -11,6 +11,7 @@
 		findRoutingTunnelLabel,
 	} from '$lib/utils/routingTunnelOptions';
 	import DownloadRouteNote from '$lib/components/downloads/DownloadRouteNote.svelte';
+	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
 
 	interface Props {
 		open: boolean;
@@ -302,6 +303,10 @@
 	}
 </script>
 
+{#snippet createIcon()}
+	<CreateIcon />
+{/snippet}
+
 <Modal {open} {title} size="lg" onclose={onclose} hasUnsavedChanges={() => isDirty}>
 	<!-- Name -->
 	<div class="form-group" class:field-error={nameError}>
@@ -464,7 +469,9 @@
 							fullWidth
 						/>
 					</div>
-					<Button variant="primary" size="sm" onclick={addRoute}>+ Добавить</Button>
+					<Button variant="primary" size="sm" onclick={addRoute} iconBefore={createIcon}>
+						Добавить
+					</Button>
 				</div>
 			{/if}
 
