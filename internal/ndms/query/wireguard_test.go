@@ -554,3 +554,44 @@ func TestFormatHandshakeSecondsAgo_Sentinels(t *testing.T) {
 		t.Errorf("positive: want RFC3339, got empty")
 	}
 }
+
+// TestIPMaskToPrefix покрывает оба формата NDMS allow-ips mask:
+// dotted-quad IPv4 + decimal prefix length (issue #216 — "::/0" приходит
+// как mask="0", старый парсер отвергал).
+func TestIPMaskToPrefix(t *testing.T) {
+	cases := []struct {
+		name string
+		mask string
+		want int
+	}{
+		// IPv6 prefix-length form (issue #216).
+		{"ipv6 default route mask 0", "0", 0},
+		{"ipv6 /64", "64", 64},
+		{"ipv6 host /128", "128", 128},
+		{"ipv6 prefix with surrounding space", "  64  ", 64},
+
+		// IPv4 dotted-quad — backward compat.
+		{"ipv4 host /32", "255.255.255.255", 32},
+		{"ipv4 /24", "255.255.255.0", 24},
+		{"ipv4 /16", "255.255.0.0", 16},
+		{"ipv4 /0", "0.0.0.0", 0},
+
+		// IPv4 prefix-length form (allowed for symmetry).
+		{"ipv4 prefix-length form /32", "32", 32},
+		{"ipv4 prefix-length form /24", "24", 24},
+
+		// Garbage / out of range.
+		{"empty", "", -1},
+		{"negative", "-1", -1},
+		{"too large", "129", -1},
+		{"non-canonical mask", "255.0.255.0", -1},
+		{"random text", "garbage", -1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ipMaskToPrefix(tc.mask); got != tc.want {
+				t.Errorf("ipMaskToPrefix(%q) = %d, want %d", tc.mask, got, tc.want)
+			}
+		})
+	}
+}
