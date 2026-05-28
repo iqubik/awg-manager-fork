@@ -2029,10 +2029,13 @@ const mockRoutingTunnels = [
 const mockSingboxRules = [
 	{ action: 'sniff' },
 	{ action: 'hijack-dns', protocol: 'dns' },
+	// system bypass — render as BYPASS chip; long matcher summary that
+	// triggers issue #214 narrow-viewport wrap problem.
+	{ ip_is_private: true },
 	{ action: 'route', domain_suffix: ['youtube.com', 'ytimg.com'], outbound: 'sub-demo0001' },
 	{ action: 'route', rule_set: ['geosite-openai'], outbound: 'sub-demo0001' },
 	{ action: 'route', domain_suffix: ['github.com'], outbound: 'direct' },
-	{ action: 'reject', domain_suffix: ['ads.example'] },
+	{ action: 'reject', domain: ['vkvideo.ru', 'long-host.example.com'], rule_set: ['geosite-category-ads-all', 'geosite-youtube'] },
 ];
 
 const mockSingboxRuleSets = [

@@ -534,24 +534,45 @@
 		color: var(--color-text-secondary);
 	}
 	@media (max-width: 720px) {
-		.t-head,
-		.t-row {
-			grid-template-columns: 28px 52px 70px 1fr 60px;
-			align-items: start;
-		}
-		.col-out {
+		/* Stacked layout: row 1 — #, action chip, edit buttons; row 2 —
+		 * full-width matchers. Resolves issue #214 (Sc5) — на 357px шторма
+		 * col-match получала ~79px и текст ломался посимвольно из-за
+		 * overflow-wrap: anywhere. Теперь matchers занимают всю ширину
+		 * строки, перенос идёт по словам. Order/drag controls спрятаны —
+		 * для перетаскивания доступна desktop-ширина. */
+		.t-head {
 			display: none;
 		}
+		.t-row {
+			grid-template-columns: 28px 1fr auto;
+			grid-template-areas:
+				"idx action edit"
+				"match match  match";
+			row-gap: 0.4rem;
+			align-items: center;
+		}
+		.col-out,
+		.col-order {
+			display: none;
+		}
+		.col-idx {
+			grid-area: idx;
+		}
+		.col-action {
+			grid-area: action;
+		}
+		.col-edit {
+			grid-area: edit;
+		}
 		.col-match {
+			grid-area: match;
 			overflow: visible;
 			text-overflow: initial;
 			white-space: normal;
-			overflow-wrap: anywhere;
-			word-break: break-word;
-			line-height: 1.35;
+			overflow-wrap: break-word;
+			line-height: 1.4;
 		}
-		.col-idx,
-		.col-order {
+		.col-idx {
 			align-self: center;
 		}
 		.col-action,
