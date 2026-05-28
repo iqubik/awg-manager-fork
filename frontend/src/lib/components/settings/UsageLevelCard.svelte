@@ -453,4 +453,31 @@
 		82%  { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 22%, transparent), 0 0 8px 1px color-mix(in srgb, var(--color-accent) 10%, transparent); }
 		100% { box-shadow: none; }
 	}
+
+	@media (max-width: 640px) {
+		.level-header-row {
+			flex-direction: column;
+			align-items: stretch;
+			flex-wrap: nowrap;
+			gap: 0.625rem;
+		}
+
+		.level-header-row > *:first-child {
+			width: 100%;
+		}
+
+		.level-expand-control {
+			width: 100%;
+			box-sizing: border-box;
+			justify-content: space-between;
+			padding: 0.45rem 0.625rem;
+			border: 1px solid var(--color-border);
+			border-radius: var(--radius-sm);
+			background: var(--color-bg-tertiary);
+		}
+
+		.current-level {
+			max-width: none;
+		}
+	}
 </style>

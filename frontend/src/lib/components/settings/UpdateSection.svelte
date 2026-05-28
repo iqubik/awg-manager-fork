@@ -229,6 +229,43 @@
 		}
 	}
 
+	/* Keep the update card readable in the narrow settings column:
+		status takes its own row, actions are arranged below. */
+	.update-row.setting-row {
+		grid-template-columns: minmax(0, 1fr);
+		align-items: start;
+	}
+
+	.update-actions {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		justify-content: stretch;
+		width: 100%;
+		flex-shrink: 1;
+	}
+
+	.update-actions :global(button) {
+		width: 100%;
+		min-width: 0;
+	}
+
+	.update-actions :global(button:first-child:nth-last-child(3)),
+	.update-actions :global(button:first-child:last-child) {
+		grid-column: 1 / -1;
+	}
+
+	.update-spinner {
+		grid-column: 1 / -1;
+		justify-self: end;
+	}
+
+	@media (min-width: 641px) {
+		.update-actions {
+			justify-self: end;
+			max-width: 28rem;
+		}
+	}
+
 	.update-available {
 		color: var(--success, #22c55e) !important;
 		font-weight: 500;
