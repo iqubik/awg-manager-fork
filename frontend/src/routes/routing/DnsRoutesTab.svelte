@@ -249,9 +249,11 @@
             for (const id of dnsSelected) {
                 const route = dnsRoutes.find(r => r.id === id);
                 if (!route) continue;
-                const newRoutes = route.routes.length > 0
-                    ? [{ ...route.routes[0], tunnelId: dnsBulkTunnelId, interface: dnsBulkTunnelId }, ...route.routes.slice(1)]
-                    : [{ tunnelId: dnsBulkTunnelId, interface: dnsBulkTunnelId, fallback: 'auto' as const }];
+                // Заменяем всю цепочку одним маршрутом; fallback берём
+                // с последнего звена прежней цепочки, иначе — 'auto'.
+                const prevFallback = route.routes[route.routes.length - 1]?.fallback;
+                const fallback = prevFallback === 'reject' ? 'reject' as const : 'auto' as const;
+                const newRoutes = [{ tunnelId: dnsBulkTunnelId, interface: dnsBulkTunnelId, fallback }];
                 // Send the full list with updated routes. The backend Update() uses
                 // PUT semantics — missing fields are interpreted as "zero value" and
                 // would wipe name/manualDomains/domains. Defense against that is also
