@@ -1491,6 +1491,21 @@ let mockDNSServers = [
 		server_port: 53,
 		detour: 'sub-demo0001',
 	},
+	// issue #214 Sc3 repro — длинный hostname + длинный detour
+	// триггерят узкое viewport overflow.
+	{
+		tag: 'vpn-test',
+		type: 'tls',
+		server: 'cloudflare-dns.example.com',
+		server_port: 853,
+		detour: 'fast-vpn',
+	},
+	{
+		tag: 'dns-local-router',
+		type: 'udp',
+		server: '192.168.0.51',
+		server_port: 53,
+	},
 ];
 let mockDNSRules = [
 	{
