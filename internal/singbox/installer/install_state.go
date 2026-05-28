@@ -9,7 +9,9 @@ type InstallState string
 const (
 	// InstallStateInstalled — бинарь на диске, версия и SHA совпадают с pinned.
 	InstallStateInstalled InstallState = "installed"
-	// InstallStateMissing — бинарь не установлен, но места хватает (или RequiredSize=0).
+	// InstallStateMissing — gate пропускает: clean install ИЛИ outdated-binary
+	// с достаточным местом. UI различает install vs update через отдельный
+	// updateAvailable-флаг.
 	InstallStateMissing InstallState = "missing"
 	// InstallStateMissingNoSpace — бинарь не установлен, и места под него не хватает.
 	InstallStateMissingNoSpace InstallState = "missing_no_space"

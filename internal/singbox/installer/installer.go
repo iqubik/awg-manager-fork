@@ -261,6 +261,10 @@ const safetyMargin = 5 << 20
 //
 // Returns Installed/Missing/MissingNoSpace/OutdatedNoSpace. Free-disk unknown
 // OR spec.Size==0 → gate skipped (Missing instead of NoSpace).
+//
+// Note: возвращает Missing и для clean install, и для outdated-with-space —
+// EvaluateInstallState отвечает только на «можно ли проходить gate»;
+// различение install vs update делается через UpdateAvailable в GetStatus.
 func (i *Installer) EvaluateInstallState() InstallState {
 	installed := isExecutable(i.binaryPath)
 
