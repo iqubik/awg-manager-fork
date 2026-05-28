@@ -1,0 +1,24 @@
+package installer
+
+// InstallState классифицирует состояние managed sing-box-бинаря относительно
+// pin-версии и доступного дискового места. UI использует это, чтобы
+// корректно отрендерить баннер (особенно "no space" варианты, в которых
+// мы намеренно НЕ пытаемся скачивать).
+type InstallState string
+
+const (
+	// InstallStateInstalled — бинарь на диске, версия и SHA совпадают с pinned.
+	InstallStateInstalled InstallState = "installed"
+	// InstallStateMissing — бинарь не установлен, но места хватает (или RequiredSize=0).
+	InstallStateMissing InstallState = "missing"
+	// InstallStateMissingNoSpace — бинарь не установлен, и места под него не хватает.
+	InstallStateMissingNoSpace InstallState = "missing_no_space"
+	// InstallStateOutdatedNoSpace — установлен старый бинарь (версия и/или SHA отличаются),
+	// но места под новый не хватает. Старый продолжает работать.
+	InstallStateOutdatedNoSpace InstallState = "outdated_no_space"
+	// InstallStateInstalling — идёт активная установка/апгрейд (выставляется по сигналу
+	// от installProgress; для status-poll'а — резервный вариант).
+	InstallStateInstalling InstallState = "installing"
+	// InstallStateError — последняя установка/апгрейд завершились ошибкой.
+	InstallStateError InstallState = "error"
+)
