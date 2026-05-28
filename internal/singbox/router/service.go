@@ -16,6 +16,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/storage"
+	"github.com/hoaxisr/awg-manager/internal/sys/env"
 )
 
 type Service interface {
@@ -631,13 +632,24 @@ func (s *ServiceImpl) Enable(ctx context.Context) error {
 	}
 
 	// Wait for sing-box to be listening before iptables start redirecting
-	// traffic to its TPROXY/REDIRECT ports — otherwise packets fall on a
-	// not-yet-bound socket and get RST/dropped for the start-up window.
-	// Soft timeout: log and proceed if sing-box is slow; the alternative
-	// (refusing to install iptables) leaves the router with no routing
-	// at all, which is worse than a brief packet-drop blip.
-	if err := s.waitForSingbox(ctx, 15*time.Second); err != nil {
-		s.appLog.Warn("install", "", "sing-box not ready: "+err.Error())
+	// traffic to its TPROXY/REDIRECT ports. HARD fail (issue #221): if
+	// sing-box never comes up — most commonly because a slot config is
+	// rejected by `sing-box check` at load time — installing the AWGM-TPROXY
+	// rule still redirects DNS:53 to 127.0.0.1:<proxy_port>, where nothing
+	// is listening, and the router loses DNS until the user manually stops
+	// awg-manager. The earlier "brief packet-drop blip vs no routing"
+	// trade-off is wrong: a failed sing-box start turns the blip into a
+	// permanent outage.
+	//
+	// Same env-var contract as singbox.maxSingboxBootWait — clamped to a
+	// 60s floor here too. Import-cycle (integration_test in parent already
+	// pulls router) blocks reusing the parent helper directly.
+	bootWait := env.DurationDefault("AWG_SINGBOX_BOOT_WAIT", 60*time.Second)
+	if bootWait < 60*time.Second {
+		bootWait = 60 * time.Second
+	}
+	if err := s.waitForSingbox(ctx, bootWait); err != nil {
+		return fmt.Errorf("%w: waited %s (%v)", ErrSingboxNotReady, bootWait, err)
 	}
 
 	// Collect WAN IPs BEFORE Install: the router's own public-IP

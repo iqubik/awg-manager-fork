@@ -100,27 +100,47 @@
 	}
 </script>
 
+{#snippet saveIcon()}
+	<svg
+		width="14"
+		height="14"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2"
+		stroke-linecap="round"
+		stroke-linejoin="round"
+		aria-hidden="true"
+	>
+		<path d="M5 12.5l4.2 4.2L19 6.8" />
+	</svg>
+{/snippet}
+
+{#snippet deleteIcon()}
+	<svg
+		width="14"
+		height="14"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2"
+		stroke-linecap="round"
+		stroke-linejoin="round"
+		aria-hidden="true"
+	>
+		<path d="M4 7h16" />
+		<path d="M9 7V5h6v2" />
+		<path d="M7 7l1 13h8l1-13" />
+	</svg>
+{/snippet}
+
 <div class="settings-toolbar">
-	<Button variant="primary" disabled={saving} loading={saving} onclick={save}>
+	<Button variant="primary" disabled={saving} loading={saving} iconBefore={saveIcon} onclick={save}>
 		{saving ? 'Сохраняем...' : 'Сохранить'}
 	</Button>
-	<Button variant="danger" onclick={() => (confirmDelete = true)}>Удалить подписку</Button>
-</div>
-
-<div class="enabled-card" class:off={!enabled}>
-	<div class="enabled-row">
-		<Toggle bind:checked={enabled} variant="flip" onchange={() => {}} />
-		<div class="enabled-text">
-			<span class="enabled-title">Включена</span>
-			<span class="enabled-hint">
-				{#if enabled}
-					Подписка включена и участвует в маршрутизации
-				{:else}
-					Подписка выключена — не используется в маршрутизации
-				{/if}
-			</span>
-		</div>
-	</div>
+	<Button variant="danger" iconBefore={deleteIcon} onclick={() => (confirmDelete = true)}>
+		Удалить подписку
+	</Button>
 </div>
 
 <form
@@ -130,7 +150,143 @@
 		save();
 	}}
 >
-	<section class="col">
+	<section class="col control-col">
+		<div class="enabled-card" class:off={!enabled}>
+			<div class="enabled-row">
+				<Toggle bind:checked={enabled} variant="flip" onchange={() => {}} />
+				<div class="enabled-text">
+					<span class="enabled-title">Включена</span>
+					<span class="enabled-hint">
+						{#if enabled}
+							Подписка включена и участвует в маршрутизации
+						{:else}
+							Подписка выключена — не используется в маршрутизации
+						{/if}
+					</span>
+				</div>
+			</div>
+		</div>
+
+		<div class="mode-section">
+			<h3 class="col-title">Режим выбора сервера</h3>
+			<div class="mode-grid" role="radiogroup" aria-label="Режим выбора сервера">
+				<button
+					type="button"
+					role="radio"
+					aria-checked={mode === 'selector'}
+					class="mode-card"
+					class:selected={mode === 'selector'}
+					onclick={() => (mode = 'selector')}
+				>
+					<div class="mode-title">Ручной выбор</div>
+					<div class="mode-desc">Сервер переключается вручную из списка.</div>
+					{#if mode === 'selector'}
+						<span class="mode-check" aria-hidden="true">
+							<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+						</span>
+					{/if}
+				</button>
+				<button
+					type="button"
+					role="radio"
+					aria-checked={mode === 'urltest'}
+					class="mode-card"
+					class:selected={mode === 'urltest'}
+					onclick={() => (mode = 'urltest')}
+				>
+					<div class="mode-title">Автовыбор по скорости</div>
+					<div class="mode-desc">
+						Sing-box сам пингует серверы и держит самый быстрый.
+					</div>
+					{#if mode === 'urltest'}
+						<span class="mode-check" aria-hidden="true">
+							<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+						</span>
+					{/if}
+				</button>
+			</div>
+			{#if mode === 'urltest'}
+				<div class="urltest-block">
+					<label class="row">
+						<span class="lbl">URL для проверки</span>
+						<input
+							class="inp"
+							type="url"
+							bind:value={utUrl}
+							placeholder={DEFAULT_SUBSCRIPTION_URLTEST.url}
+						/>
+					</label>
+					<div class="ut-row">
+						<label class="ut-col">
+							<span class="lbl">Интервал, сек</span>
+							<input class="inp" type="number" min="10" max="3600" bind:value={utIntervalSec} />
+						</label>
+						<label class="ut-col">
+							<span class="lbl">Допуск, мс</span>
+							<input class="inp" type="number" min="0" max="2000" bind:value={utToleranceMs} />
+						</label>
+					</div>
+				</div>
+			{/if}
+		</div>
+
+		<div class="settings-summary" aria-label="Данные подписки">
+			<div class="summary-head">
+				<h3 class="col-title">Данные подписки</h3>
+				<span class="summary-state" class:enabled={enabled}>
+					{enabled ? 'активна' : 'выключена'}
+				</span>
+			</div>
+			<div class="summary-grid">
+				<div class="summary-item">
+					<span class="summary-value">{subscription.members.length}</span>
+					<span class="summary-label">серверов</span>
+				</div>
+				<div class="summary-item">
+					<span class="summary-value">{subscription.isInline ? 'ручной список' : 'URL'}</span>
+					<span class="summary-label">источник</span>
+				</div>
+				<div class="summary-item">
+					<span class="summary-value">{mode === 'urltest' ? 'автовыбор' : 'ручной выбор'}</span>
+					<span class="summary-label">режим</span>
+				</div>
+				<div class="summary-item">
+					<span class="summary-value">
+						{subscription.isInline
+							? 'не требуется'
+							: refreshHours > 0
+								? `${refreshHours} ч`
+								: 'вручную'}
+					</span>
+					<span class="summary-label">обновление</span>
+				</div>
+				<div class="summary-item">
+					<span class="summary-value">
+						{subscription.isInline
+							? '—'
+							: parseHeadersText(headersText).length > 0
+								? `${parseHeadersText(headersText).length}`
+								: 'нет'}
+					</span>
+					<span class="summary-label">заголовков</span>
+				</div>
+				<div class="summary-item">
+					<span class="summary-value">{mode === 'urltest' ? 'sing-box' : subscription.activeMember || 'не выбран'}</span>
+					<span class="summary-label">активный</span>
+				</div>
+				<div class="summary-item">
+					<span class="summary-value mono">Proxy{subscription.proxyIndex}</span>
+					<span class="summary-label">ndms proxy</span>
+				</div>
+				<div class="summary-item">
+					<span class="summary-value mono">{subscription.selectorTag}</span>
+					<span class="summary-label">selector</span>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<section class="col source-col">
 		<h3 class="col-title">Источник</h3>
 		<label class="row">
 			<span class="lbl">Название</span>
@@ -163,68 +319,7 @@
 		{/if}
 	</section>
 
-	<section class="col">
-		<h3 class="col-title">Режим выбора сервера</h3>
-		<div class="mode-grid" role="radiogroup" aria-label="Режим выбора сервера">
-			<button
-				type="button"
-				role="radio"
-				aria-checked={mode === 'selector'}
-				class="mode-card"
-				class:selected={mode === 'selector'}
-				onclick={() => (mode = 'selector')}
-			>
-				<div class="mode-title">Ручной выбор</div>
-				<div class="mode-desc">Сервер переключается вручную из списка.</div>
-				{#if mode === 'selector'}
-					<span class="mode-check" aria-hidden="true">
-						<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
-					</span>
-				{/if}
-			</button>
-			<button
-				type="button"
-				role="radio"
-				aria-checked={mode === 'urltest'}
-				class="mode-card"
-				class:selected={mode === 'urltest'}
-				onclick={() => (mode = 'urltest')}
-			>
-				<div class="mode-title">Автовыбор по скорости</div>
-				<div class="mode-desc">
-					Sing-box сам пингует серверы и держит самый быстрый.
-				</div>
-				{#if mode === 'urltest'}
-					<span class="mode-check" aria-hidden="true">
-						<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
-					</span>
-				{/if}
-			</button>
-		</div>
-		{#if mode === 'urltest'}
-			<div class="urltest-block">
-				<label class="row">
-					<span class="lbl">URL для проверки</span>
-					<input
-						class="inp"
-						type="url"
-						bind:value={utUrl}
-						placeholder={DEFAULT_SUBSCRIPTION_URLTEST.url}
-					/>
-				</label>
-				<div class="ut-row">
-					<label class="ut-col">
-						<span class="lbl">Интервал, сек</span>
-						<input class="inp" type="number" min="10" max="3600" bind:value={utIntervalSec} />
-					</label>
-					<label class="ut-col">
-						<span class="lbl">Допуск, мс</span>
-						<input class="inp" type="number" min="0" max="2000" bind:value={utToleranceMs} />
-					</label>
-				</div>
-			</div>
-		{/if}
-	</section>
+	
 </form>
 
 <Modal
@@ -259,10 +354,29 @@
 		margin-bottom: 1rem;
 	}
 
+	@media (max-width: 640px) {
+		.settings-toolbar {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			align-items: stretch;
+			width: 100%;
+		}
+
+		.settings-toolbar :global(.btn) {
+			width: 100%;
+			justify-content: center;
+			text-align: center;
+		}
+
+		.settings-toolbar :global(.btn .label) {
+			justify-content: center;
+			text-align: center;
+		}
+	}
+
 	.enabled-card {
-		margin-bottom: 1.25rem;
 		padding: 12px 14px;
-		background: var(--color-bg-secondary);
+		background: var(--color-bg-primary);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius, 8px);
 		transition:
@@ -313,6 +427,80 @@
 		background: var(--color-bg-secondary, var(--color-bg-primary));
 		border: 1px solid var(--color-border);
 		border-radius: 8px;
+	}
+	.control-col {
+		gap: 1rem;
+	}
+	.mode-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.7rem;
+	}
+	.settings-summary {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		margin-top: auto;
+		padding-top: 0.9rem;
+		border-top: 1px solid var(--color-border);
+	}
+	.summary-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+	.summary-head .col-title {
+		margin: 0;
+	}
+	.summary-state {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.12rem 0.45rem;
+		border-radius: 999px;
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-muted);
+		font-size: 0.68rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.summary-state.enabled {
+		background: color-mix(in srgb, var(--color-success, #22c55e) 16%, transparent);
+		color: var(--color-success, #22c55e);
+	}
+	.summary-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.5rem;
+	}
+	.summary-item {
+		min-width: 0;
+		padding: 0.55rem 0.65rem;
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		background: var(--color-bg-primary);
+	}
+	.summary-value,
+	.summary-label {
+		display: block;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.summary-value {
+		font-size: 0.82rem;
+		font-weight: 600;
+		color: var(--color-text-primary);
+	}
+	.summary-label {
+		margin-top: 0.22rem;
+		font-size: 0.66rem;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: var(--color-text-muted);
 	}
 	.col-title {
 		margin: 0 0 0.3rem;

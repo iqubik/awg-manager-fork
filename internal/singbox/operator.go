@@ -22,20 +22,43 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/singbox/installer"
 	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/singbox/vlink"
+	"github.com/hoaxisr/awg-manager/internal/sys/env"
 	"github.com/hoaxisr/awg-manager/internal/sys/ndmsinfo"
 	"github.com/hoaxisr/awg-manager/internal/sys/perftrace"
 )
 
-const (
-	// maxSingboxBootWait caps how long startAndWait polls the Clash API
-	// before declaring the cold start failed. On MIPS routers with gvisor
-	// enabled, sing-box boot can take 5–10s; 15s leaves headroom without
-	// letting a truly-broken config hang the caller indefinitely.
-	maxSingboxBootWait = 15 * time.Second
+// maxSingboxBootWait caps how long startAndWait polls the Clash API
+// before declaring the cold start failed. On MIPS routers with gvisor
+// enabled, sing-box boot can take 5–10s; with heavy outbounds (hy2 QUIC
+// handshake, vless TLS init) on slow CPUs cold start can stretch to
+// 30s+. 60s default leaves real headroom without letting a truly-broken
+// config hang the caller indefinitely.
+//
+// Override via AWG_SINGBOX_BOOT_WAIT (Go duration string, e.g. "90s",
+// "2m"). Clamped to a 60s floor — going lower was the root cause of
+// issue #221 where a soft-fail let iptables install before sing-box
+// finished initializing, leaving DNS dead-ended at a port nothing was
+// listening on. Same env-var also read by router/service.go
+// waitForSingbox — keep both call sites in sync if you change the key.
+//
+// var (not const) so the env override applies at process start; tests
+// can patch by re-assigning.
+var maxSingboxBootWait = clampSingboxBootWait(env.DurationDefault("AWG_SINGBOX_BOOT_WAIT", 60*time.Second))
 
+// singboxBootWaitFloor enforces the lower bound for AWG_SINGBOX_BOOT_WAIT.
+const singboxBootWaitFloor = 60 * time.Second
+
+func clampSingboxBootWait(d time.Duration) time.Duration {
+	if d < singboxBootWaitFloor {
+		return singboxBootWaitFloor
+	}
+	return d
+}
+
+const (
 	// singboxProbeInterval controls how often we poll Clash during boot.
 	// 200ms keeps the wait snappy on fast starts (~200ms to detect ready)
-	// without hammering the daemon when it takes the full 15s.
+	// without hammering the daemon when it takes the full timeout.
 	singboxProbeInterval = 200 * time.Millisecond
 
 	// singboxVersionProbeTimeout bounds external `sing-box version` probe
@@ -44,13 +67,19 @@ const (
 	//
 	// Entware/UPX builds on Keenetic (especially older MIPS with UPX
 	// self-decompression) can spend several seconds inflating before
-	// emitting the banner. Keep the headroom so the first probe still
-	// completes successfully on slow targets.
-	singboxVersionProbeTimeout = 6 * time.Second
+	// emitting the banner. 15s headroom covers the worst UPX cold case
+	// without leaving a truly-broken binary hung forever. Steady-state
+	// cost is irrelevant: the probe fires only on binary swap (Install/
+	// Update) or first call after a process restart with no sidecar —
+	// see detectVersionAndFeaturesCached for the cache layering.
+	singboxVersionProbeTimeout = 15 * time.Second
 
-	// singboxVersionCacheTTL keeps version/features probe reasonably fresh
-	// while avoiding process-spawn on every /singbox/status poll.
-	singboxVersionCacheTTL = 5 * time.Minute
+	// singboxMetaSidecarSuffix is appended to the binary path to locate
+	// the persisted (version, features) JSON written after every
+	// successful `sing-box version` probe. The sidecar's mtime is
+	// compared against the binary's mtime — fresh sidecar ⇒ no subprocess
+	// on the next read. Survives router reboots and daemon restarts.
+	singboxMetaSidecarSuffix = ".meta.json"
 )
 
 const (
@@ -147,11 +176,14 @@ type Operator struct {
 	// reports are silently dropped (used by unit tests).
 	installProgress InstallProgressFn
 
-	// versionProbeMu guards cached output of `sing-box version`.
-	versionProbeMu       sync.Mutex
-	versionProbeValue    string
-	versionProbeFeatures []string
-	versionProbeAt       time.Time
+	// versionProbeMu guards the in-memory cache of `sing-box version`
+	// output. Cache key is versionProbeFingerprint = "<mtime>_<size>"
+	// of the binary; stat() on every read is ~10µs, so we never re-spawn
+	// when the binary hasn't moved.
+	versionProbeMu          sync.Mutex
+	versionProbeValue       string
+	versionProbeFeatures    []string
+	versionProbeFingerprint string
 
 	// manuallyStopped is the sticky-stop intent: true means Control("stop")
 	// was called and Reconcile must skip starting the daemon until
@@ -1345,6 +1377,13 @@ func (o *Operator) GetStatus(ctx context.Context) Status {
 	} else {
 		s.UpdateAvailable = s.CurrentVersion != "" && s.RequiredVersion != "" && s.CurrentVersion != s.RequiredVersion
 	}
+	if o.inst != nil {
+		s.InstallState = string(o.inst.EvaluateInstallState())
+		s.RequiredBytes = o.inst.RequiredSize() + installer.SafetyMargin
+		if free, ok := o.inst.FreeBytes(); ok {
+			s.FreeBytes = free
+		}
+	}
 	return s
 }
 
@@ -1361,28 +1400,129 @@ func detectVersionAndFeatures(ctx context.Context, binary string) (string, []str
 	return parseSingboxVersionOutput(string(out))
 }
 
+// detectVersionAndFeaturesCached returns (version, features) for the
+// managed sing-box binary, layered to avoid repeat subprocess spawns:
+//
+//  1. In-memory cache keyed by fingerprint = "<mtime>_<size>" of the
+//     binary. Stat-only check — common path is ~10µs.
+//  2. Sidecar JSON at <binary>.meta.json with mtime ≥ binary.mtime. Read
+//     once, written by refreshVersionProbeAfterSwap after Install/Update,
+//     or here on the cold path. Survives daemon restarts: subprocess
+//     fires once per binary-swap event, not per process lifetime.
+//  3. Subprocess `<binary> version` fallback (cold path). Writes the
+//     sidecar so subsequent process starts skip straight to step 2.
+//
+// Sidecar mismatch (delete / corrupt JSON / mtime stale) silently falls
+// through to step 3 — self-heals on next call. `upx -d` of the pinned
+// binary changes mtime/size → step 3 spawns once on the decompressed
+// binary (~50ms, no UPX overhead), then steady-state stays at step 1.
 func (o *Operator) detectVersionAndFeaturesCached(ctx context.Context) (string, []string) {
-	now := time.Now()
+	fingerprint := binaryFingerprint(o.binary)
+	if fingerprint == "" {
+		return "", nil
+	}
+
 	o.versionProbeMu.Lock()
 	defer o.versionProbeMu.Unlock()
 
-	if !o.versionProbeAt.IsZero() && now.Sub(o.versionProbeAt) < singboxVersionCacheTTL {
+	if o.versionProbeFingerprint == fingerprint && o.versionProbeValue != "" {
 		return o.versionProbeValue, append([]string(nil), o.versionProbeFeatures...)
 	}
 
+	if meta, ok := readFreshSidecar(o.binary); ok {
+		o.versionProbeValue = meta.Version
+		o.versionProbeFeatures = append([]string(nil), meta.Features...)
+		o.versionProbeFingerprint = fingerprint
+		return meta.Version, append([]string(nil), meta.Features...)
+	}
+
 	v, f := detectVersionAndFeatures(ctx, o.binary)
+	if v != "" {
+		_ = writeSidecar(o.binary, v, f) // best-effort persistence
+	}
 	o.versionProbeValue = v
 	o.versionProbeFeatures = append([]string(nil), f...)
-	o.versionProbeAt = now
+	o.versionProbeFingerprint = fingerprint
 	return v, append([]string(nil), f...)
 }
 
-func (o *Operator) invalidateVersionProbeCache() {
+// refreshVersionProbeAfterSwap re-runs the version probe immediately
+// after a successful binary activation (Install / Update). Writes the
+// sidecar so the next read serves from step 2 without ever spawning a
+// subprocess. Replaces the legacy "drop cache, let next reader re-probe"
+// pattern that left /singbox/status returning empty Features for up to
+// 30s after Install while the UI polled.
+func (o *Operator) refreshVersionProbeAfterSwap() {
+	ctx, cancel := context.WithTimeout(context.Background(), singboxVersionProbeTimeout)
+	defer cancel()
+	fingerprint := binaryFingerprint(o.binary)
+	v, f := detectVersionAndFeatures(ctx, o.binary)
+	if v != "" {
+		_ = writeSidecar(o.binary, v, f)
+	}
 	o.versionProbeMu.Lock()
-	defer o.versionProbeMu.Unlock()
-	o.versionProbeValue = ""
-	o.versionProbeFeatures = nil
-	o.versionProbeAt = time.Time{}
+	o.versionProbeValue = v
+	o.versionProbeFeatures = append([]string(nil), f...)
+	o.versionProbeFingerprint = fingerprint
+	o.versionProbeMu.Unlock()
+}
+
+// binaryFingerprint returns "<mtime_unixnano>_<size>" for the binary
+// (cache key), or "" if stat fails.
+func binaryFingerprint(path string) string {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d_%d", fi.ModTime().UnixNano(), fi.Size())
+}
+
+// metaSidecar is the on-disk shape of <binary>.meta.json.
+type metaSidecar struct {
+	Version  string   `json:"version"`
+	Features []string `json:"features"`
+}
+
+// readFreshSidecar returns the sidecar contents iff the file exists,
+// its mtime is ≥ the binary's mtime, and the JSON parses. Any failure
+// returns ok=false — caller falls through to the subprocess path.
+func readFreshSidecar(binary string) (metaSidecar, bool) {
+	biFi, err := os.Stat(binary)
+	if err != nil {
+		return metaSidecar{}, false
+	}
+	scPath := binary + singboxMetaSidecarSuffix
+	scFi, err := os.Stat(scPath)
+	if err != nil {
+		return metaSidecar{}, false
+	}
+	if scFi.ModTime().Before(biFi.ModTime()) {
+		return metaSidecar{}, false
+	}
+	data, err := os.ReadFile(scPath)
+	if err != nil {
+		return metaSidecar{}, false
+	}
+	var m metaSidecar
+	if err := json.Unmarshal(data, &m); err != nil {
+		return metaSidecar{}, false
+	}
+	if m.Version == "" {
+		return metaSidecar{}, false
+	}
+	return m, true
+}
+
+// writeSidecar persists (version, features) next to the binary so
+// subsequent reads (this process or after restart) skip the subprocess.
+// Best-effort: read-only filesystem / permission errors are returned
+// for logging but never abort the caller's flow.
+func writeSidecar(binary, version string, features []string) error {
+	data, err := json.Marshal(metaSidecar{Version: version, Features: features})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(binary+singboxMetaSidecarSuffix, data, 0o644)
 }
 
 // parseSingboxVersionOutput parses the multi-line text produced by
@@ -2220,6 +2360,12 @@ func (o *Operator) Install(ctx context.Context) error {
 	if o.inst == nil {
 		return fmt.Errorf("installer not wired")
 	}
+	if o.inst.EvaluateInstallState() == installer.InstallStateMissingNoSpace {
+		if o.installProgress != nil {
+			o.installProgress("install", "error", 0, 0, "недостаточно места на диске")
+		}
+		return nil // намеренно не error: фронт показывает баннер из GetStatus
+	}
 	report := func(phase string, downloaded, total int64, errMsg string) {
 		if o.installProgress != nil {
 			o.installProgress("install", phase, downloaded, total, errMsg)
@@ -2238,7 +2384,7 @@ func (o *Operator) Install(ctx context.Context) error {
 		report("error", 0, 0, err.Error())
 		return fmt.Errorf("activate sing-box: %w", err)
 	}
-	o.invalidateVersionProbeCache()
+	o.refreshVersionProbeAfterSwap()
 	report("done", 0, 0, "")
 	return nil
 }
@@ -2251,6 +2397,12 @@ func (o *Operator) Update(ctx context.Context) error {
 		return fmt.Errorf("installer not wired")
 	}
 	if o.inst.MatchesRequired(ctx) {
+		return nil
+	}
+	if o.inst.EvaluateInstallState() == installer.InstallStateOutdatedNoSpace {
+		if o.installProgress != nil {
+			o.installProgress("update", "error", 0, 0, "недостаточно места для обновления")
+		}
 		return nil
 	}
 	report := func(phase string, downloaded, total int64, errMsg string) {
@@ -2292,7 +2444,7 @@ func (o *Operator) Update(ctx context.Context) error {
 		}
 		return fmt.Errorf("activate: %w", err)
 	}
-	o.invalidateVersionProbeCache()
+	o.refreshVersionProbeAfterSwap()
 	if wasRunning {
 		report("start", 0, 0, "")
 		if err := o.startAndWait(ctx); err != nil {

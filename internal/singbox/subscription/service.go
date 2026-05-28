@@ -567,6 +567,12 @@ func (s *Service) SetActiveMember(ctx context.Context, id, memberTag string) err
 // in would race the next refresh.
 var ErrManualMemberOnURLSub = errors.New("subscription: member CRUD is only allowed on inline subscriptions")
 
+// ErrValidation wraps subscription-save failures produced by the Pass-2
+// `sing-box check` gate when the merged config is rejected. Callers can
+// use errors.Is to surface a 422 instead of 500 — the user's payload is
+// the problem, not the daemon.
+var ErrValidation = errors.New("subscription: validation failed")
+
 // ErrShareLinkInvalid is returned when AddManualMember could not parse
 // the supplied share-link into exactly one outbound.
 var ErrShareLinkInvalid = errors.New("subscription: share-link did not parse to a single outbound")

@@ -218,6 +218,21 @@ func TestSingboxHandler_CheckIP_IfaceOverride_DoesNotRequireOperator(t *testing.
 	}
 }
 
+func TestSingboxStatusData_MapsNewFields(t *testing.T) {
+	src := singbox.Status{
+		InstallState:  "outdated_no_space",
+		RequiredBytes: 32_000_000,
+		FreeBytes:     8_000_000,
+	}
+	got := singboxStatusData(src)
+	if got.InstallState != "outdated_no_space" {
+		t.Fatalf("InstallState=%q", got.InstallState)
+	}
+	if got.RequiredBytes != 32_000_000 || got.FreeBytes != 8_000_000 {
+		t.Fatalf("Required/FreeBytes mismatch: %+v", got)
+	}
+}
+
 func TestResolveTunnelInterfaceFromList_Found(t *testing.T) {
 	iface, err := resolveTunnelInterfaceFromList([]singbox.TunnelInfo{
 		{Tag: "A", KernelInterface: "t2s1"},

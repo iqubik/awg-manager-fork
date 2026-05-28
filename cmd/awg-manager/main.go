@@ -1040,6 +1040,13 @@ func main() {
 			if !singboxInstaller.IsLegacyOpkgInstalled(ctx) {
 				return // nothing to migrate
 			}
+			// Skip migration if there is not enough disk space — GetStatus
+			// will surface InstallStateMissingNoSpace automatically; no
+			// point burning bandwidth on a download that will fail.
+			if singboxInstaller.EvaluateInstallState() == installer.InstallStateMissingNoSpace {
+				bootLog.Warn("singbox-auto-migration", "", "skipped: not enough disk space")
+				return
+			}
 			lc := &operatorLifecycle{op: singboxOp}
 			if err := singboxInstaller.Migrate(ctx, lc); err != nil {
 				bootLog.Warn("singbox-auto-migration", "", "deferred: "+err.Error())
@@ -1124,7 +1131,9 @@ func main() {
 	})
 	subSched.SetAppLogger(loggingService)
 	subSched.Start(context.Background())
-	srv.SetSubscriptionHandler(api.NewSubscriptionHandler(subSvc, singboxOp, loggingService))
+	subHandler := api.NewSubscriptionHandler(subSvc, singboxOp, loggingService)
+	subHandler.SetNDMSProxyToggler(settingsStore)
+	srv.SetSubscriptionHandler(subHandler)
 	srv.AddShutdownHook(subSched.Stop)
 
 	// DNS Rewrites — sing-box slot 17-dns-rewrites.json.

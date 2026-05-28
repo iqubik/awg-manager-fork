@@ -55,6 +55,16 @@ func (m *MockNDMSClient) GetDetails(_ context.Context, _ string) (*ndms.Interfac
 	return m.details, nil
 }
 
+// FetchSummary mirrors GetDetails — tests use the same fixture for both
+// the cache-backed and direct-RCI paths. Production: InterfaceStore
+// reaches NDMS via direct GET on every call.
+func (m *MockNDMSClient) FetchSummary(_ context.Context, _ string) (*ndms.InterfaceDetails, error) {
+	if m.details == nil {
+		return nil, errors.New("show interface failed")
+	}
+	return m.details, nil
+}
+
 // MockWGClient is a mock WireGuard client for testing.
 type MockWGClient struct {
 	hasPeer       bool

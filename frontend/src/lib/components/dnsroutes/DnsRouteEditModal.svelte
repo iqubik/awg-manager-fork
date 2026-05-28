@@ -445,7 +445,7 @@
 			{/if}
 			{#if routes.length > 0}
 				<div class="route-list">
-					{#each routes as target, i (target.tunnelId)}
+					{#each routes as target, i (i)}
 						<div class="route-item">
 							<span class="route-index">{i + 1}.</span>
 							<span class="route-name">{tunnelName(target.tunnelId)}</span>

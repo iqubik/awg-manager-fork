@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
+	import { subscriptionsStore } from '$lib/stores/subscriptions';
 	import type { SingboxRouterOutbound, SingboxProxyGroup } from '$lib/types';
 	import type { OutboundGroup } from './outboundOptions';
 	import CompositeOutboundEditModal from './CompositeOutboundEditModal.svelte';
@@ -8,6 +9,16 @@
 	import { LatencySparkline } from '$lib/components/ui';
 	import Button from '$lib/components/ui/Button.svelte';
 	import { latencyTier } from '$lib/utils/latencyTier';
+	import { resolveMemberLabel } from '$lib/utils/memberLabel';
+
+	// Subscription members (sub-XXX-YYY) приходят в outbounds.outbounds[]
+	// как технические тэги; пользователь видит их на «Подписках» в виде
+	// человеческих меток (cloudflare, ru-1, …). Чтобы карточки composite
+	// outbound'а были последовательны с тем UX, резолвим тэг → label.
+	const subsData = $derived($subscriptionsStore?.data ?? []);
+	function label(t: string): string {
+		return resolveMemberLabel(t, subsData, outboundOptions);
+	}
 
 	interface Props {
 		outbounds: SingboxRouterOutbound[];
@@ -148,7 +159,7 @@
 						<span class="badge-managed" title="Управляется подпиской — редактирование заблокировано">из подписки</span>
 					{/if}
 					{#if live}
-						<span class="now">now: <span class="now-tag mono">{live.now}</span></span>
+						<span class="now">now: <span class="now-tag mono" title={live.now}>{label(live.now)}</span></span>
 						{#if !isOpen}
 							{@const m = live.members.find((x) => x.tag === live.now)}
 							{#if m && m.lastDelay && m.lastDelay > 0}
@@ -171,7 +182,7 @@
 					<div class="key">Members:</div>
 					<div class="members">
 						{#each o.outbounds ?? [] as m}
-							<span class="chip mono">{m}</span>
+							<span class="chip mono" title={m}>{label(m)}</span>
 						{/each}
 					</div>
 				</div>
@@ -224,7 +235,7 @@
 								onclick={() => live.type === 'selector' && selectMember(o.tag, m.tag)}
 							>
 								<div class="chip-row">
-									<span class="chip-tag mono">{m.tag}</span>
+									<span class="chip-tag mono" title={m.tag}>{label(m.tag)}</span>
 									{#if isNow}
 										<span class="chip-mark">●</span>
 									{/if}
@@ -411,6 +422,12 @@
 		gap: 0.5rem;
 		align-items: start;
 	}
+	/* Длинные URL без пробелов (Test URL) переполняли value-колонку и
+	 * выталкивали карточку шире viewport. Issue #214 Sc4. */
+	.detail > div:not(.key) {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
 	.key {
 		color: var(--muted-text);
 	}
@@ -432,6 +449,20 @@
 		text-align: center;
 		color: var(--muted-text);
 		font-size: 0.85rem;
+	}
+
+	/* На очень узких экранах 90px key + значение тесно — стэкаем key/value
+	 * по строкам. Issue #214 Sc4 (виден на 270-357px viewport). */
+	@media (max-width: 480px) {
+		.detail {
+			grid-template-columns: 1fr;
+			gap: 0.15rem;
+		}
+		.key {
+			font-size: 0.7rem;
+			text-transform: uppercase;
+			letter-spacing: 0.5px;
+		}
 	}
 
 	.member-grid {

@@ -89,6 +89,15 @@ type Status struct {
 	RequiredSHA256 string `json:"requiredSha256,omitempty"`
 	// UpdateAvailable is true when version or SHA256 differs from the pinned binary.
 	UpdateAvailable bool `json:"updateAvailable"`
+	// InstallState классифицирует состояние managed binary относительно
+	// pin-версии и доступного места. UI рендерит на его основе.
+	InstallState string `json:"installState"`
+	// RequiredBytes — размер требуемого бинарника + safetyMargin (байты).
+	// 0 когда RequiredSize неизвестен (старая схема).
+	RequiredBytes int64 `json:"requiredBytes"`
+	// FreeBytes — свободное место на FS managed binary dir (после diskReserveBytes-минус).
+	// 0 когда statfs недоступен.
+	FreeBytes int64 `json:"freeBytes"`
 }
 
 // ProcessState is the internal lifecycle state.

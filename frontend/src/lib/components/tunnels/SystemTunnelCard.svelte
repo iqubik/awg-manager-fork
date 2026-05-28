@@ -528,7 +528,7 @@
 					<TrafficSparkline
 						rxData={rxRates}
 						txData={txRates}
-						width={84}
+						responsive
 						height={22}
 					/>
 					<div class="traffic-inline-rates">
@@ -892,6 +892,12 @@
 		transition: background 0.15s ease, border-color 0.15s ease;
 	}
 
+	.traffic-inline :global(svg.responsive) {
+		flex: 1 1 auto;
+		width: 100%;
+		min-width: 0;
+	}
+
 	.traffic-inline:hover {
 		background: var(--color-bg-hover);
 		border-color: var(--color-border-hover);
@@ -1118,29 +1124,33 @@
 		justify-content: space-between;
 		align-items: center;
 		width: 100%;
-		padding: 6px 12px;
+		padding: 7px 12px;
 		border: none;
-		background: none;
+		border-bottom: 1px solid color-mix(in srgb, var(--color-border, var(--border)) 70%, transparent);
+		background: color-mix(in srgb, var(--color-bg-tertiary, var(--bg-tertiary)) 72%, transparent);
+		color: var(--color-text-secondary, var(--text-secondary));
 		cursor: pointer;
 		user-select: none;
-		transition: background 0.15s;
+		transition: background 0.15s, border-color 0.15s;
 	}
 
 	.chart-header:hover {
-		background: rgba(255,255,255,0.03);
+		background: color-mix(in srgb, var(--color-bg-hover, var(--bg-hover)) 78%, transparent);
+		border-bottom-color: var(--color-border-hover, var(--border-hover));
 	}
 
 	.chart-label {
 		font-size: 0.6875rem;
-		font-weight: 500;
-		color: var(--text-muted);
+		font-weight: 600;
+		color: var(--color-text-secondary, var(--text-secondary));
 		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		letter-spacing: 0.04em;
 	}
 
 	.chart-chevron {
 		font-size: 0.875rem;
-		color: var(--text-muted);
+		color: var(--color-text-secondary, var(--text-secondary));
+		opacity: 0.85;
 		transition: transform 0.2s ease;
 		transform: rotate(-90deg);
 	}

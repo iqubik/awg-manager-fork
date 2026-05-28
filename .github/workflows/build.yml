@@ -12,10 +12,6 @@ concurrency:
 permissions:
   contents: write
 
-env:
-  SINGBOX_VERSION: 1.14.0-alpha.25
-  SINGBOX_REF: v1.14.0-alpha.25
-
 jobs:
   frontend:
     name: Build frontend
@@ -98,6 +94,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
+      - name: Load sing-box version
+        shell: bash
+        run: |
+          set -euo pipefail
+          source scripts/singbox-version.env
+          echo "SINGBOX_VERSION=$SINGBOX_VERSION" >> "$GITHUB_ENV"
+          echo "SINGBOX_REF=$SINGBOX_REF" >> "$GITHUB_ENV"
+
       - name: Download frontend build
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
@@ -125,7 +129,7 @@ jobs:
         id: singbox-cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
-          key: sing-box-${{ matrix.arch }}-${{ env.SINGBOX_VERSION }}-${{ env.SINGBOX_REF }}-repo-${{ hashFiles('scripts/build-singbox.sh', 'scripts/patches/**') }}
+          key: sing-box-${{ matrix.arch }}-${{ env.SINGBOX_VERSION }}-${{ env.SINGBOX_REF }}-repo-${{ hashFiles('scripts/build-singbox.sh', 'scripts/patches/**', 'internal/singbox/installer/embedded.go') }}
           path: |
             dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}
             dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}.sha256
@@ -144,7 +148,7 @@ jobs:
         if: steps.singbox-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
-          key: sing-box-${{ matrix.arch }}-${{ env.SINGBOX_VERSION }}-${{ env.SINGBOX_REF }}-repo-${{ hashFiles('scripts/build-singbox.sh', 'scripts/patches/**') }}
+          key: sing-box-${{ matrix.arch }}-${{ env.SINGBOX_VERSION }}-${{ env.SINGBOX_REF }}-repo-${{ hashFiles('scripts/build-singbox.sh', 'scripts/patches/**', 'internal/singbox/installer/embedded.go') }}
           path: |
             dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}
             dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}.sha256
@@ -161,11 +165,7 @@ jobs:
             exit 1
           fi
 
-          required_version="$(sed -n 's/^const RequiredVersion = "\(.*\)"/\1/p' internal/singbox/installer/embedded.go)"
-          if [[ "$required_version" != "$SINGBOX_VERSION" ]]; then
-            echo "embedded.go RequiredVersion is $required_version, want $SINGBOX_VERSION" >&2
-            exit 1
-          fi
+          ./scripts/check-embedded-version.sh "$SINGBOX_VERSION"
 
           IPK_VERSION="${{ needs.version.outputs.ipk_version }}"
           printf '%s\n' "$IPK_VERSION" > dist/VERSION

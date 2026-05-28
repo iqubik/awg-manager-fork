@@ -44,6 +44,7 @@
 	} from "$lib/types/usageLevel";
 	import { usageLevel } from "$lib/stores/settings";
 	import { waitForBackendRestart } from "$lib/restartRecovery";
+	import { hasDevelopChannelQuizPassed } from "$lib/utils/developChannelGate";
 
 	const expandUsageLevel = $derived($page.url.searchParams.has('mode'));
 
@@ -459,11 +460,11 @@ onMount(() => {
 
 	function requestChannel(channel: 'stable' | 'develop') {
 		if (!settings || settings.updates.channel === channel) return;
-		if (channel === 'develop') {
+		if (channel === 'develop' && !hasDevelopChannelQuizPassed()) {
 			developGateOpen = true;
 			return;
 		}
-		void selectChannel('stable');
+		void selectChannel(channel);
 	}
 
 	async function selectChannel(channel: 'stable' | 'develop') {
@@ -701,7 +702,7 @@ onMount(() => {
 						/>
 					{/if}
 					{#if isUpdateChannelSwitchVisible(settings.usageLevel)}
-						<div class="setting-row toggle-inline-row">
+						<div class="setting-row channel-setting-row">
 							<div class="flex flex-col gap-1">
 								<span class="font-medium">Канал обновлений</span>
 								<span class="setting-description">
@@ -736,6 +737,7 @@ onMount(() => {
 						outbounds={$downloadOutbounds}
 						loading={$downloadOutboundsLoading}
 						error={$downloadOutboundsError}
+						routeSelectorEnabled={singboxInstalled || singboxStatusLoading}
 						onRefresh={refreshDownloadOutbounds}
 						onSelectRoute={selectDownloadRoute}
 					/>
@@ -1079,6 +1081,48 @@ onMount(() => {
 		}
 		.settings-left {
 			position: static;
+		}
+	}
+
+	.channel-setting-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: start;
+		gap: 0.75rem 1rem;
+	}
+
+	.channel-setting-row > *:first-child {
+		min-width: 0;
+	}
+
+	.channel-setting-row .font-medium {
+		white-space: nowrap;
+	}
+
+	.channel-setting-row .setting-description {
+		max-width: 42rem;
+	}
+
+	.channel-setting-row .channel-switch {
+		align-self: start;
+	}
+
+	@media (max-width: 640px) {
+		.channel-setting-row {
+			grid-template-columns: 1fr;
+			gap: 0.5rem;
+		}
+
+		.channel-setting-row .channel-switch {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			width: 100%;
+		}
+
+		.channel-setting-row .channel-option {
+			width: 100%;
+			min-width: 0;
+			text-align: center;
 		}
 	}
 

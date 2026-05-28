@@ -640,9 +640,26 @@ func rciRCToServerConfig(rc rciRCInterface, publicKey string) ndms.WireguardServ
 	return cfg
 }
 
-// ipMaskToPrefix converts a dotted-quad mask (e.g. "255.255.255.255") to a
-// prefix length. Returns -1 on parse failure.
+// ipMaskToPrefix converts an NDMS allow-ips mask field to a CIDR prefix
+// length. NDMS emits two formats interchangeably:
+//
+//   - IPv4: dotted-quad mask (e.g. "255.255.255.0") — historical CLI form.
+//   - IPv6: decimal prefix-length string (e.g. "0", "64", "128") — the
+//     "::/0" default route arrives as mask="0" address="::", which the
+//     previous IPv4-only parser rejected as invalid (issue #216).
+//
+// Returns -1 on parse failure (unknown shape / out-of-range).
 func ipMaskToPrefix(mask string) int {
+	mask = strings.TrimSpace(mask)
+	// Decimal-only string — treat as prefix length. Covers IPv6 masks
+	// and any IPv4 entries NDMS chose to encode the same way.
+	if n, err := strconv.Atoi(mask); err == nil {
+		if n < 0 || n > 128 {
+			return -1
+		}
+		return n
+	}
+	// Dotted-quad IPv4 mask — original behaviour.
 	ip := net.ParseIP(mask)
 	if ip == nil {
 		return -1

@@ -168,7 +168,8 @@ func TestToSubscriptionDTO_PreservesMemberLabel(t *testing.T) {
 		MemberTags: []string{"sub-abc-aaaa", "sub-abc-bbbb"},
 		OrphanTags: []string{},
 	}
-	dto := toSubscriptionDTO(in)
+	dto := toSubscriptionDTO(in, true)
+	_ = buildSubscriptionMetaDTO(in, true) // exercise the meta path too for compile coverage
 	if len(dto.Members) != 2 {
 		t.Fatalf("Members=%d want 2", len(dto.Members))
 	}
@@ -183,5 +184,33 @@ func TestToSubscriptionDTO_PreservesMemberLabel(t *testing.T) {
 	raw2, _ := json.Marshal(dto.Members[1])
 	if strings.Contains(string(raw2), `"label"`) {
 		t.Errorf("empty Label should be omitted, got: %s", raw2)
+	}
+}
+
+// TestToSubscriptionDTO_ProxyIndexGate verifies that proxyIndex is
+// surfaced as -1 when ndmsProxyEnabled is false (issue: cards retained
+// stale t2sN/ProxyN refs after the global "Create NDMS Proxy" toggle
+// was switched off, even though the composite interfaces had been
+// torn down by MigrateOff).
+func TestToSubscriptionDTO_ProxyIndexGate(t *testing.T) {
+	in := subscription.Subscription{
+		ID:         "sub-gate",
+		Label:      "Gate test",
+		ProxyIndex: 7,
+		ListenPort: 11007,
+	}
+
+	if dto := toSubscriptionDTO(in, true); dto.ProxyIndex != 7 {
+		t.Errorf("enabled=true: ProxyIndex=%d want 7 (passthrough)", dto.ProxyIndex)
+	}
+	if dto := toSubscriptionDTO(in, false); dto.ProxyIndex != -1 {
+		t.Errorf("enabled=false: ProxyIndex=%d want -1 (gated)", dto.ProxyIndex)
+	}
+
+	if meta := buildSubscriptionMetaDTO(in, true); meta.ProxyIndex != 7 {
+		t.Errorf("meta enabled=true: ProxyIndex=%d want 7", meta.ProxyIndex)
+	}
+	if meta := buildSubscriptionMetaDTO(in, false); meta.ProxyIndex != -1 {
+		t.Errorf("meta enabled=false: ProxyIndex=%d want -1", meta.ProxyIndex)
 	}
 }

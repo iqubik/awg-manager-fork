@@ -398,3 +398,82 @@ func TestInstaller_Download_FailsWhenDownloaderNotConfigured(t *testing.T) {
 		t.Fatalf("expected downloader is not configured error, got %v", err)
 	}
 }
+
+// helper для write+sha управляемого бинарника
+func writeBinary(t *testing.T, path string, body string) (string, int64) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(body))
+	return hex.EncodeToString(sum[:]), int64(len(body))
+}
+
+func TestEvaluateInstallState_CleanInstall_HasSpace(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "sing-box")
+	inst := New(target, "test-arch", BinarySpec{Version: "1.2.3", URL: "u", SHA256: "s", Size: 10 << 20}, nil)
+	inst.SetFreeDiskFn(func(string) (int64, bool) { return 200 << 20, true })
+	if got := inst.EvaluateInstallState(); got != InstallStateMissing {
+		t.Fatalf("got %q, want %q", got, InstallStateMissing)
+	}
+}
+
+func TestEvaluateInstallState_CleanInstall_NoSpace(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "sing-box")
+	inst := New(target, "test-arch", BinarySpec{Version: "1.2.3", URL: "u", SHA256: "s", Size: 100 << 20}, nil)
+	inst.SetFreeDiskFn(func(string) (int64, bool) { return 50 << 20, true })
+	if got := inst.EvaluateInstallState(); got != InstallStateMissingNoSpace {
+		t.Fatalf("got %q, want %q", got, InstallStateMissingNoSpace)
+	}
+}
+
+func TestEvaluateInstallState_Upgrade_HasSpace(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "sing-box")
+	_, _ = writeBinary(t, target, "old-content")
+	inst := New(target, "test-arch", BinarySpec{Version: "1.2.3", URL: "u", SHA256: "different-sha", Size: 10 << 20}, nil)
+	inst.SetFreeDiskFn(func(string) (int64, bool) { return 200 << 20, true })
+	if got := inst.EvaluateInstallState(); got != InstallStateMissing {
+		t.Fatalf("got %q, want %q (upgrade allowed)", got, InstallStateMissing)
+	}
+}
+
+func TestEvaluateInstallState_Upgrade_NoSpace(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "sing-box")
+	_, _ = writeBinary(t, target, "old-content")
+	inst := New(target, "test-arch", BinarySpec{Version: "1.2.3", URL: "u", SHA256: "different-sha", Size: 100 << 20}, nil)
+	inst.SetFreeDiskFn(func(string) (int64, bool) { return 50 << 20, true })
+	if got := inst.EvaluateInstallState(); got != InstallStateOutdatedNoSpace {
+		t.Fatalf("got %q, want %q", got, InstallStateOutdatedNoSpace)
+	}
+}
+
+func TestEvaluateInstallState_Installed_SameSHA(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "sing-box")
+	sha, _ := writeBinary(t, target, "pinned-content")
+	inst := New(target, "test-arch", BinarySpec{Version: "1.2.3", URL: "u", SHA256: sha, Size: 10 << 20}, nil)
+	inst.SetFreeDiskFn(func(string) (int64, bool) { return 200 << 20, true })
+	if got := inst.EvaluateInstallState(); got != InstallStateInstalled {
+		t.Fatalf("got %q, want %q", got, InstallStateInstalled)
+	}
+}
+
+func TestEvaluateInstallState_FreeDiskUnknown_SkipsGate(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "sing-box")
+	inst := New(target, "test-arch", BinarySpec{Version: "1.2.3", URL: "u", SHA256: "s", Size: 100 << 20}, nil)
+	inst.SetFreeDiskFn(func(string) (int64, bool) { return 0, false })
+	if got := inst.EvaluateInstallState(); got != InstallStateMissing {
+		t.Fatalf("got %q, want %q", got, InstallStateMissing)
+	}
+}
+
+func TestEvaluateInstallState_RequiredSizeZero_SkipsGate(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "sing-box")
+	inst := New(target, "test-arch", BinarySpec{Version: "1.2.3", URL: "u", SHA256: "s", Size: 0}, nil)
+	inst.SetFreeDiskFn(func(string) (int64, bool) { return 1 << 10, true })
+	if got := inst.EvaluateInstallState(); got != InstallStateMissing {
+		t.Fatalf("got %q, want %q", got, InstallStateMissing)
+	}
+}

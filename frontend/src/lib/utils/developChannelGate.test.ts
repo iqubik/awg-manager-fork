@@ -13,6 +13,12 @@ import {
 	setDevelopChannelLockout,
 	shuffleQuestionOptions,
 } from './developChannelGate';
+import {
+	DEVELOP_CHANNEL_QUIZ_PASSED_KEY,
+	clearDevelopChannelQuizPassed,
+	hasDevelopChannelQuizPassed,
+	markDevelopChannelQuizPassed,
+} from './developChannelGate';
 
 function createLocalStorageMock() {
 	const store = new Map<string, string>();
@@ -28,6 +34,7 @@ describe('developChannelGate', () => {
 	beforeEach(() => {
 		vi.stubGlobal('localStorage', createLocalStorageMock());
 		clearDevelopChannelLockout();
+		clearDevelopChannelQuizPassed();
 	});
 
 	it('picks the requested number of unique questions', () => {
@@ -117,5 +124,14 @@ describe('developChannelGate', () => {
 		setDevelopChannelLockout(60_000, now);
 		expect(getDevelopChannelLockoutRemainingMs(now + 10_000)).toBe(50_000);
 		expect(getDevelopChannelLockoutRemainingMs(now + 70_000)).toBe(0);
+	});
+
+	it('stores and clears passed quiz state', () => {
+		expect(hasDevelopChannelQuizPassed()).toBe(false);
+		markDevelopChannelQuizPassed();
+		expect(hasDevelopChannelQuizPassed()).toBe(true);
+		expect(localStorage.getItem(DEVELOP_CHANNEL_QUIZ_PASSED_KEY)).toBe('true');
+		clearDevelopChannelQuizPassed();
+		expect(hasDevelopChannelQuizPassed()).toBe(false);
 	});
 });

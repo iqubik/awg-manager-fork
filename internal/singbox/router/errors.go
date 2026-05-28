@@ -20,4 +20,11 @@ var (
 
 	ErrPolicyNotConfigured = errors.New("router policy not configured (settings.policyName is empty)")
 	ErrPolicyMissing       = errors.New("policy has no fwmark in NDMS (deleted or has no permitted interface)")
+
+	// ErrSingboxNotReady is returned by Enable when sing-box did not
+	// become ready within the boot-wait window. Callers should surface
+	// this as 503 Service Unavailable — the iptables/policy install was
+	// deliberately skipped to avoid orphaning DNS:53 redirects at a
+	// torn-down sing-box port (issue #221).
+	ErrSingboxNotReady = errors.New("sing-box did not become ready within boot-wait window — iptables install skipped")
 )

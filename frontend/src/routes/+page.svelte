@@ -337,14 +337,23 @@
 		let up = 0;
 		let delaySum = 0;
 		let delayN = 0;
+		let leaderBytes = 0;
+		let leaderName = '—';
 		const trMap = $singboxTraffic;
 		const histMap = $singboxDelayHistory;
 		for (const t of list) {
 			if (t.running === true) running++;
 			const tr = trMap.get(t.tag);
 			if (tr) {
-				down += tr.download ?? 0;
-				up += tr.upload ?? 0;
+				const tunnelDown = tr.download ?? 0;
+				const tunnelUp = tr.upload ?? 0;
+				const total = tunnelDown + tunnelUp;
+				down += tunnelDown;
+				up += tunnelUp;
+				if (total > leaderBytes) {
+					leaderBytes = total;
+					leaderName = t.tag;
+				}
 			}
 			const h = histMap.get(t.tag) ?? [];
 			const last = h.length > 0 ? h[h.length - 1] : 0;
@@ -360,6 +369,8 @@
 			down,
 			up,
 			avgDelayMs: delayN > 0 ? Math.round(delaySum / delayN) : null,
+			leaderBytes,
+			leaderName,
 		};
 	});
 
@@ -476,29 +487,59 @@
 		void trafficTick;
 		let down = 0;
 		let up = 0;
+		let delaySum = 0;
+		let delaySamples = 0;
+		let leaderBytes = 0;
+		let leaderName = '—';
 		const map = $singboxTraffic;
-		for (const card of subscriptionsActiveCards) {
-			const tr = map.get(card.activeMember.tag);
-			if (tr) {
-				down += tr.download ?? 0;
-				up += tr.upload ?? 0;
+		const delayMap = $singboxDelayHistory;
+
+		function ingestMember(tag: string, label: string, sampleDelay = false): void {
+			const tr = map.get(tag);
+			const memberDown = tr?.download ?? 0;
+			const memberUp = tr?.upload ?? 0;
+			const memberTotal = memberDown + memberUp;
+			down += memberDown;
+			up += memberUp;
+			if (memberTotal > leaderBytes) {
+				leaderBytes = memberTotal;
+				leaderName = label || tag;
 			}
+
+			if (sampleDelay) {
+				const delayHistory = delayMap.get(tag) ?? [];
+				const lastDelay = delayHistory.length > 0 ? delayHistory[delayHistory.length - 1] : 0;
+				if (typeof lastDelay === 'number' && lastDelay > 0) {
+					delaySum += lastDelay;
+					delaySamples += 1;
+				}
+			}
+		}
+
+		for (const card of subscriptionsActiveCards) {
+			ingestMember(
+				card.activeMember.tag,
+				card.subscription.label || card.activeMember.label || card.activeMember.tag,
+				true,
+			);
 		}
 		for (const sub of subscriptionsListRows) {
 			const tag = resolveSubscriptionMemberTag(sub, liveActives[sub.id] || null);
 			if (!tag) continue;
-			const tr = map.get(tag);
-			if (tr) {
-				down += tr.download ?? 0;
-				up += tr.upload ?? 0;
-			}
+			ingestMember(tag, sub.label || tag);
 		}
+		const totalTraffic = down + up;
 		return {
 			count: subscriptionsList.length,
 			activeCount: subscriptionsActiveCards.length,
 			inactiveCount: subscriptionsListRows.length,
 			down,
 			up,
+			avgDelayMs: delaySamples > 0 ? Math.round(delaySum / delaySamples) : null,
+			delaySamples,
+			leaderBytes,
+			leaderName,
+			leaderSharePct: totalTraffic > 0 ? Math.round((leaderBytes / totalTraffic) * 100) : 0,
 		};
 	});
 
@@ -1280,8 +1321,6 @@
 						<span>Статус</span>
 						<span>Endpoint</span>
 						<span>Throughput</span>
-						<span>Handshake</span>
-						<span>Uptime</span>
 						<span class="awg-list-head-actions">Действия</span>
 					</div>
 
@@ -1340,6 +1379,9 @@
 									<span class="awg-list-dot">·</span>
 									MTU {tunnel.mtu ?? '—'}
 								</div>
+								<div class="awg-list-sub awg-list-uptime">
+									Uptime {tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
+								</div>
 							</div>
 							<div class="awg-list-cell awg-list-cell-status" data-label="Статус">
 								<div class="awg-list-status-stack">
@@ -1350,6 +1392,9 @@
 										ariaLabel={managedStatusLabel(tunnel, connectivity)}
 									/>
 									<span class="awg-list-status-text">{managedStatusLabel(tunnel, connectivity)}</span>
+									</div>
+									<div class="awg-list-sub awg-list-handshake">
+										Handshake {tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
 									</div>
 									{#if tunnel.hasAddressConflict}
 								<div class="awg-list-sub awg-list-sub--error">Дублирует адрес уже запущенного туннеля</div>
@@ -1418,21 +1463,17 @@
 									onclick={() => openDetail(tunnel.id)}
 									title="Открыть детали туннеля"
 								>
-									<TrafficSparkline
-										rxData={spark.rx}
-										txData={spark.tx}
-									/>
-									<div class="awg-list-rate-text awg-list-mono">
+									<div class="awg-list-rate-stack awg-list-mono">
 										<div class="traffic-rate rx">↓ {formatBitRate(rate.rx)}</div>
+										<TrafficSparkline
+											rxData={spark.rx}
+											txData={spark.tx}
+											responsive
+											height={18}
+										/>
 										<div class="traffic-rate tx">↑ {formatBitRate(rate.tx)}</div>
 									</div>
 								</button>
-							</div>
-							<div class="awg-list-cell awg-list-cell-mono" data-label="Handshake">
-								{tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
-							</div>
-							<div class="awg-list-cell awg-list-cell-mono" data-label="Uptime">
-								{tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
 							</div>
 							<div class="awg-list-cell awg-list-cell-actions" data-label="Действия">
 								<a
@@ -1503,6 +1544,9 @@
 										<span class="awg-list-dot">·</span>
 										MTU {tunnel.mtu}
 									</div>
+									<div class="awg-list-sub awg-list-uptime">
+										Uptime {tunnel.status === 'up' && tunnel.uptime ? formatDuration(tunnel.uptime) : '—'}
+									</div>
 								</div>
 								<div class="awg-list-cell awg-list-cell-status" data-label="Статус">
 									<div class="awg-list-status-line">
@@ -1511,6 +1555,9 @@
 											ariaLabel={systemStatusLabel(tunnel)}
 										/>
 										<span class="awg-list-status-text">{systemStatusLabel(tunnel)}</span>
+									</div>
+									<div class="awg-list-sub awg-list-handshake">
+										Handshake {tunnel.peer?.lastHandshake ? formatRelativeTime(tunnel.peer.lastHandshake) : '—'}
 									</div>
 									<div class="awg-list-sub">{tunnel.peer?.via || 'Маршрут не определён'}</div>
 								</div>
@@ -1550,21 +1597,17 @@
 										onclick={() => openDetail(tunnel.id)}
 										title="Открыть детали туннеля"
 									>
-										<TrafficSparkline
-											rxData={spark.rx}
-											txData={spark.tx}
-										/>
-										<div class="awg-list-rate-text awg-list-mono">
+										<div class="awg-list-rate-stack awg-list-mono">
 											<div class="traffic-rate rx">↓ {formatBitRate(rate.rx)}</div>
+											<TrafficSparkline
+												rxData={spark.rx}
+												txData={spark.tx}
+												responsive
+												height={18}
+											/>
 											<div class="traffic-rate tx">↑ {formatBitRate(rate.tx)}</div>
 										</div>
 									</button>
-								</div>
-								<div class="awg-list-cell awg-list-cell-mono" data-label="Handshake">
-									{tunnel.peer?.lastHandshake ? formatRelativeTime(tunnel.peer.lastHandshake) : '—'}
-								</div>
-								<div class="awg-list-cell awg-list-cell-mono" data-label="Uptime">
-									{tunnel.status === 'up' && tunnel.uptime ? formatDuration(tunnel.uptime) : '—'}
 								</div>
 								<div class="awg-list-cell awg-list-cell-actions" data-label="Действия">
 									<a
@@ -1637,6 +1680,9 @@
 										/>
 										<span class="awg-list-status-text">{externalStatusLabel(tunnel)}</span>
 									</div>
+									<div class="awg-list-sub awg-list-handshake">
+										Handshake {tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
+									</div>
 									<div class="awg-list-sub">Не управляется AWG Manager</div>
 								</div>
 								<div class="awg-list-cell" data-label="Endpoint">
@@ -1669,16 +1715,12 @@
 									<div class="awg-list-sub">WG интерфейс</div>
 								</div>
 								<div class="awg-list-cell awg-list-cell-rate" data-label="Throughput">
-									<TrafficSparkline rxData={[]} txData={[]} />
-									<div class="awg-list-rate-text awg-list-mono">
+									<div class="awg-list-rate-stack awg-list-mono">
 										<div class="traffic-rate rx">↓ {formatBytes(tunnel.rxBytes)}</div>
+										<TrafficSparkline rxData={[]} txData={[]} responsive height={18} />
 										<div class="traffic-rate tx">↑ {formatBytes(tunnel.txBytes)}</div>
 									</div>
 								</div>
-								<div class="awg-list-cell awg-list-cell-mono" data-label="Handshake">
-									{tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
-								</div>
-								<div class="awg-list-cell awg-list-cell-mono" data-label="Uptime">—</div>
 								<div class="awg-list-cell awg-list-cell-actions" data-label="Действия">
 									<Button variant="primary" size="sm" onclick={() => handleAdoptClick(tunnel.interfaceName)}>
 										Взять под управление
@@ -1803,6 +1845,24 @@
 									label="Суммарный трафик"
 									sub={`↓ ${formatBytes(singboxSubscriptionsTrafficStats.down)} · ↑ ${formatBytes(singboxSubscriptionsTrafficStats.up)}`}
 								/>
+								<Stat
+									value={singboxSubscriptionsTrafficStats.avgDelayMs !== null
+										? `${singboxSubscriptionsTrafficStats.avgDelayMs} ms`
+										: '—'}
+									label="Средний delay"
+									sub={singboxSubscriptionsTrafficStats.delaySamples > 0
+										? `по ${singboxSubscriptionsTrafficStats.delaySamples} активным подпискам`
+										: 'нет активных замеров'}
+								/>
+								<Stat
+									value={singboxSubscriptionsTrafficStats.leaderBytes > 0
+										? formatBytes(singboxSubscriptionsTrafficStats.leaderBytes)
+										: '—'}
+									label="Лидер по трафику"
+									sub={singboxSubscriptionsTrafficStats.leaderBytes > 0
+										? `${singboxSubscriptionsTrafficStats.leaderName} · ${singboxSubscriptionsTrafficStats.leaderSharePct}% всего`
+										: '—'}
+								/>
 							</StatStrip>
 						</div>
 						<div class="awg-list-table singbox-sub-list-table">
@@ -1812,8 +1872,6 @@
 								<span>Подписка</span>
 								<span>Режим</span>
 								<span>Активный сервер</span>
-								<span>Серверов</span>
-								<span>Обновлено</span>
 								<span>Трафик</span>
 								<span>Ping</span>
 								<span class="sbx-sub-list-head-actions">Действия</span>
@@ -1996,6 +2054,13 @@
 									: '—'}
 								label="Средний delay"
 								sub="по последним проверкам"
+							/>
+							<Stat
+								value={singboxTunnelListStats.leaderBytes > 0
+									? formatBytes(singboxTunnelListStats.leaderBytes)
+									: '—'}
+								label="Лидер по трафику"
+								sub={singboxTunnelListStats.leaderName}
 							/>
 						</StatStrip>
 					</div>
@@ -2363,8 +2428,8 @@
 	}
 
 	.awg-list-table {
-		/* Floor for narrow viewports; real width comes from grid max-content on rows */
-		--awg-list-min-width: 1200px;
+		/* Keep AWG rows compact: cells ellipsize instead of stretching the scroll track to max-content. */
+		--awg-list-min-width: 900px;
 		border: 1px solid var(--color-border);
 		border-radius: 12px;
 		background: var(--color-bg-secondary);
@@ -2378,25 +2443,31 @@
 	}
 
 	.singbox-sub-list-table {
-		--awg-list-min-width: 940px;
+		--awg-list-min-width: 820px;
+		--sbx-sub-list-columns:
+			82px
+			minmax(155px, 1fr)
+			72px
+			minmax(150px, 0.95fr)
+			minmax(170px, 1.15fr)
+			90px
+			86px;
 	}
 
 	.awg-list-row {
 		display: grid;
 		grid-template-columns:
-			40px
-			minmax(220px, 1.7fr)
-			minmax(150px, 1fr)
-			minmax(180px, 1.15fr)
-			minmax(210px, 1.3fr)
-			110px
-			90px
-			minmax(76px, 0.7fr);
-		gap: 14px;
+			36px
+			minmax(205px, 1.35fr)
+			minmax(150px, 0.95fr)
+			minmax(140px, 0.8fr)
+			minmax(138px, 0.75fr)
+			minmax(72px, max-content);
+		gap: 8px;
 		align-items: center;
-		padding: 0.875rem 1rem;
+		padding: 0.75rem 0.75rem;
 		border-bottom: 1px solid var(--color-border);
-		min-width: max(100%, max(var(--awg-list-min-width, 0px), max-content));
+		min-width: max(100%, var(--awg-list-min-width, 0px));
 	}
 
 	.awg-list-row:last-child {
@@ -2412,6 +2483,81 @@
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		color: var(--color-text-muted);
+	}
+
+	.sbx-sub-list-row--head {
+		display: grid;
+		grid-template-columns: var(--sbx-sub-list-columns);
+		column-gap: 0.625rem;
+		align-items: center;
+		padding: 0.75rem 1rem;
+		border-bottom: 1px solid var(--color-border);
+		background: var(--color-bg-tertiary);
+		font-size: 0.6875rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--color-text-muted);
+		min-width: max(100%, var(--awg-list-min-width, 0px));
+		box-sizing: border-box;
+	}
+
+	.sbx-sub-list-head-actions {
+		text-align: center;
+	}
+
+	/* Subscription list rows are child components; the parent table owns the column contract. */
+	:global(.singbox-sub-list-table .sbx-sub-active-row) {
+		display: grid !important;
+		grid-template-columns: var(--sbx-sub-list-columns) !important;
+		column-gap: 0.625rem !important;
+		align-items: center;
+		min-width: max(100%, var(--awg-list-min-width, 0px)) !important;
+		box-sizing: border-box;
+	}
+
+	:global(.singbox-sub-list-table .sub-active-list-group),
+	:global(.singbox-sub-list-table .sub-list-group) {
+		min-width: max(100%, var(--awg-list-min-width, 0px));
+	}
+
+	:global(.singbox-sub-list-table .sbx-sub-list-row--head > span),
+	:global(.singbox-sub-list-table .sbx-sub-active-row > .lc) {
+		justify-self: stretch;
+		min-width: 0;
+	}
+
+	:global(.singbox-sub-list-table .lc-traffic) {
+		align-items: stretch;
+		justify-content: stretch;
+		min-width: 0;
+	}
+
+	:global(.singbox-sub-list-table .traffic-row-list--stack) {
+		width: 100%;
+		min-width: 0;
+	}
+
+	:global(.singbox-sub-list-table .lc-ping-mini) {
+		justify-content: center;
+		align-items: center;
+		min-width: 0;
+		width: 100%;
+	}
+
+	:global(.singbox-sub-list-table .spark-mini) {
+		justify-self: center;
+		width: 100%;
+		max-width: 96px;
+	}
+
+	:global(.singbox-sub-list-table .lc-actions) {
+		justify-content: center;
+	}
+
+	:global(.singbox-sub-list-table .sbx-sub-list-row--head > span:nth-child(6)),
+	:global(.singbox-sub-list-table .sbx-sub-list-row--head > span:nth-child(7)) {
+		text-align: center;
 	}
 
 	.awg-list-row--section {
@@ -2492,6 +2638,13 @@
 
 	.awg-list-sub--error {
 		color: var(--color-error);
+	}
+
+	.awg-list-uptime,
+	.awg-list-handshake {
+		font-family: var(--font-mono);
+		white-space: normal;
+		line-height: 1.25;
 	}
 
 	/* recovering / starting toggle tint */
@@ -2683,17 +2836,17 @@
 
 	.awg-list-cell-rate {
 		display: flex;
-		align-items: center;
-		gap: 0.45rem;
+		align-items: stretch;
 		width: 100%;
+		min-width: 0;
 	}
 
 	.awg-rate-button {
 		display: flex;
-		align-items: center;
+		align-items: stretch;
 		justify-content: flex-start;
-		gap: 0.45rem;
 		width: 100%;
+		min-width: 0;
 		padding: 0;
 		margin: 0;
 		border: none;
@@ -2703,7 +2856,6 @@
 		text-align: left;
 	}
 
-	.awg-rate-button:hover .awg-list-rate-text,
 	.awg-rate-button:hover :global(svg) {
 		opacity: 0.9;
 	}
@@ -2714,26 +2866,26 @@
 		border-radius: 6px;
 	}
 
-	.awg-list-rate-text {
+	.awg-list-rate-stack {
 		display: flex;
 		flex-direction: column;
-		align-items: flex-start;
-		gap: 0.08rem;
-		padding-block: 3px;
-		font-size: 0.6875rem;
-		line-height: 1.15;
-		text-align: left;
+		align-items: stretch;
+		gap: 0.05rem;
+		width: 100%;
 		min-width: 0;
-		flex-shrink: 0;
+		font-size: 0.6875rem;
+		line-height: 1.1;
+		text-align: left;
 	}
 
-	.awg-list-cell-mono {
-		font-size: 0.75rem;
-		color: var(--color-text-secondary);
+	.awg-list-rate-stack :global(svg.responsive) {
+		width: 100%;
+		min-width: 0;
+		max-width: 100%;
+		flex: 1 1 auto;
 	}
 
-	.awg-list-mono,
-	.awg-list-cell-mono {
+	.awg-list-mono {
 		font-family: var(--font-mono);
 	}
 
@@ -2823,40 +2975,36 @@
 
 	@media (max-width: 1280px) {
 		.awg-list-table:not(.singbox-tunnel-list-table):not(.singbox-sub-list-table) {
-			--awg-list-min-width: 1140px;
+			--awg-list-min-width: 860px;
 		}
 
 		.awg-list-row {
 			grid-template-columns:
-				40px
-				minmax(200px, 1.6fr)
+				34px
+				minmax(190px, 1.25fr)
 				minmax(140px, 0.9fr)
-				minmax(160px, 1fr)
-				minmax(180px, 1.15fr)
-				100px
-				84px
-				minmax(76px, 0.7fr);
-			gap: 12px;
+				minmax(132px, 0.78fr)
+				minmax(128px, 0.7fr)
+				minmax(72px, max-content);
+			gap: 8px;
 		}
 	}
 
 	@media (max-width: 1120px) {
 		.awg-list-table:not(.singbox-tunnel-list-table):not(.singbox-sub-list-table) {
-			--awg-list-min-width: 1180px;
+			--awg-list-min-width: 820px;
 		}
 
 		.awg-list-row {
 			grid-template-columns:
-				36px
-				minmax(180px, 1.45fr)
-				minmax(112px, 0.9fr)
-				minmax(145px, 1fr)
-				minmax(180px, 1.05fr)
-				92px
-				78px
-				minmax(76px, 0.7fr);
-			padding: 0.8125rem 0.875rem;
-			gap: 10px;
+				32px
+				minmax(178px, 1.2fr)
+				minmax(132px, 0.88fr)
+				minmax(124px, 0.74fr)
+				minmax(120px, 0.68fr)
+				minmax(70px, max-content);
+			padding: 0.75rem 0.8125rem;
+			gap: 8px;
 		}
 
 		.awg-list-name-button,
@@ -2866,8 +3014,7 @@
 
 		.awg-list-sub,
 		.awg-list-kv-primary,
-		.awg-list-status-text,
-		.awg-list-cell-mono {
+		.awg-list-status-text {
 			font-size: 0.71875rem;
 		}
 
@@ -3285,12 +3432,22 @@
 
 	.singbox-sub-list-table {
 		margin-bottom: 1.25rem;
+		--awg-list-min-width: 760px;
+		--sbx-sub-list-columns:
+			72px
+			minmax(150px, 210px)
+			62px
+			minmax(126px, 170px)
+			minmax(240px, 1fr)
+			84px
+			76px;
 	}
 	.singbox-sub-list-table .sbx-sub-list-row--head {
 		display: grid;
-		gap: 0 1rem;
+		grid-template-columns: var(--sbx-sub-list-columns);
+		column-gap: 0.5rem;
 		align-items: center;
-		padding: 0.75rem 1rem;
+		padding: 0.75rem;
 		background: var(--color-bg-tertiary);
 		font-size: 0.6875rem;
 		font-weight: 700;
@@ -3298,20 +3455,51 @@
 		text-transform: uppercase;
 		color: var(--color-text-muted);
 		border-bottom: 1px solid var(--color-border);
-		grid-template-columns:
-			minmax(80px, 80px)
-			minmax(132px, 1.1fr)
-			minmax(52px, 0.9fr)
-			minmax(162px, 1fr)
-			minmax(60px, 0.85fr)
-			minmax(100px, 1.05fr)
-			minmax(148px, 1.1fr)
-			minmax(80px, 80px)
-			minmax(76px, 0.7fr);
-		min-width: max(100%, max(var(--awg-list-min-width, 0px), max-content));
+		min-width: max(100%, var(--awg-list-min-width, 760px));
+		box-sizing: border-box;
 	}
 	.sbx-sub-list-head-actions {
-		text-align: right;
+		text-align: center;
+	}
+
+	/* Rows are rendered by child components; keep the final list contract here,
+	   after the legacy local 9-column subscription styles. */
+	.singbox-sub-list-table :global(.sbx-sub-active-row) {
+		display: grid !important;
+		grid-template-columns: var(--sbx-sub-list-columns) !important;
+		column-gap: 0.5rem !important;
+		align-items: center;
+		padding-inline: 0.75rem !important;
+		min-width: max(100%, var(--awg-list-min-width, 760px)) !important;
+		box-sizing: border-box;
+	}
+	.singbox-sub-list-table :global(.sub-active-list-group),
+	.singbox-sub-list-table :global(.sub-list-group) {
+		min-width: max(100%, var(--awg-list-min-width, 760px)) !important;
+	}
+	.singbox-sub-list-table :global(.sbx-sub-active-row > .lc),
+	.singbox-sub-list-table .sbx-sub-list-row--head > span {
+		min-width: 0;
+	}
+	.singbox-sub-list-table :global(.lc-endpoint) {
+		justify-content: flex-start;
+		gap: 0.3rem;
+	}
+	.singbox-sub-list-table :global(.lc-endpoint-stack) {
+		flex: 0 1 auto !important;
+		max-width: calc(100% - 1.5rem);
+	}
+	.singbox-sub-list-table :global(.lc-traffic) {
+		min-width: 0;
+		justify-content: stretch;
+	}
+	.singbox-sub-list-table :global(.traffic-row-list--stack) {
+		width: 100%;
+		min-width: 0;
+	}
+	.singbox-sub-list-table :global(.lc-ping-mini),
+	.singbox-sub-list-table :global(.lc-actions) {
+		justify-content: center;
 	}
 
 	@media (max-width: 700px) {

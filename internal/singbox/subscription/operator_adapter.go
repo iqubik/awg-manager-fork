@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
@@ -67,8 +68,9 @@ type OperatorAdapter struct {
 	pm    ProxyRegistrar
 	clash ClashSelector
 
-	mu  sync.Mutex
-	cfg slotConfig
+	mu          sync.Mutex
+	cfg         slotConfig
+	lastDropped []DropReason // outbounds filtered out of the most recent flush
 }
 
 // NewOperatorAdapter constructs the adapter. In production the subscription
@@ -377,10 +379,74 @@ func (a *OperatorAdapter) upsertOutbound(tag string, ob map[string]any) {
 	a.cfg.Outbounds = append(obs, ob)
 }
 
-// flush marshals the in-memory slot and writes it via orch.Save (which
-// schedules a debounced reload). Also enables the slot so sing-box
-// picks it up on first write.
+// flush persists the in-memory subscription slot via a two-pass
+// validation pipeline (issue #221) so a single broken outbound cannot
+// kill sing-box and orphan the DNS TPROXY rule:
+//
+//	Pass 1 (in-Go, ~µs)
+//	  Drop outbounds violating structural rules we are confident will
+//	  not move upstream — reality-requires-uTLS, malformed uuid, missing
+//	  required fields. See preFilterOutbounds.
+//
+//	Pass 2 (sing-box check, ~100–300ms one-shot)
+//	  orch.CheckMerged runs the daemon's own validator against a tmpdir
+//	  snapshot of all enabled slots with our content overlaid. On error
+//	  with parseable `outbound[INDEX]`, drop that outbound, cascade
+//	  reference cleanup (selectors / urltests / route rules), retry —
+//	  bounded by initial outbound count.
+//
+// Finally orch.Save commits the cleaned bytes and SetEnabled flips the
+// slot on. Dropped outbounds are logged so the user (UI / /logs) sees
+// which servers were skipped and why; the subscription is not rejected
+// wholesale unless every outbound failed.
 func (a *OperatorAdapter) flush() error {
+	dropped := []DropReason{}
+
+	// Pass 1 — structural pre-filter.
+	kept, p1Dropped := preFilterOutbounds(a.cfg.Outbounds)
+	a.cfg.Outbounds = kept
+	dropped = append(dropped, p1Dropped...)
+	for _, d := range p1Dropped {
+		// Remove dangling refs in selectors / urltests / routes for each
+		// Pass-1 drop. Tag may be empty (non-object outbound); skip those.
+		if d.Tag != "" {
+			cleanReferencesToTag(&a.cfg, d.Tag)
+		}
+	}
+
+	// Pass 2 — sing-box check with iterative drop. Cap iterations to
+	// initial outbound count so a parser bug cannot loop forever.
+	maxIter := len(a.cfg.Outbounds) + 1
+	for iter := 0; iter < maxIter; iter++ {
+		data, err := json.MarshalIndent(a.cfg, "", "  ")
+		if err != nil {
+			return fmt.Errorf("subscription adapter: marshal slot: %w", err)
+		}
+		res, err := a.orch.CheckMerged(orchestrator.SlotSubscriptions, data)
+		if err != nil {
+			return fmt.Errorf("subscription adapter: check-merged: %w", err)
+		}
+		if res.Ok() {
+			break
+		}
+		idx, ok := parseSingboxOutboundIndex(res.Error())
+		if !ok {
+			// Unknown error class — cannot isolate, give up.
+			return fmt.Errorf("%w: could not isolate outbound: %s", ErrValidation, res.Error())
+		}
+		tag, err := dropOutboundAndCleanRefs(&a.cfg, idx)
+		if err != nil {
+			return fmt.Errorf("subscription adapter: drop idx %d: %w", idx, err)
+		}
+		reason := strings.TrimSpace(res.Error())
+		dropped = append(dropped, DropReason{Tag: tag, Reason: reason})
+	}
+
+	if len(a.cfg.Outbounds) == 0 {
+		return fmt.Errorf("%w: no valid outbounds left after filtering (dropped: %s)", ErrValidation, formatDropList(dropped))
+	}
+
+	// All outbounds clean — commit and enable.
 	data, err := json.MarshalIndent(a.cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("subscription adapter: marshal slot: %w", err)
@@ -388,10 +454,27 @@ func (a *OperatorAdapter) flush() error {
 	if err := a.orch.Save(orchestrator.SlotSubscriptions, data); err != nil {
 		return fmt.Errorf("subscription adapter: save slot: %w", err)
 	}
-	// Enable the slot so sing-box includes it. SetEnabled is idempotent
-	// when already enabled.
 	_ = a.orch.SetEnabled(orchestrator.SlotSubscriptions, true)
+
+	a.lastDropped = dropped
 	return nil
+}
+
+// LastFilterDrops returns the outbounds filtered out of the most recent
+// flush (issue #221 — subscription validation pipeline). Empty when the
+// last save accepted every outbound. UI / API handlers read this to
+// surface "we accepted your subscription but skipped N servers" to the
+// user along with reasons. Snapshot is copied — caller cannot mutate
+// the adapter's view.
+func (a *OperatorAdapter) LastFilterDrops() []DropReason {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.lastDropped) == 0 {
+		return nil
+	}
+	out := make([]DropReason, len(a.lastDropped))
+	copy(out, a.lastDropped)
+	return out
 }
 
 // AllocProxyIndex returns the next free NDMS Proxy slot index. Delegates to

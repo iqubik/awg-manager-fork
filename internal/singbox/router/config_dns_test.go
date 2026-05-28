@@ -11,6 +11,47 @@ func makeDNSServer(tag, typ, server, detour string) DNSServer {
 	return DNSServer{Tag: tag, Type: typ, Server: server, Detour: detour}
 }
 
+// TestDNSServerLocalMarshalNoServerField проверяет, что type=local
+// сериализуется без поля "server" — sing-box 1.13's `local` server не
+// имеет этого поля в схеме и FATAL'ит весь конфиг с
+// `unknown field "server"` на `"server": ""`. См. issue #180.
+func TestDNSServerLocalMarshalNoServerField(t *testing.T) {
+	srv := DNSServer{Tag: "dns-local", Type: "local"}
+	raw, err := json.Marshal(srv)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, has := got["server"]; has {
+		t.Errorf("type=local marshalled with server field: %s", raw)
+	}
+	if got["tag"] != "dns-local" || got["type"] != "local" {
+		t.Errorf("missing required fields: %s", raw)
+	}
+}
+
+// TestDNSServerUDPMarshalIncludesServer проверяет, что для не-local
+// типов поле "server" всё ещё сериализуется (включая edge-кейс пустого
+// значения — там validator уже отверг бы конфиг до marshal'а, но
+// поведение сериализатора должно быть симметричным).
+func TestDNSServerUDPMarshalIncludesServer(t *testing.T) {
+	srv := DNSServer{Tag: "dns-up", Type: "udp", Server: "1.1.1.1"}
+	raw, err := json.Marshal(srv)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["server"] != "1.1.1.1" {
+		t.Errorf("expected server=1.1.1.1, got %v: %s", got["server"], raw)
+	}
+}
+
 func TestAddDNSServerValidates(t *testing.T) {
 	c := NewEmptyConfig()
 

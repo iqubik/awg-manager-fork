@@ -92,11 +92,20 @@
 	.row-2 {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 0.75rem;
+		grid-template-rows: auto auto auto;
+		column-gap: 0.75rem;
+		row-gap: 0.25rem;
 	}
+	/* subgrid: оба поля шарят row-tracks .row-2 → лейблы/dropdown'ы/хинты
+	 * выравниваются по горизонтали независимо от высоты содержимого
+	 * (например, левый хинт «Сервер по умолчанию…» в 3 строки, правый
+	 * «Для роутера без IPv6…» в 2 строки — но dropdown'ы всё равно на
+	 * одной линии). */
 	.field {
 		display: grid;
-		gap: 0.25rem;
+		grid-template-rows: subgrid;
+		grid-row: span 3;
+		gap: 0;
 	}
 	.lbl {
 		font-size: 0.75rem;

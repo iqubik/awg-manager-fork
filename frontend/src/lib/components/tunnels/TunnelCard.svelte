@@ -212,6 +212,10 @@
 	let inlineRxRate = $derived(rxRates.length > 0 ? rxRates[rxRates.length - 1] : 0);
 	let inlineTxRate = $derived(txRates.length > 0 ? txRates[txRates.length - 1] : 0);
 
+	function compactRelativeTime(value: string | null | undefined): string {
+		return value ? formatRelativeTime(value).replace(/\s+назад$/u, '') : '—';
+	}
+
 	$effect(() => {
 		const id = tunnelId;
 		const update = () => {
@@ -657,7 +661,7 @@
 							<div class="kv-stacked-stat">
 								<span class="kv-stacked-label">Handshake</span>
 								<span class="kv-stacked-value" title={tunnel.lastHandshake || ''}>
-									{tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
+									{compactRelativeTime(tunnel.lastHandshake)}
 								</span>
 							</div>
 						{/if}
@@ -779,7 +783,7 @@
 					<TrafficSparkline
 						rxData={rxRates}
 						txData={txRates}
-						width={84}
+						responsive
 						height={22}
 					/>
 					<div class="traffic-inline-rates">
@@ -1224,6 +1228,12 @@
 		transition: background var(--t-fast) ease, border-color var(--t-fast) ease;
 	}
 
+	.traffic-inline :global(svg.responsive) {
+		flex: 1 1 auto;
+		width: 100%;
+		min-width: 0;
+	}
+
 	.traffic-inline:hover {
 		background: var(--color-bg-hover);
 		border-color: var(--color-border-hover);
@@ -1256,7 +1266,8 @@
 		color: var(--color-success);
 	}
 
-	.card.view-dense .actions {
+	.card.view-dense .actions,
+	.card.view-compact .actions {
 		gap: 2px;
 		justify-content: center;
 	}
@@ -1629,30 +1640,34 @@
 		justify-content: space-between;
 		align-items: center;
 		width: 100%;
-		padding: 6px 12px;
+		padding: 7px 12px;
 		border: none;
-		background: none;
+		border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+		background: color-mix(in srgb, var(--color-bg-tertiary) 72%, transparent);
+		color: var(--color-text-secondary);
 		cursor: pointer;
 		user-select: none;
 		font: inherit;
-		transition: background var(--t-fast) ease;
+		transition: background var(--t-fast) ease, border-color var(--t-fast) ease;
 	}
 
 	.chart-header:hover {
-		background: var(--color-bg-hover);
+		background: color-mix(in srgb, var(--color-bg-hover) 78%, transparent);
+		border-bottom-color: var(--color-border-hover);
 	}
 
 	.chart-label {
 		font-size: 11px;
-		font-weight: 500;
-		color: var(--color-text-muted);
+		font-weight: 600;
+		color: var(--color-text-secondary);
 		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		letter-spacing: 0.04em;
 	}
 
 	.chart-chevron {
 		font-size: 14px;
-		color: var(--color-text-muted);
+		color: var(--color-text-secondary);
+		opacity: 0.85;
 		transition: transform var(--t-fast) ease;
 		transform: rotate(-90deg);
 	}

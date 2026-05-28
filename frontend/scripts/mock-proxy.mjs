@@ -1491,6 +1491,21 @@ let mockDNSServers = [
 		server_port: 53,
 		detour: 'sub-demo0001',
 	},
+	// issue #214 Sc3 repro — длинный hostname + длинный detour
+	// триггерят узкое viewport overflow.
+	{
+		tag: 'vpn-test',
+		type: 'tls',
+		server: 'cloudflare-dns.example.com',
+		server_port: 853,
+		detour: 'fast-vpn',
+	},
+	{
+		tag: 'dns-local-router',
+		type: 'udp',
+		server: '192.168.0.51',
+		server_port: 53,
+	},
 ];
 let mockDNSRules = [
 	{
@@ -2029,10 +2044,13 @@ const mockRoutingTunnels = [
 const mockSingboxRules = [
 	{ action: 'sniff' },
 	{ action: 'hijack-dns', protocol: 'dns' },
+	// system bypass — render as BYPASS chip; long matcher summary that
+	// triggers issue #214 narrow-viewport wrap problem.
+	{ ip_is_private: true },
 	{ action: 'route', domain_suffix: ['youtube.com', 'ytimg.com'], outbound: 'sub-demo0001' },
 	{ action: 'route', rule_set: ['geosite-openai'], outbound: 'sub-demo0001' },
 	{ action: 'route', domain_suffix: ['github.com'], outbound: 'direct' },
-	{ action: 'reject', domain_suffix: ['ads.example'] },
+	{ action: 'reject', domain: ['vkvideo.ru', 'long-host.example.com'], rule_set: ['geosite-category-ads-all', 'geosite-youtube'] },
 ];
 
 const mockSingboxRuleSets = [

@@ -77,13 +77,16 @@
        actions their own row with full width, no overlap. Breakpoint
        mirrors the `.setting-row` / `.section-header` patterns already
        in app.css. */
-    @media (max-width: 640px) {
+    @media (max-width: 768px) {
         .page-header {
             flex-direction: column;
             align-items: stretch;
             gap: 0.75rem;
         }
         .actions {
+            align-self: stretch;
+            width: 100%;
+            min-width: 0;
             flex-wrap: wrap;
             justify-content: flex-end;
         }

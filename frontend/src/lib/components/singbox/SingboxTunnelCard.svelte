@@ -341,6 +341,7 @@
 	<div class="header header-dense">
 		<div class="header-dense-body">
 			<div class="title-row-dense">
+				<span class="dot {cardState}" aria-hidden="true"></span>
 				<button type="button" class="title title-dense" onclick={edit}>{tunnel.tag}</button>
 			</div>
 			<div class="meta-tags-dense">
@@ -358,9 +359,6 @@
 			</div>
 		</div>
 		<div class="dense-toolbar">
-			<div class="dense-toolbar-top">
-				<span class="dot {cardState}" aria-hidden="true"></span>
-			</div>
 			<div class="dense-toolbar-bottom">
 				<PingButton label={latText} state={cardState} {checking} size="sm" onclick={triggerCheck} />
 			</div>
@@ -463,7 +461,7 @@
 			<TrafficSparkline
 				rxData={trafficSparkSeries.rx}
 				txData={trafficSparkSeries.tx}
-				width={42}
+				responsive
 				height={20}
 			/>
 			<div class="traffic-inline-rates">
@@ -514,12 +512,11 @@
 	class:unknown={cardState === 'unknown'}
 	class:stopped={cardState === 'stopped'}
 >
-	<div class="led-wrap">
+	<div class="title-row">
 		<span class="dot {cardState}" aria-hidden="true"></span>
-		<PingButton label={latText} state={cardState} {checking} onclick={triggerCheck} />
+		<h3 class="title">{tunnel.tag}</h3>
+		<PingButton label={latText} state={cardState} {checking} size="sm" onclick={triggerCheck} />
 	</div>
-
-	<h3 class="title">{tunnel.tag}</h3>
 	<div class="iface">
 		<span>{tunnel.proxyInterface || 'via sing-box'}</span>
 		{#if tunnel.kernelInterface}
@@ -736,9 +733,16 @@
 
 	.title-row-dense {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr);
+		grid-template-columns: auto minmax(0, 1fr);
 		align-items: center;
+		gap: 6px;
 		min-width: 0;
+	}
+
+	.card.view-dense .title-row-dense .dot {
+		width: var(--sbx-status-dot-dense);
+		height: var(--sbx-status-dot-dense);
+		flex: 0 0 auto;
 	}
 
 	.title-dense {
@@ -800,20 +804,9 @@
 		flex-shrink: 0;
 	}
 
-	.dense-toolbar-top {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-
 	.dense-toolbar-bottom {
 		display: flex;
 		align-items: center;
-	}
-
-	.card.view-dense .dense-toolbar-top .dot {
-		width: var(--sbx-status-dot-dense);
-		height: var(--sbx-status-dot-dense);
 	}
 
 	.details-dense-cols {
@@ -921,6 +914,12 @@
 		transition: background var(--t-fast) ease, border-color var(--t-fast) ease;
 	}
 
+	.charts-dense .traffic-inline :global(svg.responsive) {
+		flex: 1 1 auto;
+		width: 100%;
+		min-width: 0;
+	}
+
 	.traffic-inline:hover {
 		background: var(--color-bg-hover);
 		border-color: var(--color-border-hover);
@@ -939,7 +938,7 @@
 		gap: 0.06rem;
 		padding-block: 2px;
 		min-width: 0;
-		flex: 1 1 auto;
+		flex: 0 0 auto;
 		font-size: 9px;
 		line-height: 1.1;
 		font-family: var(--font-mono, monospace);
@@ -1028,14 +1027,22 @@
 		height: 30% !important;
 	}
 
-	.led-wrap {
-		position: absolute;
-		top: 12px;
-		right: 12px;
+	.title-row {
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		min-width: 0;
 	}
+
+	.title-row .dot {
+		flex-shrink: 0;
+	}
+
+	.title-row :global(.ping-btn) {
+		flex-shrink: 0;
+		margin-left: auto;
+	}
+
 	.dot {
 		width: var(--sbx-status-dot);
 		height: var(--sbx-status-dot);
@@ -1049,10 +1056,14 @@
 
 	.title {
 		margin: 0;
+		min-width: 0;
+		flex: 1 1 auto;
 		font-size: var(--sbx-card-title);
 		line-height: var(--sbx-card-title-line-height);
 		font-weight: 600;
-		padding-right: 90px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.iface {
 		display: flex;
@@ -1217,7 +1228,7 @@
 	.actions {
 		display: flex;
 		gap: 6px;
-		justify-content: flex-end;
+		justify-content: center;
 		align-items: center;
 		margin-top: 12px;
 		padding: 10px 0;
@@ -1279,27 +1290,31 @@
 		justify-content: space-between;
 		align-items: center;
 		width: 100%;
-		padding: 6px 12px;
+		padding: 7px 12px;
 		border: none;
-		background: none;
+		border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+		background: color-mix(in srgb, var(--color-bg-tertiary) 78%, transparent);
+		color: var(--color-text-secondary);
 		cursor: pointer;
 		user-select: none;
 		font: inherit;
-		transition: background var(--t-fast) ease;
+		transition: background var(--t-fast) ease, border-color var(--t-fast) ease;
 	}
 	.chart-header:hover {
-		background: var(--bg-tertiary);
+		background: color-mix(in srgb, var(--color-bg-hover) 82%, transparent);
+		border-bottom-color: var(--color-border-hover);
 	}
 	.chart-label {
 		font-size: var(--sbx-card-note);
-		font-weight: 500;
-		color: var(--color-text-muted);
+		font-weight: 600;
+		color: var(--color-text-secondary);
 		text-transform: uppercase;
-		letter-spacing: 0.03em;
+		letter-spacing: 0.04em;
 	}
 	.chart-chevron {
 		font-size: 14px;
-		color: var(--text-muted);
+		color: var(--color-text-secondary);
+		opacity: 0.85;
 		transition: transform var(--t-fast) ease;
 		transform: rotate(-90deg);
 	}
@@ -1314,7 +1329,7 @@
 	}
 	.chart-body.expanded {
 		max-height: 300px;
-		padding: 0 12px 8px;
+		padding: 8px 12px 8px;
 	}
 
 	/* List row (grid columns set on parent .singbox-tunnel-list-table) */

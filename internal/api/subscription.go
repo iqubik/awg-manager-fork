@@ -25,6 +25,12 @@ type SubscriptionHandler struct {
 	svc      *subscription.Service
 	presence SingboxPresenceProbe
 	log      *logging.ScopedLogger
+	// settings reads the global "create NDMS Proxy for sing-box" flag.
+	// When false, response DTOs surface proxyIndex=-1 so subscription
+	// cards hide t2sN/ProxyN labels and disable speedtest — the NDMS
+	// composite interfaces those rely on no longer exist. nil ⇒ default
+	// to "enabled" (back-compat / tests).
+	settings ndmsProxyToggler
 }
 
 func NewSubscriptionHandler(svc *subscription.Service, presence SingboxPresenceProbe, appLogger ...logging.AppLogger) *SubscriptionHandler {
@@ -37,6 +43,36 @@ func NewSubscriptionHandler(svc *subscription.Service, presence SingboxPresenceP
 		presence: presence,
 		log:      logging.NewScopedLogger(lg, logging.GroupSingbox, logging.SubSBRuntime),
 	}
+}
+
+// SetNDMSProxyToggler wires the global NDMS Proxy flag reader. When wired
+// and the flag is false, DTO converters surface proxyIndex=-1 so the UI
+// (and any other API consumer) sees that the composite NDMS Proxy is
+// gone — same shape contract as ListTunnels uses for tunnel ProxyInterface
+// fields. Without this setter, every subscription DTO surfaces the stored
+// ProxyIndex unconditionally.
+func (h *SubscriptionHandler) SetNDMSProxyToggler(s ndmsProxyToggler) { h.settings = s }
+
+// ndmsProxyEnabled reads the toggler; defaults to true when the toggler
+// is not wired (tests, legacy bootstrap paths).
+func (h *SubscriptionHandler) ndmsProxyEnabled() bool {
+	if h.settings == nil {
+		return true
+	}
+	return h.settings.IsSingboxNDMSProxyEnabled()
+}
+
+// respondServiceError routes a subscription.Service mutation error to
+// the appropriate HTTP status. subscription.ErrValidation (Pass-2 sing-
+// box check rejected the merged config) → 422 VALIDATION_FAILED so the
+// frontend can surface a "your subscription has invalid outbound(s)"
+// banner instead of a generic 500. Other errors fall through to 500.
+func (h *SubscriptionHandler) respondServiceError(w http.ResponseWriter, err error) {
+	if errors.Is(err, subscription.ErrValidation) {
+		response.ErrorWithStatus(w, http.StatusUnprocessableEntity, err.Error(), "VALIDATION_FAILED")
+		return
+	}
+	response.InternalError(w, err.Error())
 }
 
 // SubscriptionMemberDTO carries per-member parsed metadata for the UI.
@@ -80,7 +116,7 @@ type SubscriptionDTO struct {
 	SelectorTag  string                  `json:"selectorTag" example:"sub-demo"`
 	InboundTag   string                  `json:"inboundTag" example:"sub-demo-in"`
 	ListenPort   int                     `json:"listenPort" example:"11000"`
-	ProxyIndex   int                     `json:"proxyIndex" example:"1"`
+	ProxyIndex   int                     `json:"proxyIndex" example:"1" description:"NDMS ProxyN index for this subscription. -1 when no proxy is allocated yet OR when global 'Create NDMS Proxy for sing-box' is disabled (the composite interface does not exist in that mode — UI should hide t2sN/ProxyN labels and disable per-subscription speedtest)."`
 	MemberTags   []string                `json:"memberTags" example:"sub-demo-001,sub-demo-002,sub-demo-003"`
 	Members      []SubscriptionMemberDTO `json:"members"`
 	OrphanTags   []string                `json:"orphanTags" example:""`
@@ -166,7 +202,12 @@ type RemoveMemberResponseData struct {
 }
 
 // toDTO converts a domain Subscription to its API representation.
-func toSubscriptionDTO(s subscription.Subscription) SubscriptionDTO {
+// ndmsProxyEnabled gates ProxyIndex: when false the field is surfaced
+// as -1 to match the rest of the API contract (no NDMS Proxy → no
+// composite interface → no proxyIndex to display). Mirrors the
+// ProxyInterface/KernelInterface stripping ListTunnels already does
+// for tunnels in disabled mode.
+func toSubscriptionDTO(s subscription.Subscription, ndmsProxyEnabled bool) SubscriptionDTO {
 	hh := make([]SubscriptionHeader, len(s.Headers))
 	for i, h := range s.Headers {
 		hh[i] = SubscriptionHeader{Name: h.Name, Value: h.Value}
@@ -197,6 +238,10 @@ func toSubscriptionDTO(s subscription.Subscription) SubscriptionDTO {
 			ToleranceMs: ut.ToleranceMs,
 		}
 	}
+	proxyIdx := s.ProxyIndex
+	if !ndmsProxyEnabled {
+		proxyIdx = -1
+	}
 	return SubscriptionDTO{
 		ID:           s.ID,
 		Label:        s.Label,
@@ -209,7 +254,7 @@ func toSubscriptionDTO(s subscription.Subscription) SubscriptionDTO {
 		SelectorTag:  s.SelectorTag,
 		InboundTag:   s.InboundTag,
 		ListenPort:   int(s.ListenPort),
-		ProxyIndex:   s.ProxyIndex,
+		ProxyIndex:   proxyIdx,
 		MemberTags:   memberTags,
 		Members:      memberDTOs,
 		OrphanTags:   orphans,
@@ -236,7 +281,7 @@ type SubscriptionMetaDTO struct {
 	SelectorTag  string                  `json:"selectorTag"`
 	InboundTag   string                  `json:"inboundTag"`
 	ListenPort   int                     `json:"listenPort"`
-	ProxyIndex   int                     `json:"proxyIndex"`
+	ProxyIndex   int                     `json:"proxyIndex" description:"See SubscriptionDTO.ProxyIndex — gated identically (-1 when NDMS Proxy disabled)."`
 	Enabled      bool                    `json:"enabled"`
 	Mode         string                  `json:"mode"`
 	URLTest      *SubscriptionURLTestDTO `json:"urlTest,omitempty"`
@@ -261,8 +306,9 @@ type SubscriptionStreamDoneDTO struct {
 
 // buildSubscriptionMetaDTO extracts the meta-event payload from a
 // domain Subscription. Same field semantics as toSubscriptionDTO but
-// no Members slice (those stream as member events).
-func buildSubscriptionMetaDTO(s subscription.Subscription) SubscriptionMetaDTO {
+// no Members slice (those stream as member events). ndmsProxyEnabled
+// gates ProxyIndex identically to toSubscriptionDTO.
+func buildSubscriptionMetaDTO(s subscription.Subscription, ndmsProxyEnabled bool) SubscriptionMetaDTO {
 	hh := make([]SubscriptionHeader, len(s.Headers))
 	for i, h := range s.Headers {
 		hh[i] = SubscriptionHeader{Name: h.Name, Value: h.Value}
@@ -281,6 +327,10 @@ func buildSubscriptionMetaDTO(s subscription.Subscription) SubscriptionMetaDTO {
 			ToleranceMs: ut.ToleranceMs,
 		}
 	}
+	proxyIdx := s.ProxyIndex
+	if !ndmsProxyEnabled {
+		proxyIdx = -1
+	}
 	return SubscriptionMetaDTO{
 		ID:           s.ID,
 		Label:        s.Label,
@@ -293,7 +343,7 @@ func buildSubscriptionMetaDTO(s subscription.Subscription) SubscriptionMetaDTO {
 		SelectorTag:  s.SelectorTag,
 		InboundTag:   s.InboundTag,
 		ListenPort:   int(s.ListenPort),
-		ProxyIndex:   s.ProxyIndex,
+		ProxyIndex:   proxyIdx,
 		Enabled:      s.Enabled,
 		Mode:         mode,
 		URLTest:      urltest,
@@ -386,7 +436,7 @@ func (h *SubscriptionHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	all := []SubscriptionDTO{}
 	for _, s := range h.svc.List() {
-		all = append(all, toSubscriptionDTO(s))
+		all = append(all, toSubscriptionDTO(s, h.ndmsProxyEnabled()))
 	}
 	response.Success(w, all)
 }
@@ -394,7 +444,7 @@ func (h *SubscriptionHandler) List(w http.ResponseWriter, r *http.Request) {
 // Create handles POST /api/singbox/subscriptions/create
 //
 //	@Summary		Create sing-box subscription
-//	@Description	Creates subscription from URL or inline share links.
+//	@Description	Creates subscription from URL or inline share links. Returns 422 VALIDATION_FAILED when the merged sing-box config is rejected by `sing-box check` (e.g. reality outbound without uTLS).
 //	@Tags			subscriptions
 //	@Accept			json
 //	@Produce		json
@@ -402,6 +452,7 @@ func (h *SubscriptionHandler) List(w http.ResponseWriter, r *http.Request) {
 //	@Success		200	{object}	SubscriptionResponse
 //	@Failure		400	{object}	APIErrorEnvelope
 //	@Failure		412	{object}	APIErrorEnvelope
+//	@Failure		422	{object}	APIErrorEnvelope	"sing-box validation rejected the subscription"
 //	@Failure		500	{object}	APIErrorEnvelope
 //	@Router			/singbox/subscriptions/create [post]
 func (h *SubscriptionHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -443,10 +494,10 @@ func (h *SubscriptionHandler) Create(w http.ResponseWriter, r *http.Request) {
 	sub, err := h.svc.Create(r.Context(), in)
 	if err != nil {
 		h.log.Warn("subscription-create", req.Label, "failed: "+err.Error())
-		response.InternalError(w, err.Error())
+		h.respondServiceError(w, err)
 		return
 	}
-	response.Success(w, toSubscriptionDTO(*sub))
+	response.Success(w, toSubscriptionDTO(*sub, h.ndmsProxyEnabled()))
 }
 
 // Get handles GET /api/singbox/subscriptions/get?id=
@@ -474,12 +525,13 @@ func (h *SubscriptionHandler) Get(w http.ResponseWriter, r *http.Request) {
 		response.ErrorWithStatus(w, http.StatusNotFound, err.Error(), "NOT_FOUND")
 		return
 	}
-	response.Success(w, toSubscriptionDTO(*sub))
+	response.Success(w, toSubscriptionDTO(*sub, h.ndmsProxyEnabled()))
 }
 
 // Update handles PUT /api/singbox/subscriptions/update?id=
 //
 //	@Summary		Update sing-box subscription
+//	@Description	Updates subscription metadata or refreshes from a new URL. Returns 422 VALIDATION_FAILED when the new merged config is rejected by `sing-box check`.
 //	@Tags			subscriptions
 //	@Accept			json
 //	@Produce		json
@@ -487,6 +539,7 @@ func (h *SubscriptionHandler) Get(w http.ResponseWriter, r *http.Request) {
 //	@Param			req	body		UpdateSubscriptionRequest	true	"update request"
 //	@Success		200	{object}	SubscriptionResponse
 //	@Failure		400	{object}	APIErrorEnvelope
+//	@Failure		422	{object}	APIErrorEnvelope	"sing-box validation rejected the subscription"
 //	@Failure		500	{object}	APIErrorEnvelope
 //	@Router			/singbox/subscriptions/update [put]
 func (h *SubscriptionHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -529,10 +582,10 @@ func (h *SubscriptionHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	sub, err := h.svc.Update(id, patch)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		h.respondServiceError(w, err)
 		return
 	}
-	response.Success(w, toSubscriptionDTO(*sub))
+	response.Success(w, toSubscriptionDTO(*sub, h.ndmsProxyEnabled()))
 }
 
 // Delete handles DELETE /api/singbox/subscriptions/delete?id=  Always performs full cleanup (no cascade flag).
@@ -562,10 +615,12 @@ func (h *SubscriptionHandler) Delete(w http.ResponseWriter, r *http.Request) {
 // Refresh handles POST /api/singbox/subscriptions/refresh?id=
 //
 //	@Summary		Refresh sing-box subscription
+//	@Description	Re-fetches the provider URL and re-runs Pass 1 / Pass 2 validation. Returns 422 VALIDATION_FAILED when the refreshed config is rejected by `sing-box check`.
 //	@Tags			subscriptions
 //	@Produce		json
 //	@Param			id	query		string	false	"subscription id"
 //	@Success		200	{object}	SubscriptionResponse
+//	@Failure		422	{object}	APIErrorEnvelope	"sing-box validation rejected the refreshed subscription"
 //	@Failure		500	{object}	APIErrorEnvelope
 //	@Router			/singbox/subscriptions/refresh [post]
 func (h *SubscriptionHandler) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -577,7 +632,7 @@ func (h *SubscriptionHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	h.log.Info("subscription-refresh", id, "requested via API")
 	res, err := h.svc.Refresh(r.Context(), id)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		h.respondServiceError(w, err)
 		return
 	}
 	response.Success(w, res)
@@ -705,7 +760,7 @@ func (h *SubscriptionHandler) GetStream(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 
-	metaJSON, _ := json.Marshal(buildSubscriptionMetaDTO(*sub))
+	metaJSON, _ := json.Marshal(buildSubscriptionMetaDTO(*sub, h.ndmsProxyEnabled()))
 	fmt.Fprintf(w, "event: meta\ndata: %s\n\n", metaJSON)
 	flusher.Flush()
 
@@ -767,6 +822,8 @@ func (h *SubscriptionHandler) OrphansDelete(w http.ResponseWriter, r *http.Reque
 //	@Success		200		{object}	SubscriptionResponse
 //	@Failure		400		{object}	APIErrorEnvelope
 //	@Failure		409		{object}	APIErrorEnvelope
+//	@Failure		422		{object}	APIErrorEnvelope	"sing-box validation rejected the new member"
+//	@Failure		500		{object}	APIErrorEnvelope
 //	@Router			/singbox/subscriptions/members/add [post]
 func (h *SubscriptionHandler) AddMember(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -794,11 +851,11 @@ func (h *SubscriptionHandler) AddMember(w http.ResponseWriter, r *http.Request) 
 		case errors.Is(err, subscription.ErrMemberDuplicate):
 			response.ErrorWithStatus(w, http.StatusConflict, err.Error(), "MEMBER_DUPLICATE")
 		default:
-			response.InternalError(w, err.Error())
+			h.respondServiceError(w, err)
 		}
 		return
 	}
-	response.Success(w, toSubscriptionDTO(*sub))
+	response.Success(w, toSubscriptionDTO(*sub, h.ndmsProxyEnabled()))
 }
 
 // RemoveMember handles POST /api/singbox/subscriptions/members/remove?id=
@@ -816,6 +873,8 @@ func (h *SubscriptionHandler) AddMember(w http.ResponseWriter, r *http.Request) 
 //	@Success		200		{object}	APIEnvelope
 //	@Failure		400		{object}	APIErrorEnvelope
 //	@Failure		404		{object}	APIErrorEnvelope
+//	@Failure		422		{object}	APIErrorEnvelope	"sing-box validation rejected the remainder"
+//	@Failure		500		{object}	APIErrorEnvelope
 //	@Router			/singbox/subscriptions/members/remove [post]
 func (h *SubscriptionHandler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -841,13 +900,13 @@ func (h *SubscriptionHandler) RemoveMember(w http.ResponseWriter, r *http.Reques
 		case errors.Is(err, subscription.ErrMemberNotFound):
 			response.ErrorWithStatus(w, http.StatusNotFound, err.Error(), "MEMBER_NOT_FOUND")
 		default:
-			response.InternalError(w, err.Error())
+			h.respondServiceError(w, err)
 		}
 		return
 	}
 	resp := RemoveMemberResponseData{Deleted: sub == nil}
 	if sub != nil {
-		dto := toSubscriptionDTO(*sub)
+		dto := toSubscriptionDTO(*sub, h.ndmsProxyEnabled())
 		resp.Subscription = &dto
 	}
 	response.Success(w, resp)

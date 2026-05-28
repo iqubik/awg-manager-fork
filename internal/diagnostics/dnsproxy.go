@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -66,8 +67,10 @@ type dnsTLSEntry struct {
 }
 
 // dnsHTTPSEntry is one entry from proxy-https.server-https.
+// NDMS отдаёт URI (с схемой), не голый адрес, плюс внутренний дискриминатор формата.
 type dnsHTTPSEntry struct {
-	Address string `json:"address"`
+	URI    string `json:"uri"`
+	Format string `json:"format"`
 }
 
 // dnsProxyWire mirrors the relevant subset of /show/dns-proxy JSON.
@@ -151,6 +154,7 @@ func parseConfig(cfg string) (ups []DNSUpstream, static []DNSStaticRecord, rb DN
 //	dns_server = 127.0.0.1:40500 . # 8.8.8.8@dns.google
 //	dns_server = 127.0.0.1:40501 ru # 77.88.8.8:853@common.dot.dns.yandex.net
 //	dns_server = 127.0.0.1:40502 . # 9.9.9.9
+//	dns_server = 127.0.0.1:40508 . # https://common.dot.dns.yandex.net@dnsm
 func parseDNSServer(line string) (DNSUpstream, bool) {
 	val := afterEquals(line)
 	if val == "" {
@@ -173,19 +177,66 @@ func parseDNSServer(line string) (DNSUpstream, bool) {
 		u.Scope = fields[1]
 	}
 	if comment != "" {
-		addrPart := comment
-		if at := strings.Index(comment, "@"); at >= 0 {
-			addrPart = comment[:at]
-			u.SNI = comment[at+1:]
-		}
-		if host, portStr, err := net.SplitHostPort(addrPart); err == nil {
-			u.Address = host
-			u.Port = atoiSafe(portStr)
+		if strings.HasPrefix(comment, "https://") || strings.HasPrefix(comment, "http://") {
+			parseDoHComment(&u, comment)
 		} else {
-			u.Address = addrPart
+			parsePlainComment(&u, comment)
 		}
 	}
 	return u, u.Address != "" || u.localPort != 0
+}
+
+// parsePlainComment разбирает форму DoT/plain: "IP[:port][@SNI]".
+func parsePlainComment(u *DNSUpstream, comment string) {
+	addrPart := comment
+	if at := strings.Index(comment, "@"); at >= 0 {
+		addrPart = comment[:at]
+		u.SNI = comment[at+1:]
+	}
+	if host, portStr, err := net.SplitHostPort(addrPart); err == nil {
+		u.Address = host
+		u.Port = atoiSafe(portStr)
+	} else {
+		u.Address = addrPart
+	}
+}
+
+// parseDoHComment разбирает форму DoH: "<scheme>://<host>[:port]/[path][@format]".
+// Хвостовой "@<format>" (например "@dnsm") — NDMS-овский дискриминатор wire-формата;
+// его отбрасываем. Address получает hostname, Port — порт из URL или дефолт схемы.
+func parseDoHComment(u *DNSUpstream, comment string) {
+	urlStr := comment
+	if at := strings.LastIndex(comment, "@"); at > 0 && isSimpleToken(comment[at+1:]) {
+		urlStr = comment[:at]
+	}
+	hu, err := url.Parse(urlStr)
+	if err != nil || hu.Hostname() == "" {
+		u.Address = urlStr
+		return
+	}
+	u.Address = hu.Hostname()
+	if p := hu.Port(); p != "" {
+		u.Port = atoiSafe(p)
+	} else if hu.Scheme == "https" {
+		u.Port = 443
+	} else {
+		u.Port = 80
+	}
+}
+
+// isSimpleToken: непустая строка ≤32 символа из ASCII-букв/цифр/-/_. Используется
+// чтобы отличить хвостовой "@<format>" от настоящей части URL.
+func isSimpleToken(s string) bool {
+	if s == "" || len(s) > 32 {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') &&
+			!(c >= '0' && c <= '9') && c != '-' && c != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // parseStatic parses "static_a = host ip flag" / "static_aaaa = host ip flag".
@@ -261,13 +312,22 @@ func applyEncryption(ups []DNSUpstream, tls []dnsTLSEntry, https []dnsHTTPSEntry
 	for _, t := range tls {
 		tlsByAddr[t.Address] = t.SNI
 	}
-	httpsAddr := map[string]bool{}
+	// proxy-https записи приходят с URI, а апстрим парсится в host без схемы.
+	// Индексируем по hostname URI, чтобы сравнение в цикле было прямым.
+	httpsByHost := map[string]bool{}
 	for _, h := range https {
-		httpsAddr[h.Address] = true
+		if h.URI == "" {
+			continue
+		}
+		if hu, err := url.Parse(h.URI); err == nil {
+			if host := hu.Hostname(); host != "" {
+				httpsByHost[host] = true
+			}
+		}
 	}
 	for i := range ups {
 		switch {
-		case httpsAddr[ups[i].Address]:
+		case httpsByHost[ups[i].Address]:
 			ups[i].Encryption = "DoH"
 		default:
 			if sni, ok := tlsByAddr[ups[i].Address]; ok {

@@ -236,6 +236,44 @@ func (s *InterfaceStore) GetProxy(ctx context.Context, name string) (*ndms.Proxy
 	}, nil
 }
 
+// FetchSummary returns InterfaceDetails by issuing a fresh
+// GET /show/interface/<name>/summary on every call — no cache read.
+// Used by state.Manager for kernel-tunnel state determination because
+// NDMS `iflayerchanged link=running` hooks are not reliable for
+// OpkgTun: the cache that GetDetails consults can stay frozen with
+// Link != "up" after `ip link set up`, producing a permanent
+// StateStarting for a working tunnel. Direct GET sees the layer
+// truth NDMS reports right now.
+//
+// Uptime is consulted from the same daemon-tracked startedAt map as
+// GetDetails (cache helper, not authoritative).
+func (s *InterfaceStore) FetchSummary(ctx context.Context, name string) (*ndms.InterfaceDetails, error) {
+	if name == "" {
+		return nil, nil
+	}
+	var resp struct {
+		Layer struct {
+			Conf string `json:"conf"`
+			Link string `json:"link"`
+			Ctrl string `json:"ctrl"`
+		} `json:"layer"`
+	}
+	if err := s.getter.Get(ctx, "/show/interface/"+name+"/summary", &resp); err != nil {
+		return nil, err
+	}
+	d := &ndms.InterfaceDetails{
+		ConfLayer: resp.Layer.Conf,
+		Link:      layerLevelToUpDown(resp.Layer.Link),
+		State:     layerLevelToUpDown(resp.Layer.Ctrl),
+	}
+	s.mu.RLock()
+	if t, ok := s.startedAt[name]; ok && !t.IsZero() {
+		d.Uptime = int(time.Since(t).Seconds())
+	}
+	s.mu.RUnlock()
+	return d, nil
+}
+
 // GetDetails returns InterfaceDetails synthesised from the cached
 // snapshot. Returns (nil, nil) when the interface is absent. Uptime is
 // computed live from the daemon-tracked startedAt timestamp — survives

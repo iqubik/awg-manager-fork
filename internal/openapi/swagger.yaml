@@ -3356,6 +3356,12 @@ definitions:
         items:
           type: string
         type: array
+      freeBytes:
+        example: 8221456
+        type: integer
+      installState:
+        example: outdated_no_space
+        type: string
       installed:
         example: true
         type: boolean
@@ -3371,6 +3377,9 @@ definitions:
       proxyComponent:
         example: true
         type: boolean
+      requiredBytes:
+        example: 32145678
+        type: integer
       requiredSha256:
         example: 76e67bb07b5c2bf4cef108c2f21a5ffaa684d124c21ffe220fc89b39cf1de934
         type: string
@@ -8864,9 +8873,11 @@ paths:
       - singbox-router
   /singbox/router/enable:
     post:
-      description: Starts the singbox-router engine and installs iptables/policy rules.
-        Returns 400 with code POLICY_NOT_CONFIGURED or POLICY_MISSING when the router
-        policy mode is incomplete.
+      description: 'Starts the singbox-router engine and installs iptables/policy
+        rules. Returns 400 with code POLICY_NOT_CONFIGURED or POLICY_MISSING when
+        the router policy mode is incomplete. Returns 503 SINGBOX_NOT_READY when sing-box
+        did not become ready within the boot-wait window — iptables install is deliberately
+        skipped to avoid orphaning DNS:53 redirects (issue #221).'
       produces:
       - application/json
       responses:
@@ -8884,6 +8895,10 @@ paths:
             $ref: '#/definitions/api.APIErrorEnvelope'
         "500":
           description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "503":
+          description: sing-box did not come up in time
           schema:
             $ref: '#/definitions/api.APIErrorEnvelope'
       security:
@@ -10071,7 +10086,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: Creates subscription from URL or inline share links.
+      description: Creates subscription from URL or inline share links. Returns 422
+        VALIDATION_FAILED when the merged sing-box config is rejected by `sing-box
+        check` (e.g. reality outbound without uTLS).
       parameters:
       - description: create request
         in: body
@@ -10092,6 +10109,10 @@ paths:
             $ref: '#/definitions/api.APIErrorEnvelope'
         "412":
           description: Precondition Failed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "422":
+          description: sing-box validation rejected the subscription
           schema:
             $ref: '#/definitions/api.APIErrorEnvelope'
         "500":
@@ -10221,6 +10242,14 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/api.APIErrorEnvelope'
+        "422":
+          description: sing-box validation rejected the new member
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
       security:
       - CookieAuth: []
       summary: Add a manual member to an inline subscription
@@ -10261,6 +10290,14 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/api.APIErrorEnvelope'
+        "422":
+          description: sing-box validation rejected the remainder
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
       security:
       - CookieAuth: []
       summary: Remove a member from an inline subscription
@@ -10290,6 +10327,9 @@ paths:
       - subscriptions
   /singbox/subscriptions/refresh:
     post:
+      description: Re-fetches the provider URL and re-runs Pass 1 / Pass 2 validation.
+        Returns 422 VALIDATION_FAILED when the refreshed config is rejected by `sing-box
+        check`.
       parameters:
       - description: subscription id
         in: query
@@ -10302,6 +10342,10 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/api.SubscriptionResponse'
+        "422":
+          description: sing-box validation rejected the refreshed subscription
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
         "500":
           description: Internal Server Error
           schema:
@@ -10313,6 +10357,9 @@ paths:
     put:
       consumes:
       - application/json
+      description: Updates subscription metadata or refreshes from a new URL. Returns
+        422 VALIDATION_FAILED when the new merged config is rejected by `sing-box
+        check`.
       parameters:
       - description: subscription id
         in: query
@@ -10334,6 +10381,10 @@ paths:
             $ref: '#/definitions/api.SubscriptionResponse'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "422":
+          description: sing-box validation rejected the subscription
           schema:
             $ref: '#/definitions/api.APIErrorEnvelope'
         "500":
@@ -10548,6 +10599,26 @@ paths:
       - singbox
   /singbox/tunnels/test/speed/stream:
     get:
+      parameters:
+      - description: Sing-box outbound tag
+        in: query
+        name: tag
+        required: true
+        type: string
+      - description: iperf3 server host
+        in: query
+        name: server
+        required: true
+        type: string
+      - description: iperf3 server port
+        in: query
+        name: port
+        required: true
+        type: integer
+      - description: Kernel interface override (NDMS Proxy must be enabled)
+        in: query
+        name: iface
+        type: string
       produces:
       - text/event-stream
       responses:
@@ -10557,6 +10628,14 @@ paths:
             type: string
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "404":
+          description: Tunnel tag not found
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "412":
+          description: NDMS Proxy disabled — iface override unavailable
           schema:
             $ref: '#/definitions/api.APIErrorEnvelope'
         "500":

@@ -252,7 +252,11 @@
             <div class="lc lc-name" data-label="Подписка">
                 <div class="name-title-row">
                     <div class="t1">{subscription.label}</div>
+                </div>
+                <div class="name-meta-row">
                     <Badge variant="accent" size="sm">{sourceKindLabel}</Badge>
+                    <span>{subscription.memberTags.length} серверов</span>
+                    <span>обновлено {lastFetchedHuman}</span>
                 </div>
                 <div class="t2 mono">{proxyIface}{#if kernelIface} · {kernelIface}{/if}</div>
             </div>
@@ -284,45 +288,35 @@
                     {/if}
                 </button>
             </div>
-            <div class="lc lc-members" data-label="Серверов">
-                {subscription.memberTags.length}
-            </div>
-            <div class="lc lc-updated mono" data-label="Обновлено">
-                {lastFetchedHuman}
-            </div>
             <div class="lc lc-traffic" data-label="Трафик">
                 {#if subscription.lastError}
                     <span class="delay-dash">—</span>
                 {:else}
-                    <div class="traffic-row-list">
-                        <div
-                            role="button"
-                            tabindex="0"
-                            class="traffic-mini-click"
-                            onclick={(e) => {
+                    <div
+                        role="button"
+                        tabindex="0"
+                        class="traffic-row-list traffic-row-list--stack mono"
+                        onclick={(e) => {
+                            e.stopPropagation();
+                            ondetail?.(activeMember.tag);
+                        }}
+                        onkeydown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
                                 e.stopPropagation();
                                 ondetail?.(activeMember.tag);
-                            }}
-                            onkeydown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    ondetail?.(activeMember.tag);
-                                }
-                            }}
-                            title="Открыть детальный график"
-                        >
-                            <TrafficSparkline
-                                rxData={trafficSparkSeries.rx}
-                                txData={trafficSparkSeries.tx}
-                                width={84}
-                                height={22}
-                            />
-                        </div>
-                        <div class="traffic-mini-col mono">
-                            <span class="traffic-rate rx">↓ {formatBytes(traffic?.download ?? 0)}</span>
-                            <span class="traffic-rate tx">↑ {formatBytes(traffic?.upload ?? 0)}</span>
-                        </div>
+                            }
+                        }}
+                        title="Открыть детальный график"
+                    >
+                        <span class="traffic-rate rx">↓ {formatBytes(traffic?.download ?? 0)}</span>
+                        <TrafficSparkline
+                            rxData={trafficSparkSeries.rx}
+                            txData={trafficSparkSeries.tx}
+                            responsive
+                            height={18}
+                        />
+                        <span class="traffic-rate tx">↑ {formatBytes(traffic?.upload ?? 0)}</span>
                     </div>
                 {/if}
             </div>
@@ -408,6 +402,7 @@
     <div class="header header-dense">
         <div class="header-dense-body">
             <div class="title-row-dense">
+                <span class="dot {cardState}" aria-hidden="true"></span>
                 <button type="button" class="title title-dense" onclick={openDetail}>{subscription.label}</button>
                 <Badge variant="accent" size="sm">{sourceKindLabel}</Badge>
             </div>
@@ -434,9 +429,6 @@
             </div>
         </div>
         <div class="dense-toolbar">
-            <div class="dense-toolbar-top">
-                <span class="dot {cardState}" aria-hidden="true"></span>
-            </div>
             <div class="dense-toolbar-bottom">
                 <PingButton label={latText} state={cardState} {checking} size="sm" onclick={triggerCheck} />
             </div>
@@ -485,16 +477,10 @@
                 </span>
             </div>
         </div>
-        <div class="details-dense-col details-dense-col-right">
-            <div class="kv-stacked-stat">
-                <span class="kv-stacked-label">Серверов</span>
-                <span class="kv-stacked-value">{subscription.memberTags.length}</span>
-            </div>
-            <div class="kv-stacked-stat">
-                <span class="kv-stacked-label">Обновлено</span>
-                <span class="kv-stacked-value">{lastFetchedHuman}</span>
-            </div>
-        </div>
+    </div>
+    <div class="dense-meta-line mono">
+        <span>{subscription.memberTags.length} серверов</span>
+        <span>обновлено: {lastFetchedHuman}</span>
     </div>
     </div>
 
@@ -539,7 +525,7 @@
                 <TrafficSparkline
                     rxData={trafficSparkSeries.rx}
                     txData={trafficSparkSeries.tx}
-                    width={42}
+                    responsive
                     height={20}
                 />
                 <div class="traffic-inline-rates">
@@ -591,11 +577,11 @@
     class:unknown={cardState === 'unknown'}
 >
     <div class="led-wrap">
-        <span class="dot {cardState}" aria-hidden="true"></span>
         <PingButton label={latText} state={cardState} {checking} onclick={triggerCheck} />
     </div>
 
     <div class="title-row">
+        <span class="dot {cardState}" aria-hidden="true"></span>
         <h3 class="title">{subscription.label}</h3>
         <Badge variant="accent" size="sm">{sourceKindLabel}</Badge>
     </div>
@@ -722,7 +708,7 @@
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
-            Открыть подписку
+            Открыть
         </button>
         <button
             type="button"
@@ -952,18 +938,18 @@
         flex-shrink: 0;
     }
 
-    .dense-toolbar-top { display: flex; align-items: center; gap: 8px; }
     .dense-toolbar-bottom { display: flex; align-items: center; }
 
-    .card.view-dense .dense-toolbar-top .dot {
+    .card.view-dense .title-row-dense .dot {
         width: var(--sbx-status-dot-dense);
         height: var(--sbx-status-dot-dense);
         border-radius: 50%;
+        flex-shrink: 0;
     }
 
     .details-dense-cols {
         display: grid;
-        grid-template-columns: minmax(0, 1.2fr) 5.75rem;
+        grid-template-columns: minmax(0, 1fr);
         gap: 10px 10px;
         align-items: start;
     }
@@ -975,15 +961,45 @@
         min-width: 0;
     }
 
-    .details-dense-col-right {
-        border-left: none;
-        padding-left: 4px;
+    .dense-meta-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 0.35rem 0.75rem;
+        min-width: 0;
+        font-size: 9px;
+        line-height: 1.25;
+        color: var(--color-text-muted);
+    }
+
+    .dense-meta-line span {
+        white-space: nowrap;
     }
 
     .kv-stacked-stat {
         display: flex;
         flex-direction: column;
         gap: 1px;
+        min-width: 0;
+    }
+
+    .card.view-dense .details-dense-cols .kv-stacked-stat {
+        flex-direction: row;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .card.view-dense .details-dense-cols .kv-stacked-label {
+        flex: 0 0 auto;
+    }
+
+    .card.view-dense .details-dense-cols .kv-endpoint {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .card.view-dense .details-dense-cols .kv-stacked-value {
         min-width: 0;
     }
 
@@ -1050,7 +1066,13 @@
     }
 
     .chart-inline.delay-inline {
-        padding: 5px 6px 4px;
+        gap: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+
+    .chart-inline.delay-inline .chart-inline-head {
+        padding: 5px 6px 3px;
     }
 
     .charts-dense .traffic-inline {
@@ -1065,6 +1087,12 @@
         font: inherit;
         color: inherit;
         text-align: left;
+    }
+
+    .charts-dense .traffic-inline :global(svg.responsive) {
+        flex: 1 1 auto;
+        width: 100%;
+        min-width: 0;
     }
 
     .traffic-inline:hover {
@@ -1082,7 +1110,7 @@
         flex-direction: column;
         gap: 0.06rem;
         min-width: 0;
-        flex: 1 1 auto;
+        flex: 0 0 auto;
         font-size: 9px;
         line-height: 1.1;
         font-family: var(--font-mono, monospace);
@@ -1137,13 +1165,17 @@
     .card.view-dense .delay-inline .spark-mini {
         display: flex;
         align-items: flex-end;
+        align-self: stretch;
         gap: 1px;
         width: 100%;
-        height: 18px;
+        max-width: none;
+        height: 20px;
         padding: 0;
         border: none;
+        border-radius: 0 0 var(--radius-sm) var(--radius-sm);
         background: none;
         cursor: pointer;
+        overflow: hidden;
     }
 
     .card.view-dense .delay-inline .spark-mini .bar {
@@ -1190,7 +1222,11 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        min-width: 0;
         margin-right: 90px; /* room for led-wrap */
+    }
+    .title-row > .dot {
+        flex-shrink: 0;
     }
     .title {
         font-size: var(--sbx-card-title);
@@ -1198,6 +1234,10 @@
         font-weight: 600;
         margin: 0;
         flex: 0 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     .title-row :global(.badge) {
         flex-shrink: 0;
@@ -1223,8 +1263,8 @@
     .badge.reality  { background: rgba(210,153,34,0.15); color: #d29922; }
     .server-row {
         display: grid;
-        grid-template-columns: 80px 1fr;
-        gap: 0.5rem;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: 0.45rem;
         align-items: center;
         margin: 0;
     }
@@ -1247,6 +1287,7 @@
         justify-content: space-between;
         gap: 0.5rem;
         width: 100%;
+        min-width: 0;
         padding: 0.4rem 0.55rem;
         background: var(--color-bg-primary);
         border: 1px solid var(--color-border);
@@ -1263,13 +1304,11 @@
     .server-text {
         font-size: var(--sbx-card-value);
         overflow: hidden;
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
-        line-clamp: 2;
-        white-space: normal;
-        word-break: break-word;
-        overflow-wrap: anywhere;
+        display: block;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        word-break: normal;
+        overflow-wrap: normal;
         min-width: 0;
     }
     .server-text.mono {
@@ -1335,6 +1374,9 @@
         border-top: 1px solid var(--color-border);
         border-bottom: 1px solid var(--color-border);
     }
+    .card.view-compact .actions {
+        justify-content: center;
+    }
     .card.view-dense .actions {
         gap: 2px;
         justify-content: center;
@@ -1390,27 +1432,31 @@
         justify-content: space-between;
         align-items: center;
         width: 100%;
-        padding: 6px 12px;
+        padding: 7px 12px;
         border: none;
-        background: none;
+        border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+        background: color-mix(in srgb, var(--color-bg-tertiary) 78%, transparent);
+        color: var(--color-text-secondary);
         cursor: pointer;
         user-select: none;
         font: inherit;
-        transition: background var(--t-fast) ease;
+        transition: background var(--t-fast) ease, border-color var(--t-fast) ease;
     }
     .chart-header:hover {
-        background: var(--color-bg-tertiary);
+        background: color-mix(in srgb, var(--color-bg-hover) 82%, transparent);
+        border-bottom-color: var(--color-border-hover);
     }
     .chart-label {
         font-size: var(--sbx-card-note);
-        font-weight: 500;
-        color: var(--color-text-muted);
+        font-weight: 600;
+        color: var(--color-text-secondary);
         text-transform: uppercase;
-        letter-spacing: 0.03em;
+        letter-spacing: 0.04em;
     }
     .chart-chevron {
         font-size: 14px;
-        color: var(--color-text-muted);
+        color: var(--color-text-secondary);
+        opacity: 0.85;
         transition: transform var(--t-fast) ease;
         transform: rotate(-90deg);
     }
@@ -1425,7 +1471,7 @@
     }
     .chart-body.expanded {
         max-height: 300px;
-        padding: 0 12px 8px;
+        padding: 8px 12px 10px;
     }
     .traffic-head { margin-top: 8px; }
 
@@ -1445,6 +1491,29 @@
         font-family: var(--font-mono, ui-monospace, monospace);
     }
 
+    /* Dense active subscription cards: let the delay bars use the whole cardlet.
+       The header keeps its own padding, but the bars start exactly from the
+       cardlet edge instead of from the old inner 6px gutter. */
+    .card.view-dense .chart-inline.delay-inline {
+        gap: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+
+    .card.view-dense .chart-inline.delay-inline .chart-inline-head {
+        padding: 5px 6px 3px;
+    }
+
+    .card.view-dense .chart-inline.delay-inline .spark-mini {
+        align-self: stretch;
+        width: 100%;
+        max-width: none;
+        height: 20px;
+        padding: 0;
+        border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+        overflow: hidden;
+    }
+
     .sub-active-list-group {
         border-bottom: 1px solid var(--color-border);
     }
@@ -1453,16 +1522,16 @@
     }
     .sbx-sub-active-row {
         display: grid;
-        grid-template-columns:
+        grid-template-columns: var(
+            --sbx-sub-list-columns,
             minmax(80px, 80px)
-            minmax(132px, 1.1fr)
-            minmax(52px, 0.9fr)
-            minmax(162px, 1fr)
-            minmax(60px, 0.85fr)
-            minmax(100px, 1.05fr)
-            minmax(148px, 1.1fr)
-            minmax(80px, 80px)
-            minmax(76px, 0.7fr);
+            minmax(190px, 1.35fr)
+            minmax(58px, 0.55fr)
+            minmax(190px, 1.2fr)
+            minmax(160px, 0.95fr)
+            minmax(96px, 96px)
+            minmax(76px, 76px)
+        );
         gap: 0.75rem 1rem;
         align-items: center;
         padding: 0.75rem 1rem;
@@ -1499,12 +1568,15 @@
         color: var(--color-text-muted);
     }
     .lc-ping-mini {
-        justify-content: flex-start;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        min-width: 0;
     }
     .spark-mini {
         width: 100%;
         height: 22px;
-        max-width: 100%;
+        max-width: 96px;
         display: flex;
         align-items: flex-end;
         gap: 1px;
@@ -1533,29 +1605,29 @@
     }
     .traffic-row-list {
         display: flex;
-        align-items: center;
-        gap: 0.5rem;
         min-width: 0;
         width: 100%;
     }
-    .traffic-mini-col {
-        display: flex;
+    .traffic-row-list--stack {
         flex-direction: column;
-        gap: 0.1rem;
-        font-size: var(--sbx-card-note);
-        line-height: 1.15;
-        flex-shrink: 0;
-    }
-    .traffic-mini-click {
-        display: inline-flex;
+        align-items: stretch;
+        gap: 0.05rem;
         border-radius: 4px;
         cursor: pointer;
+        font-size: var(--sbx-card-note);
+        line-height: 1.1;
         transition: background var(--t-fast) ease;
     }
-    .traffic-mini-click:hover {
+    .traffic-row-list--stack :global(svg.responsive) {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+        flex: 1 1 auto;
+    }
+    .traffic-row-list--stack:hover {
         background: rgba(96, 165, 250, 0.06);
     }
-    .traffic-mini-click:focus-visible {
+    .traffic-row-list--stack:focus-visible {
         outline: 1px solid var(--color-accent, #58a6ff);
         outline-offset: 1px;
     }
@@ -1575,16 +1647,33 @@
         flex: 0 1 auto;
         min-width: 0;
         overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        white-space: normal;
+        overflow-wrap: anywhere;
         font-weight: 600;
         font-size: var(--sbx-card-title);
         color: var(--color-text-primary);
     }
-    .name-title-row :global(.badge) {
+    .name-meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.2rem 0.45rem;
+        min-width: 0;
+        font-size: var(--sbx-card-meta);
+        color: var(--color-text-muted);
+        line-height: 1.25;
+    }
+    .name-meta-row :global(.badge) {
         flex-shrink: 0;
         font-size: 10px;
         padding: 1px 5px;
+    }
+    .name-meta-row span {
+        white-space: nowrap;
     }
     .lc-name .t2 {
         font-size: var(--sbx-card-meta);

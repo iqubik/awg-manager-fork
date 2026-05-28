@@ -3,11 +3,18 @@ package singbox
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
 
+// DelayChecker.Check спавнит горутину на туннель — все они дёргают эти
+// моки параллельно. Без mu любой Check на 2+ туннелях с большой
+// вероятностью триггерит data race / concurrent map writes (CI словил
+// FATAL ровно так).
+
 type fakeDelayPublisher struct {
+	mu     sync.Mutex
 	events []delayPublishRecord
 }
 
@@ -17,10 +24,23 @@ type delayPublishRecord struct {
 }
 
 func (f *fakeDelayPublisher) Publish(name string, data any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.events = append(f.events, delayPublishRecord{name, data})
 }
 
+// snapshotEvents возвращает копию events под локом — безопасно читать
+// после d.Check вернулся, но и в любой момент жизни теста.
+func (f *fakeDelayPublisher) snapshotEvents() []delayPublishRecord {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]delayPublishRecord, len(f.events))
+	copy(out, f.events)
+	return out
+}
+
 type fakeClash struct {
+	mu      sync.Mutex
 	delays  map[string]int
 	errs    map[string]error
 	seq     map[string][]delayReply
@@ -35,6 +55,8 @@ type delayReply struct {
 }
 
 func (f *fakeClash) TestDelay(name, url string, timeout time.Duration) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.calls == nil {
 		f.calls = map[string]int{}
 	}

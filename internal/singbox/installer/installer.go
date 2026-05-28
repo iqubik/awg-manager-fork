@@ -34,6 +34,7 @@ type BinarySpec struct {
 	Version string
 	URL     string
 	SHA256  string
+	Size    int64 // bytes (uncompressed); 0 → disk-gate skipped (backwards-compatible)
 }
 
 // Installer downloads, verifies, and activates sing-box binaries.
@@ -49,6 +50,8 @@ type Installer struct {
 	// inject its own.
 	opkgRemove        func(context.Context) error
 	opkgListInstalled func(context.Context) (string, error)
+
+	freeDisk func(path string) (int64, bool) // overridable for tests; defaults to routerinfo.FreeBytes
 }
 
 type Downloader interface {
@@ -103,6 +106,7 @@ func New(binaryPath, arch string, spec BinarySpec, appLogger logging.AppLogger) 
 		arch:       arch,
 		spec:       spec,
 		appLog:     logging.NewScopedLogger(appLogger, logging.GroupSingbox, logging.SubSBProcess),
+		freeDisk:   routerinfo.FreeBytes,
 	}
 }
 
@@ -119,6 +123,10 @@ func (i *Installer) RequiredVersion() string { return i.spec.Version }
 
 // RequiredSHA256 is the checksum this awg-manager build is pinned to.
 func (i *Installer) RequiredSHA256() string { return i.spec.SHA256 }
+
+// RequiredSize is the expected size of the pinned binary (bytes, uncompressed).
+// Zero means unknown — disk-gate is skipped.
+func (i *Installer) RequiredSize() int64 { return i.spec.Size }
 
 // CurrentSHA256 returns the checksum of the installed managed binary.
 func (i *Installer) CurrentSHA256() (string, error) {
@@ -230,6 +238,76 @@ func (i *Installer) CurrentVersion(ctx context.Context) string {
 		}
 	}
 	return ""
+}
+
+// FreeBytes wraps the freeDisk probe so callers (Operator.GetStatus) don't
+// recompute install-dir. Returns (0, false) when probe unavailable.
+func (i *Installer) FreeBytes() (int64, bool) {
+	if i.freeDisk == nil {
+		return 0, false
+	}
+	return i.freeDisk(filepath.Dir(i.binaryPath))
+}
+
+// SetFreeDiskFn overrides the free-disk probe (tests only).
+func (i *Installer) SetFreeDiskFn(fn func(string) (int64, bool)) {
+	i.freeDisk = fn
+}
+
+// isExecutable reports whether path is a regular executable file.
+func isExecutable(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
+}
+
+// safetyMargin is added on top of spec.Size for the disk-gate, covering
+// tmp download file, logs, and slack. ~5 MiB.
+const safetyMargin = 5 << 20
+
+// SafetyMargin is the disk-gate slack added to spec.Size (bytes).
+const SafetyMargin = safetyMargin
+
+// EvaluateInstallState reports the install state vs pinned spec, gated by
+// free disk. Pure file ops: isExecutable + sha256File (no `sing-box version`
+// subprocess), so safe to call on every status-poll.
+//
+// Returns Installed/Missing/MissingNoSpace/OutdatedNoSpace. Free-disk unknown
+// OR spec.Size==0 → gate skipped (Missing instead of NoSpace).
+//
+// Note: возвращает Missing и для clean install, и для outdated-with-space —
+// EvaluateInstallState отвечает только на «можно ли проходить gate»;
+// различение install vs update делается через UpdateAvailable в GetStatus.
+func (i *Installer) EvaluateInstallState() InstallState {
+	installed := isExecutable(i.binaryPath)
+
+	matches := false
+	if installed {
+		sha, err := sha256File(i.binaryPath)
+		matches = err == nil && strings.EqualFold(sha, i.spec.SHA256)
+	}
+	if matches {
+		return InstallStateInstalled
+	}
+
+	required := i.spec.Size + safetyMargin
+	freeBytes, ok := int64(0), false
+	if i.freeDisk != nil {
+		freeBytes, ok = i.freeDisk(filepath.Dir(i.binaryPath))
+	}
+	gate := ok && i.spec.Size > 0
+	avail := freeBytes - diskReserveBytes
+
+	if !installed {
+		if gate && avail < required {
+			return InstallStateMissingNoSpace
+		}
+		return InstallStateMissing
+	}
+	// installed && !matches → upgrade
+	if gate && avail < required {
+		return InstallStateOutdatedNoSpace
+	}
+	return InstallStateMissing
 }
 
 func sha256File(path string) (string, error) {

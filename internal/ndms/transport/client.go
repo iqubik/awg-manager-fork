@@ -290,8 +290,21 @@ func (c *Client) GetRaw(ctx context.Context, path string) ([]byte, error) {
 // {interface:{<name>:...}} вместо контента, и WGServerStore теряет пиров.
 // Direct GET спускается по сегментам пути и отдаёт контент напрямую.
 // Verified на Keenetic 5.0.11 2026-05-24.
+//
+// `/show/interface/<name>/summary`: batch-форма любых вариантов
+// (`{"interface":{"name":"X","summary":{}}}`, `{"interface":{"summary":{"name":"X"}}}`,
+// `{"interface":{"X":{"summary":{}}}}`, `{"interface":{"summary":{"data":"X"}}}`)
+// NDMS отказывается распознавать — возвращает `not found:
+// "show/interface/summary"` или `not found: "show/interface/<name>/summary"`.
+// REST-URL же роутится корректно. Verified на Keenetic 4.03.C.6.3 2026-05-28.
 func bypassBatch(path string) bool {
-	return strings.HasPrefix(path, "/show/rc/interface/")
+	if strings.HasPrefix(path, "/show/rc/interface/") {
+		return true
+	}
+	if strings.HasPrefix(path, "/show/interface/") && strings.HasSuffix(path, "/summary") {
+		return true
+	}
+	return false
 }
 
 // getRawDirect — legacy single-GET path. Используется когда Batcher

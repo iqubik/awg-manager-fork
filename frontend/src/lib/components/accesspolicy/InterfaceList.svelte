@@ -384,8 +384,12 @@
 
 	.iface-label {
 		flex: 1;
+		min-width: 0;
 		font-size: 0.8125rem;
 		font-weight: 500;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.iface-actions {

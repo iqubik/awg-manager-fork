@@ -191,6 +191,106 @@ func (o *Orchestrator) ApplyDraft(slot Slot) (ValidationResult, error) {
 	return ValidationResult{}, nil
 }
 
+// CheckMerged runs the full validation pipeline (cross-slot logical
+// check + `sing-box check` over a tmpdir snapshot of every enabled slot
+// with the target slot overlaid by jsonBytes) WITHOUT writing anything.
+//
+// Used by callers that need iterative validation — e.g. the subscription
+// adapter dropping one bad outbound at a time after parsing the
+// `outbound[INDEX]` from sing-box's error — and don't want a partial
+// write between iterations.
+//
+// Unlike ApplyDraft, the target slot is included in the snapshot
+// regardless of its current o.enabled value: "validate as if applied",
+// not "validate against currently-active siblings only".
+func (o *Orchestrator) CheckMerged(slot Slot, jsonBytes []byte) (ValidationResult, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.checkMergedLocked(slot, jsonBytes)
+}
+
+// checkMergedLocked is the shared body for SaveAndValidate / CheckMerged.
+// Caller MUST hold o.mu.
+func (o *Orchestrator) checkMergedLocked(slot Slot, jsonBytes []byte) (ValidationResult, error) {
+	meta, ok := o.slots[slot]
+	if !ok {
+		return ValidationResult{}, ErrUnknownSlot
+	}
+
+	if res := o.validateDraftLocked(slot, jsonBytes); !res.Ok() {
+		return res, nil
+	}
+
+	if o.validator == nil {
+		return ValidationResult{}, nil
+	}
+
+	tmpdir, err := os.MkdirTemp(o.configDir, ".save-check-*")
+	if err != nil {
+		return ValidationResult{}, fmt.Errorf("CheckMerged tmpdir: %w", err)
+	}
+	defer os.RemoveAll(tmpdir)
+
+	for s, en := range o.enabled {
+		if !en || s == slot {
+			continue
+		}
+		m, ok := o.slots[s]
+		if !ok {
+			continue
+		}
+		dst := filepath.Join(tmpdir, m.Filename)
+		if err := copyFile(o.activePath(m), dst); err != nil && !os.IsNotExist(err) {
+			return ValidationResult{}, fmt.Errorf("CheckMerged snapshot %s: %w", s, err)
+		}
+	}
+	if err := writeAtomic(filepath.Join(tmpdir, meta.Filename), jsonBytes); err != nil {
+		return ValidationResult{}, fmt.Errorf("CheckMerged write target: %w", err)
+	}
+
+	if err := o.validator.Validate(context.Background(), tmpdir); err != nil {
+		// Sing-box check failure is reported as a ValidationError so callers
+		// can use res.Error() / iterate without distinguishing infra vs
+		// content errors at the type level.
+		return ValidationResult{Errors: []ValidationError{{
+			Slot:    slot,
+			Kind:    "sing-box check",
+			Message: err.Error(),
+		}}}, nil
+	}
+	return ValidationResult{}, nil
+}
+
+// SaveAndValidate atomically writes jsonBytes to the slot's active path
+// after running CheckMerged. On success: arms a debounced reload. On
+// validation failure: returns a non-empty ValidationResult and leaves the
+// active file untouched. On infra failure (mkdir/write): returns wrapped
+// error, active still untouched.
+//
+// One-shot convenience for callers that don't need iterative correction;
+// see CheckMerged for the read-only variant used by the subscription
+// filter loop (issue #221).
+func (o *Orchestrator) SaveAndValidate(slot Slot, jsonBytes []byte) (ValidationResult, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	res, err := o.checkMergedLocked(slot, jsonBytes)
+	if err != nil {
+		return ValidationResult{}, err
+	}
+	if !res.Ok() {
+		return res, nil
+	}
+
+	meta := o.slots[slot] // validated by checkMergedLocked
+	if err := writeAtomic(o.activePath(meta), jsonBytes); err != nil {
+		return ValidationResult{}, fmt.Errorf("SaveAndValidate write active: %w", err)
+	}
+	o.dirty = true
+	o.scheduleReload()
+	return ValidationResult{}, nil
+}
+
 // ValidateDraft is the lock-acquiring public form of validateDraftLocked.
 // Used by handlers that want to surface "would this draft apply" in the
 // UI without committing.

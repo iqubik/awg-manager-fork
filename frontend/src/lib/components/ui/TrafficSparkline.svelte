@@ -81,6 +81,7 @@
 	width={responsive ? undefined : width}
 	{height}
 	viewBox={`0 0 ${plotWidth} ${height}`}
+	preserveAspectRatio={responsive ? 'none' : undefined}
 	role="img"
 	aria-label="Traffic sparkline"
 >

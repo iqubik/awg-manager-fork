@@ -242,6 +242,7 @@
 </svelte:head>
 
 <PageContainer width="full">
+    <div class="routing-page">
     <PageHeader title="Маршрутизация">
         {#snippet actions()}
             <Button
@@ -323,6 +324,7 @@
     {:else if activeTab === 'singbox'}
         <SingboxRoutingPage />
     {/if}
+    </div>
 </PageContainer>
 
 <Modal
@@ -348,7 +350,7 @@
 
 <style>
 	@media (max-width: 640px) {
-		:global(.page-header .actions) {
+		.routing-page :global(.page-header .actions) {
 			display: grid;
 			grid-template-columns: repeat(2, minmax(0, 1fr));
 			align-items: stretch;
@@ -356,7 +358,7 @@
 			width: 100%;
 		}
 
-		:global(.page-header .actions .btn) {
+		.routing-page :global(.page-header .actions .btn) {
 			width: 100%;
 			min-height: 28px;
 			justify-content: center;

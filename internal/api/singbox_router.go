@@ -329,7 +329,7 @@ func (h *SingboxRouterHandler) GetStatus(w http.ResponseWriter, r *http.Request)
 // Enable starts the singbox-router engine and installs iptables/policy rules.
 //
 //	@Summary		Enable singbox-router
-//	@Description	Starts the singbox-router engine and installs iptables/policy rules. Returns 400 with code POLICY_NOT_CONFIGURED or POLICY_MISSING when the router policy mode is incomplete.
+//	@Description	Starts the singbox-router engine and installs iptables/policy rules. Returns 400 with code POLICY_NOT_CONFIGURED or POLICY_MISSING when the router policy mode is incomplete. Returns 503 SINGBOX_NOT_READY when sing-box did not become ready within the boot-wait window — iptables install is deliberately skipped to avoid orphaning DNS:53 redirects (issue #221).
 //	@Tags			singbox-router
 //	@Produce		json
 //	@Security		CookieAuth
@@ -337,6 +337,7 @@ func (h *SingboxRouterHandler) GetStatus(w http.ResponseWriter, r *http.Request)
 //	@Failure		400	{object}	APIErrorEnvelope
 //	@Failure		405	{object}	APIErrorEnvelope
 //	@Failure		500	{object}	APIErrorEnvelope
+//	@Failure		503	{object}	APIErrorEnvelope	"sing-box did not come up in time"
 //	@Router			/singbox/router/enable [post]
 func (h *SingboxRouterHandler) Enable(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -350,6 +351,10 @@ func (h *SingboxRouterHandler) Enable(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, router.ErrPolicyMissing) {
 			response.ErrorWithStatus(w, http.StatusBadRequest, err.Error(), "POLICY_MISSING")
+			return
+		}
+		if errors.Is(err, router.ErrSingboxNotReady) {
+			response.ErrorWithStatus(w, http.StatusServiceUnavailable, err.Error(), "SINGBOX_NOT_READY")
 			return
 		}
 		h.handleErr(w, "request", err)

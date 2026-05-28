@@ -50,8 +50,14 @@
 	let signature = $derived.by(() => {
 		const s = $singboxStatus.data;
 		if (!s) return '';
+		if (s.installState === 'missing_no_space') {
+			return `missing-no-space:${s.requiredBytes ?? 0}:${s.freeBytes ?? 0}`;
+		}
 		if (!s.installed) return 'not-installed';
 		if (!s.proxyComponent) return 'no-proxy-component';
+		if (s.installState === 'outdated_no_space') {
+			return `outdated-no-space:${s.currentVersion ?? 'unknown'}:${s.requiredVersion ?? 'unknown'}:${s.requiredBytes ?? 0}:${s.freeBytes ?? 0}`;
+		}
 		if (s.updateAvailable) {
 			return `update-available:${s.currentVersion ?? 'unknown'}:${s.requiredVersion ?? 'unknown'}:${s.requiredSha256 ?? 'unknown'}`;
 		}
@@ -201,6 +207,35 @@
 		{#if error}
 			<div class="error">{error}</div>
 		{/if}
+	</div>
+{:else if visible && issue === 'missing-no-space'}
+	<div class="banner banner-error" role="alert">
+		<div class="banner-row">
+			<div class="banner-stack">
+				<strong>sing-box не установлен</strong>
+				<span>
+					Не хватает места: требуется
+					{formatBytes($singboxStatus.data?.requiredBytes ?? 0)},
+					свободно {formatBytes($singboxStatus.data?.freeBytes ?? 0)}.
+				</span>
+			</div>
+			<IconButton ariaLabel="Скрыть" onclick={dismiss}>&times;</IconButton>
+		</div>
+	</div>
+{:else if visible && issue === 'outdated-no-space'}
+	<div class="banner banner-error" role="alert">
+		<div class="banner-row">
+			<div class="banner-stack">
+				<strong>Обновление sing-box недоступно</strong>
+				<span>
+					Установлено: {$singboxStatus.data?.currentVersion ?? '—'}
+					(работает). До {$singboxStatus.data?.requiredVersion ?? '—'}
+					нужно {formatBytes($singboxStatus.data?.requiredBytes ?? 0)},
+					свободно {formatBytes($singboxStatus.data?.freeBytes ?? 0)}.
+				</span>
+			</div>
+			<IconButton ariaLabel="Скрыть" onclick={dismiss}>&times;</IconButton>
+		</div>
 	</div>
 {/if}
 

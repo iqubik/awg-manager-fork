@@ -149,23 +149,28 @@ func TestParseDNSProxy_EmptyInput(t *testing.T) {
 	}
 }
 
-// TestParseDNSProxy_DoHEncryption verifies that applyEncryption correctly marks
-// an upstream as DoH when its address appears in proxy-https.server-https, and
-// that DoH wins over DoT when the address appears in both lists.
-func TestParseDNSProxy_DoHEncryption(t *testing.T) {
+// TestParseDNSProxy_DoH воспроизводит реальный wire-формат NDMS: в комментарии
+// dns_server-строки идёт URL вида "https://host[@format]", а в proxy-https
+// каждая запись имеет поле "uri" (не "address"). Парсер должен извлечь hostname
+// и проставить Encryption=DoH.
+func TestParseDNSProxy_DoH(t *testing.T) {
 	const raw = `{"proxy-status":[{
 		"proxy-name": "System",
-		"proxy-config": "dns_server = 127.0.0.1:40500 . # 1.1.1.1\ndns_server = 127.0.0.1:40501 . # 8.8.8.8\ndns_server = 127.0.0.1:40502 . # 9.9.9.9",
+		"proxy-config": "dns_server = 127.0.0.1:40500 . # 1.1.1.1\ndns_server = 127.0.0.1:40501 . # 8.8.8.8\ndns_server = 127.0.0.1:40502 . # 9.9.9.9\ndns_server = 127.0.0.1:40508 . # https://common.dot.dns.yandex.net@dnsm",
 		"proxy-stat": "",
 		"proxy-tls":  {"server-tls":  [{"address":"9.9.9.9","port":853,"sni":"dns.quad9.net","domain":""}]},
-		"proxy-https":{"server-https":[{"address":"1.1.1.1"},{"address":"9.9.9.9"}]}
+		"proxy-https":{"server-https":[
+			{"uri":"https://1.1.1.1","format":"dnsm"},
+			{"uri":"https://9.9.9.9","format":"dnsm"},
+			{"uri":"https://common.dot.dns.yandex.net","format":"dnsm"}
+		]}
 	}]}`
 
 	proxies, err := ParseDNSProxy([]byte(raw))
 	if err != nil {
 		t.Fatalf("ParseDNSProxy: %v", err)
 	}
-	if len(proxies) != 1 || len(proxies[0].Upstreams) != 3 {
+	if len(proxies) != 1 || len(proxies[0].Upstreams) != 4 {
 		t.Fatalf("unexpected shape: %+v", proxies)
 	}
 	byAddr := map[string]DNSUpstream{}
@@ -173,16 +178,55 @@ func TestParseDNSProxy_DoHEncryption(t *testing.T) {
 		byAddr[u.Address] = u
 	}
 
-	// 1.1.1.1 — DoH only
+	// 1.1.1.1 — есть в proxy-https → DoH
 	if u := byAddr["1.1.1.1"]; u.Encryption != "DoH" {
 		t.Errorf("1.1.1.1: want DoH, got %q", u.Encryption)
 	}
-	// 8.8.8.8 — neither list → plain
+	// 8.8.8.8 — нет ни в TLS, ни в HTTPS → plain
 	if u := byAddr["8.8.8.8"]; u.Encryption != "plain" {
 		t.Errorf("8.8.8.8: want plain, got %q", u.Encryption)
 	}
-	// 9.9.9.9 — in both lists: DoH must win
+	// 9.9.9.9 — есть в обоих списках: DoH побеждает
 	if u := byAddr["9.9.9.9"]; u.Encryption != "DoH" {
 		t.Errorf("9.9.9.9: want DoH (DoH>DoT), got %q", u.Encryption)
+	}
+	// URL-комментарий: hostname вытащен, порт=443 по дефолту схемы, SNI пустой
+	doh, ok := byAddr["common.dot.dns.yandex.net"]
+	if !ok {
+		t.Fatalf("URL upstream not parsed; got addresses: %+v", byAddr)
+	}
+	if doh.Encryption != "DoH" {
+		t.Errorf("URL upstream: want DoH, got %q", doh.Encryption)
+	}
+	if doh.Port != 443 {
+		t.Errorf("URL upstream: want Port=443, got %d", doh.Port)
+	}
+	if doh.SNI != "" {
+		t.Errorf("URL upstream: want SNI empty (host=address), got %q", doh.SNI)
+	}
+}
+
+// TestParseDoHComment_URLVariants проверяет извлечение host/порта из разных форм URL.
+func TestParseDoHComment_URLVariants(t *testing.T) {
+	cases := []struct {
+		comment  string
+		wantAddr string
+		wantPort int
+	}{
+		{"https://example.com@dnsm", "example.com", 443},
+		{"https://example.com", "example.com", 443},
+		{"https://example.com:8443@dnsm", "example.com", 8443},
+		{"http://example.com@dnsm", "example.com", 80},
+		{"https://example.com/dns-query@dnsm", "example.com", 443},
+	}
+	for _, tc := range cases {
+		u := DNSUpstream{Scope: "all"}
+		parseDoHComment(&u, tc.comment)
+		if u.Address != tc.wantAddr || u.Port != tc.wantPort {
+			t.Errorf("%q: got %s:%d, want %s:%d", tc.comment, u.Address, u.Port, tc.wantAddr, tc.wantPort)
+		}
+		if u.SNI != "" {
+			t.Errorf("%q: SNI should stay empty, got %q", tc.comment, u.SNI)
+		}
 	}
 }

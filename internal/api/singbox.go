@@ -33,6 +33,9 @@ type SingboxStatusData struct {
 	CurrentSHA256    string   `json:"currentSha256,omitempty" example:"76e67bb07b5c2bf4cef108c2f21a5ffaa684d124c21ffe220fc89b39cf1de934"`
 	RequiredSHA256   string   `json:"requiredSha256,omitempty" example:"76e67bb07b5c2bf4cef108c2f21a5ffaa684d124c21ffe220fc89b39cf1de934"`
 	UpdateAvailable  bool     `json:"updateAvailable" example:"false"`
+	InstallState  string `json:"installState" example:"outdated_no_space"`
+	RequiredBytes int64  `json:"requiredBytes" example:"32145678"`
+	FreeBytes     int64  `json:"freeBytes" example:"8221456"`
 }
 
 func singboxStatusData(s singbox.Status) SingboxStatusData {
@@ -51,6 +54,9 @@ func singboxStatusData(s singbox.Status) SingboxStatusData {
 		CurrentSHA256:    s.CurrentSHA256,
 		RequiredSHA256:   s.RequiredSHA256,
 		UpdateAvailable:  s.UpdateAvailable,
+		InstallState:     s.InstallState,
+		RequiredBytes:    s.RequiredBytes,
+		FreeBytes:        s.FreeBytes,
 	}
 }
 
@@ -711,12 +717,25 @@ func resolveTunnelInterfaceFromList(tunnels []singbox.TunnelInfo, tag string) (s
 // Runs download then upload sequentially, keyed by sing-box tunnel tag.
 // Streams events via SSE: phase, interval, result, done, error.
 //
+// Optional `iface` query param overrides the tag→interface resolution
+// (subscription cards use it to test the composite NDMS Proxy
+// interface directly). When NDMS Proxy is globally disabled the
+// override is rejected with 412 PROXY_DISABLED — the t2sN/ProxyN
+// composite interface no longer exists, so iperf against it would
+// silently fail or hang.
+//
 //	@Summary		Sing-box tunnel speed test stream
 //	@Tags			singbox
 //	@Produce		text/event-stream
 //	@Security		CookieAuth
+//	@Param			tag		query	string	true	"Sing-box outbound tag"
+//	@Param			server	query	string	true	"iperf3 server host"
+//	@Param			port	query	int		true	"iperf3 server port"
+//	@Param			iface	query	string	false	"Kernel interface override (NDMS Proxy must be enabled)"
 //	@Success		200	{string}	string	"SSE stream"
 //	@Failure		400	{object}	APIErrorEnvelope
+//	@Failure		404	{object}	APIErrorEnvelope	"Tunnel tag not found"
+//	@Failure		412	{object}	APIErrorEnvelope	"NDMS Proxy disabled — iface override unavailable"
 //	@Failure		500	{object}	APIErrorEnvelope
 //	@Router			/singbox/tunnels/test/speed/stream [get]
 func (h *SingboxHandler) SpeedTestStream(w http.ResponseWriter, r *http.Request) {
@@ -751,7 +770,17 @@ func (h *SingboxHandler) SpeedTestStream(w http.ResponseWriter, r *http.Request)
 	// the tag-to-tunnel lookup in that case — selector outbounds (used by
 	// subscriptions) are filtered out of ListTunnels so a tag lookup
 	// would otherwise 404 on every subscription speedtest attempt.
+	//
+	// But: the override only makes sense when NDMS Proxy is globally on
+	// — t2sN/ProxyN composites do not exist otherwise. Reject directly
+	// rather than letting iperf3 silently hang against a torn-down iface.
 	iface := ifaceOverride
+	if iface != "" && h.settings != nil && !h.settings.IsSingboxNDMSProxyEnabled() {
+		response.ErrorWithStatus(w, http.StatusPreconditionFailed,
+			"NDMS Proxy disabled — iface override unavailable (composite interface no longer exists)",
+			"PROXY_DISABLED")
+		return
+	}
 	if iface == "" {
 		iface, err = h.resolveTunnelInterface(r.Context(), tag)
 		if err != nil {

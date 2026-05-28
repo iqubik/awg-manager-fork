@@ -9,6 +9,11 @@
 		outbounds: DownloadOutbound[];
 		loading: boolean;
 		error: string;
+		/** Когда false — селектор маршрута скрыт, показывается статичный hint:
+		 *  без sing-box все non-direct outbound'ы недоступны (internal/downloader/service.go),
+		 *  и выбирать нечего. Передавать false ТОЛЬКО когда точно известно, что
+		 *  sing-box не установлен (не на ранней стадии загрузки статуса). */
+		routeSelectorEnabled?: boolean;
 		onRefresh: () => void;
 		onSelectRoute: (routeTag: string, routeKind?: DownloadOutbound['kind']) => void;
 	}
@@ -19,6 +24,7 @@
 		outbounds,
 		loading,
 		error,
+		routeSelectorEnabled = true,
 		onRefresh,
 		onSelectRoute,
 	}: Props = $props();
@@ -96,25 +102,34 @@
 			<span class="download-error">{error}</span>
 		{/if}
 	</div>
-	<div class="download-controls">
-		<div class="route-select">
-			<Dropdown
-				value={selectedValue}
-				options={options}
-				onchange={handleChange}
-				disabled={saving || loading || options.length === 0}
-				fullWidth
-			/>
+	{#if routeSelectorEnabled}
+		<div class="download-controls">
+			<div class="route-select">
+				<Dropdown
+					value={selectedValue}
+					options={options}
+					onchange={handleChange}
+					disabled={saving || loading || options.length === 0}
+					fullWidth
+				/>
+			</div>
+			<Button
+				variant="secondary"
+				size="sm"
+				onclick={onRefresh}
+				disabled={saving || loading}
+			>
+				Обновить список
+			</Button>
 		</div>
-		<Button
-			variant="secondary"
-			size="sm"
-			onclick={onRefresh}
-			disabled={saving || loading}
-		>
-			Обновить список
-		</Button>
-	</div>
+	{:else}
+		<div class="no-singbox-hint">
+			<span class="no-singbox-title">Загрузки идут через WAN (Direct).</span>
+			<span class="no-singbox-detail">
+				Для маршрутизации служебных загрузок через туннель установите sing-box.
+			</span>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -145,6 +160,24 @@
 	}
 	.download-error {
 		color: var(--color-danger);
+		font-size: 0.75rem;
+	}
+	.no-singbox-hint {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+		padding: 0.5rem 0.75rem;
+		border: 1px dashed var(--border, var(--color-border));
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--bg-secondary, var(--color-bg-secondary)) 60%, transparent);
+		font-size: 0.8125rem;
+	}
+	.no-singbox-title {
+		color: var(--text-primary, var(--color-text-primary));
+		font-weight: 500;
+	}
+	.no-singbox-detail {
+		color: var(--text-muted, var(--color-text-muted));
 		font-size: 0.75rem;
 	}
 	@media (max-width: 900px) {

@@ -510,7 +510,7 @@
 		align-items: start;
 	}
 	.hrneo-tab.mobile {
-		grid-template-columns: 1fr;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 8px;
 	}
 	.pane-container {
@@ -566,7 +566,11 @@
 	}
 	.tname {
 		flex: 1;
+		min-width: 0;
 		font-weight: 600;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.tmeta {
 		color: var(--text-muted);
@@ -590,6 +594,11 @@
 		justify-content: space-between;
 		gap: 10px;
 		margin-bottom: 10px;
+		/* Issue #214 Sc1: на 357px viewport h3 + hint не помещались, и
+		 * hint "Изменения сохраняются сразу через RCI" обрезался эллипсисом.
+		 * flex-wrap позволяет hint'у перенестись на следующую строку,
+		 * а min-width: 0 на детях разрешает переносы внутри hint'а. */
+		flex-wrap: wrap;
 	}
 	.panel-header h3 {
 		margin: 0;
@@ -601,5 +610,6 @@
 		color: var(--text-muted);
 		font-size: 0.75rem;
 		font-style: italic;
+		min-width: 0;
 	}
 </style>

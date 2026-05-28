@@ -100,6 +100,9 @@
 		font-size: 0.9375rem;
 		color: var(--text-primary);
 		font-weight: 600;
+		/* min-width: 0 нужен, чтобы flex-item с nowrap-текстом
+		   сжимался ниже min-content и срабатывал ellipsis. */
+		min-width: 0;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;

@@ -17,7 +17,15 @@
 	let showConfirm = $state(false);
 	let showChangelog = $state(false);
 
+	const manualCheckTitle = $derived(
+		updateInfo?.available ? 'Проверить наличие более новой версии' : 'Проверить обновления'
+	);
+	const manualCheckLabel = $derived(
+		checking ? 'Проверка...' : updateInfo?.available ? 'Проверить ещё' : 'Проверить'
+	);
+
 	async function checkForUpdates() {
+		if (checking) return;
 		checking = true;
 		try {
 			updateInfo = await api.checkUpdate(true);
@@ -42,10 +50,12 @@
 	}
 
 	function confirmUpgrade() {
+		if (checking || !updateInfo?.available) return;
 		showConfirm = true;
 	}
 
 	async function applyUpgrade() {
+		if (checking || !updateInfo?.available) return;
 		showConfirm = false;
 		upgrading = true;
 
@@ -117,29 +127,32 @@
 		{:else}
 			{#if updateInfo?.currentVersion}
 				<Button
-					variant="ghost"
+					variant="secondary"
 					size="sm"
 					onclick={() => (showChangelog = true)}
 				>
 					Что нового
 				</Button>
 			{/if}
+			<!-- Manual check must stay available even when an update is already cached:
+				repo may publish a newer build after the cached result was fetched. -->
+			<Button
+				variant="secondary"
+				size="sm"
+				onclick={checkForUpdates}
+				loading={checking}
+				title={manualCheckTitle}
+			>
+				{manualCheckLabel}
+			</Button>
 			{#if updateInfo?.available}
 				<Button
 					variant="primary"
 					size="sm"
 					onclick={confirmUpgrade}
+					disabled={checking}
 				>
 					Обновить
-				</Button>
-			{:else}
-				<Button
-					variant="secondary"
-					size="sm"
-					onclick={checkForUpdates}
-					loading={checking}
-				>
-					{checking ? 'Проверка...' : 'Проверить'}
 				</Button>
 			{/if}
 		{/if}
@@ -213,6 +226,43 @@
 
 		.update-actions :global(button) {
 			width: 100%;
+		}
+	}
+
+	/* Keep the update card readable in the narrow settings column:
+		status takes its own row, actions are arranged below. */
+	.update-row.setting-row {
+		grid-template-columns: minmax(0, 1fr);
+		align-items: start;
+	}
+
+	.update-actions {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		justify-content: stretch;
+		width: 100%;
+		flex-shrink: 1;
+	}
+
+	.update-actions :global(button) {
+		width: 100%;
+		min-width: 0;
+	}
+
+	.update-actions :global(button:first-child:nth-last-child(3)),
+	.update-actions :global(button:first-child:last-child) {
+		grid-column: 1 / -1;
+	}
+
+	.update-spinner {
+		grid-column: 1 / -1;
+		justify-self: end;
+	}
+
+	@media (min-width: 641px) {
+		.update-actions {
+			justify-self: end;
+			max-width: 28rem;
 		}
 	}
 

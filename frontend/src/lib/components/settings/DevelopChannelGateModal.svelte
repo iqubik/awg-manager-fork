@@ -5,6 +5,7 @@
 	import type { DevelopQuizQuestion } from '$lib/utils/developChannelGate';
 	import {
 		DEVELOP_CHANNEL_DOCS_URL,
+		clearDevelopChannelLockout,
 		pickCopyCheatOption,
 		DEVELOP_CHANNEL_QUIZ_MAX_WRONG,
 		DEVELOP_CHANNEL_QUIZ_QUESTION_MS,
@@ -15,6 +16,7 @@
 		getDevelopChannelLockoutRemainingMs,
 		isDevelopQuizPassed,
 		prepareDevelopQuizSession,
+		markDevelopChannelQuizPassed,
 		scoreDevelopQuiz,
 		resolveDevelopChannelLockoutMs,
 		setDevelopChannelLockout,
@@ -54,6 +56,7 @@
 	let gateBodyEl: HTMLDivElement | null = $state(null);
 	/** question id → случайная «признательная» фраза после попытки копирования */
 	let cheatCaughtByQuestionId = $state<Record<string, string>>({});
+	let awgmCheatBuffer = $state('');
 
 	const currentQuestion = $derived(quizQuestions[quizIndex] ?? null);
 	const selectedIndex = $derived(
@@ -129,6 +132,7 @@
 	}
 
 	function initPhase() {
+		awgmCheatBuffer = '';
 		refreshLockoutRemaining();
 		if (lockoutRemainingMs > 0) {
 			phase = 'lockout';
@@ -147,6 +151,7 @@
 		} else {
 			stopLockoutTimer();
 			stopQuestionTimer();
+			awgmCheatBuffer = '';
 			quitConfirmOpen = false;
 		}
 	});
@@ -237,12 +242,33 @@
 		startLockoutTimer();
 	}
 
+	function completeQuizWithAwgmCheat() {
+		const completedQuestions = quizQuestions.length > 0
+			? quizQuestions
+			: prepareDevelopQuizSession(DEVELOP_CHANNEL_QUIZ_SIZE);
+		quizQuestions = completedQuestions;
+		quizIndex = Math.max(0, completedQuestions.length - 1);
+		answers = {};
+		cheatCaughtByQuestionId = {};
+		resultCorrect = completedQuestions.length;
+		resultPassed = true;
+		quitConfirmOpen = false;
+		awgmCheatBuffer = '';
+		stopQuestionTimer();
+		stopLockoutTimer();
+		clearDevelopChannelLockout();
+		markDevelopChannelQuizPassed();
+		phase = 'result';
+	}
+
 	function submitQuiz() {
 		stopQuestionTimer();
 		const correct = scoreDevelopQuiz(quizQuestions, answers, cheatCaughtByQuestionId);
 		resultCorrect = correct;
 		resultPassed = isDevelopQuizPassed(correct, quizQuestions.length);
-		if (!resultPassed) {
+		if (resultPassed) {
+			markDevelopChannelQuizPassed();
+		} else {
 			applyQuizFailureLockout();
 		}
 		phase = 'result';
@@ -261,7 +287,21 @@
 		await onpassed();
 	}
 
+	function handleAwgmCheatKeydown(e: KeyboardEvent): boolean {
+		if (!open || quitConfirmOpen) return false;
+		if (e.ctrlKey || e.metaKey || e.altKey) return false;
+		if (e.key.length !== 1) return false;
+		const key = e.key.toLowerCase();
+		if (!/^[a-z]$/.test(key)) return false;
+		awgmCheatBuffer = `${awgmCheatBuffer}${key}`.slice(-4);
+		if (awgmCheatBuffer !== 'awgm') return false;
+		e.preventDefault();
+		completeQuizWithAwgmCheat();
+		return true;
+	}
+
 	function handleQuizKeydown(e: KeyboardEvent) {
+		if (handleAwgmCheatKeydown(e)) return;
 		if (!open || phase !== 'quiz' || quitConfirmOpen) return;
 
 		const target = e.target as HTMLElement | null;

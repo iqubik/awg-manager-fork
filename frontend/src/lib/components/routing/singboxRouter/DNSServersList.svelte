@@ -282,4 +282,49 @@
 			display: none;
 		}
 	}
+
+	/* Issue #214 Sc3: на 357px viewport сетка из 110+60+1fr+100+24+24
+	 * фиксированных колонок переполняет ширину (≈382px), server-колонка
+	 * усекается эллипсисом, detour/buttons слипаются. Переход на
+	 * стэкнутую раскладку: верхняя строка — tag + type + edit/del,
+	 * вторая — server во всю ширину, третья — detour. Заголовок таблицы
+	 * прячется (визуально бесполезен в stacked-режиме). */
+	@media (max-width: 480px) {
+		.col-header {
+			display: none;
+		}
+		.row {
+			grid-template-columns: 1fr auto auto auto;
+			grid-template-areas:
+				"tag    type   edit  del"
+				"server server server server"
+				"detour detour detour detour";
+			row-gap: 0.35rem;
+			align-items: center;
+		}
+		.row > :nth-child(1) {
+			grid-area: tag;
+		}
+		.row > :nth-child(2) {
+			grid-area: type;
+			justify-self: start;
+		}
+		.row > :nth-child(3) {
+			grid-area: server;
+			overflow-wrap: anywhere;
+			white-space: normal;
+			text-overflow: initial;
+			overflow: visible;
+		}
+		.row > :nth-child(4) {
+			grid-area: detour;
+			justify-self: start;
+		}
+		.row > :nth-child(6) {
+			grid-area: edit;
+		}
+		.row > :nth-child(7) {
+			grid-area: del;
+		}
+	}
 </style>

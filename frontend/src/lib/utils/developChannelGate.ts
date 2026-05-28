@@ -1,4 +1,5 @@
 export const DEVELOP_CHANNEL_LOCKOUT_KEY = 'awg-manager-develop-channel-lockout-until';
+export const DEVELOP_CHANNEL_QUIZ_PASSED_KEY = 'awg-manager-develop-channel-quiz-passed';
 export const DEVELOP_CHANNEL_QUIZ_SIZE = 7;
 export const DEVELOP_CHANNEL_QUIZ_MAX_WRONG = 2;
 /** @deprecated Use {@link DEVELOP_CHANNEL_QUIZ_SIZE} and {@link DEVELOP_CHANNEL_QUIZ_MAX_WRONG}. */
@@ -473,6 +474,33 @@ export function setDevelopChannelLockout(
 export function clearDevelopChannelLockout(): void {
 	if (typeof localStorage === 'undefined') return;
 	localStorage.removeItem(DEVELOP_CHANNEL_LOCKOUT_KEY);
+}
+
+export function hasDevelopChannelQuizPassed(): boolean {
+	if (typeof localStorage === 'undefined') return false;
+	try {
+		return localStorage.getItem(DEVELOP_CHANNEL_QUIZ_PASSED_KEY) === 'true';
+	} catch {
+		return false;
+	}
+}
+
+export function markDevelopChannelQuizPassed(): void {
+	if (typeof localStorage === 'undefined') return;
+	try {
+		localStorage.setItem(DEVELOP_CHANNEL_QUIZ_PASSED_KEY, 'true');
+	} catch {
+		/* ignore quota / private mode */
+	}
+}
+
+export function clearDevelopChannelQuizPassed(): void {
+	if (typeof localStorage === 'undefined') return;
+	try {
+		localStorage.removeItem(DEVELOP_CHANNEL_QUIZ_PASSED_KEY);
+	} catch {
+		/* ignore private mode */
+	}
 }
 
 export function formatQuizQuestionCountdown(remainingMs: number): string {

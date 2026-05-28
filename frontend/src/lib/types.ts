@@ -1155,6 +1155,15 @@ export interface SingboxStatus {
 	requiredSha256?: string;
 	/** True when the installed sing-box version or SHA256 differs from the pinned binary. */
 	updateAvailable: boolean;
+	/**
+	 * Классификация состояния installation: 'installed' | 'missing' |
+	 * 'missing_no_space' | 'outdated_no_space' | 'installing' | 'error'.
+	 */
+	installState?: string;
+	/** Требуемое свободное место (байты) для скачивания/обновления sing-box. */
+	requiredBytes?: number;
+	/** Свободное место (байты) на FS, где хранится managed binary. */
+	freeBytes?: number;
 }
 
 export interface SingboxImportResponse {

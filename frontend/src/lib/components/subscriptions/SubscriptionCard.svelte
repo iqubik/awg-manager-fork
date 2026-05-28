@@ -199,7 +199,11 @@
 			<div class="lc lc-name" data-label="Подписка">
 				<div class="name-title-row">
 					<div class="t1">{subscription.label || subscription.url}</div>
+				</div>
+				<div class="name-meta-row">
 					<Badge variant="accent" size="sm">{sourceKindLabel}</Badge>
+					<span>{subscription.memberTags.length} серверов</span>
+					<span>обновлено {lastFetchedHuman}</span>
 				</div>
 				<div class="t2 mono">{proxyIface}{#if kernelIface} · {kernelIface}{/if}</div>
 			</div>
@@ -237,45 +241,35 @@
 					<span class="delay-dash">—</span>
 				{/if}
 			</div>
-			<div class="lc lc-members" data-label="Серверов">
-				{subscription.memberTags.length}
-			</div>
-			<div class="lc lc-updated mono" data-label="Обновлено">
-				{lastFetchedHuman}
-			</div>
 			<div class="lc lc-traffic" data-label="Трафик">
 				{#if subscription.lastError || !subscription.enabled}
 					<span class="delay-dash">—</span>
 				{:else if resolvedMemberTag}
-					<div class="traffic-row-list">
-						<div
-							role="button"
-							tabindex="0"
-							class="traffic-mini-click"
-							onclick={(e) => {
+					<div
+						role="button"
+						tabindex="0"
+						class="traffic-row-list traffic-row-list--stack mono"
+						onclick={(e) => {
+							e.stopPropagation();
+							ondetail?.(resolvedMemberTag);
+						}}
+						onkeydown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								e.preventDefault();
 								e.stopPropagation();
 								ondetail?.(resolvedMemberTag);
-							}}
-							onkeydown={(e) => {
-								if (e.key === 'Enter' || e.key === ' ') {
-									e.preventDefault();
-									e.stopPropagation();
-									ondetail?.(resolvedMemberTag);
-								}
-							}}
-							title="Открыть детальный график"
-						>
-							<TrafficSparkline
-								rxData={trafficSparkSeries.rx}
-								txData={trafficSparkSeries.tx}
-								width={84}
-								height={22}
-							/>
-						</div>
-						<div class="traffic-mini-col mono">
-							<span class="traffic-rate rx">↓ {formatBytes(traffic?.download ?? 0)}</span>
-							<span class="traffic-rate tx">↑ {formatBytes(traffic?.upload ?? 0)}</span>
-						</div>
+							}
+						}}
+						title="Открыть детальный график"
+					>
+						<span class="traffic-rate rx">↓ {formatBytes(traffic?.download ?? 0)}</span>
+						<TrafficSparkline
+							rxData={trafficSparkSeries.rx}
+							txData={trafficSparkSeries.tx}
+							responsive
+							height={18}
+						/>
+						<span class="traffic-rate tx">↑ {formatBytes(traffic?.upload ?? 0)}</span>
 					</div>
 				{:else}
 					<span class="delay-dash">—</span>
@@ -486,7 +480,7 @@
 					<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
 					<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
 				</svg>
-				Открыть подписку
+				Открыть
 			</button>
 			<button
 				type="button"
@@ -627,14 +621,33 @@
 		flex: 0 1 auto;
 		min-width: 0;
 		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		white-space: normal;
+		overflow-wrap: anywhere;
 	}
 
-	.name-title-row :global(.badge) {
+	.name-meta-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.2rem 0.45rem;
+		min-width: 0;
+		font-size: var(--sbx-card-meta);
+		color: var(--color-text-muted);
+		line-height: 1.25;
+	}
+
+	.name-meta-row :global(.badge) {
 		flex-shrink: 0;
 		font-size: 10px;
 		padding: 1px 5px;
+	}
+
+	.name-meta-row span {
+		white-space: nowrap;
 	}
 
 	.card.view-dense .divider {
@@ -782,16 +795,17 @@
 	}
 	.inactive-panel .actions {
 		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-		justify-content: flex-end;
+		flex-wrap: nowrap;
+		gap: 8px;
+		justify-content: center;
 		align-items: center;
 	}
 	.inactive-panel .action-btn {
 		display: inline-flex;
 		align-items: center;
+		justify-content: center;
 		gap: 4px;
-		padding: 5px 9px;
+		padding: 5px 8px;
 		font-size: var(--sbx-card-action);
 		font-weight: 500;
 		border: none;
@@ -800,6 +814,7 @@
 		cursor: pointer;
 		border-radius: var(--radius-sm);
 		font-family: inherit;
+		white-space: nowrap;
 		transition: background var(--t-fast) ease, color var(--t-fast) ease;
 	}
 	.inactive-panel .action-btn:hover:not(:disabled) {
@@ -828,16 +843,16 @@
 	}
 	.sbx-sub-active-row {
 		display: grid;
-		grid-template-columns:
+		grid-template-columns: var(
+			--sbx-sub-list-columns,
 			minmax(80px, 80px)
-			minmax(132px, 1.1fr)
-			minmax(52px, 0.9fr)
-			minmax(162px, 1fr)
-			minmax(60px, 0.85fr)
-			minmax(100px, 1.05fr)
-			minmax(148px, 1.1fr)
-			minmax(80px, 80px)
-			minmax(76px, 0.7fr);
+			minmax(190px, 1.35fr)
+			minmax(58px, 0.55fr)
+			minmax(190px, 1.2fr)
+			minmax(160px, 0.95fr)
+			minmax(96px, 96px)
+			minmax(76px, 76px)
+		);
 		gap: 0.75rem 1rem;
 		align-items: center;
 		padding: 0.75rem 1rem;
@@ -958,6 +973,12 @@
 		justify-content: center;
 		padding: 0.375rem;
 	}
+	.lc-ping-mini {
+		justify-content: center;
+		align-items: center;
+		width: 100%;
+		min-width: 0;
+	}
 	.action-btn:hover:not(:disabled) {
 		background: var(--color-bg-hover);
 		color: var(--color-text-primary);
@@ -993,7 +1014,7 @@
 		gap: 1px;
 		height: 20px;
 		width: 100%;
-		max-width: 82px;
+		max-width: 96px;
 	}
 	.spark-mini .bar {
 		flex: 1;
@@ -1018,28 +1039,29 @@
 	}
 	.traffic-row-list {
 		display: flex;
-		align-items: center;
-		gap: 0.45rem;
 		min-width: 0;
+		width: 100%;
 	}
-	.traffic-mini-col {
-		display: flex;
+	.traffic-row-list--stack {
 		flex-direction: column;
-		gap: 0.08rem;
-		font-size: var(--sbx-card-note);
-		line-height: 1.15;
-		flex-shrink: 0;
-	}
-	.traffic-mini-click {
-		display: inline-flex;
+		align-items: stretch;
+		gap: 0.05rem;
 		border-radius: 4px;
 		cursor: pointer;
+		font-size: var(--sbx-card-note);
+		line-height: 1.1;
 		transition: background var(--t-fast) ease;
 	}
-	.traffic-mini-click:hover {
+	.traffic-row-list--stack :global(svg.responsive) {
+		width: 100%;
+		min-width: 0;
+		max-width: 100%;
+		flex: 1 1 auto;
+	}
+	.traffic-row-list--stack:hover {
 		background: rgba(96, 165, 250, 0.06);
 	}
-	.traffic-mini-click:focus-visible {
+	.traffic-row-list--stack:focus-visible {
 		outline: 1px solid var(--color-accent, #58a6ff);
 		outline-offset: 1px;
 	}

@@ -77,10 +77,11 @@
 	// Matrix exclusions are intentionally available for all row sources
 	// (awg/system/singbox): controls visibility/probing in the monitoring
 	// matrix only, not per-source pingcheck engines.
-	function tunnelMatrixExcludeLabel(tunnelId: string): string {
-		return isExcluded(tunnelId)
-			? 'Вернуть туннель в матрицу мониторинга'
-			: 'Исключить туннель из матрицы мониторинга';
+	function tunnelMatrixExcludeLabel(tunnel: MonitoringTunnel): string {
+		const name = tunnel.name?.trim() || tunnel.id;
+		return isExcluded(tunnel.id)
+			? `Вернуть «${name}» в матрицу мониторинга`
+			: `Исключить «${name}» из матрицы мониторинга`;
 	}
 
 	type TunnelBadge = {
@@ -156,7 +157,10 @@
 									{:else}
 										<a href={tunnelHref(t)} class="tunnel-link tunnel-name" title="Открыть настройки pingcheck">
 											{t.name}
-											<span class="settings-icon" aria-hidden="true">›</span>
+											<svg class="settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+												<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+												<circle cx="12" cy="12" r="3" />
+											</svg>
 										</a>
 										{#if t.source === 'awg' && t.defaultRoute}
 											<Badge variant="accent" size="sm">default</Badge>
@@ -170,20 +174,20 @@
 											type="button"
 											class="exclude-btn exclude-btn-restore"
 											onclick={() => onToggleTunnelExcluded(t.id, false, t.name)}
-											title={tunnelMatrixExcludeLabel(t.id)}
-											aria-label={tunnelMatrixExcludeLabel(t.id)}
+											title={tunnelMatrixExcludeLabel(t)}
+											aria-label={tunnelMatrixExcludeLabel(t)}
 										>
-											Вернуть
+											<span class="sr-only">{tunnelMatrixExcludeLabel(t)}</span>
 										</button>
 									{:else}
 										<button
 											type="button"
 											class="exclude-btn"
 											onclick={() => onToggleTunnelExcluded(t.id, true, t.name)}
-											title={tunnelMatrixExcludeLabel(t.id)}
-											aria-label={tunnelMatrixExcludeLabel(t.id)}
+											title={tunnelMatrixExcludeLabel(t)}
+											aria-label={tunnelMatrixExcludeLabel(t)}
 										>
-											Исключить
+											<span class="sr-only">{tunnelMatrixExcludeLabel(t)}</span>
 										</button>
 									{/if}
 								</div>
@@ -264,6 +268,98 @@
 				{/each}
 			</tbody>
 		</table>
+		<div class="mobile-cards" aria-label="Матрица мониторинга">
+			{#each sortedTunnels as tunnel (tunnel.id)}
+				{@const typeBadges = tunnelTypeBadges(tunnel)}
+				{@const awgBackendValue = resolvedAwgBackend(tunnel)}
+				{@const showTypeRow = typeBadges.length > 0 || (tunnel.source === 'awg' && (!!awgBackendValue || !!tunnel.awgVersion))}
+				<section class="mobile-tunnel-card" aria-label={`Мониторинг ${tunnel.name}`}>
+					<header class="mobile-tunnel-head">
+						<div class="mobile-tunnel-main">
+							<div class="mobile-tunnel-title-row">
+								{#if isSystem(tunnel)}
+									<span class="tunnel-system" title="Системный туннель роутера — pingcheck управляется в системе">
+										{tunnel.name}
+									</span>
+								{:else if isSingbox(tunnel)}
+									<span class="tunnel-system" title="Sing-box туннель — мониторинг через Clash urltest, NDMS pingcheck не применяется">
+										{tunnel.name}
+									</span>
+								{:else}
+									<a href={tunnelHref(tunnel)} class="tunnel-link tunnel-name" title="Открыть настройки pingcheck">
+										{tunnel.name}
+										<svg class="settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+											<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+											<circle cx="12" cy="12" r="3" />
+										</svg>
+									</a>
+									{#if tunnel.source === 'awg' && tunnel.defaultRoute}
+										<Badge variant="accent" size="sm">default</Badge>
+									{/if}
+								{/if}
+							</div>
+
+							{#if showTypeRow}
+								<div class="mobile-tunnel-type-row">
+									{#if tunnel.source === 'awg'}
+										{#if awgBackendValue}<VersionBadge kind="backend" value={awgBackendValue} />{/if}
+										{#if tunnel.awgVersion}<VersionBadge kind="awg" value={tunnel.awgVersion} />{/if}
+									{:else}
+										{#each typeBadges as b, idx (`${tunnel.id}-mobile-type-${idx}-${b.label}`)}
+											<Badge variant={b.variant} size="sm" mono={b.mono ?? false}>{b.label}</Badge>
+										{/each}
+									{/if}
+								</div>
+							{/if}
+						</div>
+
+						<button
+							type="button"
+							class="exclude-btn"
+							class:exclude-btn-restore={isExcluded(tunnel.id)}
+							onclick={() => onToggleTunnelExcluded(tunnel.id, !isExcluded(tunnel.id), tunnel.name)}
+							title={tunnelMatrixExcludeLabel(tunnel)}
+							aria-label={tunnelMatrixExcludeLabel(tunnel)}
+						>
+							<span class="sr-only">{tunnelMatrixExcludeLabel(tunnel)}</span>
+						</button>
+					</header>
+
+					{#if tunnel.source === 'singbox' && tunnel.clashDelay && tunnel.clashDelay > 0}
+						<div class="mobile-clash-row">
+							<Badge variant={latencyTier(tunnel.clashDelay)} size="sm" mono title={`Источник: urltest группа "${tunnel.urltestGroup ?? ''}"`}>
+								<span class="clash-num">clash: <span class="clash-val">{tunnel.clashDelay}</span>ms</span>
+								<LatencySparkline history={$latencyHistory.get(tunnel.singboxTag ?? '') ?? []} width={36} height={10} />
+							</Badge>
+						</div>
+					{/if}
+
+					<div class="mobile-target-list">
+						{#each snapshot.targets as target (target.id)}
+							{@const cell = findCell(target.id, tunnel.id)}
+							<div class="mobile-target-row">
+								<div class="mobile-target-info">
+									<span class="target-name">{mobileTargetName(target)}</span>
+									<span class="target-host">{mobileTargetHost(target)}</span>
+								</div>
+								{#if cell}
+									<MatrixCell
+										latencyMs={cell.latencyMs}
+										ok={cell.ok}
+										activeForRestart={cell.activeForRestart}
+										onClick={() => onCellClick(target, tunnel)}
+										ariaLabel={`${target.name} × ${tunnel.name}`}
+									/>
+								{:else}
+									<MatrixCell latencyMs={null} ok={false} activeForRestart={false} ariaLabel="no data" />
+								{/if}
+							</div>
+						{/each}
+					</div>
+				</section>
+			{/each}
+		</div>
+
 
 		<div class="legend">
 			<span class="legend-item"><span class="swatch tone-good"></span>&lt;100ms</span>
@@ -279,6 +375,116 @@
 <style>
 	.wrap {
 		overflow-x: auto;
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		clip-path: inset(50%);
+		white-space: nowrap;
+		border: 0;
+	}
+
+	.mobile-cards {
+		display: none;
+	}
+
+	.mobile-tunnel-card {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius);
+		background: var(--color-bg-secondary);
+		overflow: hidden;
+	}
+
+	.mobile-tunnel-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		background: var(--color-bg-tertiary);
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.mobile-tunnel-main {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		min-width: 0;
+	}
+
+	.mobile-tunnel-title-row,
+	.mobile-tunnel-type-row,
+	.mobile-clash-row {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		min-width: 0;
+	}
+
+	.mobile-target-list {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.mobile-target-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.625rem 0.75rem;
+		border-top: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+	}
+
+	.mobile-target-row:first-child {
+		border-top: none;
+	}
+
+	.mobile-target-info {
+		min-width: 0;
+	}
+
+	.mobile-target-row :global(.cell) {
+		width: 92px;
+		min-width: 92px;
+		height: 30px;
+	}
+
+	@media (max-width: 768px) {
+		.wrap {
+			overflow-x: visible;
+		}
+
+		.matrix {
+			display: none;
+		}
+
+		.mobile-cards {
+			display: grid;
+			grid-template-columns: 1fr;
+			gap: 0.75rem;
+		}
+
+		.mobile-tunnel-card .tunnel-link,
+		.mobile-tunnel-card .tunnel-system {
+			max-width: 100%;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.mobile-clash-row {
+			padding: 0.5rem 0.75rem 0;
+		}
 	}
 
 	.clash-num {
@@ -442,7 +648,10 @@
 		background: var(--color-bg-hover);
 	}
 	.settings-icon {
-		font-size: 14px;
+		display: inline-block;
+		width: 14px;
+		height: 14px;
+		flex-shrink: 0;
 		opacity: 0.7;
 	}
 
@@ -589,4 +798,186 @@
 	.swatch.tone-warn { background: color-mix(in srgb, var(--color-warning) 50%, transparent); }
 	.swatch.tone-bad { background: color-mix(in srgb, var(--color-error) 50%, transparent); }
 	.swatch.tone-failed { background: var(--color-muted-tint); }
+
+	@media (max-width: 768px) {
+		.mobile-tunnel-head {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: start;
+			gap: 0.5rem;
+		}
+
+		.mobile-tunnel-main {
+			min-width: 0;
+		}
+
+		.mobile-tunnel-head > .exclude-btn {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			justify-self: end;
+			align-self: start;
+			gap: 0.35rem;
+			width: auto;
+			max-width: max-content;
+			height: 24px;
+			padding: 0 0.55rem;
+			border-radius: 999px;
+			border: 1px solid color-mix(in srgb, var(--color-error) 35%, var(--color-border));
+			background: color-mix(in srgb, var(--color-error) 10%, transparent);
+			color: var(--color-text-primary);
+			font-size: 11px;
+			font-weight: 600;
+			line-height: 1;
+			letter-spacing: 0;
+			white-space: nowrap;
+			box-shadow: none;
+		}
+
+		.mobile-tunnel-head > .exclude-btn::before {
+			content: '';
+			width: 14px;
+			height: 14px;
+			flex-shrink: 0;
+			background: currentColor;
+			-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94'/%3E%3Cpath d='M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19'/%3E%3Cpath d='M14.12 14.12a3 3 0 0 1-4.24-4.24'/%3E%3Cline x1='1' y1='1' x2='23' y2='23'/%3E%3C/svg%3E") center / contain no-repeat;
+			mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94'/%3E%3Cpath d='M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19'/%3E%3Cpath d='M14.12 14.12a3 3 0 0 1-4.24-4.24'/%3E%3Cline x1='1' y1='1' x2='23' y2='23'/%3E%3C/svg%3E") center / contain no-repeat;
+		}
+
+		.mobile-tunnel-head > .exclude-btn.exclude-btn-restore::before {
+			-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center / contain no-repeat;
+			mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center / contain no-repeat;
+		}
+
+		.mobile-tunnel-head > .exclude-btn:hover,
+		.mobile-tunnel-head > .exclude-btn.exclude-btn-restore:hover {
+			background: color-mix(in srgb, var(--color-error) 16%, transparent);
+			border-color: color-mix(in srgb, var(--color-error) 50%, var(--color-border));
+			color: var(--color-text-primary);
+		}
+
+		.mobile-tunnel-head > .exclude-btn:focus-visible {
+			outline: 2px solid color-mix(in srgb, var(--color-error) 45%, transparent);
+			outline-offset: 2px;
+		}
+	}
+
+
+
+	/* Monitoring matrix: keep the "default" badge on a dedicated line in both
+	   desktop table headers and mobile cards. */
+	.tunnel-title-row,
+	.mobile-tunnel-title-row {
+		flex-wrap: wrap;
+	}
+
+	.tunnel-title-row :global(.badge),
+	.mobile-tunnel-title-row :global(.badge) {
+		flex: 0 0 100%;
+		width: max-content;
+		max-width: 100%;
+		margin-top: 0.15rem;
+	}
+
+	.tunnel-title-row :global(.badge) {
+		margin-left: auto;
+		margin-right: auto;
+	}
+
+	.mobile-tunnel-title-row :global(.badge) {
+		margin-left: 0;
+		margin-right: 0;
+	}
+
+	/* Desktop header uses the same visual language as mobile/excluded chips,
+	   but the action owns a full row inside the tunnel header cell. */
+	.th-tunnel > .tunnel-head {
+		display: flex;
+		flex-direction: column;
+		align-items: stretch;
+		justify-content: center;
+		gap: 0.35rem;
+		width: 100%;
+		min-width: 0;
+	}
+
+	.th-tunnel > .tunnel-head > .tunnel-title-row,
+	.th-tunnel > .tunnel-head > .tunnel-toggle-row {
+		width: 100%;
+		min-width: 0;
+	}
+
+	.th-tunnel > .tunnel-head > .tunnel-title-row {
+		justify-content: center;
+		text-align: center;
+	}
+
+	.th-tunnel > .tunnel-head > .tunnel-toggle-row {
+		justify-content: stretch;
+	}
+
+	.th-tunnel > .tunnel-head > .tunnel-toggle-row > .exclude-btn {
+		width: 100%;
+	}
+
+	.th-tunnel > .tunnel-head > .tunnel-toggle-row > .exclude-btn,
+	.mobile-tunnel-head > .exclude-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.35rem;
+		height: 24px;
+		padding: 0 0.55rem;
+		border-radius: 999px;
+		border: 1px solid color-mix(in srgb, var(--color-error) 35%, var(--color-border));
+		background: color-mix(in srgb, var(--color-error) 10%, transparent);
+		color: var(--color-text-primary);
+		font-size: 11px;
+		font-weight: 600;
+		line-height: 1;
+		letter-spacing: 0;
+		white-space: nowrap;
+		box-shadow: none;
+	}
+
+	.th-tunnel > .tunnel-head > .tunnel-toggle-row > .exclude-btn::before,
+	.mobile-tunnel-head > .exclude-btn::before {
+		content: '';
+		width: 14px;
+		height: 14px;
+		flex-shrink: 0;
+		background: currentColor;
+		-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94'/%3E%3Cpath d='M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19'/%3E%3Cpath d='M14.12 14.12a3 3 0 0 1-4.24-4.24'/%3E%3Cline x1='1' y1='1' x2='23' y2='23'/%3E%3C/svg%3E") center / contain no-repeat;
+		mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94'/%3E%3Cpath d='M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19'/%3E%3Cpath d='M14.12 14.12a3 3 0 0 1-4.24-4.24'/%3E%3Cline x1='1' y1='1' x2='23' y2='23'/%3E%3C/svg%3E") center / contain no-repeat;
+	}
+
+	.th-tunnel > .tunnel-head > .tunnel-toggle-row > .exclude-btn.exclude-btn-restore::before,
+	.mobile-tunnel-head > .exclude-btn.exclude-btn-restore::before {
+		-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center / contain no-repeat;
+		mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center / contain no-repeat;
+	}
+
+	.th-tunnel > .tunnel-head > .tunnel-toggle-row > .exclude-btn:hover,
+	.th-tunnel > .tunnel-head > .tunnel-toggle-row > .exclude-btn.exclude-btn-restore:hover,
+	.mobile-tunnel-head > .exclude-btn:hover,
+	.mobile-tunnel-head > .exclude-btn.exclude-btn-restore:hover {
+		background: color-mix(in srgb, var(--color-error) 16%, transparent);
+		border-color: color-mix(in srgb, var(--color-error) 50%, var(--color-border));
+		color: var(--color-text-primary);
+	}
+
+	.th-tunnel > .tunnel-head > .tunnel-toggle-row > .exclude-btn:focus-visible,
+	.mobile-tunnel-head > .exclude-btn:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--color-error) 45%, transparent);
+		outline-offset: 2px;
+	}
+
+	@media (max-width: 768px) {
+		.mobile-tunnel-title-row :global(.badge) {
+			flex: 0 0 auto;
+			width: auto;
+			max-width: max-content;
+			margin-top: 0;
+		}
+	}
 </style>

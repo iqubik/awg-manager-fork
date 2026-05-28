@@ -125,7 +125,7 @@
 	</svg>
 {/snippet}
 
-<div class="backup-toolbar">
+<div class="backup-toolbar" class:importOnly={!showExport}>
 	{#if showExport}
 		<Button
 			variant="secondary"
@@ -203,17 +203,28 @@
 		display: flex;
 		gap: 0.5rem;
 	}
-	@media (max-width: 640px) {
+	@media (max-width: 768px) {
 		.backup-toolbar {
 			flex: 1 0 100%;
 			display: grid;
 			grid-template-columns: repeat(2, minmax(0, 1fr));
 			gap: 0.5rem;
 			width: 100%;
+			min-width: 0;
 		}
+
+		.backup-toolbar.importOnly {
+			justify-self: stretch;
+		}
+
 		.backup-toolbar :global(.btn) {
 			width: 100%;
+			min-width: 0;
 			justify-content: center;
+		}
+
+		.backup-toolbar.importOnly :global(.btn) {
+			grid-column: 2;
 		}
 	}
 	.warn-box {

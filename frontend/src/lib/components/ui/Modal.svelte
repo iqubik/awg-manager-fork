@@ -285,19 +285,16 @@
 
     @media (max-width: 640px) {
         .modal-footer {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            justify-content: stretch;
             align-items: stretch;
         }
 
         .modal-footer :global(button),
         .modal-footer :global(a),
         .modal-footer :global(.btn) {
+            flex: 1 1 0;
+            min-width: 0;
             width: 100%;
-        }
-
-        .modal-footer > :last-child:nth-child(odd) {
-            grid-column: span 2;
         }
     }
 </style>

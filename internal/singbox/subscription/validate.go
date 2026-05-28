@@ -1,0 +1,292 @@
+package subscription
+
+import (
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+// DropReason records one outbound that was filtered out of a subscription,
+// for surfacing back to the user (UI / app log) so they understand which
+// servers were skipped and why.
+type DropReason struct {
+	Tag    string `json:"tag"`
+	Reason string `json:"reason"`
+}
+
+// preFilterOutbounds runs the in-Go Pass 1 of the subscription validation
+// pipeline (issue #221). Drops outbounds that violate structural rules
+// we are confident will not move in upstream sing-box (UUID format,
+// reality-requires-uTLS, required field presence). Group outbounds
+// (selector / urltest) are NOT filtered here — that happens during
+// reference cleanup after a leaf outbound is removed.
+//
+// Returns the kept outbounds (same shape) and the list of dropped ones
+// with a human-readable reason. Outbounds whose shape we cannot parse
+// (non-object) are dropped with reason "non-object outbound" — sing-box
+// would reject the whole config on those anyway.
+func preFilterOutbounds(outbounds []any) ([]any, []DropReason) {
+	kept := make([]any, 0, len(outbounds))
+	dropped := []DropReason{}
+	for _, raw := range outbounds {
+		ob, ok := raw.(map[string]any)
+		if !ok {
+			dropped = append(dropped, DropReason{Tag: "", Reason: "non-object outbound"})
+			continue
+		}
+		if reason := classifyOutbound(ob); reason != "" {
+			dropped = append(dropped, DropReason{Tag: outboundTag(ob), Reason: reason})
+			continue
+		}
+		kept = append(kept, ob)
+	}
+	return kept, dropped
+}
+
+// classifyOutbound returns "" when the outbound passes Pass 1 rules,
+// or a short human-readable reason string when it should be dropped.
+func classifyOutbound(ob map[string]any) string {
+	typ, _ := ob["type"].(string)
+	if typ == "" {
+		return "missing type"
+	}
+	// Group outbounds: validated after leaf cleanup; skip here.
+	if typ == "selector" || typ == "urltest" {
+		return ""
+	}
+	// Universal required fields for connect-style outbounds.
+	if _, ok := ob["server"].(string); !ok || ob["server"] == "" {
+		// Direct/block/dns don't take a server — exempt those.
+		switch typ {
+		case "direct", "block", "dns":
+			// ok
+		default:
+			return "missing server"
+		}
+	}
+	if port := portValue(ob["server_port"]); port < 1 || port > 65535 {
+		switch typ {
+		case "direct", "block", "dns":
+			// ok
+		default:
+			return "missing or invalid server_port"
+		}
+	}
+	// Type-specific rules.
+	switch typ {
+	case "vless", "vmess":
+		if !isValidUUID(stringOf(ob["uuid"])) {
+			return "invalid uuid format"
+		}
+		if reason := checkRealityUTLS(ob); reason != "" {
+			return reason
+		}
+	case "trojan":
+		// trojan uses password, not uuid; reality+utls coupling still applies.
+		if reason := checkRealityUTLS(ob); reason != "" {
+			return reason
+		}
+	case "hysteria2":
+		if stringOf(ob["password"]) == "" {
+			return "missing hysteria2 password"
+		}
+	case "shadowsocks":
+		if stringOf(ob["password"]) == "" {
+			return "missing shadowsocks password"
+		}
+		if stringOf(ob["method"]) == "" {
+			return "missing shadowsocks method"
+		}
+	}
+	return ""
+}
+
+// checkRealityUTLS reports the "reality requires uTLS" structural rule
+// that caused issue #221. Reality (TLS escape protocol) on the client
+// side ONLY works when uTLS fingerprinting is also enabled — sing-box
+// rejects the outbound with FATAL "uTLS is required by reality client"
+// at process init, killing the whole config.
+func checkRealityUTLS(ob map[string]any) string {
+	tls, _ := ob["tls"].(map[string]any)
+	if tls == nil {
+		return ""
+	}
+	reality, _ := tls["reality"].(map[string]any)
+	if reality == nil {
+		return ""
+	}
+	enabled, _ := reality["enabled"].(bool)
+	if !enabled {
+		return ""
+	}
+	utls, _ := tls["utls"].(map[string]any)
+	if utls == nil {
+		return "reality requires utls block"
+	}
+	utlsEnabled, _ := utls["enabled"].(bool)
+	if !utlsEnabled {
+		return "reality requires utls.enabled=true"
+	}
+	return ""
+}
+
+// outboundTag extracts the "tag" field from an outbound map. Empty
+// string when missing — caller decides how to surface that.
+func outboundTag(ob map[string]any) string {
+	return stringOf(ob["tag"])
+}
+
+// stringOf returns v as string when it is one, otherwise "".
+func stringOf(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+// portValue coerces a JSON-decoded port value (float64 by default) to int.
+// Returns 0 when not numeric.
+func portValue(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case int64:
+		return int(n)
+	}
+	return 0
+}
+
+// uuidRe matches the canonical RFC-4122 UUID textual form: 8-4-4-4-12
+// hex digits. Sing-box accepts only this form for vless/vmess uuid.
+var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+func isValidUUID(s string) bool {
+	return uuidRe.MatchString(s)
+}
+
+// singboxOutboundIdxRe parses the index from a sing-box check error of
+// the form `initialize outbound[N]: <reason>`. N is the position in the
+// outbounds array as it was POSTed (zero-based).
+var singboxOutboundIdxRe = regexp.MustCompile(`initialize outbound\[(\d+)\]:`)
+
+// parseSingboxOutboundIndex extracts the failing outbound index from a
+// sing-box check error message. Returns (-1, false) when the message
+// does not match the known pattern — caller should treat that as a
+// terminal failure (cannot isolate).
+func parseSingboxOutboundIndex(msg string) (int, bool) {
+	m := singboxOutboundIdxRe.FindStringSubmatch(msg)
+	if len(m) != 2 {
+		return -1, false
+	}
+	idx, err := strconv.Atoi(m[1])
+	if err != nil {
+		return -1, false
+	}
+	return idx, true
+}
+
+// dropOutboundAndCleanRefs removes the outbound at index `idx` from cfg
+// and cascades the cleanup: any selector / urltest / route rule that
+// referenced its tag is updated (tag removed from outbound lists,
+// rules dropped, selector.default re-pointed if it became dangling,
+// empty groups removed). Mutates cfg in place; returns the dropped tag
+// for caller's bookkeeping.
+func dropOutboundAndCleanRefs(cfg *slotConfig, idx int) (string, error) {
+	if idx < 0 || idx >= len(cfg.Outbounds) {
+		return "", fmt.Errorf("dropOutboundAndCleanRefs: idx %d out of range [0,%d)", idx, len(cfg.Outbounds))
+	}
+	ob, _ := cfg.Outbounds[idx].(map[string]any)
+	tag := outboundTag(ob)
+	cfg.Outbounds = append(cfg.Outbounds[:idx], cfg.Outbounds[idx+1:]...)
+	if tag == "" {
+		// No tag to cascade; nothing else references it by name.
+		return "", nil
+	}
+	cleanReferencesToTag(cfg, tag)
+	return tag, nil
+}
+
+// cleanReferencesToTag walks outbounds (selectors / urltests) and route
+// rules, removing every reference to the dropped tag. Group outbounds
+// that lose all members are themselves dropped (recursively cascading).
+func cleanReferencesToTag(cfg *slotConfig, tag string) {
+	// Iterate by index because we may mutate the slice (drop empty groups).
+	for i := 0; i < len(cfg.Outbounds); {
+		ob, ok := cfg.Outbounds[i].(map[string]any)
+		if !ok {
+			i++
+			continue
+		}
+		typ, _ := ob["type"].(string)
+		if typ != "selector" && typ != "urltest" {
+			i++
+			continue
+		}
+		raw, _ := ob["outbounds"].([]any)
+		filtered := raw[:0:0]
+		for _, t := range raw {
+			if stringOf(t) != tag {
+				filtered = append(filtered, t)
+			}
+		}
+		ob["outbounds"] = filtered
+		// selector.default may point at the dropped tag; re-aim or drop selector.
+		if def, _ := ob["default"].(string); def == tag {
+			if len(filtered) > 0 {
+				ob["default"] = stringOf(filtered[0])
+			} else {
+				delete(ob, "default")
+			}
+		}
+		// Empty group → drop the group itself (also recursive).
+		if len(filtered) == 0 {
+			groupTag := outboundTag(ob)
+			cfg.Outbounds = append(cfg.Outbounds[:i], cfg.Outbounds[i+1:]...)
+			if groupTag != "" && groupTag != tag {
+				cleanReferencesToTag(cfg, groupTag)
+			}
+			continue
+		}
+		i++
+	}
+
+	// Route rules referencing dropped tag.
+	if cfg.Route != nil {
+		if rawRules, ok := cfg.Route["rules"].([]any); ok {
+			filtered := rawRules[:0:0]
+			for _, raw := range rawRules {
+				rule, ok := raw.(map[string]any)
+				if !ok {
+					filtered = append(filtered, raw)
+					continue
+				}
+				if outb, _ := rule["outbound"].(string); outb == tag {
+					continue
+				}
+				filtered = append(filtered, rule)
+			}
+			cfg.Route["rules"] = filtered
+		}
+		if final, _ := cfg.Route["final"].(string); final == tag {
+			delete(cfg.Route, "final")
+		}
+	}
+}
+
+// formatDropList returns a compact "tag (reason); tag (reason); ..."
+// string for app-log lines. Empty input returns "".
+func formatDropList(drops []DropReason) string {
+	if len(drops) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(drops))
+	for _, d := range drops {
+		tag := d.Tag
+		if tag == "" {
+			tag = "<no-tag>"
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s)", tag, d.Reason))
+	}
+	return strings.Join(parts, "; ")
+}

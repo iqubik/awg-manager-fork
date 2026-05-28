@@ -92,6 +92,8 @@
 		let delaySum = 0;
 		let delayN = 0;
 		let minLatest = Infinity;
+		let bestDelayServer = '—';
+		let bestDelayProtocol = '';
 		const histMap = $singboxDelayHistory;
 		for (const m of memberList) {
 			const h = histMap.get(m.tag) ?? [];
@@ -99,13 +101,19 @@
 			if (typeof last === 'number' && last > 0) {
 				delaySum += last;
 				delayN++;
-				if (last < minLatest) minLatest = last;
+				if (last < minLatest) {
+					minLatest = last;
+					bestDelayServer = m.label || m.server || m.tag;
+					bestDelayProtocol = m.protocol || '';
+				}
 			}
 		}
 		return {
 			count: memberList.length,
 			avgDelayMs: delayN > 0 ? Math.round(delaySum / delayN) : null,
 			minDelayMs: minLatest === Infinity ? null : Math.round(minLatest),
+			bestDelayServer,
+			bestDelayProtocol,
 		};
 	});
 
@@ -215,6 +223,43 @@
 	<CreateIcon />
 {/snippet}
 
+{#snippet refreshIcon()}
+	<svg
+		width="14"
+		height="14"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2"
+		stroke-linecap="round"
+		stroke-linejoin="round"
+		aria-hidden="true"
+	>
+		<path d="M21 12a9 9 0 0 1-15.4 6.4L3 16" />
+		<path d="M3 16v5h5" />
+		<path d="M3 12A9 9 0 0 1 18.4 5.6L21 8" />
+		<path d="M21 8V3h-5" />
+	</svg>
+{/snippet}
+
+{#snippet testAllIcon()}
+	<svg
+		width="14"
+		height="14"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2"
+		stroke-linecap="round"
+		stroke-linejoin="round"
+		aria-hidden="true"
+	>
+		<path d="M4 13l4 4L19 6" />
+		<path d="M4 6h8" />
+		<path d="M4 18h8" />
+	</svg>
+{/snippet}
+
 <header class="head">
 	<div class="head-info">
 		<div class="lbl">{modeLabel}</div>
@@ -226,7 +271,14 @@
 				Добавить сервер
 			</Button>
 		{:else}
-			<Button variant="primary" size="sm" disabled={refreshing} loading={refreshing} onclick={refresh}>
+			<Button
+				variant="primary"
+				size="sm"
+				disabled={refreshing}
+				loading={refreshing}
+				iconBefore={refreshIcon}
+				onclick={refresh}
+			>
 				{refreshing ? 'Обновляем...' : 'Обновить сейчас'}
 			</Button>
 		{/if}
@@ -235,6 +287,7 @@
 			size="sm"
 			disabled={batchTesting || memberList.length === 0}
 			loading={batchTesting}
+			iconBefore={testAllIcon}
 			onclick={testAll}
 		>
 			{#if batchTesting}
@@ -267,6 +320,13 @@
 					value={membersListStats.minDelayMs !== null ? `${membersListStats.minDelayMs} ms` : '—'}
 					label="Мин. delay"
 					sub="лучший из последних по серверам"
+				/>
+				<Stat
+					value={membersListStats.minDelayMs !== null ? membersListStats.bestDelayServer : '—'}
+					label="Лидер по delay"
+					sub={membersListStats.minDelayMs !== null
+						? `${membersListStats.minDelayMs} ms${membersListStats.bestDelayProtocol ? ` · ${membersListStats.bestDelayProtocol}` : ''}`
+						: 'нет замеров'}
 				/>
 			</StatStrip>
 		</div>
@@ -525,6 +585,54 @@
 	}
 	.head-info { display: flex; flex-direction: column; gap: 0.2rem; }
 	.actions { display: flex; gap: 0.5rem; align-items: center; }
+	@media (max-width: 640px) {
+		.head {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr);
+			align-items: stretch;
+			gap: 0.55rem;
+		}
+
+		.head-info {
+			flex-direction: row;
+			align-items: baseline;
+			gap: 0.35rem;
+			width: 100%;
+			min-width: 0;
+		}
+
+		.head-info .lbl {
+			flex: 0 0 auto;
+			white-space: nowrap;
+		}
+
+		.head-info .lbl::after {
+			content: ':';
+		}
+
+		.head-info .val {
+			flex: 1 1 auto;
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.actions {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			align-items: stretch;
+			gap: 0.5rem;
+			width: 100%;
+		}
+
+		.actions :global(.btn) {
+			width: 100%;
+			min-width: 0;
+			justify-content: center;
+			border: 1px solid var(--color-border);
+		}
+	}
 	.lbl {
 		font-size: 0.7rem;
 		color: var(--color-text-muted);

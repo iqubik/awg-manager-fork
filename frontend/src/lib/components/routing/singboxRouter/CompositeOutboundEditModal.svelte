@@ -3,6 +3,8 @@
 	import { Button, Dropdown, type DropdownOption } from '$lib/components/ui';
 	import type { SingboxRouterOutbound } from '$lib/types';
 	import type { OutboundGroup } from './outboundOptions';
+	import { subscriptionsStore } from '$lib/stores/subscriptions';
+	import { resolveMemberLabel } from '$lib/utils/memberLabel';
 
 	// Only urltest and selector are offered for new groups — `loadbalance`
 	// was removed in sing-box 1.13+ and FATALs on startup if present. The
@@ -93,9 +95,15 @@
 		)
 	);
 
-	// Default-picker options: only members already chosen.
+	// Default-picker options: only members already chosen. Подписочные
+	// тэги (sub-XXX-YYY) и awg-XXX тэги резолвим в человеческие labels —
+	// тот же UX, что и на карточке composite outbound (issue #214).
+	const subsData = $derived($subscriptionsStore?.data ?? []);
+	function memberLabel(tag: string): string {
+		return resolveMemberLabel(tag, subsData, outboundOptions);
+	}
 	const defaultOptions = $derived<DropdownOption[]>(
-		members.map((m) => ({ value: m, label: m }))
+		members.map((m) => ({ value: m, label: memberLabel(m) }))
 	);
 
 	function addMember(v: string): void {
@@ -175,8 +183,8 @@
 					<span class="chips-placeholder">Участники не выбраны</span>
 				{:else}
 					{#each members as m (m)}
-						<span class="member-chip">
-							<span class="member-chip-label">{m}</span>
+						<span class="member-chip" title={m}>
+							<span class="member-chip-label">{memberLabel(m)}</span>
 							<button
 								type="button"
 								class="member-chip-remove"

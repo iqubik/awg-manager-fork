@@ -17,9 +17,16 @@ import (
 // InterfaceQueries is the subset of *query.Queries.Interfaces used by
 // ManagerImpl. Narrow interface so tests can mock without pulling in the
 // whole query store.
+//
+// Get reads cached existence (1 HTTP at bootstrap, then in-memory).
+// FetchSummary issues a fresh /show/interface/<name>/summary on every
+// call — used for kernel-tunnel state determination because the
+// cached Link field can stay stale (NDMS layer hooks aren't reliable
+// for OpkgTun, see InterfaceStore.FetchSummary).
 type InterfaceQueries interface {
 	Get(ctx context.Context, name string) (*ndms.Interface, error)
 	GetDetails(ctx context.Context, name string) (*ndms.InterfaceDetails, error)
+	FetchSummary(ctx context.Context, name string) (*ndms.InterfaceDetails, error)
 }
 
 // ManagerImpl is the implementation of the state Manager.
@@ -69,7 +76,12 @@ func (m *ManagerImpl) GetState(ctx context.Context, tunnelID string) tunnel.Stat
 		}
 
 		if info.OpkgTunExists {
-			details, err := m.ifaces.GetDetails(ctx, names.NDMSName)
+			// Fresh /show/interface/<name>/summary on every call (direct
+			// GET, bypasses the cache). The cached Link can stay stale
+			// for OpkgTun after `ip link set up` — NDMS layer hooks
+			// don't reliably fire link=running for kernel-AWG tunnels,
+			// freezing the matrix at StateStarting for a working tunnel.
+			details, err := m.ifaces.FetchSummary(ctx, names.NDMSName)
 			if err == nil && details != nil {
 				intent = details.Intent()
 				linkUp = details.LinkUp()
