@@ -96,7 +96,7 @@ export const SERVICE_PRESETS: ServicePreset[] = [
 			'192.157.0.0/16',
 			'204.11.0.0/16',
 		],
-		notice: 'Содержит широкие IP-ранги Cloudflare / AWS / GCP (42 шт) — необходимы для работы voice/video в Discord, но могут направлять в туннель трафик других сайтов, размещённых на этих CDN.',
+		notice: 'Содержит широкие IP-ранги Cloudflare / AWS / GCP (42 шт) — необходимы для работы voice/video в Discord, но могут направлять в [...]
 	},
 	{
 		id: 'social',
@@ -150,12 +150,33 @@ export const SERVICE_PRESETS: ServicePreset[] = [
 		id: 'netflix',
 		name: 'Netflix',
 		domains: [
-			'fast.com', 'netflix.ca', 'netflix.com', 'netflixdnstest1.com', 'netflixdnstest2.com',
+			'fast.com', 'netflix.ca', 'netflix.com', 'netflix.net',
+			'netflixinvestor.com', 'netflixstudios.com', 'netflixtechblog.com',
+			'nflxext.com', 'nflximg.com', 'nflximg.net',
+			'nflxsearch.net', 'nflxso.net', 'nflxvideo.net',
+			'netflixdnstest0.com', 'netflixdnstest1.com', 'netflixdnstest2.com',
 			'netflixdnstest3.com', 'netflixdnstest4.com', 'netflixdnstest5.com',
 			'netflixdnstest6.com', 'netflixdnstest7.com', 'netflixdnstest8.com',
-			'netflixdnstest9.com', 'netflixdnstest10.com', 'netflixinvestor.com', 'netflix.net',
-			'netflixstudios.com', 'netflixtechblog.com', 'nflxext.com', 'nflximg.com',
-			'nflxsearch.net', 'nflxso.net', 'nflxvideo.net',
+			'netflixdnstest9.com', 'netflixdnstest10.com',
+			'amazonaws.com', 'netflix.com.edgesuite.net',
+			// AS2906 Netflix CDN IP ranges
+			'45.57.0.0/17',
+			'64.120.128.0/17',
+			'66.197.128.0/17',
+			'23.246.0.0/18',
+			'66.197.192.0/18',
+			'192.173.64.0/18',
+			'69.53.224.0/19',
+			'198.38.96.0/19',
+			'64.120.240.0/20',
+			'108.175.32.0/20',
+			// Backlot API
+			'52.0.131.132',
+			'3.221.228.214',
+			'18.207.84.236',
+			// Netflix Aspera
+			'23.23.189.144/28',
+			'34.195.253.0/25',
 		],
 	},
 	{
@@ -263,7 +284,7 @@ export const SERVICE_PRESETS: ServicePreset[] = [
 			// UI / assets / misc
 			'cdn.jsdelivr.net', 'coolors.co', 'mui.com', 'suno.com',
 		],
-		notice: 'Включает dev-сервисы, package registries и служебные хосты. Здесь есть shared-платформы вроде jsDelivr и Statuspage, поэтому часть сторонних сайтов на этих платформах тоже может попасть под это правило.',
+		notice: 'Включает dev-сервисы, package registries и служебные хосты. Здесь есть shared-платформы вроде jsDelivr и Statuspage, поэтому ч[...]
 	},
 	{
 		id: 'roblox',
@@ -331,7 +352,7 @@ export const SERVICE_PRESETS: ServicePreset[] = [
 			'184.31.128.0/19',
 			'184.50.128.0/19',
 		],
-		notice: 'Содержит широкие IP-ранги Akamai CDN (43 шт) и собственной сети Roblox (4 шт) — необходимы для игр в Roblox, но Akamai-блоки могут направлять в туннель трафик других сайтов.',
+		notice: 'Содержит широкие IP-ранги Akamai CDN (43 шт) и собственной сети Roblox (4 шт) — необходимы для игр в Roblox, но Akamai-бл[...]
 	},
 	{
 		id: 'tmdb',
@@ -369,7 +390,7 @@ export const SERVICE_PRESETS: ServicePreset[] = [
 			'2a06:98c0::/29',
 			'2c0f:f248::/32',
 		],
-		notice: 'Только CIDR-диапазоны — без доменных имён. Cloudflare обслуживает огромное число сайтов, поэтому направление всей сети через туннель может перенаправить и трафик других ресурсов.',
+		notice: 'Только CIDR-диапазоны — без доменных имён. Cloudflare обслуживает огромное число сайтов, поэтому направлен[...]
 	},
 	{
 		id: 'russian-services',
@@ -419,7 +440,7 @@ export const SERVICE_PRESETS: ServicePreset[] = [
 			'ru', 'su', 'ru.com', 'xn--p1ai', 'xn--p1acf', 'xn--80adxhks', 
 			'tatar', 'xn--d1acj3b', 'xn--80asehdb', 'xn--80aswg', 'xn--c1avg'
 		],
-		notice: 'Основной источник — itdoginfo/allow-domains (Russia outside-raw). Дополнительно включены домены банков, госуслуг, Yandex/VK, WB/Ozon и операторов связи — для обхода VPN на российских сервисах, блокирующих иностранные IP.',
+		notice: 'Основной источник — itdoginfo/allow-domains (Russia outside-raw). Дополнительно включены домены банков, госуслуг, Yandex/VK, WB/Oz[...]
 	},
 	{
 		id: 'samsung',
@@ -480,7 +501,7 @@ export const SERVICE_PRESETS: ServicePreset[] = [
 			'turn.anyfirewall.com', 'turn.bistri.com', 'turn.num.viagenie.ca',
 			'freeturn.net', 'openrelayproject.org', 'turnix.io', 'fastturn.net',
 		],
-		notice: 'Каталог сервисов определения IP/DNS/WebRTC утечек — удобно направить одним правилом, чтобы выборочно маршрутизировать или блокировать проверки публичного адреса.',
+		notice: 'Каталог сервисов определения IP/DNS/WebRTC утечек — удобно направить одним правилом, чтобы выборочно мар[...]
 	},
 	{
 		id: 'torrents',
