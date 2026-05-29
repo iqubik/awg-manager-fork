@@ -232,12 +232,10 @@
         >
             <div class="lc lc-delay" data-label="Delay">
                 {#if subscription.lastError}
-                    <span class="dot fail" aria-hidden="true"></span>
                     <span class="delay-inline-err mono" title={subscription.lastError}>
                         {subscription.lastError}
                     </span>
                 {:else}
-                    <span class="dot {cardState}" aria-hidden="true"></span>
                     <PingButton
                         label={latText}
                         state={cardState}
@@ -252,6 +250,11 @@
             </div>
             <div class="lc lc-name" data-label="Подписка">
                 <div class="name-title-row">
+                    {#if subscription.lastError}
+                        <span class="dot fail" aria-hidden="true"></span>
+                    {:else}
+                        <span class="dot {cardState}" aria-hidden="true"></span>
+                    {/if}
                     <div class="t1">{subscription.label}</div>
                 </div>
                 <div class="name-meta-row">
@@ -1655,6 +1658,9 @@
         gap: 5px;
         min-width: 0;
         max-width: 100%;
+    }
+    .name-title-row .dot {
+        flex: 0 0 auto;
     }
     .name-title-row .t1 {
         flex: 0 1 auto;

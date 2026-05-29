@@ -176,15 +176,12 @@
 		>
 			<div class="lc lc-delay" data-label="Delay">
 				{#if subscription.lastError}
-					<span class="dot fail" aria-hidden="true"></span>
 					<span class="delay-inline-err mono" title={subscription.lastError}>
 						{subscription.lastError}
 					</span>
 				{:else if !subscription.enabled}
-					<span class="dot unknown" aria-hidden="true"></span>
 					<span class="delay-dash">—</span>
 				{:else if resolvedMemberTag}
-					<span class="dot {delayState}" aria-hidden="true"></span>
 					<PingButton
 						label={delayText}
 						state={delayState}
@@ -198,6 +195,13 @@
 			</div>
 			<div class="lc lc-name" data-label="Подписка">
 				<div class="name-title-row">
+					{#if subscription.lastError}
+						<span class="dot fail" aria-hidden="true"></span>
+					{:else if !subscription.enabled}
+						<span class="dot unknown" aria-hidden="true"></span>
+					{:else if resolvedMemberTag}
+						<span class="dot {delayState}" aria-hidden="true"></span>
+					{/if}
 					<div class="t1">{subscription.label || subscription.url}</div>
 				</div>
 				<div class="name-meta-row">

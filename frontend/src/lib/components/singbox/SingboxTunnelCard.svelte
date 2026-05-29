@@ -185,7 +185,6 @@
 		class:stopped={cardState === 'stopped'}
 	>
 		<div class="list-cell list-cell-delay" data-label="Delay">
-			<span class="dot {cardState}" aria-hidden="true"></span>
 			<PingButton
 				label={latText}
 				state={cardState}
@@ -195,7 +194,10 @@
 			/>
 		</div>
 		<div class="list-cell list-cell-name" data-label="Туннель">
-			<button type="button" class="name-btn" onclick={edit}>{tunnel.tag}</button>
+			<div class="list-title-row">
+				<span class="dot {cardState}" aria-hidden="true"></span>
+				<button type="button" class="name-btn" onclick={edit}>{tunnel.tag}</button>
+			</div>
 			<div class="list-sub mono">
 				{tunnel.proxyInterface || 'via sing-box'}
 				{#if tunnel.kernelInterface}<span> · {tunnel.kernelInterface}</span>{/if}
@@ -1345,6 +1347,19 @@
 		display: flex;
 		align-items: center;
 		gap: 0.4rem;
+	}
+	.sbx-tunnel-list-row .list-title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		min-width: 0;
+		max-width: 100%;
+	}
+	.sbx-tunnel-list-row .list-title-row .dot {
+		flex: 0 0 auto;
+	}
+	.sbx-tunnel-list-row .list-title-row .name-btn {
+		min-width: 0;
 	}
 	.sbx-tunnel-list-row .name-btn {
 		font: inherit;
