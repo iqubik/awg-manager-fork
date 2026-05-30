@@ -19,8 +19,6 @@ export type {
 // F3 — StatusDrawer
 export { default as StatusDrawer } from './StatusDrawer.svelte';
 export { drawerOpen, openDrawer, closeDrawer, toggleDrawer } from './drawerStore';
-export { default as DrawerSection } from './DrawerSection.svelte';
-export { default as DrawerRow } from './DrawerRow.svelte';
 export { default as DepRow } from './DepRow.svelte';
 export { default as IssueRow } from './IssueRow.svelte';
 export type { DepTone, DepEntry, IssueTone, IssueEntry } from './drawerData';
@@ -115,14 +113,7 @@ export { default as ExpertPanel } from './ExpertPanel.svelte';
 export { default as MobileBottomBar } from './MobileBottomBar.svelte';
 
 // Settings Drawer
-export { default as SettingsDrawer } from './SettingsDrawer.svelte';
 export { default as SingboxRouterRedesignPage } from './SingboxRouterRedesignPage.svelte';
-export {
-  settingsDrawerOpen,
-  openSettingsDrawer,
-  closeSettingsDrawer,
-  toggleSettingsDrawer,
-} from './settingsDrawerStore';
 export {
   mergeAndSaveSettings,
   BYPASS_PRESETS,
