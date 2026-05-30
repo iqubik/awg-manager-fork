@@ -11,10 +11,7 @@
   import { onMount } from 'svelte';
   import { singboxRouter as singboxRouterStore } from '$lib/stores/singboxRouter';
   import { SectionLabel, Button } from '$lib/components/ui';
-  import { openTrace } from './traceStore';
-  import { openTemplatesModal } from './templatesStore';
   import { openAddWizard } from './addWizardStore';
-  import TemplatesModal from './TemplatesModal.svelte';
   import RuleCard from './RuleCard.svelte';
   import { singboxRuleToCard } from './adapters';
   import type { RuleCardData } from './types';
@@ -65,14 +62,8 @@
       <div class="counter">
         {count} {pluralRules(count)}
       </div>
-      <Button variant="primary" size="sm" onclick={() => openTemplatesModal()}>
-        + Из шаблона
-      </Button>
       <Button variant="secondary" size="sm" onclick={() => openAddWizard()}>
         + Правило
-      </Button>
-      <Button variant="secondary" size="sm" onclick={(_e) => openTrace()}>
-        Куда поедет?
       </Button>
     </div>
   </header>
@@ -93,8 +84,6 @@
     </div>
   {/if}
 </section>
-
-<TemplatesModal />
 
 <style>
   .rules-panel {
