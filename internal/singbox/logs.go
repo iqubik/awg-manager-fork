@@ -152,8 +152,6 @@ func (f *LogForwarder) forward(line []byte) {
 		return
 	}
 	subgroup, target, message := classifyPayload(payload)
-	target = sanitizeSingboxLogText(target)
-	message = sanitizeSingboxLogText(message)
 	scoped := f.scopedFor(subgroup)
 	if scoped == nil {
 		return

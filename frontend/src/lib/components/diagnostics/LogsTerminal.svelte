@@ -8,6 +8,7 @@
   import { usageLevel, settings } from '$lib/stores/settings';
   import { systemInfo } from '$lib/stores/system';
   import { copyToClipboard } from '$lib/utils/clipboard';
+  import { stripAnsi } from '$lib/utils/ansi';
   import { formatDateTimeWithOffset } from '$lib/utils/format';
   import { diagnosticsSanitized, toggleDiagnosticsSanitized } from '$lib/stores/diagnosticsPrivacy';
   import { sanitizeLogEntry } from '$lib/utils/log-privacy';
@@ -138,6 +139,7 @@
   const subgroupCache = new Map<string, string[]>();
 
   const activeStore = $derived<LogStore>(logStoreFor(bucket));
+  const privacyRevealAvailable = $derived(true);
 
   // Reactive subscriptions to the active store. $derived re-runs each time
   // the store identity changes (bucket toggle), so we re-subscribe naturally
@@ -335,8 +337,18 @@
     scrollEl?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  function normalizeLogForOutput(log: LogEntry): LogEntry {
+    const clean = {
+      ...log,
+      target: stripAnsi(log.target),
+      message: stripAnsi(log.message),
+    };
+    const shouldSanitize = $diagnosticsSanitized;
+    return shouldSanitize ? sanitizeLogEntry(clean) : clean;
+  }
+
   function logForPrivacy(log: LogEntry): LogEntry {
-    return $diagnosticsSanitized ? sanitizeLogEntry(log) : log;
+    return normalizeLogForOutput(log);
   }
 
   async function applyFilter(f: LogsFilter) {
@@ -428,6 +440,15 @@
     saveFullTimestamp(showFullTimestamp);
   }
 
+  async function handleToggleSanitizeLogs() {
+    toggleDiagnosticsSanitized();
+    manualPause = false;
+    paused = false;
+    bufferCount = 0;
+    manualFrozenLogs = null;
+    await loadBucketFresh(bucket);
+  }
+
   function formatLine(log: LogEntry, routerOffset: number): string {
     const visible = logForPrivacy(log);
     const scope = visible.subgroup ? `${visible.group}/${visible.subgroup}` : visible.group;
@@ -489,6 +510,41 @@
     copyText(text, 'Сообщение скопировано');
   }
 
+  function matchesCurrentVisibleFilters(log: LogEntry, currentFilter: LogsFilter): boolean {
+    if (currentFilter.levels.length > 0 && currentFilter.levels.length < ALL_LEVELS.length) {
+      const set = new Set(currentFilter.levels);
+      if (!set.has(log.level)) return false;
+    }
+
+    if (bucket === 'singbox') {
+      if (currentFilter.groups.length > 0) {
+        const set = new Set(currentFilter.groups);
+        if (!set.has(log.subgroup)) return false;
+      }
+    } else {
+      if (currentFilter.groups.length > 0) {
+        const set = new Set(currentFilter.groups);
+        if (!set.has(log.group)) return false;
+      }
+      if (currentFilter.subgroups.length > 0) {
+        const set = new Set(currentFilter.subgroups);
+        if (!set.has(log.subgroup)) return false;
+      }
+    }
+
+    if (currentFilter.search) {
+      const q = currentFilter.search.toLowerCase();
+      const visible = logForPrivacy(log);
+      return (
+        visible.message.toLowerCase().includes(q) ||
+        visible.target.toLowerCase().includes(q) ||
+        visible.action.toLowerCase().includes(q)
+      );
+    }
+
+    return true;
+  }
+
   async function handleDownload() {
     downloading = true;
     try {
@@ -496,7 +552,8 @@
       if (clock === null) return;
 
       const resp = await api.getLogs(buildLogQuery($totalStore || 10000, 0));
-      const text = resp.logs.map((log) => formatLine(log, clock.routerOffset)).join('\n');
+      const logs = resp.logs.filter((log) => matchesCurrentVisibleFilters(log, filter));
+      const text = logs.map((log) => formatLine(log, clock.routerOffset)).join('\n');
       const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const stamp = formatRouterClockFilenameStamp(clock.routerTime, clock.routerOffset);
@@ -507,7 +564,7 @@
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      notifications.success(`Скачано ${resp.logs.length} записей`);
+      notifications.success(`Скачано ${logs.length} записей`);
     } catch {
       notifications.error('Не удалось скачать логи');
     } finally {
@@ -604,7 +661,9 @@
       {showFullTimestamp}
       onToggleFullTimestamp={toggleFullTimestamp}
       sanitizeLogs={$diagnosticsSanitized}
-      onToggleSanitizeLogs={toggleDiagnosticsSanitized}
+      onToggleSanitizeLogs={handleToggleSanitizeLogs}
+      sanitizeToggleAvailable={privacyRevealAvailable}
+      sanitizeToggleHint=""
       totalEntries={$totalStore}
       visibleEntries={displayLogs.length}
       bufferStats={$statsStore}

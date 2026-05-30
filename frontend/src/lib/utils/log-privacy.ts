@@ -2,6 +2,7 @@ import type { LogEntry } from '$lib/types';
 
 const ipv4WithOptionalPortRe = /\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b/g;
 const bracketedIpv6WithOptionalPortRe = /\[[0-9A-Fa-f:]+\](?::\d{1,5})?/g;
+const plainIpv6Re = /\b(?:[0-9A-Fa-f]{0,4}:){2,}[0-9A-Fa-f]{0,4}(?:%[A-Za-z0-9_.-]+)?\b/g;
 const domainWithOptionalPortRe = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}(?::\d{1,5})?\b/gi;
 
 function splitHostPort(value: string): { host: string; port: string } {
@@ -31,10 +32,18 @@ function maskBracketedIpv6(value: string): string {
   return `[${maskToken(host)}]${rest}`;
 }
 
+function maskPlainIpv6(value: string): string {
+  if (!value.includes(':')) return value;
+  const colonCount = (value.match(/:/g) ?? []).length;
+  if (colonCount < 3 && !value.includes('::')) return value;
+  return maskToken(value);
+}
+
 export function sanitizeLogText(value: string): string {
   if (!value) return value;
   return value
     .replace(bracketedIpv6WithOptionalPortRe, maskBracketedIpv6)
+    .replace(plainIpv6Re, maskPlainIpv6)
     .replace(ipv4WithOptionalPortRe, maskHostPort)
     .replace(domainWithOptionalPortRe, maskHostPort);
 }

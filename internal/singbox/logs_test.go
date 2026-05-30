@@ -224,7 +224,7 @@ func TestSanitizeSingboxLogText_RedactsDomainsAndIPs(t *testing.T) {
 	}
 }
 
-func TestLogForwarder_RedactsSensitiveHostsBeforeLogging(t *testing.T) {
+func TestLogForwarder_PreservesSensitiveHostsBeforeOutputMasking(t *testing.T) {
 	cap := &captureLogger{}
 	f := NewLogForwarder("unused", cap)
 
@@ -240,21 +240,19 @@ func TestLogForwarder_RedactsSensitiveHostsBeforeLogging(t *testing.T) {
 	if got[0].Target != "dns" {
 		t.Fatalf("target = %q, want dns", got[0].Target)
 	}
-	if strings.Contains(got[0].Message, "node.example.org") {
-		t.Fatalf("domain leaked: %q", got[0].Message)
+	msg := got[0].Message
+	if !strings.Contains(msg, "node.example.org") {
+		t.Fatalf("raw domain missing before output masking: %q", msg)
 	}
-	if strings.Contains(got[0].Message, "203.0.113.77") {
-		t.Fatalf("ip leaked: %q", got[0].Message)
+	if !strings.Contains(msg, "203.0.113.77") {
+		t.Fatalf("raw ip missing before output masking: %q", msg)
 	}
-	if !strings.Contains(got[0].Message, "no************rg") {
-		t.Fatalf("redacted domain missing: %q", got[0].Message)
-	}
-	if !strings.Contains(got[0].Message, "20********77") {
-		t.Fatalf("redacted ip missing: %q", got[0].Message)
+	if strings.Contains(msg, "no************rg") || strings.Contains(msg, "20********77") {
+		t.Fatalf("message was redacted before output masking: %q", msg)
 	}
 }
 
-func TestLogForwarder_RedactsSensitiveHosts_AllLevels(t *testing.T) {
+func TestLogForwarder_PreservesSensitiveHosts_AllLevels(t *testing.T) {
 	cases := []string{"error", "fatal", "panic", "warn", "warning", "info", "debug", "trace"}
 	for _, lvl := range cases {
 		t.Run(lvl, func(t *testing.T) {
@@ -268,11 +266,11 @@ func TestLogForwarder_RedactsSensitiveHosts_AllLevels(t *testing.T) {
 				t.Fatalf("expected one log, got %d", len(got))
 			}
 			msg := got[0].Message
-			if strings.Contains(msg, "node.example.org") || strings.Contains(msg, "203.0.113.77") || strings.Contains(msg, "2606:2800:220:1:248:1893:25c8:1946") {
-				t.Fatalf("raw sensitive value leaked on level=%s: %q", lvl, msg)
+			if !strings.Contains(msg, "node.example.org") || !strings.Contains(msg, "203.0.113.77") || !strings.Contains(msg, "2606:2800:220:1:248:1893:25c8:1946") {
+				t.Fatalf("raw sensitive value missing before output masking on level=%s: %q", lvl, msg)
 			}
-			if !strings.Contains(msg, "no************rg") || !strings.Contains(msg, "20********77") || !strings.Contains(msg, "[26******************************46]:443") {
-				t.Fatalf("redacted values missing on level=%s: %q", lvl, msg)
+			if strings.Contains(msg, "no************rg") || strings.Contains(msg, "20********77") || strings.Contains(msg, "[26******************************46]:443") {
+				t.Fatalf("message was redacted before output masking on level=%s: %q", lvl, msg)
 			}
 		})
 	}
