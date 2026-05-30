@@ -166,6 +166,7 @@
 	}
 
 	let togglingEnabled = $state(false);
+	let restartingServer = $state(false);
 
 	async function handleToggleEnabled() {
 		togglingEnabled = true;
@@ -177,6 +178,21 @@
 			notifications.error(e instanceof Error ? e.message : 'Ошибка переключения');
 		} finally {
 			togglingEnabled = false;
+		}
+	}
+
+	async function handleRestartOrStart() {
+		if (restartingServer) return;
+		restartingServer = true;
+
+		try {
+			await api.restartManagedServer(serverId);
+			notifications.success(isUp ? 'Команда рестарта отправлена' : 'Команда запуска отправлена');
+			servers.invalidate();
+		} catch {
+			notifications.warning('Команда могла быть отправлена, соединение могло временно прерваться');
+		} finally {
+			restartingServer = false;
 		}
 	}
 
@@ -281,9 +297,24 @@
 			<Toggle
 				checked={isUp}
 				onchange={handleToggleEnabled}
-				disabled={togglingEnabled}
+				disabled={togglingEnabled || restartingServer}
 				size="sm"
 			/>
+			<IconButton
+				ariaLabel={isUp
+					? `Перезапустить сервер ${serverDisplayName}`
+					: `Запустить сервер ${serverDisplayName}`}
+				title={isUp
+					? `Перезапустить сервер «${serverDisplayName}»`
+					: `Запустить сервер «${serverDisplayName}»`}
+				onclick={handleRestartOrStart}
+				disabled={restartingServer || togglingEnabled || deleting}
+			>
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M21 12a9 9 0 1 1-2.64-6.36" />
+					<path d="M21 3v6h-6" />
+				</svg>
+			</IconButton>
 			<IconButton
 				ariaLabel={`Открыть параметры обфускации сервера ${serverDisplayName}`}
 				title={`Параметры обфускации сервера «${serverDisplayName}»`}

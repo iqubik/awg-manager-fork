@@ -31,6 +31,7 @@ type ManagedServerService interface {
 
 	// Enable/disable
 	SetEnabled(ctx context.Context, id string, enabled bool) error
+	RestartOrStart(ctx context.Context, id string) error
 
 	// NAT
 	SetNAT(ctx context.Context, id string, enabled bool) error

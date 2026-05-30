@@ -245,6 +245,35 @@ func (s *Service) SetEnabled(ctx context.Context, id string, enabled bool) error
 	return nil
 }
 
+// RestartOrStart restarts a running managed server or starts a stopped one.
+// The desired/persisted state is not changed: this only flips the NDMS
+// interface state so clients connected through the server can recover without
+// requiring a second frontend request.
+func (s *Service) RestartOrStart(ctx context.Context, id string) error {
+	server, ok := s.settings.GetManagedServerByID(id)
+	if !ok {
+		return fmt.Errorf("managed server not found: %s", id)
+	}
+
+	stats, err := s.GetStats(ctx, id)
+	wasUp := err == nil && stats != nil && stats.Status == "up"
+
+	if wasUp {
+		if err := s.rciInterfaceDown(ctx, server.InterfaceName); err != nil {
+			return fmt.Errorf("interface down: %w", err)
+		}
+		time.Sleep(1200 * time.Millisecond)
+	}
+
+	if err := s.rciInterfaceUp(ctx, server.InterfaceName); err != nil {
+		return fmt.Errorf("interface up: %w", err)
+	}
+
+	s.log.Info("managed server restart-or-start", "interface", server.InterfaceName, "wasUp", wasUp)
+	s.appLog.Info("restart", server.InterfaceName, "Managed server restart/start command completed")
+	return nil
+}
+
 // Delete removes the managed server and all its peers.
 //
 // Order matters: NDMS interface deletion happens FIRST. If it fails, storage
