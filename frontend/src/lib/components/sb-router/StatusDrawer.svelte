@@ -1,48 +1,59 @@
 <!--
-  Источник дизайна: singbox-router/project/screens/StatusDrawerView.jsx (StatusDrawer)
-  Использует SideDrawer primitive из ui/ для shell (header/body/footer/Esc/backdrop).
+  Единое меню движка sing-box. Открывается кликом по движку/статус-pill в hero (drawerStore).
+  beginner: состояние + здоровье + управление. expert: + редактируемые настройки (auto-save).
 -->
-
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { SideDrawer, Toggle, Button, Badge } from '$lib/components/ui';
   import { api } from '$lib/api/client';
   import { singboxRouter as singboxRouterStore } from '$lib/stores/singboxRouter';
   import { singboxStatus } from '$lib/stores/singbox';
   import { systemInfo } from '$lib/stores/system';
+  import { notifications } from '$lib/stores/notifications';
   import { drawerOpen, closeDrawer } from './drawerStore';
   import { mode } from './modeStore';
-  import DrawerSection from './DrawerSection.svelte';
-  import DrawerRow from './DrawerRow.svelte';
   import DepRow from './DepRow.svelte';
   import IssueRow from './IssueRow.svelte';
+  import OutboundOption from './OutboundOption.svelte';
   import { deriveDeps, deriveIssues } from './drawerData';
+  import { mergeAndSaveSettings, BYPASS_PRESETS } from './settingsActions';
+  import type { SingboxRouterSettings, SingboxRouterWANInterface } from '$lib/types';
 
   const status = singboxRouterStore.status;
-  const settings = singboxRouterStore.settings;
+  const storeSettings = singboxRouterStore.settings;
 
   let open = $derived($drawerOpen);
   let s = $derived($status);
-  let cfg = $derived($settings);
-  let singboxInstallState = $derived($singboxStatus);
-  let singboxInstallStatus = $derived(singboxInstallState.data);
+  let cfg = $derived($storeSettings);
+  let isExpert = $derived($mode === 'expert');
+
+  let singboxInstallStatus = $derived($singboxStatus.data);
   let sysInfo = $derived($systemInfo.data);
 
   let deps = $derived(deriveDeps(s));
   let issues = $derived(deriveIssues(s));
   let issueCount = $derived(issues.length);
-
   let engineEnabled = $derived(s?.enabled ?? false);
-  let isExpert = $derived($mode === 'expert');
+
+  let wanInterfaces = $state<SingboxRouterWANInterface[]>([]);
+  let saving = $state(false);
+  let lastError = $state<string | null>(null);
+  let portTimer: ReturnType<typeof setTimeout> | null = null;
+  let policyNameTimer: ReturnType<typeof setTimeout> | null = null;
 
   function versionLabel(value?: string | null): string {
     const v = (value ?? '').trim();
     return v ? `v${v}` : '—';
   }
-
   let sbVersionLabel = $derived(versionLabel(
     singboxInstallStatus?.version ?? singboxInstallStatus?.currentVersion ?? sysInfo?.singbox?.version,
   ));
 
+  function pluralRules(n: number): string {
+    if (n === 1) return 'правило';
+    if (n >= 2 && n <= 4) return 'правила';
+    return 'правил';
+  }
   let bigTitle = $derived(engineEnabled ? 'Движок работает' : 'Движок выключен');
   let bigSubtitle = $derived.by(() => {
     if (!engineEnabled) return 'Не активен';
@@ -50,33 +61,28 @@
     return `Трафик идёт через ${n} ${pluralRules(n)}`;
   });
 
-  function pluralRules(n: number): string {
-    if (n === 1) return 'правило';
-    if (n >= 2 && n <= 4) return 'правила';
-    return 'правил';
-  }
+  onMount(async () => {
+    void singboxRouterStore.loadAll();
+    try {
+      wanInterfaces = await api.singboxRouterListWANInterfaces();
+    } catch (_e) {
+      // ignore
+    }
+  });
 
-  // WAN summary
-  let wanMode = $derived(cfg?.wanAutoDetect ? 'Авто-определение' : 'Закреплён');
-  let wanCurrent = $derived(cfg?.wanInterface || 'auto');
-
+  // ── Engine control ──
   async function toggleEngine(_checked: boolean) {
     try {
-      if (engineEnabled) {
-        await api.singboxRouterDisable();
-      } else {
-        await api.singboxRouterEnable();
-      }
+      if (engineEnabled) await api.singboxRouterDisable();
+      else await api.singboxRouterEnable();
       await singboxRouterStore.reloadStatus();
     } catch (e) {
       console.error('toggleEngine failed', e);
     }
   }
-
   async function handleToggleClick(_e: MouseEvent) {
     await toggleEngine(!engineEnabled);
   }
-
   async function restartEngine(_e: MouseEvent) {
     try {
       await api.singboxControl('restart');
@@ -85,68 +91,150 @@
       console.error('restart failed', e);
     }
   }
+
+  // ── Settings (expert, auto-save) ──
+  async function applyPatch(patch: Partial<SingboxRouterSettings>) {
+    if (!cfg) return;
+    saving = true;
+    lastError = null;
+    try {
+      await mergeAndSaveSettings(patch);
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+      notifications.error(`Не удалось сохранить: ${lastError}`);
+    } finally {
+      saving = false;
+    }
+  }
+  function setDeviceMode(m: 'policy' | 'all') { void applyPatch({ deviceMode: m }); }
+  function onPolicyNameInput(e: Event) {
+    const v = (e.currentTarget as HTMLInputElement).value;
+    if (policyNameTimer) clearTimeout(policyNameTimer);
+    policyNameTimer = setTimeout(() => void applyPatch({ policyName: v }), 500);
+  }
+  function toggleAutoDetect(checked: boolean) {
+    if (checked) void applyPatch({ wanAutoDetect: true, wanInterface: '' });
+    else void applyPatch({ wanAutoDetect: false });
+  }
+  function onWanInterfaceChange(e: Event) {
+    const v = (e.currentTarget as HTMLSelectElement).value;
+    void applyPatch({ wanAutoDetect: false, wanInterface: v });
+  }
+  function toggleSniffer(checked: boolean) { void applyPatch({ snifferEnabled: checked }); }
+  function togglePreset(id: string) {
+    const current = cfg?.bypassPresets ?? [];
+    const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+    void applyPatch({ bypassPresets: next });
+  }
+  function onExtraPortsInput(e: Event) {
+    const v = (e.currentTarget as HTMLInputElement).value;
+    if (portTimer) clearTimeout(portTimer);
+    portTimer = setTimeout(() => void applyPatch({ bypassExtraPorts: v }), 500);
+  }
 </script>
 
-<SideDrawer {open} onClose={closeDrawer} title="Состояние sing-box" width={420}>
-  <div class="drawer-content">
-    <!-- Big engine toggle -->
-    <div class="big-toggle" class:is-on={engineEnabled}>
-      <Toggle checked={engineEnabled} onchange={toggleEngine} />
-      <div class="big-text">
-        <div class="big-title">{bigTitle}</div>
-        <div class="big-sub">{bigSubtitle}</div>
+<SideDrawer {open} onClose={closeDrawer} title="Движок sing-box" width={420}>
+  <div class="sections">
+    <!-- Состояние -->
+    <section class="sec">
+      <div class="sec-cap">Состояние</div>
+      <div class="big-toggle" class:is-on={engineEnabled}>
+        <Toggle checked={engineEnabled} onchange={toggleEngine} />
+        <div class="big-text">
+          <div class="big-title">{bigTitle}</div>
+          <div class="big-sub">{bigSubtitle}</div>
+        </div>
+        <span class="big-version">{sbVersionLabel}</span>
       </div>
-      <span class="big-version">{sbVersionLabel}</span>
-    </div>
+    </section>
 
     <!-- Зависимости -->
-    <DrawerSection title="Зависимости">
+    <section class="sec">
+      <div class="sec-cap">Зависимости</div>
       {#each deps as dep}
         <DepRow tone={dep.tone} label={dep.label} hint={dep.hint} />
       {/each}
-    </DrawerSection>
-
-    {#if isExpert}
-      <!-- Устройства -->
-      <DrawerSection title="Устройства" actionHint="Изменить (в Эксперт)">
-        <DrawerRow label="NDMS policy" value={s?.policyName || '—'} mono />
-        {#if s?.policyMark}
-          <DrawerRow label="Mark" value={s.policyMark} mono />
-        {/if}
-        <DrawerRow label="Привязано" value={`${s?.deviceCount ?? 0} устройств`} />
-        <DrawerRow label="Режим" value={s?.deviceMode === 'all' ? 'Все устройства' : 'Только policy'} />
-      </DrawerSection>
-    {/if}
-
-    {#if isExpert}
-      <!-- WAN-интерфейс -->
-      <DrawerSection title="WAN-интерфейс" actionHint="Изменить (в Эксперт)">
-        <DrawerRow label="Режим" value={wanMode} />
-        <DrawerRow label="Текущий" value={wanCurrent} mono />
-      </DrawerSection>
-    {/if}
+    </section>
 
     <!-- Замечания -->
-    {#if isExpert && issueCount > 0}
-      <DrawerSection title="Замечания">
-        {#snippet badge()}
-          <Badge variant="warning" size="sm">{issueCount}</Badge>
-        {/snippet}
+    {#if issueCount > 0}
+      <section class="sec">
+        <div class="sec-cap">Замечания <Badge variant="warning" size="sm">{issueCount}</Badge></div>
         {#each issues as issue}
           <IssueRow tone={issue.tone} text={issue.text} ctaHint={issue.ctaHint} />
         {/each}
-      </DrawerSection>
+      </section>
     {/if}
 
-    <!-- Дополнительно (collapsed) -->
-    <DrawerSection title="Дополнительно" collapsed>
-      <DrawerRow label="Sniffer" value={s?.snifferEnabled ? 'Включён' : 'Выключен'} small />
-      <DrawerRow label="Final outbound" value={s?.final || 'direct'} mono small />
-      {#if isExpert}
-        <DrawerRow label="AWG outbounds" value={String(s?.outboundAwgCount ?? 0)} small />
-        <DrawerRow label="Composite outbounds" value={String(s?.outboundCompositeCount ?? 0)} small />
-      {/if}
-    </DrawerSection>
+    {#if isExpert && cfg}
+      <!-- Режим работы -->
+      <section class="sec">
+        <div class="sec-cap">Режим работы</div>
+        <div class="card-grid">
+          <OutboundOption label="Только устройства policy" sub="трафик из назначенной policy" tone="accent"
+            selected={cfg.deviceMode !== 'all'} onclick={() => setDeviceMode('policy')} />
+          <OutboundOption label="Весь роутер" sub="весь LAN-трафик" tone="accent"
+            selected={cfg.deviceMode === 'all'} onclick={() => setDeviceMode('all')} />
+        </div>
+        {#if cfg.deviceMode !== 'all'}
+          <div class="field">
+            <label class="lbl" for="ed-policy">Имя NDMS policy</label>
+            <input id="ed-policy" class="inp" type="text" value={cfg.policyName} oninput={onPolicyNameInput} />
+          </div>
+        {/if}
+        <p class="hint">При policy обрабатывается только трафик устройств, привязанных к policy в LAN-настройках NDMS.</p>
+      </section>
+
+      <!-- WAN-интерфейс -->
+      <section class="sec">
+        <div class="sec-cap">WAN-интерфейс</div>
+        <div class="field-row">
+          <Toggle checked={cfg.wanAutoDetect} onchange={(checked) => toggleAutoDetect(checked)} />
+          <span>Авто-определение</span>
+        </div>
+        {#if !cfg.wanAutoDetect}
+          <div class="field">
+            <label class="lbl" for="ed-wan">Интерфейс</label>
+            <select id="ed-wan" class="inp" value={cfg.wanInterface ?? ''} onchange={onWanInterfaceChange}>
+              <option value="">— выберите —</option>
+              {#each wanInterfaces as iface (iface.name)}
+                <option value={iface.name}>{iface.name}{iface.label ? ` — ${iface.label}` : ''}</option>
+              {/each}
+            </select>
+          </div>
+        {/if}
+        <p class="hint">Через какой внешний интерфейс sing-box отправляет прямой трафик.</p>
+      </section>
+
+      <!-- Анализ трафика -->
+      <section class="sec">
+        <div class="sec-cap">Анализ трафика</div>
+        <div class="field-row">
+          <Toggle checked={cfg.snifferEnabled} onchange={(checked) => toggleSniffer(checked)} />
+          <span>Включить sniff (HTTP/TLS/QUIC по содержимому)</span>
+        </div>
+        <p class="hint">Улучшает срабатывание domain-based правил при IP-only matchers.</p>
+      </section>
+
+      <!-- Исключения портов -->
+      <section class="sec">
+        <div class="sec-cap">Исключения портов</div>
+        <div class="chips">
+          {#each BYPASS_PRESETS as p (p.id)}
+            {@const active = (cfg.bypassPresets ?? []).includes(p.id)}
+            <button type="button" class="chip" class:active onclick={() => togglePreset(p.id)}>
+              <span class="chip-label">{p.label}</span>
+              <span class="chip-desc">{p.desc}</span>
+            </button>
+          {/each}
+        </div>
+        <div class="field">
+          <label class="lbl" for="ed-ports">Доп. порты (формат: udp:53, tcp:443)</label>
+          <input id="ed-ports" class="inp" type="text" value={cfg.bypassExtraPorts ?? ''} placeholder="udp:53, tcp:443" oninput={onExtraPortsInput} />
+        </div>
+        <p class="hint">Эти порты пойдут мимо sing-box (прямо в WAN). Полезно для L2TP/NTP/SMB не ломая LAN-сервисы.</p>
+      </section>
+    {/if}
   </div>
 
   {#snippet footer()}
@@ -155,51 +243,62 @@
         {engineEnabled ? 'Выключить' : 'Включить'}
       </Button>
       <Button variant="ghost" size="sm" onclick={restartEngine}>Перезапустить</Button>
+      {#if isExpert}
+        <span class="save-status" class:err={lastError}>
+          {saving ? 'Сохраняем…' : lastError ? `Ошибка` : '✓ Сохранено'}
+        </span>
+      {/if}
     </div>
   {/snippet}
 </SideDrawer>
 
 <style>
-  .drawer-content {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
+  .sections { display: flex; flex-direction: column; }
+  .sec {
+    padding: 14px var(--sp-4);
+    border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .sec:last-of-type { border-bottom: 0; }
+  .sec-cap {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-muted); display: flex; align-items: center; gap: 8px;
   }
 
   .big-toggle {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 14px;
-    border-radius: var(--radius);
-    background: color-mix(in srgb, var(--text-muted) 5%, var(--bg-tertiary));
-    border: 1px solid var(--border);
+    display: flex; align-items: center; gap: 14px; padding: 14px; border-radius: var(--radius);
+    background: color-mix(in srgb, var(--text-muted) 5%, var(--bg-tertiary)); border: 1px solid var(--border);
   }
   .big-toggle.is-on {
     background: color-mix(in srgb, var(--success) 8%, var(--bg-tertiary));
     border-color: color-mix(in srgb, var(--success) 25%, var(--border));
   }
   .big-text { flex: 1; min-width: 0; }
-  .big-title {
-    font-weight: 600;
-    font-size: 14px;
-    color: var(--text-primary);
-  }
-  .big-sub {
-    font-size: 11.5px;
-    color: var(--text-muted);
-    margin-top: 2px;
-  }
-  .big-version {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
+  .big-title { font-weight: 600; font-size: 14px; color: var(--text-primary); }
+  .big-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+  .big-version { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
 
-  .footer-actions {
-    display: flex;
-    gap: 6px;
-    width: 100%;
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .lbl { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+  .inp {
+    padding: 6px 10px; border-radius: var(--radius-sm); background: var(--bg-primary);
+    border: 1px solid var(--border); color: var(--text-primary); font-size: 12.5px; font-family: inherit;
   }
+  .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  @media (max-width: 480px) { .card-grid { grid-template-columns: 1fr; } }
+  .hint { margin: 0; font-size: 11.5px; color: var(--text-muted); line-height: 1.4; }
+  .chips { display: flex; flex-direction: column; gap: 6px; }
+  .chip {
+    text-align: left; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-tertiary);
+    border: 1px solid var(--border); cursor: pointer; font-family: inherit; color: inherit;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .chip.active { background: var(--accent-soft); border-color: var(--accent); }
+  .chip-label { font-size: 12.5px; font-weight: 600; }
+  .chip-desc { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+  .footer-actions { display: flex; gap: 6px; width: 100%; align-items: center; }
+  .save-status { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+  .save-status.err { color: var(--color-error, #dc2626); }
 </style>
