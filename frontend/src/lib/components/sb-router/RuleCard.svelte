@@ -10,13 +10,15 @@
   import MatcherChip from './MatcherChip.svelte';
   import OutboundTile from './OutboundTile.svelte';
   import { Badge } from '$lib/components/ui';
+  import { X } from 'lucide-svelte';
 
   interface Props {
     card: RuleCardData;
     /** 0-based index — отображается как 01/02/... */
     index: number;
+    onDelete?: () => void;
   }
-  let { card, index }: Props = $props();
+  let { card, index, onDelete }: Props = $props();
 
   const MAX_CHIPS = 4;
   let visibleChips = $derived(card.matchers.slice(0, MAX_CHIPS));
@@ -74,6 +76,12 @@
   {#if card.isSystem}
     <div class="right-slot">
       <Badge variant="muted" size="sm">система</Badge>
+    </div>
+  {:else if onDelete}
+    <div class="right-slot">
+      <button type="button" class="del-btn" onclick={onDelete} aria-label="Удалить правило" title="Удалить">
+        <X size={14} />
+      </button>
     </div>
   {/if}
 </div>
@@ -173,6 +181,22 @@
   .right-slot {
     display: flex;
     gap: 2px;
+  }
+
+  .del-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 5px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .del-btn:hover {
+    color: var(--color-danger, #ef4444);
+    border-color: var(--color-danger, #ef4444);
   }
 
   /* ── Mobile: stack vertically ── */
