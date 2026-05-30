@@ -7,7 +7,7 @@
 	import { comparePeerFieldsDirected } from '$lib/utils/peerSort';
 	import { peerSort } from '$lib/stores/peerSort';
 	import { PeerTable, ConfGeneratorModal, PeerSortControls } from '$lib/components/servers';
-	import { Button, IconButton, Toggle } from '$lib/components/ui';
+	import { Button, IconButton } from '$lib/components/ui';
 
 	function peerIP(p: WireguardServerPeer): string {
 		return p.allowedIPs?.find(ip => ip.includes('/32'))
@@ -40,7 +40,6 @@
 	let serverName = $derived(server.description || server.id);
 	let isUp = $derived(server.status === 'up' || server.connected);
 
-	let togglingEnabled = $state(false);
 	let restartingServer = $state(false);
 
 	let sortedPeers = $derived.by(() => {
@@ -79,18 +78,6 @@
 
 		return sorted;
 	});
-
-	async function handleToggleEnabled() {
-		togglingEnabled = true;
-		try {
-			const fresh = await api.setWireguardServerEnabled(server.id, !isUp);
-			servers.applyMutationResponse(fresh);
-		} catch (e) {
-			notifications.error(e instanceof Error ? e.message : 'Ошибка переключения');
-		} finally {
-			togglingEnabled = false;
-		}
-	}
 
 	async function handleRestartOrStart() {
 		if (restartingServer) return;
@@ -155,13 +142,6 @@
 			</div>
 
 			<div class="server-header-actions">
-				<Toggle
-					checked={isUp}
-					onchange={handleToggleEnabled}
-					disabled={togglingEnabled || restartingServer}
-					size="sm"
-				/>
-
 				<IconButton
 					ariaLabel={isUp
 						? `Перезапустить сервер ${serverName}`
@@ -170,7 +150,7 @@
 						? `Перезапустить сервер «${serverName}»`
 						: `Запустить сервер «${serverName}»`}
 					onclick={handleRestartOrStart}
-					disabled={restartingServer || togglingEnabled}
+					disabled={restartingServer}
 				>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M21 12a9 9 0 1 1-2.64-6.36" />
