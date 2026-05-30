@@ -838,6 +838,28 @@ class ApiClient {
 		return res.ip;
 	}
 
+	async restartManagedServer(serverId: string): Promise<{ id: string; accepted: boolean }> {
+		return this.request(`/managed-servers/${encodeURIComponent(serverId)}/restart`, {
+			method: 'POST'
+		});
+	}
+
+	async restartWireguardServer(name: string): Promise<{ id: string; accepted: boolean }> {
+		return this.request(`/servers/restart?name=${encodeURIComponent(name)}`, {
+			method: 'POST'
+		});
+	}
+
+	async setWireguardServerEnabled(
+		name: string,
+		enabled: boolean
+	): Promise<import('$lib/stores/servers').ServersSnapshot> {
+		return this.request(`/servers/enabled?name=${encodeURIComponent(name)}`, {
+			method: 'POST',
+			body: JSON.stringify({ enabled })
+		});
+	}
+
 	// #endregion
 
 	// ─────────────────────────────────────────────

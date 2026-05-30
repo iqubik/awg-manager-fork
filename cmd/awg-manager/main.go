@@ -903,6 +903,7 @@ func main() {
 			KmodLoader:          kmodLoader,
 			UpdaterService:      updaterService,
 			NdmsQueries:         ndmsQueries,
+			NdmsCommands:        ndmsCommands,
 			TrafficHistory:      trafficHistory,
 			DnsRouteService:     dnsRouteService,
 			StaticRouteService:  staticRouteService,

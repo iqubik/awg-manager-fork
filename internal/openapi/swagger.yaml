@@ -4697,6 +4697,11 @@ definitions:
         example: 524288
         type: integer
     type: object
+  api.serverEnabledRequest:
+    properties:
+      enabled:
+        type: boolean
+    type: object
   diagnostics.DNSProxy:
     properties:
       displayName:
@@ -7290,6 +7295,42 @@ paths:
       summary: Set managed-server IP policy
       tags:
       - managed-servers
+  /managed-servers/{id}/restart:
+    post:
+      description: If the managed server is up, restarts it with down -> pause ->
+        up. If it is down, starts it. The command is accepted quickly and executed
+        in background so a client connected through this server does not cancel the
+        operation.
+      parameters:
+      - description: Server id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.APIEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Restart or start managed server
+      tags:
+      - managed-servers
   /managed-servers/{id}/stats:
     get:
       description: Returns per-peer runtime stats (handshake, rx/tx) for the named
@@ -8251,6 +8292,47 @@ paths:
       summary: Get all servers snapshot
       tags:
       - servers
+  /servers/enabled:
+    post:
+      consumes:
+      - application/json
+      description: Brings a built-in or marked WireGuard server interface up or down.
+      parameters:
+      - description: Interface name
+        in: query
+        name: name
+        required: true
+        type: string
+      - description: Enabled flag
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.serverEnabledRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ServersAllResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Toggle WireGuard server enabled state
+      tags:
+      - servers
   /servers/mark:
     delete:
       description: POST marks the named WG interface as a server (visible under Servers,
@@ -8329,6 +8411,42 @@ paths:
       security:
       - CookieAuth: []
       summary: Get marked server interfaces
+      tags:
+      - servers
+  /servers/restart:
+    post:
+      description: If the server interface is up, restarts it with down -> pause ->
+        up. If it is down, starts it. The command is accepted quickly and executed
+        in background so a client connected through this server does not cancel the
+        operation.
+      parameters:
+      - description: Interface name
+        in: query
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.APIEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Restart or start WireGuard server
       tags:
       - servers
   /servers/wan-ip:

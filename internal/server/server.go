@@ -94,6 +94,7 @@ type Server struct {
 	kmodLoader             *kmod.Loader
 	updaterService         *updater.Service
 	ndmsQueries            *ndmsquery.Queries
+	ndmsCommands           *ndmscommand.Commands
 	trafficHistory         *traffic.History
 	dnsRouteService        api.DNSRouteService
 	staticRouteService     api.StaticRouteService
@@ -166,6 +167,7 @@ type Deps struct {
 	KmodLoader           *kmod.Loader
 	UpdaterService       *updater.Service
 	NdmsQueries          *ndmsquery.Queries
+	NdmsCommands         *ndmscommand.Commands
 	TrafficHistory       *traffic.History
 	DnsRouteService      api.DNSRouteService
 	StaticRouteService   api.StaticRouteService
@@ -224,6 +226,7 @@ func New(cfg Config, deps Deps) *Server {
 		kmodLoader:             deps.KmodLoader,
 		updaterService:         deps.UpdaterService,
 		ndmsQueries:            deps.NdmsQueries,
+		ndmsCommands:           deps.NdmsCommands,
 		trafficHistory:         deps.TrafficHistory,
 		dnsRouteService:        deps.DnsRouteService,
 		staticRouteService:     deps.StaticRouteService,
@@ -862,18 +865,24 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// VPN Servers (protected + boot guarded)
 	serverHandler := api.NewServersHandler(s.ndmsQueries, s.settings, s.tunnels)
+	serverHandler.SetCommands(s.ndmsCommands)
+	serverHandler.SetEventBus(s.bus)
 	mux.HandleFunc("/api/servers", guarded(serverHandler.List))
 	mux.HandleFunc("/api/servers/all", guarded(serverHandler.GetAll))
 	mux.HandleFunc("/api/servers/get", guarded(serverHandler.Get))
 	mux.HandleFunc("/api/servers/config", guarded(serverHandler.Config))
 	mux.HandleFunc("/api/servers/mark", guarded(serverHandler.Mark))
 	mux.HandleFunc("/api/servers/marked", guarded(serverHandler.Marked))
+	mux.HandleFunc("/api/servers/enabled", guarded(serverHandler.SetEnabled))
+	mux.HandleFunc("/api/servers/restart", guarded(serverHandler.Restart))
 	mux.HandleFunc("/api/servers/wan-ip", guarded(serverHandler.WANIP))
 
 	// Managed WireGuard Servers (protected + boot guarded). The new
 	// route table is id-keyed: see ManagedServerHandler.Subtree for the
 	// full sub-path dispatch (peers, conf, asc, etc).
 	managedHandler := api.NewManagedServerHandler(s.managedService)
+	managedHandler.SetServersHandler(serverHandler)
+	serverHandler.SetManagedHandler(managedHandler)
 	mux.HandleFunc("/api/managed-servers", guarded(managedHandler.Collection))
 	mux.HandleFunc("/api/managed-servers/", guarded(managedHandler.Subtree))
 

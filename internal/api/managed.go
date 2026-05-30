@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/managed"
 	"github.com/hoaxisr/awg-manager/internal/response"
@@ -412,6 +413,8 @@ func (h *ManagedServerHandler) Subtree(w http.ResponseWriter, r *http.Request) {
 			h.NAT(w, r, id)
 		case "enabled":
 			h.SetEnabled(w, r, id)
+		case "restart":
+			h.Restart(w, r, id)
 		case "asc":
 			h.ASC(w, r, id)
 		case "peers":
@@ -761,6 +764,55 @@ func (h *ManagedServerHandler) SetEnabled(w http.ResponseWriter, r *http.Request
 	h.svc.InvalidateCache(id)
 	h.publishServerUpdated()
 	h.writeServersSnapshot(w, r)
+}
+
+// Restart accepts a restart/start command for one managed server.
+// POST /api/managed-servers/{id}/restart
+//
+//	@Summary		Restart or start managed server
+//	@Description	If the managed server is up, restarts it with down -> pause -> up. If it is down, starts it. The command is accepted quickly and executed in background so a client connected through this server does not cancel the operation.
+//	@Tags			managed-servers
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Param			id	path	string	true	"Server id"
+//	@Success		200	{object}	APIEnvelope
+//	@Failure		400	{object}	APIErrorEnvelope
+//	@Failure		404	{object}	APIErrorEnvelope
+//	@Failure		405	{object}	APIErrorEnvelope
+//	@Router			/managed-servers/{id}/restart [post]
+func (h *ManagedServerHandler) Restart(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost {
+		response.MethodNotAllowed(w)
+		return
+	}
+
+	if _, err := h.svc.Get(id); err != nil {
+		response.Error(w, err.Error(), "NOT_FOUND")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 20*time.Second)
+
+	go func() {
+		defer cancel()
+
+		// Give the HTTP response a small window to leave the router before the
+		// interface is brought down. This keeps same-server restart from being
+		// cancelled by the browser connection disappearing mid-request.
+		time.Sleep(300 * time.Millisecond)
+
+		if err := h.svc.RestartOrStart(ctx, id); err != nil {
+			return
+		}
+
+		h.svc.InvalidateCache(id)
+		h.publishServerUpdated()
+	}()
+
+	response.Success(w, map[string]any{
+		"id":       id,
+		"accepted": true,
+	})
 }
 
 // ASC handles GET/PUT for ASC parameters of a managed server.
