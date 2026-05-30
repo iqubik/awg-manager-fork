@@ -882,6 +882,8 @@ export interface LogEntry {
 	action: string;
 	target: string;
 	message: string;
+	/** true when target/message were sanitized by backend before delivery. */
+	sanitized?: boolean;
 }
 
 export interface LogsResponse {
@@ -891,6 +893,8 @@ export interface LogsResponse {
 	bucket: 'app' | 'singbox';
 	bufferSize: number;
 	bufferCapacity: number;
+	/** true when every returned entry was sanitized by backend. */
+	sanitized?: boolean;
 	oldestTimestamp?: string;
 }
 

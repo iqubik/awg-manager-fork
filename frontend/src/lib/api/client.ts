@@ -692,6 +692,7 @@ class ApiClient {
 		level?: string;
 		since?: number;
 		limit?: number;
+		sanitize?: boolean;
 		offset?: number;
 	}): Promise<LogsResponse> {
 		const query = new URLSearchParams();
@@ -707,6 +708,7 @@ class ApiClient {
 		if (params?.level) query.set('level', params.level);
 		if (params?.since != null && params.since > 0) query.set('since', String(params.since));
 		if (params?.limit) query.set('limit', String(params.limit));
+		if (params?.sanitize != null) query.set('sanitize', String(params.sanitize));
 		if (params?.offset != null && params.offset >= 0) query.set('offset', String(params.offset));
 		const qs = query.toString();
 		return this.request(`/logs${qs ? '?' + qs : ''}`);

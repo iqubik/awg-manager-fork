@@ -1394,22 +1394,25 @@ definitions:
   api.LogEntryDTO:
     properties:
       action:
-        example: connect
+        example: run
         type: string
       group:
-        example: tunnel
+        example: singbox
         type: string
       level:
         example: info
         type: string
       message:
-        example: Tunnel connected
+        example: 'lookup succeed for node.example.org: 203.0.113.77'
         type: string
+      sanitized:
+        example: false
+        type: boolean
       subgroup:
-        example: tun_abc123
+        example: dns
         type: string
       target:
-        example: vpn.example.com:51820
+        example: dns
         type: string
       timestamp:
         example: "2024-01-15T10:30:00Z"
@@ -1463,7 +1466,7 @@ definitions:
   api.LogsData:
     properties:
       bucket:
-        example: app
+        example: singbox
         type: string
       bufferCapacity:
         example: 5000
@@ -1481,6 +1484,9 @@ definitions:
       oldestTimestamp:
         example: "2024-01-15T08:00:00Z"
         type: string
+      sanitized:
+        example: false
+        type: boolean
       total:
         example: 42
         type: integer
@@ -6616,7 +6622,9 @@ paths:
     get:
       description: Returns log entries from the selected bucket. `bucket=app` (default)
         covers tunnel/routing/server/system events; `bucket=singbox` covers sing-box
-        forwarder events isolated from app history.
+        forwarder events isolated from app history. By default target/message are
+        returned raw for the authenticated admin UI; pass `sanitize=true` for backend-masked
+        output.
       parameters:
       - description: Bucket selector
         enum:
@@ -6655,6 +6663,11 @@ paths:
         in: query
         name: since
         type: integer
+      - description: Return backend-sanitized target/message values instead of raw
+          values
+        in: query
+        name: sanitize
+        type: boolean
       produces:
       - application/json
       responses:

@@ -17,11 +17,12 @@ import (
 type LogEntryDTO struct {
 	Timestamp string `json:"timestamp" example:"2024-01-15T10:30:00Z"`
 	Level     string `json:"level" example:"info"`
-	Group     string `json:"group" example:"tunnel"`
-	Subgroup  string `json:"subgroup" example:"tun_abc123"`
-	Action    string `json:"action" example:"connect"`
-	Target    string `json:"target" example:"vpn.example.com:51820"`
-	Message   string `json:"message" example:"Tunnel connected"`
+	Group     string `json:"group" example:"singbox"`
+	Subgroup  string `json:"subgroup" example:"dns"`
+	Action    string `json:"action" example:"run"`
+	Target    string `json:"target" example:"dns"`
+	Message   string `json:"message" example:"lookup succeed for node.example.org: 203.0.113.77"`
+	Sanitized bool   `json:"sanitized" example:"false"`
 }
 
 // LogsData mirrors frontend LogsResponse.
@@ -29,9 +30,10 @@ type LogsData struct {
 	Enabled         bool          `json:"enabled" example:"true"`
 	Logs            []LogEntryDTO `json:"logs"`
 	Total           int           `json:"total" example:"42"`
-	Bucket          string        `json:"bucket" example:"app"`
+	Bucket          string        `json:"bucket" example:"singbox"`
 	BufferSize      int           `json:"bufferSize" example:"123"`
 	BufferCapacity  int           `json:"bufferCapacity" example:"5000"`
+	Sanitized       bool          `json:"sanitized" example:"false"`
 	OldestTimestamp string        `json:"oldestTimestamp,omitempty" example:"2024-01-15T08:00:00Z"`
 }
 
@@ -79,13 +81,14 @@ func (h *LoggingHandler) PublishSnapshot() {}
 
 // LogsResponse represents the response for get logs endpoint.
 type LogsResponse struct {
-	Enabled         bool               `json:"enabled"`
-	Logs            []logging.LogEntry `json:"logs"`
-	Total           int                `json:"total"`
-	Bucket          string             `json:"bucket"`
-	BufferSize      int                `json:"bufferSize"`
-	BufferCapacity  int                `json:"bufferCapacity"`
-	OldestTimestamp string             `json:"oldestTimestamp,omitempty"`
+	Enabled         bool          `json:"enabled"`
+	Logs            []LogEntryDTO `json:"logs"`
+	Total           int           `json:"total"`
+	Bucket          string        `json:"bucket"`
+	BufferSize      int           `json:"bufferSize"`
+	BufferCapacity  int           `json:"bufferCapacity"`
+	Sanitized       bool          `json:"sanitized"`
+	OldestTimestamp string        `json:"oldestTimestamp,omitempty"`
 }
 
 func parseBucket(raw string, def logging.Bucket) (logging.Bucket, bool) {
@@ -99,6 +102,50 @@ func parseBucket(raw string, def logging.Bucket) (logging.Bucket, bool) {
 		return logging.BucketSingbox, true
 	}
 	return "", false
+}
+
+func parseBoolQuery(raw string, def bool) (bool, bool) {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	switch v {
+	case "":
+		return def, true
+	case "1", "true", "t", "yes", "y", "on":
+		return true, true
+	case "0", "false", "f", "no", "n", "off":
+		return false, true
+	}
+	return false, false
+}
+
+func logEntryDTO(entry logging.LogEntry, sanitized bool) LogEntryDTO {
+	target := entry.Target
+	message := entry.Message
+	if sanitized {
+		target = logging.SanitizeLogText(target)
+		message = logging.SanitizeLogText(message)
+	}
+
+	return LogEntryDTO{
+		Timestamp: entry.Timestamp.UTC().Format(time.RFC3339Nano),
+		Level:     entry.Level,
+		Group:     entry.Group,
+		Subgroup:  entry.Subgroup,
+		Action:    entry.Action,
+		Target:    target,
+		Message:   message,
+		Sanitized: sanitized,
+	}
+}
+
+func logEntryDTOs(entries []logging.LogEntry, sanitized bool) []LogEntryDTO {
+	if len(entries) == 0 {
+		return []LogEntryDTO{}
+	}
+	out := make([]LogEntryDTO, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, logEntryDTO(entry, sanitized))
+	}
+	return out
 }
 
 // queryList reads repeated query params and comma-separated values.
@@ -128,10 +175,10 @@ func queryList(q map[string][]string, key string) []string {
 // GetLogs returns log entries from the requested bucket with optional
 // filtering and pagination.
 //
-// GET /api/logs?bucket=app|singbox&group=&subgroup=&level=&limit=&offset=&since=
+// GET /api/logs?bucket=app|singbox&group=&subgroup=&level=&limit=&offset=&since=&sanitize=
 //
 //	@Summary		Get logs
-//	@Description	Returns log entries from the selected bucket. `bucket=app` (default) covers tunnel/routing/server/system events; `bucket=singbox` covers sing-box forwarder events isolated from app history.
+//	@Description	Returns log entries from the selected bucket. `bucket=app` (default) covers tunnel/routing/server/system events; `bucket=singbox` covers sing-box forwarder events isolated from app history. By default target/message are returned raw for the authenticated admin UI; pass `sanitize=true` for backend-masked output.
 //	@Tags			logs
 //	@Produce		json
 //	@Security		CookieAuth
@@ -142,6 +189,7 @@ func queryList(q map[string][]string, key string) []string {
 //	@Param			limit		query		int		false	"Max entries to return (default 200)"
 //	@Param			offset		query		int		false	"Skip first N matching entries"
 //	@Param			since		query		int		false	"Unix seconds — return only entries strictly after this"
+//	@Param			sanitize	query		bool	false	"Return backend-sanitized target/message values instead of raw values"
 //	@Success		200	{object}	LogsResponseEnvelope
 //	@Failure		400	{object}	APIErrorEnvelope
 //	@Failure		500	{object}	APIErrorEnvelope
@@ -152,14 +200,21 @@ func (h *LoggingHandler) GetLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bucket, ok := parseBucket(r.URL.Query().Get("bucket"), logging.BucketApp)
+	q := r.URL.Query()
+	bucket, ok := parseBucket(q.Get("bucket"), logging.BucketApp)
 	if !ok {
 		response.ErrorWithStatus(w, http.StatusBadRequest,
 			"invalid bucket: must be 'app' or 'singbox'", "INVALID_BUCKET")
 		return
 	}
 
-	q := r.URL.Query()
+	sanitize, ok := parseBoolQuery(q.Get("sanitize"), false)
+	if !ok {
+		response.ErrorWithStatus(w, http.StatusBadRequest,
+			"invalid sanitize: must be true or false", "INVALID_SANITIZE")
+		return
+	}
+
 	groups := queryList(q, "group")
 	subgroups := queryList(q, "subgroup")
 	level := q.Get("level")
@@ -200,19 +255,17 @@ func (h *LoggingHandler) GetLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	logs, total := h.svc.GetLogsMulti(bucket, groups, subgroups, level, since, limit, offset)
-	if logs == nil {
-		logs = []logging.LogEntry{}
-	}
+	entries, total := h.svc.GetLogsMulti(bucket, groups, subgroups, level, since, limit, offset)
 
 	stats := h.svc.Stats(bucket)
 	resp := LogsResponse{
 		Enabled:        h.svc.IsEnabled(),
-		Logs:           logs,
+		Logs:           logEntryDTOs(entries, sanitize),
 		Total:          total,
 		Bucket:         string(bucket),
 		BufferSize:     stats.Size,
 		BufferCapacity: stats.Capacity,
+		Sanitized:      sanitize,
 	}
 	if !stats.Oldest.IsZero() {
 		resp.OldestTimestamp = stats.Oldest.UTC().Format(time.RFC3339)
