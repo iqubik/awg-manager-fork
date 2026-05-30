@@ -98,9 +98,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          source scripts/singbox-version.env
-          echo "SINGBOX_VERSION=$SINGBOX_VERSION" >> "$GITHUB_ENV"
-          echo "SINGBOX_REF=$SINGBOX_REF" >> "$GITHUB_ENV"
+          v="$(sed -n 's/^const RequiredVersion = "\(.*\)"/\1/p' internal/singbox/installer/embedded.go)"
+          echo "SINGBOX_VERSION=$v" >> "$GITHUB_ENV"
+          echo "SINGBOX_REF=v$v" >> "$GITHUB_ENV"
 
       - name: Download frontend build
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -164,8 +164,6 @@ jobs:
             echo "Missing sing-box binary: $file" >&2
             exit 1
           fi
-
-          ./scripts/check-embedded-version.sh "$SINGBOX_VERSION"
 
           IPK_VERSION="${{ needs.version.outputs.ipk_version }}"
           printf '%s\n' "$IPK_VERSION" > dist/VERSION

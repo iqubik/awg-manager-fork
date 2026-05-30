@@ -39,17 +39,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
-      - name: Load sing-box version
-        shell: bash
-        run: |
-          set -euo pipefail
-          source scripts/singbox-version.env
-          echo "SINGBOX_VERSION=$SINGBOX_VERSION" >> "$GITHUB_ENV"
-          echo "SINGBOX_REF=$SINGBOX_REF" >> "$GITHUB_ENV"
-
-      - name: Verify embedded.go matches SINGBOX_VERSION
-        run: ./scripts/check-embedded-version.sh "$SINGBOX_VERSION"
-
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
