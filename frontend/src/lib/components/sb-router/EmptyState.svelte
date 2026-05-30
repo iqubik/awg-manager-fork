@@ -13,9 +13,7 @@
   import StepPill from './StepPill.svelte';
   import WizardStep from './WizardStep.svelte';
   import SelectedTemplatesRow from './SelectedTemplatesRow.svelte';
-  import CustomMatcherForm from './CustomMatcherForm.svelte';
   import TemplatesModal from './TemplatesModal.svelte';
-  import { wizardCustom, resetWizardState } from './addWizardStore';
   import { templatesSelection, openTemplatesModal, clearSelection } from './templatesStore';
   import { buildTemplateList } from './templatesData';
   import { finishSetup } from './emptyStateActions';
@@ -34,12 +32,7 @@
   const tunnelOutbounds = $derived($outbounds.filter((o) => o.type !== 'direct'));
   const groups = $derived(buildTemplateList($presets, $ruleSets, ''));
 
-  const hasCustom = $derived.by(() => {
-    const c = $wizardCustom;
-    return c.domainSuffix.trim() !== '' || c.ipCidr.trim() !== ''
-      || c.sourceIpCidr.trim() !== '' || c.port.trim() !== '' || c.ruleSetTags.size > 0;
-  });
-  const hasServices = $derived($templatesSelection.size > 0 || hasCustom);
+  const hasServices = $derived($templatesSelection.size > 0);
 
   const step1Done = $derived(selectedTunnel !== null);
   const step2Done = $derived(step1Done && hasServices);
@@ -52,7 +45,7 @@
       const result = await finishSetup({
         tunnelTag: selectedTunnel,
         selectedTemplates: Array.from(get(templatesSelection)),
-        customFields: get(wizardCustom),
+        customFields: { domainSuffix: '', ipCidr: '', sourceIpCidr: '', port: '', ruleSetTags: new Set<string>() },
         groups,
       });
       if (result.failures.length === 0) {
@@ -67,7 +60,6 @@
         );
       }
       clearSelection();
-      resetWizardState();
       selectedTunnel = null;
       await singboxRouterStore.loadAll();
     } catch (e) {
@@ -116,12 +108,11 @@
       <div class="picker-icon">+</div>
       <div class="picker-text">
         <div class="picker-title">Выбрать сервисы</div>
-        <div class="picker-sub">{$presets.length} сервисов · {$ruleSets.length} наборов</div>
+        <div class="picker-sub">{$presets.length} пресетов</div>
       </div>
       <div class="picker-chev">›</div>
     </button>
     <SelectedTemplatesRow />
-    <CustomMatcherForm />
   </WizardStep>
 
   <WizardStep n={3} title="Включить" active={step2Done}>
@@ -131,7 +122,7 @@
     </Button>
   </WizardStep>
 
-  <TemplatesModal mode="collect" />
+  <TemplatesModal mode="collect" servicesOnly />
 </div>
 
 <style>

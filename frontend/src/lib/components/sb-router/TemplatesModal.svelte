@@ -25,9 +25,10 @@
 
   interface Props {
     mode?: 'submit' | 'collect';
+    servicesOnly?: boolean;
     onDone?: () => void;
   }
-  let { mode = 'submit', onDone }: Props = $props();
+  let { mode = 'submit', servicesOnly = false, onDone }: Props = $props();
 
   const presets = singboxRouterStore.presets;
   const ruleSets = singboxRouterStore.ruleSets;
@@ -46,7 +47,11 @@
 
   const allGroups = $derived(buildTemplateList($presets, $ruleSets, $templatesQuery));
   const counts = $derived(countByCategory(allGroups));
-  const visibleGroups = $derived(filterByCategory(allGroups, $templatesFilter));
+  const visibleGroups = $derived(
+    servicesOnly
+      ? allGroups.filter((g) => g.category === 'services')
+      : filterByCategory(allGroups, $templatesFilter),
+  );
 
   let submitting = $state(false);
   let lastFailures = $state<Array<{ id: string; error: string }>>([]);
@@ -166,11 +171,13 @@
           />
           <span class="search-count">{counts.all} {pluralTemplates(counts.all)}</span>
         </div>
-        <div class="chips">
-          <TemplatesFilterChip label="Все" value="all" active={$templatesFilter === 'all'} count={counts.all} onclick={() => setFilter('all')} />
-          <TemplatesFilterChip label="Сервисы" value="services" active={$templatesFilter === 'services'} count={counts.services} onclick={() => setFilter('services')} />
-          <TemplatesFilterChip label="Наборы доменов и CIDR" value="rulesets" active={$templatesFilter === 'rulesets'} count={counts.rulesets} onclick={() => setFilter('rulesets')} />
-        </div>
+        {#if !servicesOnly}
+          <div class="chips">
+            <TemplatesFilterChip label="Все" value="all" active={$templatesFilter === 'all'} count={counts.all} onclick={() => setFilter('all')} />
+            <TemplatesFilterChip label="Сервисы" value="services" active={$templatesFilter === 'services'} count={counts.services} onclick={() => setFilter('services')} />
+            <TemplatesFilterChip label="Наборы доменов и CIDR" value="rulesets" active={$templatesFilter === 'rulesets'} count={counts.rulesets} onclick={() => setFilter('rulesets')} />
+          </div>
+        {/if}
       </div>
 
       <div class="body">
