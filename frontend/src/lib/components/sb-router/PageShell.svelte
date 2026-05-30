@@ -4,7 +4,7 @@
 </script>
 
 <script lang="ts">
-  import { Settings as SettingsIcon } from 'lucide-svelte';
+  import { Settings as SettingsIcon, FileJson, Search } from 'lucide-svelte';
   import { mode, setMode, type RouterMode } from './modeStore';
   import { openDrawer } from './drawerStore';
   import { openSettingsDrawer } from './settingsDrawerStore';
@@ -16,11 +16,15 @@
     engineStatus?: EngineStatus;
     /** Дополнительный subtitle под title (опционально). */
     subtitle?: string;
+    /** Открыть инспектор маршрута (кнопка в шапке рендерится только если задан). */
+    onOpenInspector?: () => void;
+    /** Открыть JSON-конфиг (кнопка в шапке рендерится только если задан). */
+    onOpenJson?: () => void;
     /** Дочерний контент страницы. */
     children: Snippet;
   }
 
-  let { engineStatus = 'unknown', subtitle, children }: Props = $props();
+  let { engineStatus = 'unknown', subtitle, onOpenInspector, onOpenJson, children }: Props = $props();
   let currentMode = $derived($mode);
 
   const STATUS_LABEL: Record<EngineStatus, string> = {
@@ -56,6 +60,17 @@
         </Badge>
       </button>
     </div>
+
+    {#if onOpenJson}
+      <button type="button" class="icon-btn" onclick={onOpenJson} aria-label="JSON-конфиг" title="JSON-конфиг">
+        <FileJson size={16} />
+      </button>
+    {/if}
+    {#if onOpenInspector}
+      <button type="button" class="icon-btn" onclick={onOpenInspector} aria-label="Инспектор маршрута" title="Инспектор маршрута">
+        <Search size={16} />
+      </button>
+    {/if}
 
     <button
       type="button"

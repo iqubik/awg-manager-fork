@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { singboxRouter as singboxRouterStore } from '$lib/stores/singboxRouter';
-  import { DeviceProxySubTab, StagingBanner, EngineSubTab, PresetsSubTab } from '$lib/components/singbox-routing';
+  import { DeviceProxySubTab, StagingBanner, EngineSubTab, PresetsSubTab, RouteInspector, JsonConfigDrawer } from '$lib/components/singbox-routing';
   import SettingsDrawer from './SettingsDrawer.svelte';
   import { ConnectionsSubTab } from '$lib/components/routing/singboxRouter';
   import {
@@ -19,6 +19,8 @@
   } from '$lib/components/sb-router';
 
   let activeSingboxSub = $derived($page.url.searchParams.get('sub'));
+  let inspectorOpen = $state(false);
+  let jsonOpen = $state(false);
   const singboxRouterStatus = singboxRouterStore.status;
   const singboxRulesStore = singboxRouterStore.rules;
   let singboxRulesCount = $derived($singboxRulesStore.length);
@@ -30,7 +32,7 @@
   });
 </script>
 
-<PageShell engineStatus={sbEngineStatus}>
+<PageShell engineStatus={sbEngineStatus} onOpenInspector={() => (inspectorOpen = true)} onOpenJson={() => (jsonOpen = true)}>
   <StagingBanner />
   {#if activeSingboxSub === 'engine'}
     <EngineSubTab />
@@ -57,3 +59,6 @@
 </PageShell>
 
 <SettingsDrawer />
+
+<RouteInspector open={inspectorOpen} onClose={() => (inspectorOpen = false)} />
+<JsonConfigDrawer open={jsonOpen} onClose={() => (jsonOpen = false)} />
