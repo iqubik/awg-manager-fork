@@ -182,8 +182,13 @@
 		cursor: pointer;
 		font-size: 0.9rem;
 		padding: 0.15rem;
+		border-radius: 4px;
 	}
-	.icon-btn.danger {
+	.icon-btn:hover {
+		color: var(--text);
+		background: var(--surface-bg);
+	}
+	.icon-btn.danger:hover {
 		color: var(--danger, #dc2626);
 	}
 </style>
