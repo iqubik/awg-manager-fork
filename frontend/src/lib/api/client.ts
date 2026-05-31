@@ -1854,6 +1854,10 @@ class ApiClient {
 		return this.request<SingboxRouterWANInterface[]>('/singbox/router/wan-interfaces');
 	}
 
+	async singboxRouterListBindableInterfaces(): Promise<SingboxRouterWANInterface[]> {
+		return this.request<SingboxRouterWANInterface[]>('/singbox/router/bindable-interfaces');
+	}
+
 	async singboxRouterListDNSServers(): Promise<SingboxRouterDNSServer[]> {
 		return this.request('/singbox/router/dns/servers/list');
 	}
