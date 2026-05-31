@@ -1672,6 +1672,18 @@ let mockSBSettings = {
 	wanInterface: '',
 };
 
+// Interfaces a user can bind a direct outbound to (issue #245). Mirrors
+// backend ListBindable: all router interfaces minus our own and AWG/WG
+// auto-covered. Includes a couple of non-AWG VPNs to exercise the picker.
+const mockBindableInterfaces = [
+	{ name: 'ipsec0', id: 'IKE0', label: 'IKEv2 office', up: true, priority: 0 },
+	{ name: 'ipsec1', id: 'IPSec1', label: 'IPSec branch', up: false, priority: 0 },
+	{ name: 'ppp0', id: 'PPPoE0', label: 'Letai (PPPoE)', up: true, priority: 0 },
+];
+let mockOutbounds = [
+	{ type: 'selector', tag: 'manual-eu', outbounds: ['awg-de', 'awg-nl'], default: 'awg-de', source: 'router' },
+];
+
 // WAN interfaces returned by GET /singbox/router/wan-interfaces. Mix of
 // up/down + types so the dev UI shows real variety. `name` is the kernel
 // system-name that gets persisted into wanInterface; `id` is the NDMS
@@ -3782,6 +3794,11 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'GET' && path === '/singbox/router/bindable-interfaces') {
+		send(res, 200, { success: true, data: mockBindableInterfaces });
+		return;
+	}
+
 	if (req.method === 'GET' && path === '/singbox/router/settings') {
 		send(res, 200, { success: true, data: mockSBSettings });
 		return;
@@ -4053,6 +4070,65 @@ const server = http.createServer(async (req, res) => {
 				{ tag: 'awg-sys-Wireguard0',   label: 'NL Amsterdam', kind: 'system',  iface: 'nwg0' },
 				{ tag: 'awg-sys-Wireguard1',   label: 'FI Helsinki',  kind: 'system',  iface: 'nwg1' },
 			],
+		});
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/singbox/router/outbounds/list') {
+		send(res, 200, { success: true, data: mockOutbounds });
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/outbounds/add') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const o = JSON.parse(raw || '{}');
+				if (mockOutbounds.some((x) => x.tag === o.tag)) {
+					send(res, 400, { success: false, error: { code: 'CONFLICT', message: `tag ${o.tag} exists` } });
+					return;
+				}
+				mockOutbounds.push({ ...o, source: 'router' });
+				send(res, 200, { success: true, data: { ok: true } });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/outbounds/update') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const { tag, outbound } = JSON.parse(raw || '{}');
+				const idx = mockOutbounds.findIndex((x) => x.tag === tag);
+				if (idx < 0) {
+					send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: `tag ${tag} not found` } });
+					return;
+				}
+				mockOutbounds[idx] = { ...outbound, source: 'router' };
+				send(res, 200, { success: true, data: { ok: true } });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/outbounds/delete') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const { tag } = JSON.parse(raw || '{}');
+				mockOutbounds = mockOutbounds.filter((x) => x.tag !== tag);
+				send(res, 200, { success: true, data: { ok: true } });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
 		});
 		return;
 	}
