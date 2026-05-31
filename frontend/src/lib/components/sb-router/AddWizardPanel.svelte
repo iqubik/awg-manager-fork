@@ -15,7 +15,7 @@
   import { get } from 'svelte/store';
   import { onMount, onDestroy } from 'svelte';
   import {
-    ArrowLeft, Info, Check, Zap, Globe, ShieldOff,
+    ArrowLeft, Info, Check, Zap, Globe, ShieldOff, Plus,
   } from 'lucide-svelte';
   import { singboxRouter as singboxRouterStore } from '$lib/stores/singboxRouter';
   import { notifications } from '$lib/stores/notifications';
@@ -169,7 +169,7 @@
 
     <WizardStep n={1} title="Что направить" hint="выберите шаблон или опишите вручную" active={true}>
       <button type="button" class="picker-btn" onclick={() => openTemplatesModal()}>
-        <div class="picker-icon">+</div>
+        <div class="picker-icon"><Plus size={20} /></div>
         <div class="picker-text">
           <div class="picker-title">Выбрать из готовых шаблонов</div>
           <div class="picker-sub">{$presets.length} сервисов · {$ruleSets.length} наборов</div>
@@ -187,7 +187,7 @@
         <OutboundOption
           icon={iconTunnel}
           label="Через туннель"
-          sub="WARP / proxy"
+          sub="AWG / прокси"
           count="{tunnelOutbounds.length} доступно"
           tone="accent"
           selected={$wizardOutboundCategory === 'tunnel'}
@@ -196,7 +196,7 @@
         <OutboundOption
           icon={iconDirect}
           label="Напрямую"
-          sub="без шифрования, обычный WAN"
+          sub="Через интерфейс провайдера"
           count={directTag}
           tone="muted"
           selected={$wizardOutboundCategory === 'direct'}
@@ -205,7 +205,7 @@
         <OutboundOption
           icon={iconBlock}
           label="Заблокировать"
-          sub="трафик отбрасывается"
+          sub="Трафик отбрасывается"
           count="reject"
           tone="error"
           selected={$wizardOutboundCategory === 'block'}
@@ -266,7 +266,7 @@
       </Button>
     </MobileBottomBar>
 
-    <TemplatesModal mode="collect" />
+    <TemplatesModal mode="collect" servicesOnly={$mode === 'beginner'} />
   </div>
 {/if}
 
@@ -335,8 +335,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
-    font-weight: 600;
+    flex-shrink: 0;
   }
   .picker-title { font-size: 13.5px; font-weight: 600; }
   .picker-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
