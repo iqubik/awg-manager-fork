@@ -185,9 +185,10 @@
     border: 0;
     color: inherit;
     font: inherit;
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 12px minmax(0, 108px);
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     min-width: 0;
     cursor: pointer;
     padding: 0;
@@ -197,16 +198,24 @@
     background: var(--bg-tertiary);
   }
   .rule-matchers {
-    color: var(--text-secondary);
-    flex: 1;
     min-width: 0;
+    color: var(--text-secondary);
+    white-space: normal;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    text-overflow: initial;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.25;
+    display: -webkit-box;
+    line-clamp: 2;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
   }
   .rule-server {
     color: var(--accent);
+    justify-self: end;
     min-width: 0;
+    max-width: 108px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

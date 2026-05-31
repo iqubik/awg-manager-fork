@@ -103,19 +103,19 @@
     <div class="proxy-list">
       {#each instances as in_ (in_.id)}
         {@const outboundLabel = outboundLabelFor(in_)}
-        <div class="proxy-row mobile-row">
+        <div class="proxy-row">
+          <span class="dot" data-tone={toneFor(in_)}></span>
           <button
             type="button"
-            class="proxy-click mobile-row-main"
+            class="proxy-click"
             class:clickable={!!onSelect}
             onclick={() => onSelect?.(in_)}
             disabled={!onSelect}
           >
-            <span class="dot" data-tone={toneFor(in_)}></span>
             <div class="proxy-info">
               <div class="proxy-main">
                 <span class="ty">mixed</span>
-                <span class="mono">{listenLabelFor(in_)}</span>
+                <span class="mono listen" title={listenLabelFor(in_)}>{listenLabelFor(in_)}</span>
                 {#if isInstanceActive(in_)}
                   <Badge variant="success" size="sm" mono>active</Badge>
                 {:else}
@@ -124,7 +124,9 @@
               </div>
               <div class="proxy-sub">
                 <span class="arrow">→</span>
-                <Badge variant={outboundVariantFor(outboundLabel)} size="sm" mono>{outboundLabel}</Badge>
+                <span class="outbound-wrap">
+                  <Badge variant={outboundVariantFor(outboundLabel)} size="sm" mono>{outboundLabel}</Badge>
+                </span>
               </div>
             </div>
           </button>
@@ -180,12 +182,13 @@
   }
   .proxy-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 40px;
+    grid-template-columns: 8px minmax(0, 1fr) 40px;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     --route-action-color: var(--accent);
   }
   .proxy-click {
+    min-width: 0;
     width: 100%;
     text-align: left;
     background: transparent;
@@ -193,18 +196,17 @@
     font-family: inherit;
     color: inherit;
     cursor: default;
-    display: grid;
-    grid-template-columns: 8px minmax(0, 1fr);
-    align-items: center;
-    gap: 14px;
+    display: block;
     padding: 0;
+  }
+  .proxy-click:disabled {
+    opacity: 1;
   }
   .proxy-click.clickable {
     cursor: pointer;
   }
   .proxy-click.clickable:hover {
-    background: var(--bg-tertiary);
-    border-radius: var(--radius-sm);
+    background: transparent;
   }
   .route-action-btn {
     display: inline-flex;
@@ -287,7 +289,7 @@
     font-size: 13px;
     color: var(--text-primary);
   }
-  .sub, .proxy-main, .proxy-sub {
+  .sub {
     font-size: 12px;
     color: var(--text-muted);
     display: flex;
@@ -295,8 +297,37 @@
     gap: 6px;
     flex-wrap: wrap;
   }
+  .proxy-main {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+  }
   .proxy-sub {
     margin-top: 3px;
+    min-width: 0;
+    margin-top: 4px;
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+  }
+  .listen {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .outbound-wrap {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .outbound-wrap :global(.badge) {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .sub.error {
     color: var(--color-error, #dc2626);
@@ -327,12 +358,6 @@
       gap: 4px;
     }
 
-    .mobile-row {
-      grid-template-columns: minmax(0, 1fr) 40px;
-      min-width: 0;
-    }
-
-    .mobile-row-main,
     .proxy-click,
     .proxy-info,
     .proxy-main,
