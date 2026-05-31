@@ -426,7 +426,7 @@ func (c *RouterConfig) SetRouteFinal(tag string) error {
 }
 
 func (c *RouterConfig) AddCompositeOutbound(o Outbound) error {
-	if err := validateCompositeOutbound(o); err != nil {
+	if err := validateOutbound(o); err != nil {
 		return err
 	}
 	for _, existing := range c.Outbounds {
@@ -439,7 +439,7 @@ func (c *RouterConfig) AddCompositeOutbound(o Outbound) error {
 }
 
 func (c *RouterConfig) UpdateCompositeOutbound(tag string, o Outbound) error {
-	if err := validateCompositeOutbound(o); err != nil {
+	if err := validateOutbound(o); err != nil {
 		return err
 	}
 	idx := -1
@@ -481,6 +481,32 @@ func validateCompositeOutbound(o Outbound) error {
 	}
 	if strings.EqualFold(strings.TrimSpace(o.Default), "direct") {
 		return fmt.Errorf("outbound %q: default %q is not allowed in composite groups", o.Tag, o.Default)
+	}
+	return nil
+}
+
+// validateOutbound dispatches by Type: "direct" outbounds carry a
+// bind_interface and no composite fields; selector/urltest go through the
+// composite validator.
+func validateOutbound(o Outbound) error {
+	if strings.EqualFold(o.Type, "direct") {
+		return validateInterfaceOutbound(o)
+	}
+	return validateCompositeOutbound(o)
+}
+
+// validateInterfaceOutbound checks a user-created direct outbound bound to
+// a network interface. Interface existence is verified in the service
+// layer (needs the NDMS interface list); here we only check shape.
+func validateInterfaceOutbound(o Outbound) error {
+	if strings.TrimSpace(o.Tag) == "" {
+		return fmt.Errorf("outbound tag is required")
+	}
+	if strings.TrimSpace(o.BindInterface) == "" {
+		return fmt.Errorf("outbound %q: bind_interface is required for a direct outbound", o.Tag)
+	}
+	if len(o.Outbounds) > 0 || o.URL != "" || o.Interval != "" || o.Tolerance != 0 || o.Default != "" || o.Strategy != "" {
+		return fmt.Errorf("outbound %q: direct outbound must not set composite fields (members/url/interval/tolerance/default/strategy)", o.Tag)
 	}
 	return nil
 }

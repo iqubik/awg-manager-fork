@@ -294,3 +294,34 @@ func TestOutboundReferencesExcludingRules_OnlyRule(t *testing.T) {
 		t.Errorf("expected empty (rule-only refs excluded), got %v", locs)
 	}
 }
+
+func TestValidateOutbound_Direct(t *testing.T) {
+	// happy path
+	if err := validateOutbound(Outbound{Type: "direct", Tag: "ipsec-vpn", BindInterface: "ipsec0"}); err != nil {
+		t.Errorf("valid direct rejected: %v", err)
+	}
+	// missing tag
+	if err := validateOutbound(Outbound{Type: "direct", BindInterface: "ipsec0"}); err == nil {
+		t.Error("direct without tag should fail")
+	}
+	// missing bind_interface
+	if err := validateOutbound(Outbound{Type: "direct", Tag: "x"}); err == nil {
+		t.Error("direct without bind_interface should fail")
+	}
+	// stray composite fields
+	if err := validateOutbound(Outbound{Type: "direct", Tag: "x", BindInterface: "ipsec0", Outbounds: []string{"a"}}); err == nil {
+		t.Error("direct with members should fail")
+	}
+	if err := validateOutbound(Outbound{Type: "direct", Tag: "x", BindInterface: "ipsec0", Default: "a"}); err == nil {
+		t.Error("direct with default should fail")
+	}
+}
+
+func TestValidateOutbound_CompositeStillWorks(t *testing.T) {
+	if err := validateOutbound(Outbound{Type: "selector", Tag: "g", Outbounds: []string{"a", "b"}, Default: "a"}); err != nil {
+		t.Errorf("valid selector rejected: %v", err)
+	}
+	if err := validateOutbound(Outbound{Type: "urltest", Tag: "g"}); err == nil {
+		t.Error("composite without members should fail")
+	}
+}
