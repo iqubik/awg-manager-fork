@@ -62,8 +62,9 @@
         }
     }
 
-    // No-op: SSE updates the store; PolicyEditView expects an async callback
-    async function refreshPolicyData() {}
+    async function refreshPolicyData() {
+        invalidateAllRouting();
+    }
 
     async function refreshPolicies() {
         if (policyRefreshing) return;

@@ -10,7 +10,7 @@
 	} from '$lib/types';
 	import { notifications } from '$lib/stores/notifications';
 	import { Modal, StoreStatusBadge, Button } from '$lib/components/ui';
-	import { dnsRoutesStore } from '$lib/stores/routing';
+	import { dnsRoutesStore, invalidateAllRouting } from '$lib/stores/routing';
 	import { InterfaceList } from '$lib/components/accesspolicy';
 	import HrNeoTargetSidebar, {
 		type TargetEntry,
@@ -332,6 +332,10 @@
 	function policyByName(name: string) {
 		return policies.find((p) => p.name === name) ?? null;
 	}
+
+	function handleInterfaceListUpdate() {
+		invalidateAllRouting();
+	}
 </script>
 
 <div class="hrneo-status-row">
@@ -366,7 +370,7 @@
 							onpermit={policyPermit}
 							ondeny={policyDeny}
 							onreorder={policyPermit}
-							onupdate={() => {}}
+							onupdate={handleInterfaceListUpdate}
 						/>
 					</section>
 				{/if}
@@ -410,7 +414,7 @@
 									onpermit={(iface, order) => permitInterfaceFor(t.name, iface, order)}
 									ondeny={(iface) => denyInterfaceFor(t.name, iface)}
 									onreorder={(iface, order) => permitInterfaceFor(t.name, iface, order)}
-									onupdate={() => {}}
+									onupdate={handleInterfaceListUpdate}
 								/>
 							</section>
 						{/if}

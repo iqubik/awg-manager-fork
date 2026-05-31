@@ -491,6 +491,7 @@ func (s *ServiceImpl) SetInterfaceUp(ctx context.Context, ndmsName string, up bo
 				s.appLog.Warn("set-interface", ndmsName, fmt.Sprintf("Failed to %s managed tunnel %s: %v", action, id, lerr))
 				return lerr
 			}
+			s.refreshInterfaceAfterLifecycle(ndmsName)
 			s.appLog.Full("set-interface", ndmsName, fmt.Sprintf("Managed tunnel %s set %s via lifecycle", id, action))
 			return nil
 		}
@@ -508,6 +509,21 @@ func (s *ServiceImpl) SetInterfaceUp(ctx context.Context, ndmsName string, up bo
 	}
 	s.appLog.Full("set-interface", ndmsName, fmt.Sprintf("Interface %s set %s", ndmsName, action))
 	return nil
+}
+
+func (s *ServiceImpl) refreshInterfaceAfterLifecycle(ndmsName string) {
+	if s.queries == nil {
+		return
+	}
+	if s.queries.Interfaces != nil {
+		s.queries.Interfaces.Invalidate(ndmsName)
+	}
+	if s.queries.Peers != nil {
+		s.queries.Peers.Invalidate(ndmsName)
+	}
+	if s.queries.RunningConfig != nil {
+		s.queries.RunningConfig.InvalidateAll()
+	}
 }
 
 // interfaceLabel builds a human-readable label from NDMS interface data.
