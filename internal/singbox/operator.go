@@ -513,6 +513,7 @@ func ensureBaseConfigWithLogLevel(configDir, desiredLogLevel string, loggers ...
 		patchBaseDomainResolver(basePath)
 		patchBaseDirectOutbound(basePath, log)
 		patchBaseCacheFilePath(basePath)
+		patchBaseDNSStrategy(basePath)
 		return
 	}
 	_ = os.MkdirAll(configDir, 0755)
@@ -802,6 +803,31 @@ func patchBaseDomainResolver(basePath string) {
 		return
 	}
 	route["default_domain_resolver"] = "dns-bootstrap"
+	_ = writeJSONFile(basePath, m)
+}
+
+// patchBaseDNSStrategy migrates the legacy 00-base.json default
+// dns.strategy "ipv4_only" → "prefer_ipv4". The old default silently
+// dropped all AAAA/IPv6 answers (issue #180); the new default returns IPv6
+// when available. Only the exact legacy value is migrated — any other
+// strategy (incl. a deliberately user-set one) is left untouched.
+func patchBaseDNSStrategy(basePath string) {
+	data, err := os.ReadFile(basePath)
+	if err != nil {
+		return
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return
+	}
+	dns, _ := m["dns"].(map[string]any)
+	if dns == nil {
+		return
+	}
+	if strategy, _ := dns["strategy"].(string); strategy != "ipv4_only" {
+		return
+	}
+	dns["strategy"] = "prefer_ipv4"
 	_ = writeJSONFile(basePath, m)
 }
 
