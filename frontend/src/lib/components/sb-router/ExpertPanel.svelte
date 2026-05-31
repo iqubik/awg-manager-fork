@@ -349,7 +349,7 @@
       <SidePanel
         title="Outbounds"
         count={String($storeOutbounds.length)}
-        actionLabel="+ Composite"
+        actionLabel="+ Outbound"
         actionVariant="filled"
         onAction={() => (outboundAddOpen = true)}
       >
