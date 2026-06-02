@@ -68,9 +68,10 @@ type OperatorAdapter struct {
 	pm    ProxyRegistrar
 	clash ClashSelector
 
-	mu          sync.Mutex
-	cfg         slotConfig
-	lastDropped []DropReason // outbounds filtered out of the most recent flush
+	mu              sync.Mutex
+	cfg             slotConfig
+	lastDropped     []DropReason // outbounds filtered out of the most recent flush
+	preFlushDropped []DropReason // Pass-1 rejects from Add/Update before the next flush
 }
 
 // NewOperatorAdapter constructs the adapter. In production the subscription
@@ -168,6 +169,10 @@ func (a *OperatorAdapter) AddOutbound(tag string, jsonBody []byte) error {
 		return fmt.Errorf("subscription adapter: AddOutbound %q: bad json: %w", tag, err)
 	}
 	ob["tag"] = tag
+	if reason := classifyOutbound(ob); reason != "" {
+		a.preFlushDropped = append(a.preFlushDropped, DropReason{Tag: tag, Reason: reason})
+		return nil
+	}
 	a.upsertOutbound(tag, ob)
 	return a.flush()
 }
@@ -182,6 +187,10 @@ func (a *OperatorAdapter) UpdateOutbound(tag string, jsonBody []byte) error {
 		return fmt.Errorf("subscription adapter: UpdateOutbound %q: bad json: %w", tag, err)
 	}
 	ob["tag"] = tag
+	if reason := classifyOutbound(ob); reason != "" {
+		a.preFlushDropped = append(a.preFlushDropped, DropReason{Tag: tag, Reason: reason})
+		return nil
+	}
 	a.upsertOutbound(tag, ob)
 	return a.flush()
 }
@@ -400,7 +409,8 @@ func (a *OperatorAdapter) upsertOutbound(tag string, ob map[string]any) {
 // which servers were skipped and why; the subscription is not rejected
 // wholesale unless every outbound failed.
 func (a *OperatorAdapter) flush() error {
-	dropped := []DropReason{}
+	dropped := append([]DropReason(nil), a.preFlushDropped...)
+	a.preFlushDropped = nil
 
 	// Pass 1 — structural pre-filter.
 	kept, p1Dropped := preFilterOutbounds(a.cfg.Outbounds)
