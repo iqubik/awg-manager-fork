@@ -1800,8 +1800,11 @@ class ApiClient {
 		return this.request('/singbox/router/rulesets/list');
 	}
 
-	async singboxRouterDatRuleSetURL(kind: 'geosite' | 'geoip', tag: string): Promise<{ url: string }> {
-		const q = new URLSearchParams({ kind, tag });
+	async singboxRouterDatRuleSetURL(kind: 'geosite' | 'geoip', tags: string[]): Promise<{ url: string }> {
+		const q = new URLSearchParams({ kind });
+		for (const t of tags) {
+			q.append('tag', t);
+		}
 		return this.request(`/singbox/router/rulesets/dat-url?${q.toString()}`);
 	}
 

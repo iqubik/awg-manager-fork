@@ -49,8 +49,8 @@ type Service interface {
 	AddRuleSet(ctx context.Context, rs RuleSet) error
 	UpdateRuleSet(ctx context.Context, tag string, rs RuleSet) error
 	DeleteRuleSet(ctx context.Context, tag string, force bool) error
-	DatRuleSetURL(ctx context.Context, kind, tag string) (string, error)
-	DatRuleSetFile(ctx context.Context, kind, tag, token string) (string, error)
+	DatRuleSetURL(ctx context.Context, kind string, tags []string) (string, error)
+	DatRuleSetFile(ctx context.Context, kind string, tags []string, token string) (string, error)
 
 	ListCompositeOutbounds(ctx context.Context) ([]CompositeOutboundView, error)
 	AddCompositeOutbound(ctx context.Context, o Outbound) error

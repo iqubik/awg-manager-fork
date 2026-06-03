@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/logging"
@@ -739,7 +740,7 @@ func (h *SingboxRouterHandler) DeleteRuleSet(w http.ResponseWriter, r *http.Requ
 //	@Produce		json
 //	@Security		CookieAuth
 //	@Param			kind	query	string	true	"geosite or geoip"
-//	@Param			tag		query	string	true	"Geo tag"
+//	@Param			tag		query	[]string	true	"Geo tag(s)"
 //	@Success		200	{object}	SingboxRouterDatRuleSetURLResponse
 //	@Failure		400	{object}	APIErrorEnvelope
 //	@Failure		500	{object}	APIErrorEnvelope
@@ -750,12 +751,12 @@ func (h *SingboxRouterHandler) DatRuleSetURL(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	kind := r.URL.Query().Get("kind")
-	tag := r.URL.Query().Get("tag")
-	if (kind != "geosite" && kind != "geoip") || tag == "" {
+	tags := nonEmptyQueryValues(r.URL.Query()["tag"])
+	if (kind != "geosite" && kind != "geoip") || len(tags) == 0 {
 		response.BadRequest(w, "kind must be geosite or geoip, tag is required")
 		return
 	}
-	u, err := h.svc.DatRuleSetURL(r.Context(), kind, tag)
+	u, err := h.svc.DatRuleSetURL(r.Context(), kind, tags)
 	if err != nil {
 		h.handleErr(w, "dat-url", err)
 		return
@@ -772,15 +773,15 @@ func (h *SingboxRouterHandler) DatRuleSetSRS(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	kind := r.URL.Query().Get("kind")
-	tag := r.URL.Query().Get("tag")
-	if (kind != "geosite" && kind != "geoip") || tag == "" {
+	tags := nonEmptyQueryValues(r.URL.Query()["tag"])
+	if (kind != "geosite" && kind != "geoip") || len(tags) == 0 {
 		response.BadRequest(w, "kind must be geosite or geoip, tag is required")
 		return
 	}
 	p, err := h.svc.DatRuleSetFile(
 		r.Context(),
 		kind,
-		tag,
+		tags,
 		r.URL.Query().Get("token"),
 	)
 	if err != nil {
@@ -794,6 +795,17 @@ func (h *SingboxRouterHandler) DatRuleSetSRS(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", `attachment; filename="rule-set.srs"`)
 	http.ServeFile(w, r, p)
+}
+
+func nonEmptyQueryValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 // ListOutbounds returns all composite outbounds.
