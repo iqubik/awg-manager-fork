@@ -76,4 +76,27 @@
     font-size: 11.5px;
     color: var(--text-muted);
   }
+  @media (max-width: 768px) {
+    .step {
+      padding: 14px 12px;
+      margin-bottom: 12px;
+    }
+    .head {
+      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: 6px 8px;
+      margin-bottom: 12px;
+    }
+    .title {
+      flex: 1 1 0;
+      min-width: 0;
+      font-size: 14px;
+      line-height: 1.3;
+    }
+    .hint {
+      flex: 1 1 100%;
+      margin-left: 34px;
+      line-height: 1.35;
+    }
+  }
 </style>

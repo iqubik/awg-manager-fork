@@ -8,11 +8,13 @@
   interface Props {
     n: number;
     label: string;
+    /** Короткая подпись на узком экране (если не задана — используется label). */
+    shortLabel?: string;
     active: boolean;
     done: boolean;
   }
 
-  let { n, label, active, done }: Props = $props();
+  let { n, label, shortLabel, active, done }: Props = $props();
 </script>
 
 <div class="pill" class:active class:done>
@@ -23,7 +25,8 @@
       {n}
     {/if}
   </span>
-  <span class="label">{label}</span>
+  <span class="label label-full">{label}</span>
+  <span class="label label-short">{shortLabel ?? label}</span>
 </div>
 
 <style>
@@ -35,6 +38,10 @@
     border-radius: 999px;
     background: transparent;
     border: 1px solid transparent;
+    min-width: 0;
+  }
+  .label-short {
+    display: none;
   }
   .pill.active {
     background: var(--accent-soft);
@@ -69,5 +76,22 @@
   .pill.active .label {
     font-weight: 600;
     color: var(--text-primary);
+  }
+  @media (max-width: 768px) {
+    .pill {
+      width: 100%;
+      padding: 8px 10px 8px 8px;
+      border-radius: var(--radius-sm);
+    }
+    .label-full {
+      display: none;
+    }
+    .label-short {
+      display: inline;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
 </style>

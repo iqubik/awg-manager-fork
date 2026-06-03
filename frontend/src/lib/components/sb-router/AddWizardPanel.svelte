@@ -162,11 +162,11 @@
     <p class="sub">Выберите сервис или опишите свой. Затем — куда его пустить.</p>
 
     <div class="stepper">
-      <StepPill n={1} label="Что направить" active={!step1Ok} done={step1Ok} />
-      <div class="connector"></div>
-      <StepPill n={2} label="Куда" active={step1Ok && !step2Ok} done={step1Ok && step2Ok} />
-      <div class="connector"></div>
-      <StepPill n={3} label="Превью" active={step1Ok && step2Ok} done={false} />
+      <StepPill n={1} label="Что направить" shortLabel="Что" active={!step1Ok} done={step1Ok} />
+      <div class="connector" aria-hidden="true"></div>
+      <StepPill n={2} label="Куда" shortLabel="Куда" active={step1Ok && !step2Ok} done={step1Ok && step2Ok} />
+      <div class="connector" aria-hidden="true"></div>
+      <StepPill n={3} label="Превью" shortLabel="Проверка" active={step1Ok && step2Ok} done={false} />
     </div>
 
     <WizardStep n={1} title="Что направить" hint="выберите шаблон или опишите вручную" active={true}>
@@ -426,6 +426,23 @@
     gap: 6px;
   }
   @media (max-width: 768px) {
+    .wizard {
+      padding: var(--sp-2) var(--sp-2) calc(var(--sp-2) + 72px);
+      max-width: none;
+    }
+    .title {
+      font-size: 20px;
+    }
+    .stepper {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      padding: 8px;
+      margin-bottom: 16px;
+    }
+    .connector {
+      display: none;
+    }
     .actions.desktop-only {
       display: none;
     }
