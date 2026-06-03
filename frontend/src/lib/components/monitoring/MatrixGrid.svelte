@@ -162,9 +162,6 @@
 												<circle cx="12" cy="12" r="3" />
 											</svg>
 										</a>
-										{#if t.source === 'awg' && t.defaultRoute}
-											<Badge variant="accent" size="sm">default</Badge>
-										{/if}
 									{/if}
 								</div>
 
@@ -192,6 +189,11 @@
 									{/if}
 								</div>
 							</div>
+							{#if t.source === 'awg' && t.defaultRoute}
+								<div class="tunnel-default-row">
+									<Badge variant="accent" size="sm">default</Badge>
+								</div>
+							{/if}
 							{#if showTypeRow}
 								<div class="tunnel-type-row">
 									{#if t.source === 'awg'}
@@ -273,6 +275,10 @@
 				{@const typeBadges = tunnelTypeBadges(tunnel)}
 				{@const awgBackendValue = resolvedAwgBackend(tunnel)}
 				{@const showTypeRow = typeBadges.length > 0 || (tunnel.source === 'awg' && (!!awgBackendValue || !!tunnel.awgVersion))}
+				{@const showMobileBadgeRow =
+					showTypeRow ||
+					(tunnel.source === 'awg' && tunnel.defaultRoute) ||
+					(tunnel.source === 'singbox' && !!tunnel.clashDelay && tunnel.clashDelay > 0)}
 				<section class="mobile-tunnel-card" aria-label={`Мониторинг ${tunnel.name}`}>
 					<header class="mobile-tunnel-head">
 						<div class="mobile-tunnel-main">
@@ -293,21 +299,36 @@
 											<circle cx="12" cy="12" r="3" />
 										</svg>
 									</a>
-									{#if tunnel.source === 'awg' && tunnel.defaultRoute}
-										<Badge variant="accent" size="sm">default</Badge>
-									{/if}
 								{/if}
 							</div>
 
-							{#if showTypeRow}
+							{#if showMobileBadgeRow}
 								<div class="mobile-tunnel-type-row">
 									{#if tunnel.source === 'awg'}
 										{#if awgBackendValue}<VersionBadge kind="backend" value={awgBackendValue} />{/if}
 										{#if tunnel.awgVersion}<VersionBadge kind="awg" value={tunnel.awgVersion} />{/if}
+										{#if tunnel.defaultRoute}
+											<Badge variant="accent" size="sm">default</Badge>
+										{/if}
 									{:else}
 										{#each typeBadges as b, idx (`${tunnel.id}-mobile-type-${idx}-${b.label}`)}
 											<Badge variant={b.variant} size="sm" mono={b.mono ?? false}>{b.label}</Badge>
 										{/each}
+										{#if tunnel.source === 'singbox' && tunnel.clashDelay && tunnel.clashDelay > 0}
+											<Badge
+												variant={latencyTier(tunnel.clashDelay)}
+												size="sm"
+												mono
+												title={`Источник: urltest группа "${tunnel.urltestGroup ?? ''}"`}
+											>
+												<span class="clash-num">clash: <span class="clash-val">{tunnel.clashDelay}</span>ms</span>
+												<LatencySparkline
+													history={$latencyHistory.get(tunnel.singboxTag ?? '') ?? []}
+													width={36}
+													height={10}
+												/>
+											</Badge>
+										{/if}
 									{/if}
 								</div>
 							{/if}
@@ -324,15 +345,6 @@
 							<span class="sr-only">{tunnelMatrixExcludeLabel(tunnel)}</span>
 						</button>
 					</header>
-
-					{#if tunnel.source === 'singbox' && tunnel.clashDelay && tunnel.clashDelay > 0}
-						<div class="mobile-clash-row">
-							<Badge variant={latencyTier(tunnel.clashDelay)} size="sm" mono title={`Источник: urltest группа "${tunnel.urltestGroup ?? ''}"`}>
-								<span class="clash-num">clash: <span class="clash-val">{tunnel.clashDelay}</span>ms</span>
-								<LatencySparkline history={$latencyHistory.get(tunnel.singboxTag ?? '') ?? []} width={36} height={10} />
-							</Badge>
-						</div>
-					{/if}
 
 					<div class="mobile-target-list">
 						{#each snapshot.targets as target (target.id)}
@@ -422,8 +434,7 @@
 	}
 
 	.mobile-tunnel-title-row,
-	.mobile-tunnel-type-row,
-	.mobile-clash-row {
+	.mobile-tunnel-type-row {
 		display: flex;
 		align-items: center;
 		flex-wrap: wrap;
@@ -476,15 +487,16 @@
 
 		.mobile-tunnel-card .tunnel-link,
 		.mobile-tunnel-card .tunnel-system {
+			font-size: 14px;
+			font-weight: 600;
+			line-height: 1.3;
+			color: var(--color-text-primary);
 			max-width: 100%;
 			overflow: hidden;
 			text-overflow: ellipsis;
 			white-space: nowrap;
 		}
 
-		.mobile-clash-row {
-			padding: 0.5rem 0.75rem 0;
-		}
 	}
 
 	.clash-num {
@@ -548,6 +560,13 @@
 		justify-content: center;
 		width: 100%;
 		margin-top: 6px;
+	}
+
+	.th-tunnel > .tunnel-default-row {
+		display: flex;
+		justify-content: center;
+		width: 100%;
+		margin-top: 0.15rem;
 	}
 
 	.tunnel-type-row {
@@ -863,32 +882,6 @@
 	}
 
 
-
-	/* Monitoring matrix: keep the "default" badge on a dedicated line in both
-	   desktop table headers and mobile cards. */
-	.tunnel-title-row,
-	.mobile-tunnel-title-row {
-		flex-wrap: wrap;
-	}
-
-	.tunnel-title-row :global(.badge),
-	.mobile-tunnel-title-row :global(.badge) {
-		flex: 0 0 100%;
-		width: max-content;
-		max-width: 100%;
-		margin-top: 0.15rem;
-	}
-
-	.tunnel-title-row :global(.badge) {
-		margin-left: auto;
-		margin-right: auto;
-	}
-
-	.mobile-tunnel-title-row :global(.badge) {
-		margin-left: 0;
-		margin-right: 0;
-	}
-
 	/* Desktop header uses the same visual language as mobile/excluded chips,
 	   but the action owns a full row inside the tunnel header cell. */
 	.th-tunnel > .tunnel-head {
@@ -1034,12 +1027,4 @@
 		}
 	}
 
-	@media (max-width: 768px) {
-		.mobile-tunnel-title-row :global(.badge) {
-			flex: 0 0 auto;
-			width: auto;
-			max-width: max-content;
-			margin-top: 0;
-		}
-	}
 </style>
