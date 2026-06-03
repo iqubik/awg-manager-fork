@@ -3486,6 +3486,9 @@ definitions:
     type: object
   api.SingboxRouterStatusData:
     properties:
+      active:
+        example: true
+        type: boolean
       deviceCount:
         example: 3
         type: integer
