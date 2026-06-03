@@ -65,8 +65,8 @@ mkdir -p build/ipk build/bin dist
 
 # Build frontend
 if [[ "${SKIP_FRONTEND_BUILD:-0}" == "1" ]]; then
-    if [[ ! -f "$PROJECT_ROOT/frontend/build/index.html" ]]; then
-        echo "ERROR: SKIP_FRONTEND_BUILD=1 but frontend/build/index.html is missing"
+    if [[ ! -f "$PROJECT_ROOT/frontend/build/index.html.gz" && ! -f "$PROJECT_ROOT/frontend/build/index.html" ]]; then
+        echo "ERROR: SKIP_FRONTEND_BUILD=1 but frontend/build/index.html(.gz) is missing"
         exit 1
     fi
     echo "Using existing frontend build: frontend/build/"
