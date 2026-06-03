@@ -6,6 +6,7 @@
     import { notifications } from '$lib/stores/notifications';
     import { accessPoliciesStore, policyDevicesStore, policyInterfacesStore, invalidateAllRouting } from '$lib/stores/routing';
     import { isHydraRouteAccessPolicy } from '$lib/utils/accessPolicy';
+    import { ERROR_WORDS, pluralForm, pluralize, DEVICE_WORDS, POLICY_WORDS } from '$lib/utils/pluralize';
 
     interface Props {
         accessPolicies: AccessPolicy[];
@@ -28,6 +29,7 @@
 	let policyRefreshing = $state(false);
 
     let policyCount = $derived(accessPolicies.length);
+    let policyDeviceCount = $derived(accessPolicies.reduce((n, p) => n + p.deviceCount, 0));
 
     // Keep editingPolicyData in sync with store-driven accessPolicies
     $effect(() => {
@@ -120,8 +122,8 @@
                 try { await api.deleteAccessPolicy(name); ok++; } catch { fail++; }
             }
             exitPolicySelection();
-            if (fail > 0) notifications.warning(`Удалено ${ok} из ${ok + fail} политик (${fail} ошибок)`);
-            else notifications.success(`Удалено ${ok} политик`);
+            if (fail > 0) notifications.warning(`Удалено ${ok} из ${ok + fail} ${pluralForm(ok + fail, POLICY_WORDS)} (${pluralize(fail, ERROR_WORDS)})`);
+            else notifications.success(`Удалено ${pluralize(ok, POLICY_WORDS)}`);
         } finally {
             policyBulkLoading = false;
             policyBulkDeleteConfirm = false;
@@ -145,7 +147,9 @@
     <div class="policy-tab policy-tab--list">
     <div class="section-header">
         {#if !policySelectionMode}
-            <span class="section-summary">{policyCount} политик</span>
+            <span class="section-summary">
+                {pluralize(policyCount, POLICY_WORDS)}, {pluralize(policyDeviceCount, DEVICE_WORDS)}
+            </span>
             <div class="section-buttons">
                 <StoreStatusBadge store={accessPoliciesStore} />
                 <StoreStatusBadge store={policyDevicesStore} />
@@ -224,7 +228,7 @@
         <ConfirmModal
             open={true}
             title="Удаление"
-            message={`Удалить ${policySelected.size} политик? Все устройства будут отвязаны.`}
+            message={`Удалить ${pluralize(policySelected.size, POLICY_WORDS)}? Все устройства будут отвязаны.`}
             onConfirm={bulkPolicyDelete}
             onClose={() => policyBulkDeleteConfirm = false}
         />

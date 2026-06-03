@@ -40,17 +40,12 @@
     return result;
   });
 
-  function pluralRules(n: number): string {
-    if (n === 1) return 'правило';
-    if (n >= 2 && n <= 4) return 'правила';
-    return 'правил';
-  }
 </script>
 
 {#if items.length > 0}
   <div class="row">
     <header class="head">
-      <span class="caption">Выбрано: {items.length} · создаст {items.length} {pluralRules(items.length)}</span>
+      <span class="caption">Выбрано: {items.length}</span>
       <button type="button" class="link" onclick={() => openTemplatesModal()}>Изменить →</button>
     </header>
     <div class="chips">

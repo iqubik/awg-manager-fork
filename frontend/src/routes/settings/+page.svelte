@@ -46,6 +46,7 @@
 	import { waitForBackendRestart } from "$lib/restartRecovery";
 	import { hasDevelopChannelQuizPassed } from "$lib/utils/developChannelGate";
 	import { developFeedbackFabVisible } from "$lib/stores/developFeedbackFab";
+	import { pluralize, AVAILABLE_WORDS, TUNNEL_WORDS } from "$lib/utils/pluralize";
 
 	const expandUsageLevel = $derived($page.url.searchParams.has('mode'));
 	const highlightFeedbackFab = $derived($page.url.searchParams.has('feedbackFab'));
@@ -224,7 +225,7 @@
 		const availableTunnelCount = list.filter((ob) => ob.tag !== 'direct' && ob.available).length;
 		notifications.success(
 			tunnelCount > 0
-				? `Маршруты обновлены: найдено ${tunnelCount} туннелей (${availableTunnelCount} доступно)`
+				? `Маршруты обновлены: найдено ${pluralize(tunnelCount, TUNNEL_WORDS)} (${pluralize(availableTunnelCount, AVAILABLE_WORDS)})`
 				: 'Маршруты обновлены: туннели не найдены (доступен только Direct)'
 		);
 	}

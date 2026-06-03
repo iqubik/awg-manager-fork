@@ -3,6 +3,7 @@
 	import { Button } from '$lib/components/ui';
 	import HrNeoRuleCard from './HrNeoRuleCard.svelte';
 	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
+	import { pluralize, RULE_WORDS } from '$lib/utils/pluralize';
 
 	interface Props {
 		target: string;
@@ -38,7 +39,7 @@
 		<div class="list-title">
 			<h2>{target}</h2>
 			<span class="kind-badge kind-{targetKind}">{targetKind}</span>
-			<span class="count">{rules.length} правил</span>
+			<span class="count">{pluralize(rules.length, RULE_WORDS)}</span>
 		</div>
 		<Button variant="primary" size="sm" onclick={onaddrule} iconBefore={createIcon}>
 			Добавить правило

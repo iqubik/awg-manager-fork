@@ -16,6 +16,7 @@
 	} from '$lib/components/ui';
 	import type { DropdownOption, StatTile } from '$lib/components/ui';
 	import { NetfilterMissingBanner } from '$lib/components/routing/singboxRouter';
+	import { pluralForm, RULE_WORDS, SET_WORDS } from '$lib/utils/pluralize';
 
 	const statusStore = singboxRouter.status;
 	const settingsStore = singboxRouter.settings;
@@ -348,8 +349,8 @@
 	const ruleSetsCount = $derived(status?.ruleSetCount ?? ruleSets.length);
 
 	const statTiles = $derived<StatTile[]>([
-		{ label: 'Правил', value: rulesCount },
-		{ label: 'Наборов', value: ruleSetsCount },
+		{ label: pluralForm(rulesCount, RULE_WORDS), value: rulesCount },
+		{ label: pluralForm(ruleSetsCount, SET_WORDS), value: ruleSetsCount },
 		{ label: 'Outbounds', value: outboundsCount },
 		{
 			label: 'Issues',

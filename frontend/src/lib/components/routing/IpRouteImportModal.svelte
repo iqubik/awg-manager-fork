@@ -2,6 +2,7 @@
 	import { Modal, Button, Dropdown, type DropdownOption } from '$lib/components/ui';
 	import { parseStaticRouteImport, type PortableStaticRoute } from '$lib/utils/staticroute-export';
 	import type { RoutingTunnel } from '$lib/types';
+	import { pluralize, ROUTE_WORDS } from '$lib/utils/pluralize';
 
 	interface Props {
 		open: boolean;
@@ -165,7 +166,7 @@
 		{/if}
 
 		<!-- Preview list -->
-		<p class="import-hint">Найдено {parsed.length} маршрутов:</p>
+		<p class="import-hint">Найдено {pluralize(parsed.length, ROUTE_WORDS)}:</p>
 		<div class="import-list">
 			{#each parsed as route, i}
 				<label class="import-item" class:duplicate={isDuplicate(route.name)} class:overridden={tunnelOverrides[i] != null}>

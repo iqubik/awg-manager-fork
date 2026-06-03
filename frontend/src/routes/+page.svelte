@@ -59,6 +59,7 @@
 	} from '$lib/constants/singboxLayout';
 	import { isMockDevMode as getIsMockDevMode } from '$lib/env';
 	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
+	import { formatRunningSub, pluralForm, SUBSCRIPTION_WORDS, TUNNEL_WORDS } from '$lib/utils/pluralize';
 
 	type TunnelTab = 'awg' | 'singbox' | 'subscriptions';
 	type AwgTunnelViewMode = 'cards' | 'compact' | 'list';
@@ -1233,7 +1234,7 @@
 			{@const totalCount = awgSummaryTotal}
 			<div class="tunnels-toolbar">
 				<div class="count-group">
-					<span class="tunnel-count">{totalCount} {totalCount === 1 ? 'туннель' : totalCount < 5 ? 'туннеля' : 'туннелей'}</span>
+					<span class="tunnel-count">{totalCount} {pluralForm(totalCount, TUNNEL_WORDS)}</span>
 					<StoreStatusBadge store={tunnels} />
 				</div>
 				<div class="toolbar-actions">
@@ -1303,7 +1304,7 @@
 					<StatStrip>
 						<Stat
 							value={`${awgSummaryActive}/${awgSummaryTotal}`}
-							label="Активные туннели"
+							label={pluralForm(awgSummaryActive, TUNNEL_WORDS)}
 							sub={`AWG ${awgList.length} · system ${visibleSystemList.length} · external ${externalList.length}`}
 						/>
 						<Stat
@@ -1806,7 +1807,7 @@
 					<div class="tunnels-toolbar">
 						<span class="tunnel-count">
 							{subscriptionsList.length}
-							{subscriptionsList.length === 1 ? 'подписка' : subscriptionsList.length < 5 ? 'подписки' : 'подписок'}
+							{pluralForm(subscriptionsList.length, SUBSCRIPTION_WORDS)}
 						</span>
 						<div class="toolbar-actions">
 							{#if subscriptionsList.length > 0 && showSingboxLayoutPicker}
@@ -1845,9 +1846,12 @@
 						<div class="awg-summary-row">
 							<StatStrip>
 								<Stat
-									value={`${singboxSubscriptionsTrafficStats.count}`}
-									label="Подписок"
-									sub={`в работе ${singboxSubscriptionsTrafficStats.activeCount} · не активные ${singboxSubscriptionsTrafficStats.inactiveCount}`}
+									value={`${singboxSubscriptionsTrafficStats.activeCount}/${singboxSubscriptionsTrafficStats.count}`}
+									label={pluralForm(singboxSubscriptionsTrafficStats.activeCount, SUBSCRIPTION_WORDS)}
+									sub={formatRunningSub(
+										singboxSubscriptionsTrafficStats.activeCount,
+										singboxSubscriptionsTrafficStats.count,
+									)}
 								/>
 								<Stat
 									value={formatBytes(
@@ -1902,7 +1906,7 @@
 							{#if subscriptionsListRows.length > 0}
 								<div class="awg-list-row awg-list-row--section">
 									<div class="awg-list-section-title">
-										Не активные · {subscriptionsListRows.length}
+										Остановлено · {subscriptionsListRows.length}
 									</div>
 								</div>
 								{#each subscriptionsListRows as sub (sub.id)}
@@ -1941,7 +1945,7 @@
 								class="external-section"
 								class:singbox-sub-inactive-section={subscriptionsActiveCards.length === 0}
 							>
-								<h2 class="section-title">Не активные</h2>
+								<h2 class="section-title">Остановлено</h2>
 								<div
 									class="tunnel-grid"
 									class:tunnel-grid--dense={singboxSubscriptionsEffectiveLayout === 'dense'}
@@ -1968,7 +1972,7 @@
 				<div class="tunnels-toolbar">
 					<span class="tunnel-count">
 						{singboxTunnelsList.length}
-						{singboxTunnelsList.length === 1 ? 'туннель' : singboxTunnelsList.length < 5 ? 'туннеля' : 'туннелей'}
+						{pluralForm(singboxTunnelsList.length, TUNNEL_WORDS)}
 					</span>
 					<div class="toolbar-actions">
 						{#if singboxTunnelsList.length > 0 && showSingboxLayoutPicker}
@@ -2051,8 +2055,8 @@
 						<StatStrip>
 							<Stat
 								value={`${singboxTunnelListStats.running}/${singboxTunnelListStats.count}`}
-								label="Процессы"
-								sub={`${singboxTunnelListStats.running} running · ${singboxTunnelListStats.stopped} stopped`}
+								label={pluralForm(singboxTunnelListStats.running, TUNNEL_WORDS)}
+								sub={formatRunningSub(singboxTunnelListStats.running, singboxTunnelListStats.count)}
 							/>
 							<Stat
 								value={formatBytes(singboxTunnelListStats.down + singboxTunnelListStats.up)}

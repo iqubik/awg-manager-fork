@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { AccessPolicy } from '$lib/types';
+	import { pluralize, DEVICE_WORDS } from '$lib/utils/pluralize';
 	import { Badge } from '$lib/components/ui';
 	import PolicyIcon from './PolicyIcon.svelte';
 	import { isHydraRouteAccessPolicy } from '$lib/utils/accessPolicy';
@@ -52,7 +53,7 @@
 							{/if}
 						</div>
 					</div>
-					<span class="card-stat">{policy.deviceCount} устройств</span>
+					<span class="card-stat">{pluralize(policy.deviceCount, DEVICE_WORDS)}</span>
 					{#if policy.interfaces?.length}
 						<div class="card-route">
 							<span class="route-arrow">&rarr;</span>

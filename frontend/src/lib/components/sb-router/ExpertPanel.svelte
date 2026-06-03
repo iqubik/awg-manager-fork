@@ -19,6 +19,7 @@
   import { notifications } from '$lib/stores/notifications';
   import { api } from '$lib/api/client';
   import { computeRuleSetUsage } from '$lib/components/routing/singboxRouter';
+  import { pluralForm, REWRITE_WORDS, RULE_WORDS } from '$lib/utils/pluralize';
   import type { OutboundGroup } from '$lib/components/routing/singboxRouter/outboundOptions';
   import type {
     SingboxRouterRule,
@@ -250,11 +251,11 @@
       value: $storeStatus?.enabled ? 'ON' : 'OFF',
       tone: $storeStatus?.enabled ? 'success' : 'muted',
     },
-    { label: 'Правил', value: String($storeRules.length) },
+    { label: pluralForm($storeRules.length, RULE_WORDS), value: String($storeRules.length) },
     { label: 'Rule-sets', value: String($storeRuleSets.length) },
     { label: 'Outbounds', value: String($storeOutbounds.length) },
-    { label: 'DNS правил', value: String($storeDnsRules.length) },
-    { label: 'Перезаписей', value: String($storeDnsRewrites.length) },
+    { label: `DNS ${pluralForm($storeDnsRules.length, RULE_WORDS)}`, value: String($storeDnsRules.length) },
+    { label: pluralForm($storeDnsRewrites.length, REWRITE_WORDS), value: String($storeDnsRewrites.length) },
     { label: 'Прокси', value: activeProxyCount === null ? '—' : String(activeProxyCount) },
   ]);
 

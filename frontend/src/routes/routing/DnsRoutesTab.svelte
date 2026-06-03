@@ -24,6 +24,7 @@
     } from '$lib/stores/downloadRoute';
     import RoutingTabBodySkeleton from './RoutingTabBodySkeleton.svelte';
     import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
+    import { ERROR_WORDS, pluralForm, pluralize, RULE_WORDS } from '$lib/utils/pluralize';
 
     interface Props {
         dnsRoutes: DnsRoute[];
@@ -198,7 +199,7 @@
         const selected = dnsRoutes.filter(r => dnsSelected.has(r.id));
         const portable = exportRoutes(selected);
         downloadJson(portable, 'awg-dns-routes.json');
-        notifications.success(`Экспортировано ${portable.length} правил`);
+        notifications.success(`Экспортировано ${pluralize(portable.length, RULE_WORDS)}`);
     }
 
     async function bulkDnsToggle(enabled: boolean) {
@@ -215,8 +216,8 @@
             if (latest) dnsRoutesStore.applyMutationResponse(latest);
 
             const label = enabled ? 'Включено' : 'Выключено';
-            if (fail > 0) notifications.warning(`${label} ${ok} из ${ok + fail} правил (${fail} ошибок)`);
-            else notifications.success(`${label} ${ok} правил`);
+            if (fail > 0) notifications.warning(`${label} ${ok} из ${ok + fail} ${pluralForm(ok + fail, RULE_WORDS)} (${pluralize(fail, ERROR_WORDS)})`);
+            else notifications.success(`${label} ${pluralize(ok, RULE_WORDS)}`);
         } finally {
             dnsBulkLoading = false;
         }
@@ -232,7 +233,7 @@
             const deleted = Math.max(0, beforeCount - fresh.filter(r => r.backend !== 'hydraroute').length);
 
             exitDnsSelection();
-            notifications.success(`Удалено ${deleted} правил`);
+            notifications.success(`Удалено ${pluralize(deleted, RULE_WORDS)}`);
         } catch (e) {
             notifications.error(`Ошибка: ${e instanceof Error ? e.message : 'неизвестная ошибка'}`);
         } finally {
@@ -262,8 +263,8 @@
             }
 
             dnsTunnelMode = false;
-            if (fail > 0) notifications.warning(`Туннель изменён для ${ok} из ${ok + fail} правил (${fail} ошибок)`);
-            else notifications.success(`Туннель изменён для ${ok} правил`);
+            if (fail > 0) notifications.warning(`Туннель изменён для ${ok} из ${ok + fail} ${pluralForm(ok + fail, RULE_WORDS)} (${pluralize(fail, ERROR_WORDS)})`);
+            else notifications.success(`Туннель изменён для ${pluralize(ok, RULE_WORDS)}`);
         } finally {
             dnsBulkLoading = false;
         }
@@ -292,7 +293,7 @@
         }
         dnsImportOpen = false;
         if (count > 0) {
-            notifications.success(`Импортировано ${count} правил`);
+            notifications.success(`Импортировано ${pluralize(count, RULE_WORDS)}`);
         }
     }
 
@@ -311,7 +312,7 @@
             const result = await api.createDnsRouteBatch(lists);
 
             if (result.created > 0) {
-                notifications.success(`Создано ${result.created} правил из каталога`);
+                notifications.success(`Создано ${pluralize(result.created, RULE_WORDS)} из каталога`);
             } else {
                 notifications.error('Не удалось создать ни одного правила');
             }
@@ -339,7 +340,7 @@
             {#if bodyLoading}
                 …
             {:else}
-                {dnsRoutes.length} правил, {dnsActiveCount} активных
+                {pluralize(dnsRoutes.length, RULE_WORDS)}, {dnsActiveCount} активных
             {/if}
         </span>
         <div class="section-buttons">

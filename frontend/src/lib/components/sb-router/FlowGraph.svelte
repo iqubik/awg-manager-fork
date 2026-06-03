@@ -8,6 +8,7 @@
   import { systemInfo } from '$lib/stores/system';
   import { openDrawer } from './drawerStore';
   import { deriveRoutingSummary } from './flowData';
+  import { pluralize, RULE_WORDS, SERVICE_WORDS, TUNNEL_WORDS } from '$lib/utils/pluralize';
 
   const status = singboxRouterStore.status;
   const rulesStore = singboxRouterStore.rules;
@@ -41,13 +42,8 @@
   });
   let hasTunnel = $derived(summary.tunnels.length > 0);
   let tunnelTitle = $derived(
-    summary.tunnels.length <= 1 ? (summary.tunnels[0] ?? '—') : `${summary.tunnels.length} туннелей`,
+    summary.tunnels.length <= 1 ? (summary.tunnels[0] ?? '—') : pluralize(summary.tunnels.length, TUNNEL_WORDS),
   );
-  function pluralSvc(n: number): string {
-    if (n === 1) return 'сервис';
-    if (n >= 2 && n <= 4) return 'сервиса';
-    return 'сервисов';
-  }
 </script>
 
 <div class="flow">
@@ -63,7 +59,7 @@
     <button type="button" class="node engine" class:glow={engineOn} onclick={openDrawer}>
       <div class="cap acc">sing-box</div>
       <div class="node-sub light">{engineSub}</div>
-      <div class="node-sub">{rulesCount} правил{deviceMode === 'all' ? ' · весь роутер' : ''}</div>
+      <div class="node-sub">{pluralize(rulesCount, RULE_WORDS)}{deviceMode === 'all' ? ' · весь роутер' : ''}</div>
     </button>
 
     <div class="arrow">›</div>
@@ -75,7 +71,7 @@
       </div>
       {#if hasTunnel}
         <div class="out tun">
-          <div class="out-line"><span class="dot"></span>через туннель → <span class="acc">{tunnelTitle}</span> <span class="mut">· {summary.tunneledRuleCount} {pluralSvc(summary.tunneledRuleCount)}</span></div>
+          <div class="out-line"><span class="dot"></span>через туннель → <span class="acc">{tunnelTitle}</span> <span class="mut">· {pluralize(summary.tunneledRuleCount, SERVICE_WORDS)}</span></div>
           <div class="dns">DNS: {summary.tunnelDnsLabel ? `через туннель · ${summary.tunnelDnsLabel}` : 'через туннель'}</div>
         </div>
       {/if}

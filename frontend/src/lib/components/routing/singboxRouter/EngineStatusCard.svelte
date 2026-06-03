@@ -12,6 +12,7 @@
 	import Modal from '$lib/components/ui/Modal.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
+	import { pluralize, RULE_WORDS } from '$lib/utils/pluralize';
 
 	interface Props {
 		status: SingboxRouterStatus | null;
@@ -143,7 +144,7 @@
 				<span class="label">Движок {status.enabled ? 'включён' : 'выключен'}</span>
 			</div>
 			<div class="stats">
-				{status.ruleCount} правил · {status.ruleSetCount} lists · {status.outboundCompositeCount}
+				{pluralize(status.ruleCount, RULE_WORDS)} · {status.ruleSetCount} lists · {status.outboundCompositeCount}
 				outbound
 			</div>
 			<button

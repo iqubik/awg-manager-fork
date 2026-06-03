@@ -22,6 +22,7 @@
   import TemplateServiceTile from './TemplateServiceTile.svelte';
   import TemplateRsRow from './TemplateRsRow.svelte';
   import TemplatesFooter from './TemplatesFooter.svelte';
+  import { pluralize, RULE_WORDS, TEMPLATE_WORDS } from '$lib/utils/pluralize';
 
   interface Props {
     mode?: 'submit' | 'collect';
@@ -65,7 +66,7 @@
       if (!outbound) return;
       const result = await submitTemplates(selectionArr, outbound, allGroups);
       if (result.failures.length === 0) {
-        notifications.success(`Создано ${result.successes.length} правил`);
+        notifications.success(`Создано ${pluralize(result.successes.length, RULE_WORDS)}`);
         closeTemplatesModal();
         await singboxRouterStore.loadAll();
       } else {
@@ -129,12 +130,6 @@
   function failureFor(id: string): string | undefined {
     return lastFailures.find((f) => f.id === id)?.error;
   }
-
-  function pluralTemplates(n: number): string {
-    if (n === 1) return 'шаблон';
-    if (n >= 2 && n <= 4) return 'шаблона';
-    return 'шаблонов';
-  }
 </script>
 
 {#if $templatesOpen}
@@ -169,7 +164,7 @@
             value={$templatesQuery}
             oninput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)}
           />
-          <span class="search-count">{counts.all} {pluralTemplates(counts.all)}</span>
+          <span class="search-count">{pluralize(counts.all, TEMPLATE_WORDS)}</span>
         </div>
         {#if !servicesOnly}
           <div class="chips">

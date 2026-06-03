@@ -6,6 +6,7 @@
     import { notifications } from '$lib/stores/notifications';
     import { clientRoutesStore } from '$lib/stores/routing';
     import RoutingTabBodySkeleton from './RoutingTabBodySkeleton.svelte';
+    import { ERROR_WORDS, pluralForm, pluralize, RULE_WORDS } from '$lib/utils/pluralize';
 
     interface Props {
         clientRoutes: ClientRoute[];
@@ -110,8 +111,8 @@
             }
 
             const label = enabled ? 'Включено' : 'Выключено';
-            if (fail > 0) notifications.warning(`${label} ${ok} из ${ok + fail} правил (${fail} ошибок)`);
-            else notifications.success(`${label} ${ok} правил`);
+            if (fail > 0) notifications.warning(`${label} ${ok} из ${ok + fail} ${pluralForm(ok + fail, RULE_WORDS)} (${pluralize(fail, ERROR_WORDS)})`);
+            else notifications.success(`${label} ${pluralize(ok, RULE_WORDS)}`);
         } finally {
             clientBulkLoading = false;
         }
@@ -126,8 +127,8 @@
             }
 
             exitClientSelection();
-            if (fail > 0) notifications.warning(`Удалено ${ok} из ${ok + fail} правил (${fail} ошибок)`);
-            else notifications.success(`Удалено ${ok} правил`);
+            if (fail > 0) notifications.warning(`Удалено ${ok} из ${ok + fail} ${pluralForm(ok + fail, RULE_WORDS)} (${pluralize(fail, ERROR_WORDS)})`);
+            else notifications.success(`Удалено ${pluralize(ok, RULE_WORDS)}`);
         } finally {
             clientBulkLoading = false;
             clientBulkDeleteConfirm = false;
@@ -144,8 +145,8 @@
             }
 
             clientTunnelMode = false;
-            if (fail > 0) notifications.warning(`Туннель изменён для ${ok} из ${ok + fail} правил (${fail} ошибок)`);
-            else notifications.success(`Туннель изменён для ${ok} правил`);
+            if (fail > 0) notifications.warning(`Туннель изменён для ${ok} из ${ok + fail} ${pluralForm(ok + fail, RULE_WORDS)} (${pluralize(fail, ERROR_WORDS)})`);
+            else notifications.success(`Туннель изменён для ${pluralize(ok, RULE_WORDS)}`);
         } finally {
             clientBulkLoading = false;
         }
@@ -158,7 +159,7 @@
             {#if bodyLoading}
                 …
             {:else}
-                {clientRoutes.length} правил
+                {pluralize(clientRoutes.length, RULE_WORDS)}
             {/if}
         </span>
         <div class="section-buttons">
@@ -252,7 +253,7 @@
     <ConfirmModal
         open={true}
         title="Удаление"
-        message={`Удалить ${clientSelected.size} VPN-правил?`}
+        message={`Удалить ${clientSelected.size} VPN-${pluralForm(clientSelected.size, RULE_WORDS)}?`}
         onConfirm={bulkClientDelete}
         onClose={() => clientBulkDeleteConfirm = false}
     />

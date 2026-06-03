@@ -6,6 +6,7 @@
         findRoutingTunnelLabel,
     } from '$lib/utils/routingTunnelOptions';
     import type { RoutingTunnel } from '$lib/types';
+    import { pluralize, RULE_WORDS } from '$lib/utils/pluralize';
 
     interface Props {
         open: boolean;
@@ -167,7 +168,7 @@
         {/if}
 
         <!-- Preview list -->
-        <p class="import-hint">Найдено {parsed.length} правил:</p>
+        <p class="import-hint">Найдено {pluralize(parsed.length, RULE_WORDS)}:</p>
         <div class="import-list">
             {#each parsed as route, i}
                 <label class="import-item" class:duplicate={isDuplicate(route.name)} class:overridden={tunnelOverrides[i] != null}>

@@ -7,6 +7,7 @@
 	import { Button } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/ui/ConfirmModal.svelte';
 	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
+	import { pluralize, RULE_WORDS } from '$lib/utils/pluralize';
 
 	interface Props {
 		rules: SingboxRouterDNSRule[];
@@ -73,7 +74,7 @@
 {/snippet}
 
 <div class="header">
-	<div class="hint">{rules.length} правил · first-match-wins</div>
+	<div class="hint">{pluralize(rules.length, RULE_WORDS)} · first-match-wins</div>
 	<Button
 		variant="primary"
 		size="sm"

@@ -3,14 +3,6 @@
   Полная композиция wizard'а: header + stepper + 3 шага + actions.
 -->
 
-<script lang="ts" module>
-  function pluralRules(n: number): string {
-    if (n === 1) return 'правило';
-    if (n >= 2 && n <= 4) return 'правила';
-    return 'правил';
-  }
-</script>
-
 <script lang="ts">
   import { get } from 'svelte/store';
   import { onMount, onDestroy } from 'svelte';
@@ -40,6 +32,7 @@
   import MobileBottomBar from './MobileBottomBar.svelte';
   import { mode } from './modeStore';
   import { ensureTunnelDnsInfra, syncTunnelDnsRule } from './emptyStateActions';
+  import { pluralize, RULE_WORDS, SERVICE_WORDS, SET_WORDS } from '$lib/utils/pluralize';
 
   const outbounds = singboxRouterStore.outbounds;
   const presets = singboxRouterStore.presets;
@@ -110,14 +103,14 @@
         }
         const created = result.successes.length;
         if (continueAfter) {
-          notifications.success(`Создано правил: ${created}. Можно добавить ещё одно.`);
+          notifications.success(`Создано ${pluralize(created, RULE_WORDS)}. Можно добавить ещё одно.`);
           clearSelection();
           resetWizardState();
           customResetKey++;
           await singboxRouterStore.loadAll();
           if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
         } else {
-          notifications.success(`Создано правил: ${created}`);
+          notifications.success(`Создано ${pluralize(created, RULE_WORDS)}`);
           clearSelection();
           closeAddWizard();
           await singboxRouterStore.loadAll();
@@ -174,7 +167,7 @@
         <div class="picker-icon"><Plus size={20} /></div>
         <div class="picker-text">
           <div class="picker-title">Выбрать из готовых шаблонов</div>
-          <div class="picker-sub">{$presets.length} сервисов · {$ruleSets.length} наборов</div>
+          <div class="picker-sub">{pluralize($presets.length, SERVICE_WORDS)} · {pluralize($ruleSets.length, SET_WORDS)}</div>
         </div>
         <div class="picker-chev">›</div>
       </button>
@@ -245,7 +238,7 @@
       <div class="preview-info">
         <Info size={14} />
         <span>
-          {$templatesSelection.size + (hasCustom ? 1 : 0)} {pluralRules($templatesSelection.size + (hasCustom ? 1 : 0))} будет создано.
+          {pluralize($templatesSelection.size + (hasCustom ? 1 : 0), RULE_WORDS)} будет создано.
         </span>
       </div>
     </WizardStep>

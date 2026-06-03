@@ -19,6 +19,7 @@
   import { api } from '$lib/api/client';
   import { notifications } from '$lib/stores/notifications';
   import { syncTunnelDnsRule } from './emptyStateActions';
+  import { pluralize, RULE_WORDS } from '$lib/utils/pluralize';
   import type { RuleCardData } from './types';
 
   const rules = singboxRouterStore.rules;
@@ -64,11 +65,6 @@
   const DRAG_THRESHOLD = 7;
 
   let count = $derived(cards.length);
-  function pluralRules(n: number): string {
-    if (n === 1) return 'правило';
-    if (n >= 2 && n <= 4) return 'правила';
-    return 'правил';
-  }
 
   let deleteIndex = $state<number | null>(null);
   let deleteTarget = $state<{ index: number; summary: string } | null>(null);
@@ -346,7 +342,7 @@
     </div>
     <div class="header-right">
       <div class="counter">
-        {count} {pluralRules(count)}
+        {pluralize(count, RULE_WORDS)}
       </div>
       <Button variant="secondary" size="sm" onclick={() => openAddWizard()}>
         + Правило

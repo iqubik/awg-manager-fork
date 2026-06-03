@@ -18,6 +18,7 @@
   import PolicyCombobox from './PolicyCombobox.svelte';
   import { deriveDeps, deriveIssues } from './drawerData';
   import { mergeAndSaveSettings, BYPASS_PRESETS } from './settingsActions';
+  import { pluralize, RULE_WORDS } from '$lib/utils/pluralize';
   import type { SingboxRouterSettings, SingboxRouterWANInterface } from '$lib/types';
 
   const status = singboxRouterStore.status;
@@ -49,16 +50,11 @@
     singboxInstallStatus?.version ?? singboxInstallStatus?.currentVersion ?? sysInfo?.singbox?.version,
   ));
 
-  function pluralRules(n: number): string {
-    if (n === 1) return 'правило';
-    if (n >= 2 && n <= 4) return 'правила';
-    return 'правил';
-  }
   let bigTitle = $derived(engineEnabled ? 'Движок работает' : 'Движок выключен');
   let bigSubtitle = $derived.by(() => {
     if (!engineEnabled) return 'Не активен';
     const n = s?.ruleCount ?? 0;
-    return `Трафик идёт через ${n} ${pluralRules(n)}`;
+    return `Трафик идёт через ${pluralize(n, RULE_WORDS)}`;
   });
 
   onMount(async () => {

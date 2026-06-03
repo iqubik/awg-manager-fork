@@ -21,6 +21,7 @@
 		resolveDevelopChannelLockoutMs,
 		setDevelopChannelLockout,
 	} from '$lib/utils/developChannelGate';
+	import { pluralize, ERROR_WORDS } from '$lib/utils/pluralize';
 
 	interface Props {
 		open: boolean;
@@ -383,7 +384,7 @@
 					<div class="quiz-progress-leading">
 						<span class="quiz-progress-text">{progressLabel}</span>
 						<span class="quiz-progress-score">
-							Допустимо до {DEVELOP_CHANNEL_QUIZ_MAX_WRONG} ошибок
+							Допустимо до {pluralize(DEVELOP_CHANNEL_QUIZ_MAX_WRONG, ERROR_WORDS)}
 						</span>
 					</div>
 					<div
@@ -431,7 +432,7 @@
 					{#if resultPassed}
 						Поздравляем — допуск к develop-каналу получен.
 					{:else}
-						Допустимо не более {DEVELOP_CHANNEL_QUIZ_MAX_WRONG} ошибок из {quizQuestions.length}.
+						Допустимо не более {pluralize(DEVELOP_CHANNEL_QUIZ_MAX_WRONG, ERROR_WORDS)} из {quizQuestions.length}.
 						Повтор через {lockoutDurationLabel}.
 					{/if}
 				</span>

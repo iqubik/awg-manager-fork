@@ -7,6 +7,7 @@
   import type { SingboxRouterOutbound } from '$lib/types';
   import { Badge, Button } from '$lib/components/ui';
   import { Check } from 'lucide-svelte';
+  import { pluralize, RULE_WORDS } from '$lib/utils/pluralize';
 
   interface Props {
     selectedIds: string[];
@@ -27,12 +28,6 @@
   const count = $derived(selectedIds.length);
   const idList = $derived(selectedIds.map((id) => id.replace(/^(svc|rs):/, '')).join(', '));
   const submitDisabled = $derived(count === 0 || !pickedOutbound || submitting);
-
-  function pluralRules(n: number): string {
-    if (n === 1) return 'правило';
-    if (n >= 2 && n <= 4) return 'правила';
-    return 'правил';
-  }
 </script>
 
 {#snippet iconCheck()}<Check size={14} />{/snippet}
@@ -66,7 +61,7 @@
       disabled={submitDisabled}
       iconBefore={iconCheck}
     >
-      Создать {count} {pluralRules(count)}
+      Создать {pluralize(count, RULE_WORDS)}
     </Button>
   </div>
 </div>

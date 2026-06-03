@@ -161,8 +161,8 @@
     });
     let dnsActiveCount = $derived(dnsRoutes.filter(r => r.enabled && r.backend !== 'hydraroute').length);
     let ipActiveCount = $derived(ipRoutes.filter(r => r.enabled).length);
+    let clientActiveCount = $derived(clientRoutes.filter(r => r.enabled).length);
     let policyCount = $derived(accessPolicies.length);
-    let clientRouteCount = $derived(clientRoutes.length);
 
     type TabItem = {
         id: string;
@@ -198,7 +198,7 @@
             // (hydraroute users on OS4 use the HR Neo tab instead).
             isOS5 ? { id: 'dns', label: 'NDMS', badge: dnsActiveCount } : null,
             { id: 'ip', label: 'IP-адреса', badge: ipActiveCount },
-            { id: 'clientvpn', label: 'VPN для устройств', badge: clientRouteCount },
+            { id: 'clientvpn', label: 'VPN для устройств', badge: clientActiveCount },
             isOS5 ? { id: 'policy', label: 'Политики доступа', badge: policyCount } : null,
             // Visual gap separates the NDMS-stack tabs above from the
             // sing-box / hydraroute stack below.
