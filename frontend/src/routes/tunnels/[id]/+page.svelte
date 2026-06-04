@@ -642,7 +642,7 @@
 		border: 0;
 		text-align: left;
 		cursor: pointer;
-		padding-bottom: 26px;
+		padding: 6px 34px 26px 10px;
 	}
 
 	.pubkey-copy-text {
@@ -652,7 +652,7 @@
 
 	.pubkey-copy-icon {
 		position: absolute;
-		left: 10px;
+		right: 10px;
 		bottom: 8px;
 		display: inline-flex;
 		align-items: center;
