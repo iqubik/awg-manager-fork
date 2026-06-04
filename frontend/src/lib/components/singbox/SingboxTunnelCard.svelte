@@ -163,7 +163,7 @@
 </script>
 
 {#if layout === 'list'}
-	<div
+	<tr
 		class="sbx-tunnel-list-row"
 		class:ok={cardState === 'ok'}
 		class:slow={cardState === 'slow'}
@@ -171,7 +171,7 @@
 		class:unknown={cardState === 'unknown'}
 		class:stopped={cardState === 'stopped'}
 	>
-		<div class="list-cell list-cell-delay" data-label="Delay">
+		<td class="list-cell list-cell-delay" data-label="Delay">
 			<PingButton
 				label={latText}
 				state={cardState}
@@ -179,8 +179,8 @@
 				forceBorder
 				onclick={triggerCheck}
 			/>
-		</div>
-		<div class="list-cell list-cell-name" data-label="Туннель">
+		</td>
+		<td class="list-cell list-cell-name" data-label="Туннель">
 			<div class="list-title-row">
 				<span class="dot {cardState}" aria-hidden="true"></span>
 				<button type="button" class="name-btn" onclick={edit}>{tunnel.tag}</button>
@@ -189,8 +189,32 @@
 				{tunnel.proxyInterface || 'via sing-box'}
 				{#if tunnel.kernelInterface}<span> · {tunnel.kernelInterface}</span>{/if}
 			</div>
-		</div>
-		<div class="list-cell list-cell-badges" data-label="Протокол">
+			<div class="list-server-line mono">
+				{#if showServer}
+					<span class="list-server-host">{tunnel.server}</span>
+				{:else}
+					<span class="list-server-host muted">••••••••</span>
+				{/if}
+				<button
+					type="button"
+					class="eye-inline"
+					onclick={(e) => {
+						e.stopPropagation();
+						showServer = !showServer;
+					}}
+					aria-label={showServer ? 'Скрыть сервер' : 'Показать сервер'}
+					title={showServer ? 'Скрыть сервер' : 'Показать сервер'}
+				>
+					{#if showServer}
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+					{:else}
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+					{/if}
+				</button>
+				<span class="list-server-port">:{tunnel.port}</span>
+			</div>
+		</td>
+		<td class="list-cell list-cell-badges" data-label="Протокол">
 			<div class="badges-inline">
 				<span class="badge b-{tunnel.protocol}">{protocolLabel}</span>
 				{#if tunnel.security === 'reality'}
@@ -200,33 +224,11 @@
 				{/if}
 				<span class="badge b-transport">{tunnel.transport.toUpperCase()}</span>
 			</div>
-		</div>
-		<div class="list-cell list-cell-server" data-label="Сервер">
-			<div class="server-line">
-				{#if showServer}
-					<span class="mono">{tunnel.server}</span>
-				{:else}
-					<span class="muted">••••••••</span>
-				{/if}
-				<button
-					type="button"
-					class="eye-inline"
-					onclick={() => (showServer = !showServer)}
-					aria-label={showServer ? 'Скрыть' : 'Показать'}
-				>
-					{#if showServer}
-						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-					{:else}
-						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-					{/if}
-				</button>
-				<span class="mono">:{tunnel.port}</span>
-			</div>
-		</div>
-		<div class="list-cell list-cell-run" data-label="Процесс">
+		</td>
+		<td class="list-cell list-cell-run" data-label="Процесс">
 			<span class="run-pill" class:run-on={tunnel.running === true}>{tunnel.running === true ? 'running' : 'stopped'}</span>
-		</div>
-		<div class="list-cell list-cell-traffic" data-label="Трафик">
+		</td>
+		<td class="list-cell list-cell-traffic" data-label="Трафик">
 			<div
 				role="button"
 				tabindex="0"
@@ -249,8 +251,8 @@
 				/>
 				<span class="traffic-rate tx">↑ {formatBytes(traffic?.upload ?? 0)}</span>
 			</div>
-		</div>
-		<div class="list-cell list-cell-ping-mini" data-label="Ping">
+		</td>
+		<td class="list-cell list-cell-ping-mini" data-label="Ping">
 			<div
 				class="spark-mini spark {cardState}"
 				onclick={triggerCheck}
@@ -270,8 +272,8 @@
 					{/each}
 				{/if}
 			</div>
-		</div>
-		<div class="list-cell list-cell-actions" data-label="Действия">
+		</td>
+		<td class="list-cell list-cell-actions col-actions" data-label="Действия">
 			<div class="list-actions">
 				<button
 					class="action-btn"
@@ -313,8 +315,8 @@
 					{/if}
 				</button>
 			</div>
-		</div>
-	</div>
+		</td>
+	</tr>
 {:else if layout === 'dense'}
 <div
 	class="card view-dense"
@@ -1273,11 +1275,11 @@
 
 	/* List row (grid columns set on parent .singbox-tunnel-list-table) */
 	.sbx-tunnel-list-row {
-		align-items: center;
 		min-width: 0;
 	}
 	.sbx-tunnel-list-row .list-cell {
 		min-width: 0;
+		vertical-align: middle;
 	}
 	.sbx-tunnel-list-row .list-cell-delay {
 		display: flex;
@@ -1318,6 +1320,44 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.sbx-tunnel-list-row .list-server-line {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		min-width: 0;
+		margin-top: 0.18rem;
+		font-size: var(--sbx-card-meta);
+		line-height: 1.15;
+		color: var(--color-text-muted);
+	}
+
+	.sbx-tunnel-list-row .list-server-host {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.sbx-tunnel-list-row .list-server-port,
+	.sbx-tunnel-list-row .eye-inline {
+		flex: 0 0 auto;
+	}
+
+	.sbx-tunnel-list-row .eye-inline {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.1rem;
+		border: none;
+		background: none;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.sbx-tunnel-list-row .eye-inline:hover {
+		color: var(--text);
 	}
 
 	.sbx-tunnel-list-row .traffic-row-list {
@@ -1380,23 +1420,8 @@
 		max-width: 100%;
 		text-align: center;
 	}
-	.server-line {
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
-		font-size: var(--sbx-card-value);
-		overflow: hidden;
-	}
 	.muted {
 		color: var(--text-muted);
-	}
-	.eye-inline {
-		display: inline-flex;
-		padding: 0.1rem;
-		border: none;
-		background: none;
-		color: var(--text-muted);
-		cursor: pointer;
 	}
 	.run-pill {
 		font-size: var(--sbx-card-badge);

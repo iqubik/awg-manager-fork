@@ -349,6 +349,23 @@
 		transition: border-color var(--t-fast) ease, color var(--t-fast) ease;
 	}
 
+	@media (max-width: 640px) {
+		.section-header {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr);
+			align-items: stretch;
+		}
+
+		.btn-bat-import {
+			width: 50%;
+			min-height: 2.25rem;
+			margin-left: auto;
+			justify-content: flex-start;
+			padding-inline: 0.75rem;
+			gap: 0.5rem;
+		}
+	}
+
 	.btn-bat-import:hover {
 		border-color: var(--color-accent);
 		color: var(--color-text-primary);

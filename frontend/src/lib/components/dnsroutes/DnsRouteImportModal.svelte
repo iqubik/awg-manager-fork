@@ -227,3 +227,50 @@
         {/if}
     {/snippet}
 </Modal>
+
+<style>
+    @media (max-width: 640px) {
+        .import-upload {
+            gap: 0.75rem;
+            padding: 0.75rem 0.5rem 0.5rem;
+            align-items: stretch;
+        }
+
+        .import-description {
+            margin: 0 auto 0.25rem;
+            max-width: 18rem;
+            font-size: 0.8125rem;
+            line-height: 1.35;
+            text-align: center;
+            text-wrap: balance;
+        }
+
+        .drop-zone {
+            min-height: 9.5rem;
+            padding: 1.125rem 0.875rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.35rem;
+        }
+
+        .drop-zone svg {
+            width: 2.25rem;
+            height: 2.25rem;
+            flex-shrink: 0;
+        }
+
+        .drop-text {
+            margin: 0.25rem 0 0;
+            font-size: 0.8125rem;
+            line-height: 1.3;
+        }
+
+        .drop-hint {
+            margin: 0;
+            font-size: 0.6875rem;
+            line-height: 1.25;
+        }
+    }
+</style>

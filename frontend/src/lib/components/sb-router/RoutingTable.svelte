@@ -143,25 +143,27 @@
           </button>
         {/if}
       </div>
-      <div class="action-badge-cell">
-        <span class="mobile-label">Действие</span>
-        <Badge variant={row.actionVariant} size="sm" mono>{row.actionLabel}</Badge>
-      </div>
       <div class="matchers" title={row.matchers}>
         <span class="mobile-label">Условия</span>
         <span class="matcher-text">{row.matchers}</span>
       </div>
-      <div class="outbound-cell">
-        <span class="mobile-label">Выход</span>
-        {#if row.outboundKind === 'none'}
-          <span class="dash">—</span>
-        {:else if row.outboundKind === 'direct'}
-          <Badge variant="muted" mono size="sm">direct</Badge>
-        {:else if row.outboundKind === 'reject'}
-          <Badge variant="error" mono size="sm">reject</Badge>
-        {:else}
-          <Badge variant={row.outboundVariant} mono size="sm" title={row.outbound}>{row.outboundLabel}</Badge>
-        {/if}
+      <div class="badges-line">
+        <div class="action-badge-cell">
+          <span class="mobile-label">Действие</span>
+          <Badge variant={row.actionVariant} size="sm" mono>{row.actionLabel}</Badge>
+        </div>
+        <div class="outbound-cell">
+          <span class="mobile-label">Выход</span>
+          {#if row.outboundKind === 'none'}
+            <span class="dash">—</span>
+          {:else if row.outboundKind === 'direct'}
+            <Badge variant="muted" mono size="sm">direct</Badge>
+          {:else if row.outboundKind === 'reject'}
+            <Badge variant="error" mono size="sm">reject</Badge>
+          {:else}
+            <Badge variant={row.outboundVariant} mono size="sm" title={row.outbound}>{row.outboundLabel}</Badge>
+          {/if}
+        </div>
       </div>
       <div class="actions-col actions">
         {#if !row.sys}
@@ -194,6 +196,8 @@
 
 <style>
   .table {
+    width: 100%;
+    min-width: 0;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -202,10 +206,13 @@
   .header,
   .row {
     display: grid;
-    grid-template-columns: 24px 64px 92px minmax(0, 1fr) minmax(72px, 160px) 88px;
+    grid-template-columns: 24px 64px 104px minmax(0, 1fr) minmax(72px, 160px) 96px;
     align-items: center;
     gap: 8px;
     padding: 8px 14px;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
   }
   .header {
     background: var(--bg-tertiary);
@@ -219,23 +226,24 @@
   .header > div:nth-child(2),
   .header > div:nth-child(3),
   .row > .reorder,
-  .row > .action-badge-cell,
+  .action-badge-cell,
   .header > div:nth-child(4),
   .header > div:nth-child(5),
-  .row > .outbound-cell {
+  .outbound-cell {
     text-align: center;
   }
   .header > div:nth-child(5),
-  .row > .outbound-cell {
+  .outbound-cell {
     min-width: 0;
   }
-  .row > .outbound-cell {
+  .outbound-cell {
     justify-self: center;
   }
   .row > .matchers {
     min-width: 0;
   }
   .row {
+    transition: background-color 0.15s ease;
     padding: 6px 14px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     font-size: 13px;
@@ -245,6 +253,16 @@
   }
   .row.route {
     background: rgba(122, 162, 247, 0.025);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .row:hover {
+      background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+    }
+
+    .row.sys:hover {
+      background: color-mix(in srgb, var(--bg-hover) 45%, transparent);
+    }
   }
   .idx {
     font-family: var(--font-mono);
@@ -272,9 +290,15 @@
   .matcher-text {
     display: contents;
   }
+  .badges-line {
+    display: contents;
+  }
   .action-badge-cell {
     min-width: 0;
-    justify-self: center;
+    justify-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .outbound-cell {
     min-width: 0;
@@ -283,6 +307,7 @@
     align-items: center;
     overflow: hidden;
   }
+  .action-badge-cell :global(.badge),
   .outbound-cell :global(.badge) {
     max-width: 100%;
     min-width: 0;
@@ -295,8 +320,18 @@
   }
   .actions-col {
     text-align: right;
+    justify-self: stretch;
+    min-width: 0;
+  }
+  .header > .actions-col {
+    display: block;
+    width: 100%;
+    text-align: right;
+    justify-self: stretch;
+    padding-right: 0.25rem;
   }
   .actions {
+    width: 100%;
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
@@ -309,6 +344,30 @@
     text-align: center;
     font-size: 12px;
   }
+  @media (min-width: 721px) {
+    .action-badge-cell,
+    .outbound-cell,
+    .row > .actions-col {
+      display: flex;
+      align-items: center;
+      flex-wrap: nowrap;
+      min-width: 0;
+    }
+
+    .action-badge-cell,
+    .outbound-cell {
+      justify-content: center;
+    }
+
+    .row > .actions-col {
+      justify-content: flex-end;
+    }
+
+    .header > .actions-col {
+      display: block;
+      text-align: right;
+    }
+  }
   @media (max-width: 768px) {
     .table {
       overflow-x: visible;
@@ -319,11 +378,15 @@
       display: none;
     }
     .row {
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-      gap: 8px;
-      padding: 10px 14px 10px 42px;
+      display: grid;
+      grid-template-columns: 1.5rem minmax(0, 1fr) 72px;
+      grid-template-areas:
+        "idx matcher actions"
+        "idx badges badges"
+        "idx reorder reorder";
+      align-items: start;
+      gap: 0.5rem 0.6rem;
+      padding: 0.75rem 0.875rem;
       margin: 0;
       border: 0;
       border-radius: 0;
@@ -336,63 +399,68 @@
       border-bottom: 0;
     }
     .idx {
-      position: absolute;
-      left: 14px;
-      top: 10px;
-      width: 28px;
+      grid-area: idx;
+      position: static;
+      width: auto;
+      padding-top: 0.1rem;
       font-size: 11px;
+      line-height: 1.2;
       text-align: center;
     }
     .matchers {
-      order: 1;
+      grid-area: matcher;
       min-width: 0;
-      padding-right: 72px;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
+      padding-right: 0;
+      display: block;
       white-space: normal;
-      overflow-wrap: break-word;
-      word-break: break-word;
+      overflow-wrap: anywhere;
+      word-break: normal;
       line-height: 1.35;
       text-align: left;
     }
     .matcher-text {
       display: inline;
-      font-size: 11px;
+      font-size: 12px;
       color: var(--text-secondary);
     }
     .actions-col {
-      position: absolute;
-      top: 10px;
-      right: 14px;
+      grid-area: actions;
+      position: static;
+      justify-self: end;
+      align-self: start;
       text-align: right;
+      min-width: 0;
     }
     .actions {
+      width: auto;
       display: flex;
       flex-wrap: nowrap;
       justify-content: flex-end;
       gap: 4px;
     }
-    .action-badge-cell {
-      order: 2;
+    .badges-line {
+      grid-area: badges;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 6px;
-      min-width: 0;
       justify-content: flex-start;
-      text-align: left;
+      gap: 0.4rem;
+      min-width: 0;
+      width: 100%;
     }
+    .action-badge-cell,
     .outbound-cell {
-      order: 3;
-      display: flex;
-      flex-wrap: wrap;
+      grid-area: auto;
+      display: inline-flex;
+      flex: 0 1 auto;
       align-items: center;
-      gap: 6px;
+      justify-content: flex-start;
+      gap: 0.35rem;
       min-width: 0;
       max-width: 100%;
-      justify-content: flex-start;
       text-align: left;
+      justify-self: auto;
+      overflow: visible;
     }
     .outbound-cell :global(.badge) {
       max-width: 100%;
@@ -402,16 +470,18 @@
       white-space: nowrap;
     }
     .reorder {
-      order: 4;
+      grid-area: reorder;
+      display: flex;
       justify-content: flex-start;
-      gap: 4px;
-      padding-top: 8px;
+      gap: 0.35rem;
+      padding-top: 0.35rem;
       border-top: 1px dashed color-mix(in srgb, var(--border) 85%, transparent);
+      min-width: 0;
     }
     .reorder::before {
       content: 'Порядок';
       align-self: center;
-      margin-right: 6px;
+      margin-right: 0.35rem;
       font-size: 10px;
       font-weight: 600;
       line-height: 1.2;
@@ -423,12 +493,7 @@
       display: none;
     }
     .mobile-label {
-      flex-shrink: 0;
-      font-size: 10px;
-      line-height: 1.2;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
+      display: none;
     }
     .route-reorder-btn {
       width: 32px;
@@ -450,6 +515,8 @@
   }
   /* Bare mode для embed внутри SidePanel — parent даёт chrome */
   .table.bare {
+    width: 100%;
+    min-width: 0;
     background: transparent;
     border: 0;
     border-radius: 0;

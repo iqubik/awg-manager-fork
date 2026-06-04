@@ -422,7 +422,7 @@
 	<div class="form">
 		<div class="field">
 			<div class="lbl">Тип</div>
-			<div class="segment">
+			<div class="segment segment-type">
 				<button class:active={type === 'remote'} onclick={() => setType('remote')} type="button">Remote</button>
 				<button class:active={type === 'local'} onclick={() => setType('local')} type="button">Local</button>
 				<button class:active={type === 'inline'} onclick={() => setType('inline')} type="button">Inline</button>
@@ -720,6 +720,75 @@
 		background: var(--accent, #3b82f6);
 		color: var(--color-accent-contrast, #ffffff);
 		font-weight: 600;
+	}
+
+	@media (max-width: 640px) {
+		.segment {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			width: 100%;
+			overflow: visible;
+		}
+
+		.segment button {
+			min-height: 2.25rem;
+			padding: 0.45rem 0.5rem;
+			text-align: center;
+		}
+
+		.segment button + button {
+			border-left: none;
+		}
+
+		.segment button {
+			border-left: 1px solid var(--border);
+			border-top: 1px solid var(--border);
+		}
+
+		.segment button:nth-child(-n + 2) {
+			border-top: none;
+		}
+
+		.segment button:nth-child(2n + 1) {
+			border-left: none;
+		}
+
+		.segment:not(.segment-type) button:last-child:nth-child(odd) {
+			grid-column: 2 / 3;
+		}
+
+		.segment-type {
+			grid-template-columns: repeat(6, minmax(0, 1fr));
+		}
+
+		.segment-type button {
+			grid-column: span 2;
+			min-width: 0;
+		}
+
+		.segment-type button:nth-child(4),
+		.segment-type button:nth-child(5) {
+			grid-column: span 3;
+		}
+
+		.segment-type button:nth-child(3) {
+			border-left: 1px solid var(--border);
+			border-top: none;
+		}
+
+		.segment-type button:nth-child(4) {
+			border-left: none;
+			border-top: 1px solid var(--border);
+		}
+
+		.segment-type button:nth-child(5) {
+			border-left: 1px solid var(--border);
+			border-top: 1px solid var(--border);
+		}
+
+		.segment-type button:last-child:nth-child(odd) {
+			grid-column: span 3;
+		}
 	}
 	.error {
 		color: var(--danger, #dc2626);

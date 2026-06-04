@@ -900,9 +900,17 @@ Ctrl+/ или Cmd+/ комментирует выбранные строки.</s
 
 	@media (max-width: 480px) {
 		.fallback-options {
-			flex-direction: column;
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
 			gap: 0.5rem;
-			align-items: flex-start;
+			align-items: stretch;
+		}
+
+		.fallback-option {
+			width: 100%;
+			min-width: 0;
+			justify-content: flex-start;
+			white-space: nowrap;
 		}
 	}
 

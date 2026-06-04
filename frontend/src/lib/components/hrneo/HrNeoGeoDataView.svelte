@@ -386,9 +386,9 @@
 			Через: <strong>{downloadRouteLabel}</strong>. Не удалось обновить список маршрутов, используется последний известный список: {routeSettingsWarning}
 		</div>
 		{:else}
-		<div class="route-status route-status-live">
+			<div class="route-status route-status-live">
 			Загрузка и обновления через: <strong>{downloadRouteLabel}</strong>.
-			Изменяется в <a href="/settings#downloads" data-sveltekit-reload>Настройки → Загрузки и обновления</a>.
+			Изменяется в <a href="/settings?highlight=downloads#downloads" data-sveltekit-reload>Настройки → Загрузки и обновления</a>.
 		</div>
 	{/if}
 	{#if activeDownload}

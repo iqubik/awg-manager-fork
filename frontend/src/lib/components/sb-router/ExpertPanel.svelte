@@ -20,7 +20,6 @@
   import { notifications } from '$lib/stores/notifications';
   import { api } from '$lib/api/client';
   import { computeRuleSetUsage } from '$lib/components/routing/singboxRouter';
-  import { pluralForm, REWRITE_WORDS, RULE_WORDS } from '$lib/utils/pluralize';
   import type { OutboundGroup } from '$lib/components/routing/singboxRouter/outboundOptions';
   import type {
     SingboxRouterRule,
@@ -48,7 +47,7 @@
   import DNSServerEditModal from '$lib/components/routing/singboxRouter/DNSServerEditModal.svelte';
   import DNSRuleEditModal from '$lib/components/routing/singboxRouter/DNSRuleEditModal.svelte';
   import { DNSRewritesList } from '$lib/components/routing/singboxRouter';
-  import { ConfirmModal, Dropdown, type DropdownOption } from '$lib/components/ui';
+  import { ConfirmModal, Dropdown, SideDrawer, Button, type DropdownOption } from '$lib/components/ui';
 
   // Store subscriptions
   const storeStatus = singboxRouterStore.status;
@@ -130,16 +129,48 @@
     }
   }
 
+  function resetDnsGlobalsDraft() {
+    draftDnsFinal = $storeDnsGlobals.final;
+    draftDnsStrategy = $storeDnsGlobals.strategy;
+  }
+
+  function closeDnsGlobalsDrawer() {
+    resetDnsGlobalsDraft();
+    dnsGlobalsDrawerOpen = false;
+  }
+
+  function openDnsGlobalsDrawer() {
+    resetDnsGlobalsDraft();
+    dnsGlobalsDrawerOpen = true;
+  }
+
   let activeProxyCount = $state<number | null>(null);
+  let totalProxyCount = $state<number | null>(null);
 
   async function loadActiveProxyCount() {
     try {
       const proxyInstances = await api.listDeviceProxyInstances();
-      activeProxyCount = proxyInstances.filter((in_) => in_.enabled).length;
-    } catch {
-      activeProxyCount = null;
+      totalProxyCount = proxyInstances.length;
+
+        const runtimeEntries = await Promise.all(
+          proxyInstances.map(async (in_) => {
+            const runtime = await api.getDeviceProxyInstanceRuntime(in_.id).catch(() => null);
+            return { instance: in_, runtime };
+        }),
+      );
+
+        activeProxyCount = runtimeEntries.filter(({ instance, runtime }) => {
+          return instance.enabled && runtime?.alive === true;
+        }).length;
+      } catch {
+        activeProxyCount = null;
+      totalProxyCount = null;
     }
   }
+
+  const activeProxyCountLabel = $derived(
+    activeProxyCount === null || totalProxyCount === null ? '—' : `${activeProxyCount}/${totalProxyCount}`,
+  );
 
   // Modal state
   let ruleEditIdx = $state<number | null>(null);
@@ -153,6 +184,7 @@
   let dnsServerAddOpen = $state(false);
   let dnsRuleEditIdx = $state<number | null>(null);
   let dnsRuleAddOpen = $state(false);
+  let dnsGlobalsDrawerOpen = $state(false);
 
   let inboundDrawerInstance = $state<DeviceProxyInstance | null>(null);
   let inboundDrawerOpen = $state(false);
@@ -190,6 +222,7 @@
   function onInboundSaved() {
     inboundDrawerOpen = false;
     dpReloadKey += 1;
+    void loadActiveProxyCount();
   }
   function deleteInbound(in_: DeviceProxyInstance) {
     if (in_.id === 'default') return;
@@ -261,13 +294,76 @@
       label: 'Движок',
       value: engineStat.value,
       tone: engineStat.tone,
+      helpTitle: 'Движок sing-box',
+      helpText: $storeStatus?.enabled
+        ? 'Маршрутизатор sing-box активен: правила, DNS и outbound-логика применяются к runtime.'
+        : 'Движок выключен: конфигурация может быть сохранена, но runtime её не применяет.',
+      helpItems: [
+        'ON — sing-box router работает.',
+        'OFF — проверь установку, запуск и настройки sing-box.',
+      ],
     },
-    { label: pluralForm($storeRules.length, RULE_WORDS), value: String($storeRules.length) },
-    { label: 'Rule-sets', value: String($storeRuleSets.length) },
-    { label: 'Outbounds', value: String($storeOutbounds.length) },
-    { label: `DNS ${pluralForm($storeDnsRules.length, RULE_WORDS)}`, value: String($storeDnsRules.length) },
-    { label: pluralForm($storeDnsRewrites.length, REWRITE_WORDS), value: String($storeDnsRewrites.length) },
-    { label: 'Прокси', value: activeProxyCount === null ? '—' : String(activeProxyCount) },
+    {
+      label: 'Правил',
+      value: String($storeRules.length),
+      helpTitle: 'Правила маршрутизации',
+      helpText: 'Количество route rules. Они проверяются сверху вниз: первое совпадение выбирает outbound.',
+      helpItems: [
+        'Порядок важен.',
+        'Если ничего не подошло — используется default outbound в панели правил.',
+      ],
+    },
+    {
+      label: 'Rule-sets',
+      value: String($storeRuleSets.length),
+      helpTitle: 'Наборы правил',
+      helpText: 'Списки доменов и IP, на которые ссылаются route rules и DNS rules.',
+      helpItems: [
+        'Remote — скачивается и обновляется.',
+        'Local — файл на роутере.',
+        'Inline — правила хранятся прямо в конфиге.',
+      ],
+    },
+    {
+      label: 'OUTBOUNDS',
+      value: String($storeOutbounds.length),
+      helpTitle: 'Outbounds',
+      helpText: 'Доступные направления трафика: direct, reject, VPN/selector/composite и подписочные группы.',
+      helpItems: [
+        'Route rule выбирает outbound.',
+        'DNS server тоже может ходить через outbound.',
+      ],
+    },
+    {
+      label: 'DNS',
+      value: String($storeDnsRules.length),
+      helpTitle: 'DNS-правила',
+      helpText: 'Правила выбора DNS-сервера по доменам, rule-set, типам запросов и другим условиям.',
+      helpItems: [
+        'Работают отдельно от route rules.',
+        'Могут направлять конкретные домены на нужный DNS-сервер.',
+      ],
+    },
+    {
+      label: 'Rewrite',
+      value: String($storeDnsRewrites.length),
+      helpTitle: 'DNS-перезаписи',
+      helpText: 'Статические DNS-ответы: домен или шаблон получает заданный IP.',
+      helpItems: [
+        'Полезно для локальных override.',
+        'Срабатывает до обычного DNS-резолва.',
+      ],
+    },
+      {
+        label: 'Прокси',
+        value: activeProxyCountLabel,
+        helpTitle: 'Device Proxy / Inbounds',
+        helpText: 'Количество активных локальных inbound-прокси для устройств.',
+        helpItems: [
+          'active — inbound запущен и принимает подключения.',
+          'выкл — запись есть, но runtime не активен.',
+      ],
+    },
   ]);
 
   // Rule handlers
@@ -401,6 +497,24 @@
     dnsRuleEditIdx = null;
     await singboxRouterStore.loadAll();
   }
+
+  async function saveDnsGlobalsAndClose() {
+    if (!dnsGlobalsDirty || dnsGlobalsBusy) return;
+
+    dnsGlobalsBusy = true;
+    try {
+      await api.singboxRouterPutDNSGlobals({
+        final: draftDnsFinal,
+        strategy: draftDnsStrategy,
+      });
+      await singboxRouterStore.loadAll();
+      dnsGlobalsDrawerOpen = false;
+    } catch (e) {
+      notifications.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      dnsGlobalsBusy = false;
+    }
+  }
 </script>
 
 
@@ -417,8 +531,11 @@
         onAction={() => (ruleAddOpen = true)}
       >
         <div class="globals-bar">
-          <span class="gb-label">first-match-wins · если ничего не подошло →</span>
-          <Dropdown bind:value={draftRouteFinal} options={routeFinalOptions} />
+          <span class="gb-label gb-label-full">first-match-wins · если ничего не подошло →</span>
+          <span class="gb-label gb-label-mobile">если не подошло →</span>
+          <div class="route-final-select">
+            <Dropdown bind:value={draftRouteFinal} options={routeFinalOptions} fullWidth />
+          </div>
           {#if routeFinalDirty}
             <button class="gb-save" onclick={saveRouteFinal} disabled={routeFinalBusy} type="button">
               Сохранить
@@ -475,29 +592,20 @@
         actionVariant="filled"
         onAction={() => (dnsServerAddOpen = true)}
       >
-        <div class="globals-col">
-          <div class="gb-col-head">
+        <button
+          type="button"
+          class="globals-summary"
+          onclick={openDnsGlobalsDrawer}
+        >
+          <div>
             <span class="gb-label">DNS по умолчанию</span>
-            {#if dnsGlobalsDirty}
-              <button class="gb-save" onclick={saveDnsGlobals} disabled={dnsGlobalsBusy} type="button">
-                Сохранить
-              </button>
-            {/if}
+            <div class="globals-summary-values">
+              <span>Final: <strong>{$storeDnsGlobals.final || '—'}</strong></span>
+              <span>Strategy: <strong>{$storeDnsGlobals.strategy || 'default'}</strong></span>
+            </div>
           </div>
-          <label class="gb-field">
-            <span class="gb-flabel">Final-сервер</span>
-            <Dropdown
-              bind:value={draftDnsFinal}
-              options={dnsFinalOptions}
-              disabled={$storeDnsServers.length === 0}
-              fullWidth
-            />
-          </label>
-          <label class="gb-field">
-            <span class="gb-flabel">Стратегия</span>
-            <Dropdown bind:value={draftDnsStrategy} options={STRATEGY_OPTIONS} fullWidth />
-          </label>
-        </div>
+          <span class="globals-summary-action">Настроить</span>
+        </button>
         <DnsServersCompact
           servers={$storeDnsServers}
           rules={$storeDnsRules}
@@ -510,7 +618,7 @@
       </SidePanel>
 
       <SidePanel
-        title="DNS-перезаписи"
+        title="DNS Rewrite"
         count={String($storeDnsRewrites.length)}
         actionLabel="+ Добавить"
         actionVariant="filled"
@@ -520,17 +628,18 @@
           rewrites={$storeDnsRewrites}
           onChange={() => singboxRouterStore.loadAll()}
           showHeader={false}
+          hideColumnHeader={true}
           bind:addMode={rewriteAddMode}
         />
       </SidePanel>
 
-      <SidePanel
-        title="Inbounds"
-        count=""
-        actionLabel="+ Добавить"
-        actionVariant="filled"
-        onAction={addInbound}
-      >
+        <SidePanel
+          title="Inbounds"
+          count={activeProxyCountLabel}
+          actionLabel="+ Добавить"
+          actionVariant="filled"
+          onAction={addInbound}
+        >
         {#key dpReloadKey}
           <DeviceProxyCompact bare onSelect={openInbound} onDelete={deleteInbound} />
         {/key}
@@ -644,6 +753,51 @@
   />
 {/if}
 
+{#if dnsGlobalsDrawerOpen}
+  <SideDrawer
+    open
+    onClose={closeDnsGlobalsDrawer}
+    title="DNS по умолчанию"
+    width={520}
+  >
+    <div class="drawer-card dns-globals-card">
+      <div class="drawer-card-body dns-globals-drawer">
+        <label class="gb-field">
+          <span class="gb-flabel">Final-сервер</span>
+          <Dropdown
+            bind:value={draftDnsFinal}
+            options={dnsFinalOptions}
+            disabled={$storeDnsServers.length === 0}
+            fullWidth
+          />
+          <span class="gb-hint">Сервер по умолчанию для запросов, не попавших ни под одно правило.</span>
+        </label>
+
+          <label class="gb-field">
+            <span class="gb-flabel">Стратегия</span>
+            <Dropdown bind:value={draftDnsStrategy} options={STRATEGY_OPTIONS} fullWidth />
+            <span class="gb-hint">Для роутера без IPv6 обычно prefer_ipv4 или ipv4_only.</span>
+          </label>
+      </div>
+      <footer class="drawer-card-footer">
+        <Button variant="ghost" size="md" onclick={closeDnsGlobalsDrawer} type="button">
+          Отмена
+        </Button>
+        <Button
+          variant="primary"
+          size="md"
+          onclick={saveDnsGlobalsAndClose}
+          disabled={dnsGlobalsBusy || !dnsGlobalsDirty}
+          loading={dnsGlobalsBusy}
+          type="button"
+        >
+          Сохранить
+        </Button>
+      </footer>
+    </div>
+  </SideDrawer>
+{/if}
+
 {#if inboundDrawerInstance}
   <InboundSettingsDrawer
     instance={inboundDrawerInstance}
@@ -680,10 +834,10 @@
   }
   /* Globals-бар route-final (шапка панели «Правила») */
   .globals-bar {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 8px;
-    flex-wrap: wrap;
     padding: 8px 14px;
     background: var(--bg-tertiary);
     border-bottom: 1px solid var(--border);
@@ -694,20 +848,43 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
-  /* Globals-секция DNS (шапка панели «DNS-серверы») */
-  .globals-col {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px 14px;
-    background: var(--bg-tertiary);
-    border-bottom: 1px solid var(--border);
+  .gb-label-mobile {
+    display: none;
   }
-  .gb-col-head {
+  .route-final-select {
+    min-width: 0;
+    width: 100%;
+  }
+  /* Globals-секция DNS (шапка панели «DNS-серверы») */
+  .globals-summary {
+    width: 100%;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: 0.75rem;
+    padding: 0.75rem 0.875rem;
+    background: var(--bg-tertiary);
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .globals-summary-values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem 0.75rem;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+  .globals-summary-action {
+    flex: 0 0 auto;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
   .gb-field {
     display: grid;
@@ -719,21 +896,36 @@
     font-size: 11px;
     color: var(--text-muted);
   }
-  .gb-save {
-    background: transparent;
-    border: 0;
-    color: var(--accent);
-    font-size: 11.5px;
-    cursor: pointer;
-    font-family: inherit;
-    padding: 0;
+  .dns-globals-drawer {
+    display: grid;
+    gap: 0.875rem;
+    min-width: 0;
   }
-  .gb-save:hover:not(:disabled) {
-    text-decoration: underline;
+  .drawer-card {
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)),
+      var(--bg-secondary, var(--color-bg-secondary));
+    overflow: hidden;
   }
-  .gb-save:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
+  .drawer-card-body {
+    padding: 1rem;
+    min-width: 0;
+  }
+  .drawer-card-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.875rem 1rem;
+    border-top: 1px solid var(--border);
+    background: var(--bg-secondary, var(--color-bg-secondary));
+  }
+  .gb-hint {
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: var(--text-muted);
   }
   .main-grid {
     display: grid;
@@ -758,8 +950,62 @@
     }
   }
   @media (max-width: 768px) {
+    .globals-bar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.45rem;
+      padding: 0.625rem 0.875rem;
+    }
+    .gb-label-full {
+      display: none;
+    }
+    .gb-label-mobile {
+      display: block;
+      min-width: 0;
+      font-size: 10px;
+      line-height: 1.2;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .route-final-select {
+      width: 100%;
+      min-width: 0;
+    }
     .wrap {
       padding: var(--sp-2);
+    }
+    .globals-summary {
+      align-items: flex-start;
+    }
+    .drawer-card {
+      border-radius: 12px;
+    }
+    .drawer-card-body {
+      padding: 0.875rem;
+    }
+    .drawer-card-footer {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.5rem;
+      padding: 0.75rem 0.875rem;
+      align-items: stretch;
+    }
+    .globals-summary-values {
+      display: grid;
+      gap: 0.25rem;
+    }
+    .globals-summary-action {
+      padding-top: 0.1rem;
+    }
+    .dns-globals-drawer .gb-field {
+      display: grid;
+      gap: 0.35rem;
+    }
+    .drawer-card-footer :global(.btn) {
+      width: 100%;
+      min-width: 0;
     }
   }
 </style>

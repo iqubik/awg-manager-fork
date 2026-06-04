@@ -53,6 +53,7 @@
 	const highlightFeedbackFab = $derived($page.url.searchParams.has('feedbackFab'));
 	const defaultPingTarget = "8.8.8.8";
 	const defaultConnectivityCheckUrl = "http://connectivitycheck.gstatic.com/generate_204";
+	const highlightDownloads = $derived($page.url.searchParams.get('highlight') === 'downloads');
 
 	let systemInfo: SystemInfo | null = $state(null);
 	let settings = $state<Settings | null>(null);
@@ -781,16 +782,18 @@ $effect(() => {
 						</div>
 					{/if}
 					{#if showDownloadRouteDetails}
-						<DownloadSettings
-							bind:settings
-							{saving}
-							outbounds={$downloadOutbounds}
-							loading={$downloadOutboundsLoading}
-							error={$downloadOutboundsError}
-							routeSelectorEnabled={singboxInstalled || singboxStatusLoading}
-							onRefresh={refreshDownloadOutbounds}
-							onSelectRoute={selectDownloadRoute}
-						/>
+						<div class="settings-highlight-target" class:highlighted={highlightDownloads}>
+							<DownloadSettings
+								bind:settings
+								{saving}
+								outbounds={$downloadOutbounds}
+								loading={$downloadOutboundsLoading}
+								error={$downloadOutboundsError}
+								routeSelectorEnabled={singboxInstalled || singboxStatusLoading}
+								onRefresh={refreshDownloadOutbounds}
+								onSelectRoute={selectDownloadRoute}
+							/>
+						</div>
 					{/if}
 				</div>
 
@@ -1320,9 +1323,30 @@ $effect(() => {
 		}
 
 		.action-buttons {
-			justify-content: flex-end;
-			flex-wrap: wrap;
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			justify-content: stretch;
+			flex-wrap: nowrap;
 			width: 100%;
+			gap: 0.5rem;
+		}
+
+		.actions-card > .setting-row > :global(.btn) {
+			width: min(50%, 10rem);
+			min-width: 0;
+			margin-left: auto;
+		}
+
+		.action-buttons > span {
+			display: block;
+			width: 100%;
+			min-width: 0;
+		}
+
+		.action-buttons > span :global(.btn),
+		.action-buttons :global(.btn) {
+			width: 100%;
+			min-width: 0;
 		}
 	}
 

@@ -51,6 +51,7 @@
     flex-direction: column;
   }
   .row {
+    transition: background-color 0.15s ease;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -66,8 +67,11 @@
     width: 100%;
     text-align: left;
   }
-  .row:hover {
-    background: var(--bg-tertiary);
+
+  @media (hover: hover) and (pointer: fine) {
+    .row:hover {
+      background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+    }
   }
   .dot {
     width: 6px;

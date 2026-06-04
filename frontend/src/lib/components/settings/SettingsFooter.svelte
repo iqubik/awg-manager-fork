@@ -39,36 +39,40 @@
 
 <div class="settings-footer">
 	<div class="settings-footer-bar">
-		<span class="footer-link-group">
-			Документация: <a href="https://awgm.hoaxisr.ru" target="_blank" rel="noopener noreferrer">awgm.hoaxisr.ru</a>
-			<span class="footer-sep">·</span>
-			<a href="/terms">Пользовательское соглашение</a>
-			<span class="footer-sep">·</span>
-			<a
-				class="github-link"
-				href="https://github.com/hoaxisr/awg-manager"
-				target="_blank"
-				rel="noopener noreferrer"
-				aria-label="Открыть GitHub репозиторий AWG Manager"
-				title="GitHub репозиторий AWG Manager"
-			>
-				GitHub
-			</a>
-			<span class="footer-sep">·</span>
-			<a
-				href={genericIssueUrl}
-				target="_blank"
-				rel="noopener noreferrer"
-				aria-label="Открыть форму GitHub issue для обратной связи"
-				title="Публичный GitHub issue: это не служба поддержки"
-			>
-				Сообщить о проблеме
-			</a>
-			{#if isExpert}
+		<div class="footer-link-group">
+			<div class="footer-doc-line">
+				<span class="footer-doc-label">Документация:</span>
+				<a href="https://awgm.hoaxisr.ru" target="_blank" rel="noopener noreferrer">awgm.hoaxisr.ru</a>
+			</div>
+			<div class="footer-links-line">
+				<a href="/terms">Пользовательское соглашение</a>
 				<span class="footer-sep">·</span>
-				<a href="/api-docs">Swagger UI</a>
-			{/if}
-		</span>
+				<a
+					class="github-link"
+					href="https://github.com/hoaxisr/awg-manager"
+					target="_blank"
+					rel="noopener noreferrer"
+					aria-label="Открыть GitHub репозиторий AWG Manager"
+					title="GitHub репозиторий AWG Manager"
+				>
+					GitHub
+				</a>
+				<span class="footer-sep">·</span>
+				<a
+					href={genericIssueUrl}
+					target="_blank"
+					rel="noopener noreferrer"
+					aria-label="Открыть форму GitHub issue для обратной связи"
+					title="Публичный GitHub issue: это не служба поддержки"
+				>
+					Сообщить о проблеме
+				</a>
+				{#if isExpert}
+					<span class="footer-sep">·</span>
+					<a href="/api-docs">Swagger UI</a>
+				{/if}
+			</div>
+		</div>
 		<button
 			type="button"
 			class="footer-collapse"
@@ -118,6 +122,30 @@
 	.footer-link-group {
 		min-width: 0;
 		flex: 1 1 auto;
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.footer-doc-line,
+	.footer-links-line {
+		min-width: 0;
+	}
+
+	.footer-doc-line {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+	}
+
+	.footer-doc-label {
+		color: var(--color-text-secondary);
+	}
+
+	.footer-links-line {
+		display: flex;
+		flex-wrap: wrap;
+		row-gap: 0.125rem;
 	}
 
 	.footer-link-group a {
@@ -156,15 +184,32 @@
 
 	@media (max-width: 640px) {
 		.settings-footer-bar {
-			flex-direction: column;
-			align-items: stretch;
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: end;
+			column-gap: 0.75rem;
+			row-gap: 0.375rem;
 		}
 
 		.footer-collapse {
-			align-self: flex-end;
+			align-self: end;
+			justify-self: end;
 			text-transform: none;
 			letter-spacing: normal;
 			font-weight: 500;
+		}
+
+		.footer-link-group {
+			gap: 0.25rem;
+		}
+
+		.footer-doc-line,
+		.footer-links-line {
+			line-height: 1.45;
+		}
+
+		.footer-links-line {
+			row-gap: 0.2rem;
 		}
 
 		.footer-collapse-full {

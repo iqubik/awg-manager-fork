@@ -10,6 +10,11 @@
 		StaticRecordsCard,
 		RebindCard,
 	} from '$lib/components/diagnostics';
+	import { notifications } from '$lib/stores/notifications';
+	import { systemInfo } from '$lib/stores/system';
+	import { copyToClipboard } from '$lib/utils/clipboard';
+	import { downloadBlob } from '$lib/utils/download';
+	import { dnsInfoReportFilename, formatDnsInfoReport } from '$lib/utils/dns-report';
 
 	let info = $state<DnsProxyInfo | null>(null);
 	let loading = $state(false);
@@ -30,6 +35,41 @@
 		}
 	}
 
+	async function getFreshRouterTimeOrWarn(): Promise<{ routerTime: string; routerOffset?: number } | null> {
+		await systemInfo.refetch();
+		const routerTime = $systemInfo.data?.routerTime;
+		if (!routerTime) {
+			notifications.warning('Время роутера ещё не загружено, попробуйте через несколько секунд');
+			return null;
+		}
+		return {
+			routerTime,
+			routerOffset: $systemInfo.data?.routerTimezoneOffsetMinutes,
+		};
+	}
+
+	async function copyData(): Promise<void> {
+		if (!info || loading) return;
+		const clock = await getFreshRouterTimeOrWarn();
+		if (!clock) return;
+		const { routerTime, routerOffset } = clock;
+		const ok = await copyToClipboard(formatDnsInfoReport(info, routerTime, routerOffset));
+		if (ok) notifications.success('DNS отчёт скопирован');
+		else notifications.error('Не удалось скопировать DNS отчёт');
+	}
+
+	async function saveFile(): Promise<void> {
+		if (!info || loading) return;
+		const clock = await getFreshRouterTimeOrWarn();
+		if (!clock) return;
+		const { routerTime, routerOffset } = clock;
+		const report = formatDnsInfoReport(info, routerTime, routerOffset);
+		downloadBlob(
+			new Blob([report], { type: 'text/plain;charset=utf-8' }),
+			dnsInfoReportFilename(routerTime, routerOffset),
+		);
+	}
+
 	onMount(load);
 </script>
 
@@ -41,6 +81,8 @@
 
 <div class="toolbar">
 	<Button variant="secondary" size="sm" onclick={load} loading={loading} iconBefore={refreshIcon}>Обновить</Button>
+	<Button variant="secondary" size="sm" onclick={copyData} disabled={!info || loading}>Скопировать данные</Button>
+	<Button variant="secondary" size="sm" onclick={saveFile} disabled={!info || loading}>Сохранить файл</Button>
 </div>
 
 {#if loading && !info}
@@ -75,6 +117,7 @@
 <style>
 	.toolbar {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 0.5rem;
 		margin-bottom: 0.75rem;
 	}
@@ -86,12 +129,18 @@
 
 	@media (max-width: 640px) {
 		.toolbar {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
 			width: 100%;
 		}
 
 		.toolbar :global(.btn) {
 			width: 100%;
-			justify-content: center;
+			min-width: 0;
+		}
+
+		.toolbar :global(.btn:last-child:nth-child(odd)) {
+			grid-column: 1 / -1;
 		}
 	}
 </style>

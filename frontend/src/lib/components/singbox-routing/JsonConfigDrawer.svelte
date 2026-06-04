@@ -121,6 +121,19 @@
 		align-items: center;
 	}
 
+	@media (max-width: 640px) {
+		.toolbar {
+			display: grid;
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+			align-items: stretch;
+		}
+
+		.toolbar :global(.btn) {
+			width: 100%;
+			min-width: 0;
+		}
+	}
+
 	.state {
 		flex: 1;
 		min-height: 0;

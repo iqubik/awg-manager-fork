@@ -205,8 +205,15 @@
     min-width: 0;
   }
   .row {
+    transition: background-color 0.15s ease;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     font-size: 12.5px;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .row:hover {
+      background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+    }
   }
   .tag {
     font-family: var(--font-mono);
@@ -265,7 +272,7 @@
       width: 100%;
       min-width: 0;
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 0.375rem;
       overflow: hidden;
       background: var(--bg-tertiary);
     }
@@ -274,6 +281,11 @@
       justify-content: center;
       padding-inline: 0.35rem;
       min-width: 0;
+      border-radius: 0;
+    }
+
+    .chip.active {
+      border-radius: 0;
     }
 
     .table {

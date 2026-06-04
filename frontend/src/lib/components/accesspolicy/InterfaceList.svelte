@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { AccessPolicyInterface, PolicyGlobalInterface } from '$lib/types';
-	import { ConfirmModal, Badge } from '$lib/components/ui';
+	import { ConfirmModal, Badge, Button } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import {
@@ -100,9 +100,9 @@
 	<div class="section-header">
 		<h4>Интерфейсы (приоритет)</h4>
 		{#if unassigned.length > 0}
-			<button class="link-btn" onclick={() => (showAdd = !showAdd)}>
+			<Button variant="secondary" size="sm" onclick={() => (showAdd = !showAdd)}>
 				{showAdd ? 'Отмена' : 'Добавить'}
-			</button>
+			</Button>
 		{/if}
 	</div>
 
@@ -229,19 +229,6 @@
 		color: var(--text-primary);
 	}
 
-	.link-btn {
-		background: none;
-		border: none;
-		color: var(--accent);
-		cursor: pointer;
-		font-size: 0.8125rem;
-		padding: 0;
-	}
-
-	.link-btn:hover {
-		text-decoration: underline;
-	}
-
 	@media (max-width: 640px) {
 		.section-header {
 			display: grid;
@@ -252,11 +239,6 @@
 		.section-header h4 {
 			min-width: 0;
 			text-align: left;
-		}
-
-		.link-btn {
-			justify-self: end;
-			margin-left: 0;
 		}
 	}
 

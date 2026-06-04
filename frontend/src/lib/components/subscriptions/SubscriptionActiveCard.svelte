@@ -198,26 +198,23 @@
 </script>
 
 {#if layout === 'list'}
-    <div
-        class="sub-active-list-group"
+    <tr
+        class="sbx-sub-active-row"
         class:ok={cardState === 'ok'}
         class:slow={cardState === 'slow'}
         class:fail={cardState === 'fail'}
         class:unknown={cardState === 'unknown'}
+        onclick={openDetail}
+        onkeydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openDetail();
+            }
+        }}
+        role="button"
+        tabindex="0"
     >
-        <div
-            class="sbx-sub-active-row"
-            onclick={openDetail}
-            onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    openDetail();
-                }
-            }}
-            role="button"
-            tabindex="0"
-        >
-            <div class="lc lc-delay" data-label="Delay">
+            <td class="lc lc-delay" data-label="Delay">
                 {#if subscription.lastError}
                     <span class="delay-inline-err mono" title={subscription.lastError}>
                         {subscription.lastError}
@@ -234,8 +231,8 @@
                         }}
                     />
                 {/if}
-            </div>
-            <div class="lc lc-name" data-label="Подписка">
+            </td>
+            <td class="lc lc-name" data-label="Подписка">
                 <div class="name-title-row">
                     {#if subscription.lastError}
                         <span class="dot fail" aria-hidden="true"></span>
@@ -247,14 +244,14 @@
                 <div class="name-meta-row">
                     <Badge variant="accent" size="sm">{sourceKindLabel}</Badge>
                     <span>{subscription.memberTags.length} серверов</span>
-                    <span>обновлено {lastFetchedHuman}</span>
+                    <span>{lastFetchedHuman}</span>
                 </div>
                 <div class="t2 mono">{proxyIface}{#if kernelIface} · {kernelIface}{/if}</div>
-            </div>
-            <div class="lc lc-mode" data-label="Режим">
+            </td>
+            <td class="lc lc-mode" data-label="Режим">
                 {isURLTest ? 'URLTest' : 'Selector'}
-            </div>
-            <div class="lc lc-endpoint" data-label="Активный сервер" title={activeEndpointTitle}>
+            </td>
+            <td class="lc lc-endpoint" data-label="Активный сервер" title={activeEndpointTitle}>
                 <div class="lc-endpoint-stack">
                     {#if listActiveServerName}
                         <span class="lc-endpoint-name" title={listActiveServerName}>{listActiveServerName}</span>
@@ -278,8 +275,8 @@
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
                     {/if}
                 </button>
-            </div>
-            <div class="lc lc-traffic" data-label="Трафик">
+            </td>
+            <td class="lc lc-traffic" data-label="Трафик">
                 {#if subscription.lastError}
                     <span class="delay-dash">—</span>
                 {:else}
@@ -310,8 +307,8 @@
                         <span class="traffic-rate tx">↑ {formatBytes(traffic?.upload ?? 0)}</span>
                     </div>
                 {/if}
-            </div>
-            <div class="lc lc-ping-mini" data-label="Ping">
+            </td>
+            <td class="lc lc-ping-mini" data-label="Ping">
                 {#if subscription.lastError}
                     <span class="delay-dash">—</span>
                 {:else}
@@ -331,8 +328,8 @@
                         {/if}
                     </div>
                 {/if}
-            </div>
-            <div class="lc lc-actions" data-label="">
+            </td>
+            <td class="lc lc-actions col-actions" data-label="">
                 <button
                     type="button"
                     class="action-btn"
@@ -379,9 +376,8 @@
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                     </svg>                    
                 </button>
-            </div>
-        </div>
-    </div>
+            </td>
+    </tr>
 {:else if layout === 'dense'}
 <div
     class="card view-dense"
@@ -1477,22 +1473,7 @@
         border-bottom: none;
     }
     .sbx-sub-active-row {
-        display: grid;
-        grid-template-columns: var(
-            --sbx-sub-list-columns,
-            minmax(80px, 80px)
-            minmax(190px, 1.35fr)
-            minmax(58px, 0.55fr)
-            minmax(190px, 1.2fr)
-            minmax(160px, 0.95fr)
-            minmax(96px, 96px)
-            minmax(76px, 76px)
-        );
-        gap: 0.75rem 1rem;
-        align-items: center;
-        padding: 0.75rem 1rem;
         cursor: pointer;
-        min-width: max(100%, max(var(--awg-list-min-width, 0px), max-content));
     }
     .sbx-sub-active-row:focus-visible {
         outline: 2px solid var(--color-accent);
@@ -1504,6 +1485,13 @@
         min-width: 0;
         font-size: var(--sbx-card-value);
         color: var(--color-text-secondary);
+        vertical-align: middle;
+    }
+    .lc-updated {
+        white-space: nowrap;
+        justify-content: center;
+        color: var(--color-text-muted);
+        font-size: var(--sbx-card-value);
     }
     .lc-delay {
         gap: 0.35rem;

@@ -3,6 +3,7 @@
  */
 import { derived, writable } from 'svelte/store';
 import { api } from '$lib/api/client';
+import { isMockDevMode } from '$lib/env';
 import { singboxRouter } from '$lib/stores/singboxRouter';
 import type { ClashConnectionsRaw, ConnectionsSnapshot } from '$lib/types/singboxConnections';
 import { parseSnapshot } from '$lib/utils/singboxConnections';
@@ -82,7 +83,7 @@ export function bindLiveConnectionsStore(): void {
 	if (bound) return;
 	bound = true;
 	singboxRouter.status.subscribe((s) => {
-		if (s?.enabled) connect();
+		if (s?.enabled || isMockDevMode()) connect();
 		else disconnect();
 	});
 }

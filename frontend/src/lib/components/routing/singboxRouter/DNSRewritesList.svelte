@@ -12,14 +12,19 @@
 		onChange: () => Promise<void> | void;
 		/** Показывать встроенный заголовок (счётчик + кнопка «Добавить»). */
 		showHeader?: boolean;
+		hideColumnHeader?: boolean;
 		/** Режим добавления — bindable, чтобы триггерить add из родителя. */
 		addMode?: boolean;
 	}
-	let { rewrites, onChange, showHeader = true, addMode = $bindable(false) }: Props = $props();
+	let { rewrites, onChange, showHeader = true, hideColumnHeader = false, addMode = $bindable(false) }: Props = $props();
 
 	let editIndex = $state<number | null>(null);
 	let deleteIndex = $state<number | null>(null);
 	let deleteBusy = $state(false);
+
+	function requestEdit(i: number): void {
+		editIndex = i;
+	}
 
 	function requestDelete(i: number): void {
 		deleteIndex = i;
@@ -58,23 +63,46 @@
 		Перезаписей нет. «Перезапись» возвращает заданный IP для домена/паттерна.
 	</div>
 {:else}
-	<div class="col-header">
-		<div>Шаблон</div>
-		<div></div>
-		<div>IP-адреса</div>
-		<div class="actions-head">Действия</div>
-	</div>
+	{#if !hideColumnHeader}
+		<div class="col-header">
+			<div>Шаблон</div>
+			<div></div>
+			<div>IP-адреса</div>
+			<div class="actions-head">Действия</div>
+		</div>
+	{/if}
 	<div class="rows">
 		{#each rewrites as rw, i (i)}
-			<div class="row">
+			<div
+				class="row"
+				role="button"
+				tabindex="0"
+				onclick={() => requestEdit(i)}
+				onkeydown={(e) => {
+					if (e.target !== e.currentTarget) return;
+
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						requestEdit(i);
+					}
+				}}
+				aria-label={`Редактировать DNS-перезапись ${rw.pattern}`}
+				title={`Редактировать DNS-перезапись «${rw.pattern}»`}
+			>
 				<code class="pat mono" title={rw.pattern}>{rw.pattern}</code>
 				<span class="arrow">→</span>
-				<span class="ips mono" title={rw.ips.join(', ')}>{rw.ips.join(', ')}</span>
+				<span class="ips-line">
+					<span class="mobile-arrow">→</span>
+					<span class="ips mono" title={rw.ips.join(', ')}>{rw.ips.join(', ')}</span>
+				</span>
 				<div class="row-actions">
 					<button
 						type="button"
 						class="route-action-btn"
-						onclick={() => (editIndex = i)}
+						onclick={(e) => {
+							e.stopPropagation();
+							requestEdit(i);
+						}}
 						aria-label={`Редактировать DNS-перезапись ${rw.pattern}`}
 						title={`Редактировать DNS-перезапись «${rw.pattern}»`}
 					>
@@ -83,7 +111,10 @@
 					<button
 						type="button"
 						class="route-action-btn danger"
-						onclick={() => requestDelete(i)}
+						onclick={(e) => {
+							e.stopPropagation();
+							requestDelete(i);
+						}}
 						aria-label={`Удалить DNS-перезапись ${rw.pattern}`}
 						title={`Удалить DNS-перезапись «${rw.pattern}»`}
 					>
@@ -164,8 +195,10 @@
 		display: grid;
 		gap: 0.2rem;
 		min-width: 0;
+		padding-top: 0.25rem;
 	}
 	.row {
+		transition: background-color 0.15s ease;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) auto;
 		gap: 0.4rem;
@@ -174,6 +207,12 @@
 		background: var(--surface-bg);
 		padding: 0.5rem 0.75rem;
 		border-radius: 4px;
+		cursor: pointer;
+	}
+
+	.row:focus-visible {
+		outline: 2px solid var(--color-accent, var(--accent));
+		outline-offset: 2px;
 	}
 
 	.row-actions {
@@ -184,6 +223,15 @@
 		gap: 4px;
 		flex-shrink: 0;
 	}
+	.ips-line {
+		min-width: 0;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+	.mobile-arrow {
+		display: none;
+	}
 
 	.mono {
 		font-family: ui-monospace, monospace;
@@ -192,9 +240,12 @@
 	.pat {
 		color: var(--text);
 		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		white-space: normal;
+		overflow: visible;
+		text-overflow: initial;
+		overflow-wrap: anywhere;
+		word-break: normal;
+		line-height: 1.35;
 	}
 	.ips {
 		color: var(--success, #22c55e);
@@ -203,6 +254,13 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+
+	@media (hover: hover) and (pointer: fine) {
+		.row:hover {
+			background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+		}
+	}
+
 	@media (max-width: 720px) {
 		.col-header {
 			display: none;
@@ -219,8 +277,33 @@
 		}
 
 		.pat { grid-area: pattern; }
-		.ips { grid-area: ips; }
+		.ips-line {
+			grid-area: ips;
+			display: inline-flex;
+			align-items: center;
+			gap: 0.35rem;
+			min-width: 0;
+		}
+		.pat {
+			white-space: normal;
+			overflow: visible;
+			text-overflow: initial;
+			overflow-wrap: anywhere;
+			word-break: normal;
+		}
 		.arrow { display: none; }
+		.mobile-arrow {
+			display: inline;
+			flex: 0 0 auto;
+			color: var(--muted-text);
+			line-height: 1;
+			opacity: 0.85;
+		}
+		.ips {
+			min-width: 0;
+			white-space: normal;
+			overflow-wrap: anywhere;
+		}
 		.row-actions {
 			grid-area: actions;
 			align-self: center;

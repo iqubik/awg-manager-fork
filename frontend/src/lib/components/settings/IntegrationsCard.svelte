@@ -369,17 +369,63 @@
 		justify-self: stretch;
 	}
 
-	@container (max-width: 420px) {
+	@media (min-width: 901px) {
 		.setting-row {
-			grid-template-columns: minmax(0, 1fr);
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: start;
+			gap: 0.75rem;
 		}
 
 		.setting-row > :global(.btn) {
 			justify-self: end;
+			align-self: center;
+			white-space: nowrap;
+			min-width: 5rem;
 		}
 
-		.progress-widget {
-			grid-column: 1 / -1;
+		.integration-item {
+			display: grid;
+			grid-template-columns: 8px minmax(0, 1fr);
+			align-items: flex-start;
+			column-gap: 0.625rem;
+		}
+
+		.integration-item :global(.dot) {
+			margin-top: 0.42rem;
+		}
+
+		.integration-meta {
+			min-width: 0;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.integration-item {
+			display: grid;
+			grid-template-columns: 8px minmax(0, 1fr);
+			align-items: start;
+			column-gap: 0.625rem;
+		}
+
+		.integration-item :global(.dot) {
+			margin-top: 0.42rem;
+		}
+
+		@container (max-width: 420px) {
+			.setting-row {
+				grid-template-columns: minmax(0, 1fr) auto;
+				align-items: center;
+				gap: 0.625rem;
+			}
+
+			.setting-row > :global(.btn) {
+				justify-self: end;
+				align-self: center;
+			}
+
+			.progress-widget {
+				grid-column: 1 / -1;
+			}
 		}
 	}
 	.progress-label {

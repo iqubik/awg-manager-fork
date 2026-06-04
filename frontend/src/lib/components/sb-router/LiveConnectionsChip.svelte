@@ -5,6 +5,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import { isMockDevMode } from '$lib/env';
   import { singboxRouter as singboxRouterStore } from '$lib/stores/singboxRouter';
   import { pluralize, CONNECTION_WORDS } from '$lib/utils/pluralize';
   import { liveConnectionsSnapshot, liveConnectionsWsStatus } from './liveConnectionsStore';
@@ -20,10 +21,11 @@
 
   const count = $derived(snapshot.connectionsTotal);
   const countLabel = $derived(pluralize(count, CONNECTION_WORDS));
-  let visible = $derived(engineOn);
+  let visible = $derived(engineOn || isMockDevMode());
   let isStale = $derived(wsStatus !== 'open');
   let stateTitle = $derived.by(() => {
     if (isActive) return 'Закрыть живые соединения';
+    if (!engineOn && isMockDevMode()) return 'Открыть живые соединения mock';
     if (wsStatus === 'open') {
       return count > 0 ? 'Открыть живые соединения' : 'Живые соединения: активных подключений нет';
     }

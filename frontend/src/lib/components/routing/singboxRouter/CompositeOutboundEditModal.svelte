@@ -1,6 +1,5 @@
 <script lang="ts">
-	import Modal from '$lib/components/ui/Modal.svelte';
-	import { Button, Dropdown, type DropdownOption } from '$lib/components/ui';
+	import { Button, Dropdown, SideDrawer, type DropdownOption } from '$lib/components/ui';
 	import type { SingboxRouterOutbound, SingboxRouterWANInterface } from '$lib/types';
 	import type { OutboundGroup } from './outboundOptions';
 	import { subscriptionsStore } from '$lib/stores/subscriptions';
@@ -191,8 +190,15 @@
 	);
 </script>
 
-<Modal open onclose={onClose} title={outbound ? 'Редактировать outbound' : 'Новый outbound'} hasUnsavedChanges={() => isDirty}>
-	<div class="form">
+<SideDrawer
+	open
+	onClose={onClose}
+	title={outbound ? 'Редактировать outbound' : 'Новый outbound'}
+	width={620}
+>
+	<div class="drawer-card">
+		<div class="drawer-card-body">
+			<div class="form">
 		<div class="section-label">Тип</div>
 		<div class="segment">
 			<button class:active={type === 'urltest'} onclick={() => (type = 'urltest')} type="button" disabled={!!outbound && outbound.type === 'direct'}>URLTest</button>
@@ -284,17 +290,39 @@
 		{/if}
 
 		{#if error}<div class="error">{error}</div>{/if}
-	</div>
-
-	{#snippet actions()}
+			</div>
+		</div>
+		<footer class="drawer-card-footer">
 		<Button variant="ghost" size="md" onclick={onClose} type="button">Отмена</Button>
 		<Button variant="primary" size="md" onclick={save} disabled={busy} loading={busy} type="button">
 			Сохранить
 		</Button>
-	{/snippet}
-</Modal>
+		</footer>
+	</div>
+</SideDrawer>
 
 <style>
+	.drawer-card {
+		min-width: 0;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		background:
+			linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)),
+			var(--bg-secondary, var(--color-bg-secondary));
+		overflow: hidden;
+	}
+	.drawer-card-body {
+		padding: 1rem;
+		min-width: 0;
+	}
+	.drawer-card-footer {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.5rem;
+		padding: 0.875rem 1rem;
+		border-top: 1px solid var(--border);
+		background: var(--bg-secondary, var(--color-bg-secondary));
+	}
 	.form {
 		display: grid;
 		gap: 0.6rem;
@@ -430,5 +458,36 @@
 	.member-chip-remove svg {
 		width: 12px;
 		height: 12px;
+	}
+
+	@media (max-width: 640px) {
+		.drawer-card-body {
+			padding: 0.875rem;
+		}
+		.drawer-card-footer {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 0.5rem;
+			padding: 0.75rem 0.875rem;
+			align-items: stretch;
+		}
+		.drawer-card-footer :global(.btn) {
+			width: 100%;
+			min-width: 0;
+		}
+		.segment {
+			display: grid;
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+			width: 100%;
+		}
+		.segment button {
+			width: 100%;
+			min-width: 0;
+			padding: 0.5rem 0.35rem;
+			font-size: 0.78rem;
+		}
+		.row2 {
+			grid-template-columns: minmax(0, 1fr);
+		}
 	}
 </style>

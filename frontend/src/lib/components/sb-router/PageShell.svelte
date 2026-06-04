@@ -98,7 +98,10 @@
     flex-wrap: wrap;
   }
 
-  .title-block { flex: 1 1 auto; min-width: 0; }
+  .title-block {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
   .title {
     margin: 0;
     font-size: var(--fs-h3);
@@ -189,6 +192,8 @@
     }
     .title-block {
       text-align: left;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
     }
     .title {
       font-size: 18px;

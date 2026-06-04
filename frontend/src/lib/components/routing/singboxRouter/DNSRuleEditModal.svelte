@@ -1,6 +1,5 @@
 <script lang="ts">
-	import Modal from '$lib/components/ui/Modal.svelte';
-	import { Button, Dropdown, ChipMultiSelect, type DropdownOption, type ChipOption } from '$lib/components/ui';
+	import { Button, Dropdown, ChipMultiSelect, SideDrawer, type DropdownOption, type ChipOption } from '$lib/components/ui';
 	import type { SingboxRouterDNSRule, SingboxRouterDNSServer, SingboxRouterRuleSet } from '$lib/types';
 
 	interface Props {
@@ -184,8 +183,15 @@
 	}
 </script>
 
-<Modal open onclose={onClose} title={rule ? 'Редактировать DNS правило' : 'Новое DNS правило'} hasUnsavedChanges={() => isDirty}>
-	<div class="form">
+<SideDrawer
+	open
+	onClose={onClose}
+	title={rule ? 'Редактировать DNS правило' : 'Новое DNS правило'}
+	width={620}
+>
+	<div class="drawer-card">
+		<div class="drawer-card-body">
+			<div class="form">
 		<div class="section-label">Matchers (минимум один)</div>
 
 		<label class="field">
@@ -245,17 +251,39 @@
 		</div>
 
 		{#if error}<div class="error">{error}</div>{/if}
+			</div>
+		</div>
+		<footer class="drawer-card-footer">
+			<Button variant="ghost" size="md" onclick={onClose} type="button">Отмена</Button>
+			<Button variant="primary" size="md" onclick={save} disabled={busy} loading={busy} type="button">
+				Сохранить
+			</Button>
+		</footer>
 	</div>
-
-	{#snippet actions()}
-		<Button variant="ghost" size="md" onclick={onClose} type="button">Отмена</Button>
-		<Button variant="primary" size="md" onclick={save} disabled={busy} loading={busy} type="button">
-			Сохранить
-		</Button>
-	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
+	.drawer-card {
+		min-width: 0;
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		background:
+			linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)),
+			var(--bg-secondary, var(--color-bg-secondary));
+		overflow: hidden;
+	}
+	.drawer-card-body {
+		padding: 1rem;
+		min-width: 0;
+	}
+	.drawer-card-footer {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.5rem;
+		padding: 0.875rem 1rem;
+		border-top: 1px solid var(--border);
+		background: var(--bg-secondary, var(--color-bg-secondary));
+	}
 	.form {
 		display: grid;
 		gap: 0.6rem;
@@ -318,6 +346,46 @@
 		background: var(--accent, #3b82f6);
 		color: var(--color-accent-contrast, #ffffff);
 		font-weight: 600;
+	}
+	@media (max-width: 640px) {
+		.drawer-card {
+			border-radius: 12px;
+		}
+		.drawer-card-body {
+			padding: 0.875rem;
+		}
+		.drawer-card-footer {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 0.5rem;
+			padding: 0.75rem 0.875rem;
+			align-items: stretch;
+		}
+		.action-section .segment {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			width: 100%;
+			border-radius: 0.375rem;
+			overflow: hidden;
+		}
+
+		.action-section .segment button {
+			width: 100%;
+			min-width: 0;
+			min-height: 2.25rem;
+			padding: 0.5rem 0.625rem;
+			text-align: center;
+			white-space: nowrap;
+		}
+
+		.action-section .segment button + button {
+			border-left: 1px solid var(--border);
+		}
+
+		.drawer-card-footer :global(.btn) {
+			width: 100%;
+			min-width: 0;
+		}
 	}
 	.error {
 		color: var(--danger, #dc2626);

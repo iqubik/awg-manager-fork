@@ -917,6 +917,13 @@
 		outline: none;
 	}
 
+	@media (max-width: 640px) {
+		.ta {
+			min-height: 130px;
+			max-height: 40vh;
+		}
+	}
+
 	.ta::placeholder {
 		color: var(--text-tertiary);
 	}

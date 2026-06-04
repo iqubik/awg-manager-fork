@@ -82,15 +82,17 @@
 
 		{#if localMode === 'interval'}
 			<div class="inline-form">
-				<input
-					type="number"
-					id="dnsRefreshInterval"
-					bind:value={localInterval}
-					min="1"
-					max="48"
-					disabled={saving}
-				/>
-				<span class="input-suffix">ч.</span>
+				<div class="input-with-suffix">
+					<input
+						type="number"
+						id="dnsRefreshInterval"
+						bind:value={localInterval}
+						min="1"
+						max="48"
+						disabled={saving}
+					/>
+					<span class="input-suffix">ч.</span>
+				</div>
 				{#if settingsChanged}
 					<Button
 						variant="primary"
@@ -166,10 +168,16 @@
 		flex-wrap: wrap;
 	}
 
+	.input-with-suffix {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		min-width: 0;
+	}
+
 	.input-suffix {
 		font-size: 0.8125rem;
 		color: var(--text-secondary);
-		margin-left: -0.5rem;
 	}
 
 	.inline-form input[type="number"] {
@@ -216,13 +224,17 @@
 			gap: 0.5rem;
 		}
 
+		.input-with-suffix {
+			width: 100%;
+		}
+
 		.inline-form input[type="number"],
 		.inline-form input[type="time"] {
 			width: 100%;
 		}
 
-		.input-suffix {
-			margin-left: 0;
+		.input-with-suffix .input-suffix {
+			flex: 0 0 auto;
 		}
 	}
 </style>

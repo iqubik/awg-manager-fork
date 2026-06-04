@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { Button, Modal } from '$lib/components/ui';
+	import { isMockDevMode } from '$lib/env';
 	import { developFeedbackFabVisible } from '$lib/stores/developFeedbackFab';
 	import { requestDevelopFeedbackIncident } from '$lib/stores/developFeedbackIncident';
 	import { buildSuggestionIssueUrl } from '$lib/utils/githubFeedback';
 
 	let modalOpen = $state(false);
+	const showFab = $derived($developFeedbackFabVisible && !isMockDevMode());
 
 	const suggestionIssueUrl = buildSuggestionIssueUrl();
 
@@ -30,7 +32,7 @@
 	}
 </script>
 
-{#if $developFeedbackFabVisible}
+{#if showFab}
 	<button
 		type="button"
 		class="fab"
@@ -64,10 +66,12 @@
 			rel="noopener noreferrer"
 			onclick={closeModal}
 		>
-			Сообщение / предложение
+			<span class="label-long">Сообщение / предложение</span>
+			<span class="label-short">Сообщ.</span>
 		</Button>
 		<Button variant="outline-danger" size="md" onclick={handleIncident}>
-			Инцидент / ошибка
+			<span class="label-long">Инцидент / ошибка</span>
+			<span class="label-short">Баг</span>
 		</Button>
 	{/snippet}
 </Modal>
@@ -124,5 +128,19 @@
 
 	.body a:hover {
 		text-decoration: underline;
+	}
+
+	.label-short {
+		display: none;
+	}
+
+	@media (max-width: 640px) {
+		.label-long {
+			display: none;
+		}
+
+		.label-short {
+			display: inline;
+		}
 	}
 </style>
