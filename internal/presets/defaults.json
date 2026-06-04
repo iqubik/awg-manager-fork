@@ -340,7 +340,7 @@
   },
   {
     "id": "all-blocked",
-    "name": "Всё заблокированное",
+    "name": "Заблокировано в РФ (itdoginfo/allow-domains)",
     "iconSlug": "lucide-globe-lock",
     "category": "block",
     "notice": "Каталог заблокированных доменов из itdoginfo/allow-domains, может содержать домены из других стран",
@@ -513,7 +513,7 @@
   },
   {
     "id": "unavailable-in-russia",
-    "name": "Недоступно из РФ",
+    "name": "Недоступно из РФ (vernette/rulesets)",
     "iconSlug": "lucide-globe-lock",
     "category": "block",
     "origin": "",
@@ -4197,7 +4197,7 @@
   {
     "id": "google-play",
     "name": "Google Play",
-    "iconSlug": "google",
+    "iconSlug": "googleplay",
     "category": "cloud",
     "origin": "",
     "engines": {

@@ -127,6 +127,40 @@ func TestDefaultsCatalogCovers(t *testing.T) {
 	}
 }
 
+func TestDefaultsCatalogCoversNoCycles(t *testing.T) {
+	ps, err := LoadBuiltins()
+	if err != nil {
+		t.Fatalf("LoadBuiltins: %v", err)
+	}
+	byID := map[string]Preset{}
+	for _, p := range ps {
+		byID[p.ID] = p
+	}
+	var visit func(id string, stack map[string]bool) bool
+	visit = func(id string, stack map[string]bool) bool {
+		if stack[id] {
+			return true
+		}
+		p, ok := byID[id]
+		if !ok {
+			return false
+		}
+		stack[id] = true
+		for _, child := range p.Covers {
+			if visit(child, stack) {
+				return true
+			}
+		}
+		delete(stack, id)
+		return false
+	}
+	for _, p := range ps {
+		if visit(p.ID, map[string]bool{}) {
+			t.Errorf("preset %q is part of a covers cycle", p.ID)
+		}
+	}
+}
+
 func TestDefaultsCatalogCoversNoDuplicateDns(t *testing.T) {
 	ps, err := LoadBuiltins()
 	if err != nil {

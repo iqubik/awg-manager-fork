@@ -30,6 +30,10 @@
 		kind: 'brand';
 		path: string;
 		hex: string;
+		viewBox: string;
+		pathFill: string;
+		innerScale?: number;
+		fillRule?: 'evenodd' | 'nonzero';
 	}
 
 	interface LucideIcon {
@@ -73,9 +77,23 @@
 		}
 		const brand = brandIcons[slug];
 		if (brand) {
-			return { kind: 'brand', path: brand.path, hex: '#' + brand.hex };
+			return {
+				kind: 'brand',
+				path: brand.path,
+				hex: '#' + brand.hex,
+				viewBox: brand.viewBox ?? '0 0 24 24',
+				pathFill: brand.pathFill ? '#' + brand.pathFill : '#ffffff',
+				innerScale: brand.innerScale,
+				fillRule: brand.fillRule,
+			};
 		}
 		return null;
+	});
+
+	const brandInnerSize = $derived.by(() => {
+		if (resolved?.kind !== 'brand') return 0;
+		if (resolved.innerScale != null) return size * resolved.innerScale;
+		return resolved.viewBox === '0 0 24 24' ? size * 0.56 : size * 0.88;
 	});
 
 	const inlineInnerSize = $derived.by(() => {
@@ -91,8 +109,17 @@
 		<LetterIconTile label={label || slug || '?'} {size} />
 	{:else if resolved.kind === 'brand'}
 		<div class="brand" style="background:{resolved.hex}">
-			<svg viewBox="0 0 24 24" width={size * 0.56} height={size * 0.56} fill="white" xmlns="http://www.w3.org/2000/svg">
-				<path d={resolved.path} />
+			<svg
+				viewBox={resolved.viewBox}
+				width={brandInnerSize}
+				height={brandInnerSize}
+				xmlns="http://www.w3.org/2000/svg"
+			>
+				<path
+					d={resolved.path}
+					fill={resolved.pathFill}
+					fill-rule={resolved.fillRule ?? 'nonzero'}
+				/>
 			</svg>
 		</div>
 	{:else if resolved.kind === 'lucide'}
