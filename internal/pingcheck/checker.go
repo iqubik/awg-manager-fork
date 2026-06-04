@@ -7,33 +7,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hoaxisr/awg-manager/internal/storage"
+	"github.com/hoaxisr/awg-manager/internal/httpprobe"
 	"github.com/hoaxisr/awg-manager/internal/sys/exec"
-	"github.com/hoaxisr/awg-manager/internal/sys/httpclient"
 )
 
 const (
 	checkTimeout = 7 * time.Second
 )
 
-var checkerHTTPClient httpclient.HTTPDoer = httpclient.DefaultClient
-
 // checkHTTP performs HTTP 204 connectivity check through the tunnel.
 func checkHTTP(ctx context.Context, ifaceName string, checkURL string) CheckResult {
-	checkCtx, cancel := context.WithTimeout(ctx, checkTimeout)
-	defer cancel()
-	checkURL = strings.TrimSpace(checkURL)
-	if checkURL == "" {
-		checkURL = storage.DefaultConnectivityCheckURL
-	}
-
-	res, err := checkerHTTPClient.Do(checkCtx, httpclient.CallConfig{
-		URL:            checkURL,
-		Interface:      ifaceName,
-		ConnectTimeout: 3 * time.Second,
-		MaxTime:        5 * time.Second,
-		DiscardBody:    true,
-	})
+	res, err := httpprobe.ByInterface(ctx, ifaceName, checkURL)
 	if err != nil {
 		return CheckResult{
 			Success: false,
@@ -41,25 +25,17 @@ func checkHTTP(ctx context.Context, ifaceName string, checkURL string) CheckResu
 		}
 	}
 
-	httpCode := res.Metrics.HTTPCode
-	var latencyMs int
-	if res.Metrics.TimeConnect > 0 && res.Metrics.TimeConnect >= res.Metrics.TimeNameLookup {
-		latencyMs = int((res.Metrics.TimeConnect - res.Metrics.TimeNameLookup) * 1000)
-	} else {
-		latencyMs = int(res.Metrics.TimeTotal * 1000)
-	}
-
-	if httpCode >= 200 && httpCode < 400 {
+	if httpprobe.SuccessCode(res.HTTPCode) {
 		return CheckResult{
 			Success: true,
-			Latency: latencyMs,
+			Latency: res.LatencyMs,
 		}
 	}
 
 	return CheckResult{
 		Success: false,
-		Latency: latencyMs,
-		Error:   fmt.Sprintf("unexpected HTTP code: %d", httpCode),
+		Latency: res.LatencyMs,
+		Error:   fmt.Sprintf("unexpected HTTP code: %d", res.HTTPCode),
 	}
 }
 

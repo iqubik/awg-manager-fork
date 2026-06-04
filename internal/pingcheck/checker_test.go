@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/hoaxisr/awg-manager/internal/httpprobe"
 	"github.com/hoaxisr/awg-manager/internal/sys/httpclient"
 )
 
@@ -19,15 +20,15 @@ func (d *checkerCaptureDoer) Do(_ context.Context, cfg httpclient.CallConfig) (*
 }
 
 func TestPerformCheckHTTPUsesCustomURLAndAcceptsHTTP200(t *testing.T) {
-	orig := checkerHTTPClient
-	defer func() { checkerHTTPClient = orig }()
+	orig := httpprobe.Client
+	defer func() { httpprobe.Client = orig }()
 
 	doer := &checkerCaptureDoer{
 		res: &httpclient.Result{
-			Metrics: httpclient.Metrics{HTTPCode: 200, TimeConnect: 0.030, TimeTotal: 0.050},
+			Metrics: httpclient.Metrics{HTTPCode: 200, TimeNameLookup: 0.0101, TimeConnect: 0.0304, TimeTotal: 0.050},
 		},
 	}
-	checkerHTTPClient = doer
+	httpprobe.Client = doer
 
 	result := performCheck(context.Background(), "wg0", "http", "", "https://probe.example.net/ping")
 	if !result.Success {
@@ -38,5 +39,8 @@ func TestPerformCheckHTTPUsesCustomURLAndAcceptsHTTP200(t *testing.T) {
 	}
 	if doer.cfg.Interface != "wg0" {
 		t.Fatalf("Interface = %q, want wg0", doer.cfg.Interface)
+	}
+	if result.Latency != 20 {
+		t.Fatalf("Latency = %d, want 20ms", result.Latency)
 	}
 }
