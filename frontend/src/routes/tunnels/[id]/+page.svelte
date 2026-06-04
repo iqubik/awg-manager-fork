@@ -459,13 +459,14 @@
 						/>
 						<div class="setting-row toggle-inline-row advanced-toggle">
 							<div class="flex flex-col gap-1">
-								<span class="font-medium">Показать все интерфейсы</span>
+								<span id="show-all-interfaces-title" class="font-medium">Показать все интерфейсы</span>
 								<span class="setting-description">Включая внутренние интерфейсы роутера</span>
 							</div>
 							<Toggle
 								checked={showAllInterfaces}
 								onchange={toggleAllInterfaces}
 								loading={loadingAllInterfaces}
+								ariaLabelledby="show-all-interfaces-title"
 							/>
 						</div>
 					</section>
@@ -475,7 +476,7 @@
 							<SettingsSectionLabel label="Маршрут по умолчанию" icon={Route} tone="green" header />
 							<div class="setting-row toggle-inline-row">
 								<div class="flex flex-col gap-1">
-									<span class="font-medium">NDMS Default Route</span>
+									<span id="default-route-title" class="font-medium">NDMS Default Route</span>
 									<span class="setting-description">
 										В NDMS для OpkgTunX выполняется «ip route default», а не как full-tunnel на уровне Linux. <br>
 										Так туннель регистрируется среди интернет-выходов с метрикой (весом), по которому NDMS выбирает канал по умолчанию. 
@@ -485,6 +486,7 @@
 								<Toggle
 									checked={tunnel.defaultRoute}
 									onchange={() => toggleDefaultRoute()}
+									ariaLabelledby="default-route-title"
 								/>
 							</div>
 						</section>

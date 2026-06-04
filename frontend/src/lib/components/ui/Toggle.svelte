@@ -12,6 +12,8 @@
         disabled?: boolean;
         label?: string;
         hint?: string;
+        ariaLabel?: string;
+        ariaLabelledby?: string;
         size?: 'sm' | 'md';
         variant?: 'slider' | 'flip';
         /** Flip ON-state colour override (AWG recovering / starting / unreachable). */
@@ -34,6 +36,8 @@
         disabled = false,
         label = '',
         hint = '',
+        ariaLabel = undefined,
+        ariaLabelledby = undefined,
         size = 'md',
         variant = 'slider',
         tint,
@@ -71,7 +75,14 @@
             class:tint-starting={tint === 'starting'}
             class:tint-unreachable={tint === 'unreachable'}
         >
-            <input type="checkbox" checked={checked} {disabled} oninput={handleInput} />
+            <input
+                type="checkbox"
+                checked={checked}
+                {disabled}
+                aria-label={ariaLabel}
+                aria-labelledby={ariaLabelledby}
+                oninput={handleInput}
+            />
             {#if variant === 'flip'}
                 <span class="flip-track">
                     <span class="flip-lever">
@@ -111,7 +122,14 @@
         class:tint-starting={tint === 'starting'}
         class:tint-unreachable={tint === 'unreachable'}
     >
-        <input type="checkbox" checked={checked} {disabled} oninput={handleInput} />
+        <input
+            type="checkbox"
+            checked={checked}
+            {disabled}
+            aria-label={ariaLabel}
+            aria-labelledby={ariaLabelledby}
+            oninput={handleInput}
+        />
         {#if variant === 'flip'}
             <span class="flip-track">
                 <span class="flip-lever">
