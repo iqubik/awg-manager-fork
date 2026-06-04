@@ -74,7 +74,7 @@
 	<div class="rows">
 		{#each rewrites as rw, i (i)}
 			<div
-				class="row"
+				class="row compact-link-row"
 				role="button"
 				tabindex="0"
 				onclick={() => requestEdit(i)}
@@ -89,13 +89,13 @@
 				aria-label={`Редактировать DNS-перезапись ${rw.pattern}`}
 				title={`Редактировать DNS-перезапись «${rw.pattern}»`}
 			>
-				<code class="pat mono" title={rw.pattern}>{rw.pattern}</code>
-				<span class="arrow">→</span>
-				<span class="ips-line">
+				<code class="pat compact-link-source mono" title={rw.pattern}>{rw.pattern}</code>
+				<span class="arrow compact-link-arrow">→</span>
+				<span class="ips-line compact-link-target">
 					<span class="mobile-arrow">→</span>
 					<span class="ips mono" title={rw.ips.join(', ')}>{rw.ips.join(', ')}</span>
 				</span>
-				<div class="row-actions">
+				<div class="row-actions compact-link-actions">
 					<button
 						type="button"
 						class="route-action-btn"
@@ -196,11 +196,11 @@
 		gap: 0.2rem;
 		min-width: 0;
 	}
-	.row {
+	.compact-link-row {
 		transition: background-color 0.15s ease;
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) auto;
-		gap: 0.4rem;
+		grid-template-columns: minmax(0, 1fr) 18px minmax(0, 0.9fr) 64px;
+		gap: 6px;
 		align-items: center;
 		min-width: 0;
 		background: var(--surface-bg);
@@ -214,13 +214,12 @@
 		outline-offset: 2px;
 	}
 
-	.row-actions {
-		display: flex;
-		flex-wrap: nowrap;
-		align-items: center;
-		justify-content: flex-end;
+	.compact-link-actions {
+		display: grid;
+		grid-template-columns: repeat(2, 28px);
+		justify-content: end;
 		gap: 4px;
-		flex-shrink: 0;
+		min-width: 64px;
 	}
 	.ips-line {
 		min-width: 0;
@@ -236,7 +235,7 @@
 		font-family: ui-monospace, monospace;
 		font-size: 0.8rem;
 	}
-	.pat {
+	.compact-link-source {
 		color: var(--text);
 		min-width: 0;
 		white-space: normal;
@@ -244,18 +243,28 @@
 		text-overflow: initial;
 		overflow-wrap: anywhere;
 		word-break: normal;
-		line-height: 1.35;
+		line-height: 1.25;
 	}
+	.compact-link-arrow {
+		width: 18px;
+		text-align: center;
+		color: var(--muted-text);
+		opacity: 0.75;
+		line-height: 1;
+	}
+	.compact-link-target,
 	.ips {
 		color: var(--success, #22c55e);
 		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		white-space: normal;
+		overflow: visible;
+		text-overflow: initial;
+		overflow-wrap: anywhere;
+		word-break: normal;
 	}
 
 	@media (hover: hover) and (pointer: fine) {
-		.row:hover {
+		.compact-link-row:hover {
 			background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 		}
 	}
@@ -269,7 +278,7 @@
 			gap: 0;
 		}
 
-		.row {
+		.compact-link-row {
 			grid-template-columns: minmax(0, 1fr) auto;
 			grid-template-areas:
 				'pattern actions'
@@ -286,20 +295,13 @@
 			border-bottom: 0;
 		}
 
-		.pat { grid-area: pattern; }
+		.compact-link-source { grid-area: pattern; }
 		.ips-line {
 			grid-area: ips;
 			display: inline-flex;
 			align-items: center;
 			gap: 0.35rem;
 			min-width: 0;
-		}
-		.pat {
-			white-space: normal;
-			overflow: visible;
-			text-overflow: initial;
-			overflow-wrap: anywhere;
-			word-break: normal;
 		}
 		.arrow { display: none; }
 		.mobile-arrow {
@@ -309,12 +311,13 @@
 			line-height: 1;
 			opacity: 0.85;
 		}
+		.compact-link-target,
 		.ips {
 			min-width: 0;
 			white-space: normal;
 			overflow-wrap: anywhere;
 		}
-		.row-actions {
+		.compact-link-actions {
 			grid-area: actions;
 			align-self: center;
 		}

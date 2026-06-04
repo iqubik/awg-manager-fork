@@ -119,11 +119,15 @@
               </div>
               <div class="proxy-sub">
                 {#if isInstanceActive(in_)}
-                  <Badge variant="success" size="sm" mono>active</Badge>
+                  <span class="proxy-state">
+                    <Badge variant="success" size="sm" mono>active</Badge>
+                  </span>
                 {:else}
-                  <Badge variant="muted" size="sm" mono>выкл</Badge>
+                  <span class="proxy-state">
+                    <Badge variant="muted" size="sm" mono>выкл</Badge>
+                  </span>
                 {/if}
-                <span class="arrow">→</span>
+                <span class="arrow proxy-arrow">→</span>
                 <span class="outbound-wrap">
                   <Badge variant={outboundVariantFor(outboundLabel)} size="sm" mono>{outboundLabel}</Badge>
                 </span>
@@ -292,6 +296,15 @@
     flex-wrap: wrap;
     overflow: hidden;
   }
+  .proxy-state {
+    flex: 0 0 auto;
+  }
+  .proxy-arrow {
+    color: var(--text-muted);
+    opacity: 0.75;
+    line-height: 1;
+    flex: 0 0 auto;
+  }
   .listen {
     font-size: 12px;
     min-width: 0;
@@ -311,11 +324,11 @@
     text-overflow: ellipsis;
   }
   .proxy-actions {
-    display: inline-flex;
-    align-items: center;
-    justify-content: flex-end;
+    display: grid;
+    grid-template-columns: repeat(2, 28px);
+    justify-content: end;
     gap: 4px;
-    min-width: 0;
+    min-width: 64px;
     justify-self: end;
   }
   .proxy-actions > .route-action-btn {
@@ -347,6 +360,17 @@
     .proxy-sub {
       min-width: 0;
       max-width: 100%;
+    }
+    .proxy-sub {
+      gap: 0.25rem;
+    }
+    .proxy-arrow {
+      display: none;
+    }
+    .outbound-wrap::before {
+      content: '→ ';
+      color: var(--text-muted);
+      opacity: 0.75;
     }
   }
   /* Bare mode для embed внутри SidePanel — без double chrome */
