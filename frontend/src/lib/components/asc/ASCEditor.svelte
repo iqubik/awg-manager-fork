@@ -417,14 +417,65 @@
 	}
 
 	.generate-row {
-		display: flex;
-		flex-direction: column;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		align-items: stretch;
 		gap: 0.5rem;
 		margin-bottom: 12px;
 	}
 
+	.generate-row > * {
+		min-width: 0;
+	}
+
 	.protocol-select {
 		width: 100%;
+	}
+
+	.generate-row .field-input,
+	.generate-row .protocol-select :global(.dropdown-trigger),
+	.generate-row :global(.btn) {
+		min-height: 34px;
+		box-sizing: border-box;
+	}
+
+	.generate-row :global(.btn) {
+		width: 100%;
+	}
+
+	.generate-row :global(.dropdown-panel) {
+		min-width: min(280px, calc(100vw - 32px));
+		max-width: calc(100vw - 32px);
+	}
+
+	.generate-row :global(.dropdown-panel .option),
+	.generate-row :global(.dropdown-panel [role='option']) {
+		height: auto;
+		min-height: 44px;
+		align-items: flex-start;
+	}
+
+	.generate-row :global(.dropdown-panel .option-text) {
+		min-width: 0;
+	}
+
+	.generate-row :global(.dropdown-panel .option-desc) {
+		display: block;
+		max-width: 100%;
+		overflow: visible;
+		text-overflow: clip;
+		white-space: normal;
+		line-height: 1.25;
+	}
+
+	.generate-row :global(.dropdown-panel .option-check) {
+		flex-shrink: 0;
+	}
+
+	.generate-row :global(.dropdown-panel .option-label) {
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.size-indicator {
@@ -472,6 +523,10 @@
 	}
 
 	@media (max-width: 480px) {
+		.generate-row {
+			grid-template-columns: 1fr;
+		}
+
 		.mode-options {
 			flex-direction: column;
 			align-items: stretch;

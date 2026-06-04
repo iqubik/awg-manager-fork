@@ -6,6 +6,7 @@
 	import { usageLevel } from '$lib/stores/settings';
 	import { notifications } from '$lib/stores/notifications';
 	import { api } from '$lib/api/client';
+	import { copyToClipboard } from '$lib/utils/clipboard';
 	import type { AWGTunnel, SystemInfo, WANInterface, RouterInterface, TunnelListItem } from '$lib/types';
 	import { PageContainer, LoadingSpinner } from '$lib/components/layout';
 	import { Toggle, Dropdown, Tabs, type DropdownOption } from '$lib/components/ui';
@@ -209,6 +210,17 @@
 		}
 	}
 
+	async function copyPublicKey() {
+		if (!publicKey) return;
+
+		const ok = await copyToClipboard(publicKey);
+		if (ok) {
+			notifications.success('Публичный ключ скопирован');
+		} else {
+			notifications.error('Не удалось скопировать публичный ключ');
+		}
+	}
+
 	async function handleSaveOnly() {
 		if (!tunnel) return;
 
@@ -378,7 +390,21 @@
 						<SettingsSectionLabel label="Сервер [Peer]" icon={Server} tone="indigo" header />
 						<div class="flex flex-col gap-1.5 pubkey-row">
 							<span class="field-label">Публичный ключ</span>
-							<code class="pubkey-value">{publicKey}</code>
+							<button
+								type="button"
+								class="pubkey-value pubkey-copy"
+								onclick={copyPublicKey}
+								title="Скопировать публичный ключ"
+								aria-label="Скопировать публичный ключ"
+							>
+								<span class="pubkey-copy-text">{publicKey}</span>
+								<span class="pubkey-copy-icon" aria-hidden="true">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<rect x="9" y="9" width="13" height="13" rx="2" />
+										<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+									</svg>
+								</span>
+							</button>
 						</div>
 						<div class="flex flex-col gap-1.5" style="margin-bottom:12px">
 							<label class="field-label" for="endpoint">Endpoint</label>
@@ -499,6 +525,24 @@
 		color: var(--color-text-secondary);
 	}
 
+	.tab-content {
+		padding: 20px 0;
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.tab-form {
+		display: flex;
+		flex-direction: column;
+		gap: 20px;
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.edit-wrapper {
+		min-width: 0;
+		max-width: 100%;
+	}
 	.section-hint {
 		color: var(--color-text-muted);
 		font-size: 0.8125rem;
@@ -536,7 +580,61 @@
 		border-radius: var(--radius-sm);
 	}
 
+	.pubkey-copy {
+		position: relative;
+		display: block;
+		width: 100%;
+		border: 0;
+		text-align: left;
+		cursor: pointer;
+		padding-bottom: 26px;
+	}
+
+	.pubkey-copy-text {
+		display: block;
+		word-break: break-all;
+	}
+
+	.pubkey-copy-icon {
+		position: absolute;
+		left: 10px;
+		bottom: 8px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		color: var(--color-text-muted);
+		opacity: 0.75;
+		pointer-events: none;
+	}
+
+	.pubkey-copy-icon svg {
+		width: 16px;
+		height: 16px;
+	}
+
+	.pubkey-copy:hover {
+		background: var(--color-bg-hover);
+		color: var(--color-text-primary);
+	}
+
+	.pubkey-copy:hover .pubkey-copy-icon,
+	.pubkey-copy:focus-visible .pubkey-copy-icon {
+		color: var(--color-accent);
+		opacity: 1;
+	}
+
+	.pubkey-copy:focus-visible {
+		outline: 2px solid var(--color-accent);
+		outline-offset: 2px;
+	}
+
 	@media (max-width: 600px) {
+		.tab-content {
+			overflow-x: clip;
+		}
+
 		.inline-fields {
 			flex-direction: column;
 		}

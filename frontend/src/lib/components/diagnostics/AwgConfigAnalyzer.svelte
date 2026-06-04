@@ -581,11 +581,15 @@
 			<div class="bar">
 				<Button variant="primary" onclick={analyze} disabled={!canAnalyze}>Анализировать</Button>
 				<Button variant="secondary" onclick={() => fileInput?.click()}>Загрузить файл</Button>
-				<Button variant="ghost" onclick={clearAll}>Очистить</Button>
+				<span class="bar-clear">
+					<Button variant="ghost" onclick={clearAll}>Очистить</Button>
+				</span>
 				{#if canSave}
-					<Button variant="outline-primary" onclick={saveToTunnel} loading={savingTunnel}>
-						Записать в туннель
-					</Button>
+					<span class="bar-save">
+						<Button variant="outline-primary" onclick={saveToTunnel} loading={savingTunnel}>
+							Записать в туннель
+						</Button>
+					</span>
 				{/if}
 				<span class="kbd">⌘/Ctrl+Enter</span>
 			</div>
@@ -795,13 +799,6 @@
 				{/each}
 			</div>
 		{/each}
-			{:else}
-				<div class="results-empty">
-					<p class="results-empty-title">Результаты анализа</p>
-					<p class="results-empty-text">
-						После нажатия «Анализировать» здесь появятся оценка, рекомендации и список проверок.
-					</p>
-				</div>
 			{/if}
 		</div>
 	</div>
@@ -990,7 +987,6 @@
 		line-height: 1.5;
 		color: var(--color-text-secondary, var(--text-secondary));
 	}
-
 	.drop {
 		display: block;
 		padding: 12px 14px;
@@ -1714,5 +1710,72 @@
 		flex-shrink: 0;
 		font-size: 12px;
 		color: var(--color-text-muted, var(--text-muted));
+	}
+
+	@media (max-width: 640px) {
+		.bar {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 8px;
+			align-items: stretch;
+			margin-top: 10px;
+			margin-bottom: 12px;
+			width: 100%;
+		}
+
+		.bar :global(.btn) {
+			width: 100%;
+			min-width: 0;
+			padding-inline: 0.5rem;
+		}
+
+		.bar-clear,
+		.bar-save {
+			grid-column: 1 / -1;
+			min-width: 0;
+		}
+
+		.bar-clear :global(.btn),
+		.bar-save :global(.btn) {
+			width: 100%;
+		}
+
+		.kbd {
+			display: none;
+		}
+
+		.score-row {
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			text-align: center;
+			gap: 12px;
+		}
+
+		.ring-hold {
+			width: 100px;
+			height: 100px;
+			margin-inline: auto;
+		}
+
+		.ring {
+			width: 100px;
+			height: 100px;
+		}
+
+		.verdict {
+			flex: 1 1 100%;
+			min-width: 0;
+			text-align: center;
+		}
+
+		.verdict-badge {
+			margin-inline: auto;
+		}
+
+		.verdict-text {
+			max-width: 18rem;
+			margin-inline: auto;
+		}
 	}
 </style>
