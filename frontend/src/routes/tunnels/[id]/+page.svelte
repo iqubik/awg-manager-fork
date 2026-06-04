@@ -470,7 +470,7 @@
 						<div class="advanced-toggle">
 							<div class="route-toggle-row">
 								<div class="route-toggle-copy">
-									<span class="route-toggle-title">Показать все интерфейсы</span>
+									<span id="show-all-interfaces-title" class="route-toggle-title">Показать все интерфейсы</span>
 									<span class="route-toggle-hint">Включая внутренние интерфейсы роутера</span>
 								</div>
 								<Toggle
@@ -478,6 +478,7 @@
 									onchange={toggleAllInterfaces}
 									loading={loadingAllInterfaces}
 									size="sm"
+									ariaLabelledby="show-all-interfaces-title"
 								/>
 							</div>
 						</div>
@@ -487,13 +488,14 @@
 						<h2 class="section-title">Маршрут по умолчанию</h2>
 						<div class="route-toggle-row route-toggle-row-section">
 							<div class="route-toggle-copy">
-								<span class="route-toggle-title">Default route</span>
+								<span id="default-route-title" class="route-toggle-title">Default route</span>
 								<span class="route-toggle-hint">NDMS default route через интерфейс туннеля</span>
 							</div>
 							<Toggle
 								checked={tunnel.defaultRoute}
 								onchange={() => toggleDefaultRoute()}
 								size="sm"
+								ariaLabelledby="default-route-title"
 							/>
 						</div>
 					</section>

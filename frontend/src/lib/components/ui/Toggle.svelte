@@ -10,6 +10,8 @@
         disabled?: boolean;
         label?: string;
         hint?: string;
+        ariaLabel?: string;
+        ariaLabelledby?: string;
         size?: 'sm' | 'md';
         variant?: 'slider' | 'flip';
         /** Spinner slot relative to the slider track (flip variant ignores this). */
@@ -30,6 +32,8 @@
         disabled = false,
         label = '',
         hint = '',
+        ariaLabel = undefined,
+        ariaLabelledby = undefined,
         size = 'md',
         variant = 'slider',
         spinner = 'before',
@@ -58,7 +62,14 @@
 {#if label}
     <div class="toggle-group">
         <label class="toggle-container" class:loading class:sm={size === 'sm'} class:flip={variant === 'flip'}>
-            <input type="checkbox" checked={checked} {disabled} oninput={handleInput} />
+            <input
+                type="checkbox"
+                checked={checked}
+                {disabled}
+                aria-label={ariaLabel}
+                aria-labelledby={ariaLabelledby}
+                oninput={handleInput}
+            />
             {#if variant === 'flip'}
                 <span class="flip-track">
                     <span class="flip-lever">
@@ -88,7 +99,14 @@
     </div>
 {:else}
     <label class="toggle-container" class:loading class:sm={size === 'sm'} class:flip={variant === 'flip'}>
-        <input type="checkbox" checked={checked} {disabled} oninput={handleInput} />
+        <input
+            type="checkbox"
+            checked={checked}
+            {disabled}
+            aria-label={ariaLabel}
+            aria-labelledby={ariaLabelledby}
+            oninput={handleInput}
+        />
         {#if variant === 'flip'}
             <span class="flip-track">
                 <span class="flip-lever">

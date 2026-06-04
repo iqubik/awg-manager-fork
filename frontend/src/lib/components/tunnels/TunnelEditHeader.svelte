@@ -114,7 +114,15 @@
 				variant={primaryVariant}
 				disabled={saving}
 				loading={actionStatus === 'loading'}
-				iconBefore={actionStatus === 'success' ? successIcon : actionStatus === 'error' ? errorIcon : actionStatus === 'loading' ? undefined : playIcon}
+				iconBefore={actionStatus === 'success'
+					? successIcon
+					: actionStatus === 'error'
+						? errorIcon
+						: actionStatus === 'loading'
+							? undefined
+							: tunnelState === 'running'
+								? saveIcon
+								: playIcon}
 				onclick={onSaveAndStart}
 			>
 				{#if actionStatus === 'loading'}
