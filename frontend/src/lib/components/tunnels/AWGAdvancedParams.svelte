@@ -175,16 +175,18 @@
 				label: proto.name,
 				description: proto.description,
 			}))}
-			<div class="generate-row">
+			<div class="generate-row signature-generate-row">
 				<div class="protocol-select">
-					<Dropdown bind:value={selectedProtocol} options={protocolOpts} fullWidth />
+					<Dropdown id="signature-protocol-dropdown" bind:value={selectedProtocol} options={protocolOpts} fullWidth />
 				</div>
-				<Button variant="secondary" size="sm" onclick={handleGenerate}>
-					Сгенерировать
-				</Button>
+				<div class="generate-action">
+					<Button variant="primary" size="sm" onclick={handleGenerate}>
+						Сгенерировать
+					</Button>
+				</div>
 			</div>
 		{:else}
-			<div class="generate-row">
+			<div class="generate-row signature-generate-row">
 				<input
 					type="text"
 					class="field-input"
@@ -335,8 +337,74 @@
 		margin-bottom: 12px;
 	}
 
+	.signature-generate-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		gap: 8px;
+		align-items: stretch;
+		width: 100%;
+	}
+
+	.signature-generate-row > * {
+		min-width: 0;
+	}
+
+	.signature-generate-row .protocol-select,
+	.signature-generate-row .generate-action {
+		width: 100%;
+		min-width: 0;
+	}
+
+	.signature-generate-row .field-input,
+	.signature-generate-row .protocol-select :global(.dropdown-trigger),
+	.signature-generate-row :global(.btn) {
+		height: 34px;
+		min-height: 34px;
+		box-sizing: border-box;
+	}
+
+	.generate-action :global(.btn) {
+		width: 100%;
+		min-height: 34px;
+	}
+
 	.protocol-select {
 		width: 100%;
+	}
+
+	:global(#signature-protocol-dropdown-listbox.dropdown-panel) {
+		min-width: min(280px, calc(100vw - 32px));
+		max-width: calc(100vw - 32px);
+	}
+
+	:global(#signature-protocol-dropdown-listbox.dropdown-panel .option),
+	:global(#signature-protocol-dropdown-listbox.dropdown-panel [role='option']) {
+		height: auto;
+		min-height: 44px;
+		align-items: flex-start;
+	}
+
+	:global(#signature-protocol-dropdown-listbox.dropdown-panel .option-text) {
+		min-width: 0;
+	}
+
+	:global(#signature-protocol-dropdown-listbox.dropdown-panel .option-desc) {
+		white-space: normal;
+		overflow: visible;
+		text-overflow: clip;
+		display: block;
+		line-height: 1.25;
+		max-width: 100%;
+	}
+
+	:global(#signature-protocol-dropdown-listbox.dropdown-panel .option-check) {
+		flex-shrink: 0;
+	}
+
+	:global(#signature-protocol-dropdown-listbox.dropdown-panel .option-label) {
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.size-indicator {
@@ -384,9 +452,14 @@
 
 	@media (max-width: 480px) {
 		.mode-options {
-			flex-direction: column;
-			gap: 0.5rem;
-			align-items: flex-start;
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			gap: 8px;
+			align-items: stretch;
+		}
+
+		.mode-option {
+			min-width: 0;
 		}
 	}
 </style>

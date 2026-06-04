@@ -5,6 +5,7 @@
 	import { tunnels } from '$lib/stores/tunnels';
 	import { notifications } from '$lib/stores/notifications';
 	import { api } from '$lib/api/client';
+	import { copyToClipboard } from '$lib/utils/clipboard';
 	import type { AWGTunnel, SystemInfo, WANInterface, RouterInterface, TunnelListItem } from '$lib/types';
 	import { PageContainer, LoadingSpinner } from '$lib/components/layout';
 	import { Toggle, Dropdown, Tabs, type DropdownOption } from '$lib/components/ui';
@@ -219,6 +220,17 @@
 		}
 	}
 
+	async function copyPublicKey() {
+		if (!publicKey) return;
+
+		const ok = await copyToClipboard(publicKey);
+		if (ok) {
+			notifications.success('Публичный ключ скопирован');
+		} else {
+			notifications.error('Не удалось скопировать публичный ключ');
+		}
+	}
+
 	async function handleSaveOnly() {
 		if (!tunnel) return;
 
@@ -388,7 +400,21 @@
 						<h2 class="section-title">Сервер [Peer]</h2>
 						<div class="flex flex-col gap-1.5 pubkey-row">
 							<span class="field-label">Публичный ключ</span>
-							<code class="pubkey-value">{publicKey}</code>
+							<button
+								type="button"
+								class="pubkey-value pubkey-copy"
+								onclick={copyPublicKey}
+								title="Скопировать публичный ключ"
+								aria-label="Скопировать публичный ключ"
+							>
+								<span class="pubkey-copy-text">{publicKey}</span>
+								<span class="pubkey-copy-icon" aria-hidden="true">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<rect x="9" y="9" width="13" height="13" rx="2" />
+										<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+									</svg>
+								</span>
+							</button>
 						</div>
 						<div class="flex flex-col gap-1.5" style="margin-bottom:12px">
 							<label class="field-label" for="endpoint">Endpoint</label>
@@ -442,27 +468,32 @@
 							fullWidth
 						/>
 						<div class="advanced-toggle">
-							<Toggle
-								checked={showAllInterfaces}
-								onchange={toggleAllInterfaces}
-								loading={loadingAllInterfaces}
-								label="Показать все интерфейсы"
-								hint="Включая внутренние интерфейсы роутера"
-								size="sm"
-							/>
+							<div class="route-toggle-row">
+								<div class="route-toggle-copy">
+									<span class="route-toggle-title">Показать все интерфейсы</span>
+									<span class="route-toggle-hint">Включая внутренние интерфейсы роутера</span>
+								</div>
+								<Toggle
+									checked={showAllInterfaces}
+									onchange={toggleAllInterfaces}
+									loading={loadingAllInterfaces}
+									size="sm"
+								/>
+							</div>
 						</div>
 					</section>
 
 					<section class="form-section">
 						<h2 class="section-title">Маршрут по умолчанию</h2>
-						<div class="setting-row">
-							<div class="flex flex-col gap-1">
-								<span class="font-medium">Default route</span>
-								<span class="setting-description">NDMS default route через интерфейс туннеля</span>
+						<div class="route-toggle-row route-toggle-row-section">
+							<div class="route-toggle-copy">
+								<span class="route-toggle-title">Default route</span>
+								<span class="route-toggle-hint">NDMS default route через интерфейс туннеля</span>
 							</div>
 							<Toggle
 								checked={tunnel.defaultRoute}
 								onchange={() => toggleDefaultRoute()}
+								size="sm"
 							/>
 						</div>
 					</section>
@@ -505,12 +536,21 @@
 
 	.tab-content {
 		padding: 20px 0;
+		min-width: 0;
+		max-width: 100%;
 	}
 
 	.tab-form {
 		display: flex;
 		flex-direction: column;
 		gap: 20px;
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.edit-wrapper {
+		min-width: 0;
+		max-width: 100%;
 	}
 
 	.section-hint {
@@ -523,6 +563,38 @@
 		margin-top: 12px;
 		padding-top: 12px;
 		border-top: 1px solid var(--color-border);
+	}
+
+	.route-toggle-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		min-width: 0;
+	}
+
+	.route-toggle-copy {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		min-width: 0;
+	}
+
+	.route-toggle-title {
+		font-size: 14px;
+		font-weight: 600;
+		line-height: 1.25;
+		color: var(--color-text-primary);
+	}
+
+	.route-toggle-hint {
+		font-size: 12px;
+		line-height: 1.45;
+		color: var(--color-text-muted);
+	}
+
+	.route-toggle-row-section {
+		margin-top: 12px;
 	}
 
 	/* Inline fields row (e.g. Address + MTU, AllowedIPs + Keepalive) */
@@ -540,6 +612,7 @@
 	}
 
 	.section-title {
+		margin: 0;
 		font-size: 14px;
 		font-weight: 600;
 		padding-bottom: 10px;
@@ -562,7 +635,82 @@
 		border-radius: var(--radius-sm);
 	}
 
+	.pubkey-copy {
+		position: relative;
+		display: block;
+		width: 100%;
+		border: 0;
+		text-align: left;
+		cursor: pointer;
+		padding-bottom: 26px;
+	}
+
+	.pubkey-copy-text {
+		display: block;
+		word-break: break-all;
+	}
+
+	.pubkey-copy-icon {
+		position: absolute;
+		left: 10px;
+		bottom: 8px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		color: var(--color-text-muted);
+		opacity: 0.75;
+		pointer-events: none;
+	}
+
+	.pubkey-copy-icon svg {
+		width: 16px;
+		height: 16px;
+	}
+
+	.pubkey-copy:hover {
+		background: var(--color-bg-hover);
+		color: var(--color-text-primary);
+	}
+
+	.pubkey-copy:hover .pubkey-copy-icon,
+	.pubkey-copy:focus-visible .pubkey-copy-icon {
+		color: var(--color-accent);
+		opacity: 1;
+	}
+
+	.pubkey-copy:focus-visible {
+		outline: 2px solid var(--color-accent);
+		outline-offset: 2px;
+	}
+
 	@media (max-width: 600px) {
+		.tab-content {
+			overflow-x: clip;
+		}
+
+		.form-section {
+			padding: 14px;
+		}
+
+		.section-title {
+			margin: 0 0 12px;
+			line-height: 1.25;
+		}
+
+		.route-toggle-row {
+			align-items: center;
+		}
+
+		.route-toggle-copy {
+			flex: 1 1 auto;
+		}
+
+		.route-toggle-row :global(.toggle-container) {
+			flex-shrink: 0;
+		}
+
 		.inline-fields {
 			flex-direction: column;
 		}
