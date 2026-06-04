@@ -8,7 +8,7 @@
   import type { OutboundGroup } from '$lib/components/routing/singboxRouter/outboundOptions';
   import { Badge } from '$lib/components/ui';
   import { ChevronUp, ChevronDown, Edit3, Trash2 } from 'lucide-svelte';
-  import { isSystemRule } from './adapters';
+  import { isSystemRule, systemRuleTooltip } from './adapters';
   import { resolveMemberLabel } from '$lib/utils/memberLabel';
 
   const AWG_OPTION_GROUPS = new Set(['AWG туннели', 'Системные WireGuard']);
@@ -38,6 +38,7 @@
     outboundLabel: string;
     outboundVariant: 'accent' | 'purple';
     outboundKind: 'route' | 'direct' | 'reject' | 'none';
+    tooltip?: string;
   }
 
   function compileMatchers(r: SingboxRouterRule): string {
@@ -102,6 +103,7 @@
         outboundLabel,
         outboundVariant,
         outboundKind,
+        tooltip: sys ? systemRuleTooltip(r) : undefined,
       };
     }),
   );
@@ -117,7 +119,12 @@
     <div class="actions-col">Действия</div>
   </div>
   {#each rowData as row (row.idx)}
-    <div class="row" class:sys={row.sys} class:route={!row.sys && row.outboundKind === 'route'}>
+    <div
+      class="row"
+      class:sys={row.sys}
+      class:route={!row.sys && row.outboundKind === 'route'}
+      title={row.tooltip}
+    >
       <div class="idx">{row.idx}</div>
       <div class="reorder">
         {#if !row.sys}

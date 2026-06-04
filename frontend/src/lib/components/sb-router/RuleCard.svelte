@@ -79,7 +79,7 @@
   }
 </script>
 
-<div class="card-wrap">
+<div class="card-wrap" title={card.isSystem ? card.tooltip : undefined}>
 <div class="card" class:is-system={card.isSystem} class:dragging>
   <!-- Order number -->
   <div class="order">{orderStr}</div>
@@ -187,6 +187,12 @@
     transition: border-color var(--t-fast);
   }
   .card:hover { border-color: var(--border-hover); }
+  .card.is-system {
+    opacity: 0.6;
+  }
+  .card.is-system:hover {
+    border-color: var(--border);
+  }
   .card.dragging {
     border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.24);

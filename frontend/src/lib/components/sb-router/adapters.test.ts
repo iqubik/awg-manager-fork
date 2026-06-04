@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { singboxRuleToCard, resolveOutboundDisplay, extractMatcherChips, isSystemRule } from './adapters';
+import { singboxRuleToCard, resolveOutboundDisplay, extractMatcherChips, isSystemRule, systemRuleTooltip } from './adapters';
 import type { SingboxRouterRule, SingboxRouterOutbound, CatalogPreset } from '$lib/types';
 import type { OutboundGroup } from '$lib/components/routing/singboxRouter/outboundOptions';
 
@@ -32,6 +32,21 @@ describe('isSystemRule', () => {
   });
   it('regular routing rule is not system', () => {
     expect(isSystemRule({ domain_suffix: ['netflix.com'], outbound: 'warp' })).toBe(false);
+  });
+});
+
+describe('systemRuleTooltip', () => {
+  it('sniff rule has tooltip', () => {
+    expect(systemRuleTooltip({ action: 'sniff' })).toMatch(/SNI/);
+  });
+  it('hijack-dns rule has tooltip', () => {
+    expect(systemRuleTooltip({ action: 'hijack-dns' })).toMatch(/DNS/);
+  });
+  it('private bypass rule has tooltip', () => {
+    expect(systemRuleTooltip({ ip_is_private: true, outbound: 'direct' })).toMatch(/LAN/);
+  });
+  it('regular rule has no tooltip', () => {
+    expect(systemRuleTooltip({ domain_suffix: ['x.com'], outbound: 'warp' })).toBeUndefined();
   });
 });
 
@@ -251,6 +266,7 @@ describe('singboxRuleToCard', () => {
     expect(card.action).toBe('sniff');
     expect(card.outbound.kind).toBe('sniff');
     expect(card.outbound.label).toBe('SNIFF');
+    expect(card.tooltip).toMatch(/SNI/);
   });
 
   it('hijack-dns system rule — title/subtitle по дизайну', () => {
@@ -261,12 +277,14 @@ describe('singboxRuleToCard', () => {
     expect(card.action).toBe('hijack-dns');
     expect(card.outbound.kind).toBe('hijack-dns');
     expect(card.outbound.label).toBe('HIJACK-DNS');
+    expect(card.tooltip).toMatch(/DNS/);
   });
 
   it('ip_is_private bypass — subtitle с RFC1918', () => {
     const card = singboxRuleToCard({ ip_is_private: true, outbound: 'direct' }, 0, [], {});
     expect(card.title).toBe('Локальная сеть');
     expect(card.subtitle).toBe('RFC1918 · loopback · link-local · CGNAT');
+    expect(card.tooltip).toMatch(/LAN/);
   });
 
   it('resolves icon and title from geosite rule_set via router presets', () => {

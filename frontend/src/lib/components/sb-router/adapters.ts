@@ -28,6 +28,20 @@ export function isSystemRule(rule: SingboxRouterRule): boolean {
   return false;
 }
 
+/** Пояснение для системных правил — тултип в простом и экспертном режиме. */
+export function systemRuleTooltip(rule: SingboxRouterRule): string | undefined {
+  if (rule.action === 'sniff') {
+    return 'Анализирует протокол и извлекает домен из соединения (SNI, HTTP Host). Нужно, чтобы следующие правила могли маршрутизировать по домену, а не только по IP.';
+  }
+  if (rule.action === 'hijack-dns') {
+    return 'Перехватывает DNS-запросы на порту 53 и обрабатывает их через DNS-модуль sing-box. Без этого DNS-маршрутизация не работает.';
+  }
+  if (rule.ip_is_private && rule.outbound === 'direct') {
+    return 'Трафик в локальные и приватные сети (RFC1918, loopback, link-local) идёт напрямую, минуя VPN. Нужен для доступа к роутеру, NAS и устройствам в LAN.';
+  }
+  return undefined;
+}
+
 /* ─── Action mapping ────────────────────────────────────────────────── */
 
 function mapAction(rule: SingboxRouterRule): RuleAction {
@@ -203,5 +217,6 @@ export function singboxRuleToCard(
     action,
     outbound,
     isSystem,
+    tooltip: isSystem ? systemRuleTooltip(rule) : undefined,
   };
 }

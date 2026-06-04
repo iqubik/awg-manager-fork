@@ -50,4 +50,6 @@ export interface RuleCardData {
   outbound: OutboundDisplay;
   /** System rule (ip_is_private bypass, sniff, hijack-dns) — рендерится muted */
   isSystem: boolean;
+  /** Пояснение при наведении (только системные правила) */
+  tooltip?: string;
 }
