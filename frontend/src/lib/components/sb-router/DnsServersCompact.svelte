@@ -6,7 +6,7 @@
   import type { SingboxRouterDNSServer, SingboxRouterDNSRule } from '$lib/types';
   import type { OutboundGroup } from '$lib/components/routing/singboxRouter/outboundOptions';
   import { Badge, Button } from '$lib/components/ui';
-  import { Trash2, Edit3 } from 'lucide-svelte';
+  import { ArrowRight, Trash2, Edit3 } from 'lucide-svelte';
   import { resolveMemberLabel } from '$lib/utils/memberLabel';
   import { dnsRuleTarget } from './dnsRuleLabel';
   import { dnsMatcherParts, dnsMatcherSummary } from './dnsMatcherParts';
@@ -84,14 +84,14 @@
         {#each rules as r, i (i)}
           {@const tgt = dnsRuleTarget(r)}
           {@const matchers = dnsMatcherParts(r)}
-          <div class="rule-row compact-link-row">
+          <div class="rule-row">
             <button
               type="button"
-              class="rule-content compact-link-content"
+              class="rule-content"
               onclick={() => onEditRule(i)}
               title={`${dnsMatcherSummary(r)} → ${tgt.label}`}
             >
-              <span class="rule-match compact-link-source">
+              <span class="rule-match">
                 {#if matchers.length === 0}
                   —
                 {:else}
@@ -110,21 +110,21 @@
                   {/each}
                 {/if}
               </span>
-              <span class="rule-arrow compact-link-arrow" aria-hidden="true">→</span>
+              <span class="rule-arrow" aria-hidden="true">→</span>
               {#if tgt.kind === 'block'}
-                <span class="rule-target compact-link-target">
+                <span class="rule-target">
                   <Badge variant="error" size="sm" mono>{tgt.label}</Badge>
                 </span>
               {:else if tgt.kind === 'none'}
-                <span class="rule-target compact-link-target none">{tgt.label}</span>
+                <span class="rule-target none">{tgt.label}</span>
               {:else}
-                <span class="rule-target compact-link-target" title={tgt.label}>
+                <span class="rule-target" title={tgt.label}>
                   <Badge variant="accent" size="sm" mono>{tgt.label}</Badge>
                 </span>
               {/if}
             </button>
 
-            <div class="rule-actions compact-link-actions" class:single={!onDeleteRule}>
+            <div class="rule-actions">
               <button
                 type="button"
                 class="route-action-btn"
@@ -239,7 +239,7 @@
     gap: 0.25rem;
     min-width: 0;
   }
-  .compact-link-row {
+  .rule-row {
     transition: background-color 0.15s ease;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -250,7 +250,7 @@
     padding: 0.55rem 0.75rem;
     border-radius: 4px;
   }
-  .compact-link-content {
+  .rule-content {
     min-width: 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(4.5rem, max-content);
@@ -264,12 +264,9 @@
     text-align: left;
     cursor: pointer;
   }
-  .rule-match,
-  .m-part {
-    min-width: 0;
-  }
   .rule-match {
     grid-column: 1;
+    min-width: 0;
     color: var(--text);
     font-size: 12px;
     line-height: 1.35;
@@ -292,59 +289,38 @@
   .m-val {
     color: var(--text-secondary);
     overflow-wrap: anywhere;
-    word-break: normal;
   }
-  .compact-link-source {
-    min-width: 0;
-    white-space: normal;
-    overflow: visible;
-    text-overflow: initial;
-    overflow-wrap: anywhere;
-    word-break: normal;
-  }
-  .rule-arrow,
-  .compact-link-arrow {
-    width: 18px;
+  .rule-arrow {
+    grid-column: 2;
+    flex-shrink: 0;
     color: var(--muted-text);
-    text-align: center;
     line-height: 1;
-    opacity: 0.75;
-  }
-  .compact-link-target,
-  .rule-target {
-    min-width: 0;
-    white-space: normal;
-    overflow: visible;
-    text-overflow: initial;
-    overflow-wrap: anywhere;
-    word-break: normal;
+    opacity: 0.85;
   }
   .rule-target {
     grid-column: 3;
     justify-self: end;
     max-width: 10rem;
     min-width: 0;
+    overflow: hidden;
   }
   .rule-target :global(.badge) {
     display: block;
     max-width: 100%;
-    white-space: normal;
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .rule-target.none {
     color: var(--text-muted);
     font-size: 12px;
   }
-  .compact-link-actions {
-    display: grid;
-    grid-template-columns: repeat(2, 28px);
-    justify-content: end;
+  .rule-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
     gap: 4px;
-    min-width: 64px;
-  }
-  .compact-link-actions.single {
-    grid-template-columns: 28px;
-    min-width: 28px;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
   .empty {
     padding: 14px;
@@ -358,7 +334,7 @@
       gap: 0;
     }
 
-    .compact-link-row {
+    .rule-row {
       grid-template-columns: minmax(0, 1fr) auto;
       align-items: start;
       gap: 0.5rem;
