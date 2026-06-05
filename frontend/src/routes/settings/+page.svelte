@@ -684,11 +684,13 @@ $effect(() => {
 					autoRefreshMs={30000}
 				/>
 
-				<div class="card">
+				<div class="settings-block">
 					<div class="section-label">
 						<span>Обновление AWGM</span>
 					</div>
-					<UpdateSection bind:updateInfo />
+					<div class="card">
+						<UpdateSection bind:updateInfo />
+					</div>
 				</div>
 
 				<IntegrationsCard
@@ -721,8 +723,9 @@ $effect(() => {
 				<ThemeSchemeCard />
 			{/if}
 
-				<div class="card">
+				<div class="settings-block">
 					<div class="section-label">Доступ</div>
+					<div class="card">
 					<div class="setting-row toggle-inline-row">
 						<div class="flex flex-col gap-1">
 							<span class="font-medium">Авторизация</span>
@@ -732,10 +735,12 @@ $effect(() => {
 						</div>
 						<Toggle checked={settings.authEnabled} onchange={toggleAuth} disabled={saving} />
 					</div>
+					</div>
 				</div>
 
-				<div class="card">
+				<div class="settings-block">
 					<div class="section-label">Загрузки и обновления</div>
+					<div class="card">
 					<div class="setting-row toggle-inline-row">
 						<div class="flex flex-col gap-1">
 							<span class="font-medium">Автопроверка обновлений</span>
@@ -789,21 +794,25 @@ $effect(() => {
 							/>
 						</div>
 					{/if}
+					</div>
 				</div>
 
-				<div class="card">
+				<div class="settings-block">
 					<div class="section-label">Логирование</div>
+					<div class="card">
 					<LoggingSettings
 						bind:settings
 						{saving}
 						onToggle={toggleLogging}
 						onSave={saveLoggingSettings}
 					/>
+					</div>
 				</div>
 
 				{#if $usageLevel === "expert"}
-				<div class="card">
+				<div class="settings-block">
 					<div class="section-label">Проверка пинга</div>
+					<div class="card">
 					<div class="setting-row ping-target-setting">
 						<div class="flex flex-col gap-1">
 							<span class="font-medium">Цели проверки</span>
@@ -839,14 +848,16 @@ $effect(() => {
 							</div>
 						</div>
 					</div>
+					</div>
 				</div>
 
-				<div
-					id="feedback-fab"
-					class="card settings-highlight-target"
-					class:highlighted={highlightFeedbackFab}
-				>
+				<div class="settings-block">
 					<div class="section-label">Расширенные</div>
+					<div
+						id="feedback-fab"
+						class="card settings-highlight-target"
+						class:highlighted={highlightFeedbackFab}
+					>
 					<div class="setting-row api-key-setting">
 						<div class="flex flex-col gap-1">
 							<span class="font-medium">API Key</span>
@@ -911,13 +922,15 @@ $effect(() => {
 							/>
 						</div>
 					{/if}
+					</div>
 				</div>
 				{/if}
 			</main>
 		</div>
 
-		<div class="card actions-card">
+		<div class="settings-block">
 			<div class="section-label">Действия</div>
+			<div class="card actions-card">
 			<div class="setting-row">
 				<div class="flex flex-col gap-1">
 					<span class="font-medium">Перезапуск AWGM</span>
@@ -980,6 +993,7 @@ $effect(() => {
 					</div>
 				</div>
 			{/if}
+			</div>
 		</div>
 
 		<div class="settings-doc-block">
@@ -1028,13 +1042,10 @@ $effect(() => {
 </PageContainer>
 
 <style>
-	/* Единый шаг сетки страницы настроек: колонки, стеки, до «Действий», до блока документации, шаг между строками там */
-	.settings-layout {
-		--settings-gap: 0.765rem;
-	}
+	/* Сетка страницы настроек — базовый layout/gap в app.css (.settings-layout) */
 
 	.settings-doc-block {
-		margin-top: var(--settings-gap);
+		margin-top: 0;
 	}
 
 	.settings-grid {
@@ -1063,18 +1074,8 @@ $effect(() => {
 		margin: 0;
 	}
 
-	.actions-card {
-		margin-top: var(--settings-gap);
-	}
-
-	/* Между строками — тот же шаг, что и между карточками (сумма половин padding) */
 	.actions-card > .setting-row {
-		padding-block: calc(var(--settings-gap) * 0.5);
 		align-items: center;
-	}
-
-	.actions-card > .setting-row:last-of-type {
-		padding-bottom: 0;
 	}
 
 	.action-buttons {
@@ -1150,7 +1151,7 @@ $effect(() => {
 		padding: 0.375rem 0.5rem;
 		font-family: var(--font-mono, ui-monospace, monospace);
 		font-size: 0.8rem;
-		background: var(--bg, var(--color-bg));
+		background: var(--color-settings-control-bg);
 		border: 1px solid var(--border, var(--color-border));
 		border-radius: 4px;
 		color: var(--text, var(--color-text));
@@ -1189,7 +1190,7 @@ $effect(() => {
 		padding: 0.375rem 0.5rem;
 		font-family: var(--font-mono, ui-monospace, monospace);
 		font-size: 0.8rem;
-		background: var(--bg, var(--color-bg));
+		background: var(--color-settings-control-bg);
 		border: 1px solid var(--border, var(--color-border));
 		border-radius: 4px;
 		color: var(--text, var(--color-text));

@@ -660,8 +660,8 @@ function persistSelection(selection: ThemeSelection): void {
 
 function applyThemeChromeMetadata(tokens: ThemeTokenMap, mode: ThemeMode): void {
 	const themeColor =
-		tokens['--color-bg-secondary'] ??
 		tokens['--color-bg-primary'] ??
+		tokens['--color-bg-secondary'] ??
 		(mode === 'light' ? '#f0f0f3' : '#16161e');
 
 	const themeColorMetas = Array.from(

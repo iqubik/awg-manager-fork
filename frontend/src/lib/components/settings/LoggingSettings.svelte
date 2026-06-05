@@ -240,7 +240,7 @@
 		min-height: 32px;
 		max-height: 32px;
 		box-sizing: border-box;
-		background: var(--color-bg-primary);
+		background: var(--color-settings-control-bg);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius);
 		color: var(--color-text-primary);

@@ -169,7 +169,7 @@
 		padding: 0.5rem 0.75rem;
 		border: 1px dashed var(--border, var(--color-border));
 		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--bg-secondary, var(--color-bg-secondary)) 60%, transparent);
+		background: color-mix(in srgb, var(--color-settings-control-bg) 60%, transparent);
 		font-size: 0.8125rem;
 	}
 	.no-singbox-title {

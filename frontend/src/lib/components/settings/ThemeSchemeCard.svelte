@@ -51,8 +51,9 @@
 	}
 </script>
 
-<div class="card">
+<div class="settings-block">
 	<div class="section-label">Внешний вид</div>
+	<div class="card">
 	<div class="setting-row">
 		<button
 			type="button"
@@ -222,6 +223,7 @@
 			onchange={(enabled) => serviceLetterIcons.setEnabled(enabled)}
 		/>
 	</div>
+	</div>
 </div>
 
 <style>
@@ -335,7 +337,7 @@
 		padding: 0.75rem;
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius);
-		background: var(--color-bg-tertiary);
+		background: var(--color-settings-control-bg);
 		color: inherit;
 		font: inherit;
 		text-align: left;
@@ -553,7 +555,7 @@
 		padding: 0.75rem;
 		border-radius: var(--radius);
 		border: 1px solid var(--color-border);
-		background: var(--color-bg-primary);
+		background: var(--color-settings-control-bg);
 	}
 
 	.color-label {
@@ -656,7 +658,7 @@
 			padding: 0.45rem 0.625rem;
 			border: 1px solid var(--color-border);
 			border-radius: var(--radius-sm);
-			background: var(--color-bg-tertiary);
+			background: var(--color-settings-control-bg);
 		}
 
 		.current-theme {
@@ -685,7 +687,7 @@
 			padding: 0.45rem 0.625rem;
 			border: 1px solid var(--color-border);
 			border-radius: var(--radius-sm);
-			background: var(--color-bg-tertiary);
+			background: var(--color-settings-control-bg);
 		}
 
 		.current-theme {

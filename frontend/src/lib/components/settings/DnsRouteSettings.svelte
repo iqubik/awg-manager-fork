@@ -146,7 +146,7 @@
 		padding: 0.75rem 0.875rem;
 		border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--bg-tertiary) 72%, transparent);
+		background: color-mix(in srgb, var(--color-settings-control-bg) 72%, transparent);
 	}
 
 	.form-label {
@@ -215,7 +215,7 @@
 	.inline-form input[type="number"] {
 		width: 4.75rem;
 		padding: 0.5rem 0.75rem;
-		background: var(--bg-primary);
+		background: var(--color-settings-control-bg);
 		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
 		color: var(--text-primary);
@@ -225,7 +225,7 @@
 	.inline-form input[type="time"] {
 		width: 8rem;
 		padding: 0.5rem 0.75rem;
-		background: var(--bg-primary);
+		background: var(--color-settings-control-bg);
 		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
 		color: var(--text-primary);

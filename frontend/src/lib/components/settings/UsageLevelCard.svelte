@@ -83,8 +83,9 @@
 	}
 </script>
 
-<div class="card" class:highlighted>
+<div class="settings-block">
 	<div class="section-label">Общие</div>
+	<div class="card" class:highlighted>
 	<div class="setting-row level-header-row">
 		<div class="flex flex-col gap-1">
 			<span class="font-medium">Уровень использования</span>
@@ -165,6 +166,7 @@
 			</div>
 		</div>
 	{/if}
+	</div>
 </div>
 
 <Modal
@@ -279,7 +281,7 @@
 		position: relative;
 		text-align: center;
 		padding: 0.625rem 0.5rem;
-		background: var(--color-bg-tertiary);
+		background: var(--color-settings-control-bg);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-md);
 		color: inherit;
@@ -367,7 +369,7 @@
 
 	.level-info-summary {
 		padding: 0.875rem 1rem;
-		background: var(--color-bg-tertiary);
+		background: var(--color-settings-control-bg);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-md);
 	}
@@ -410,7 +412,7 @@
 		align-items: flex-start;
 		gap: 0.75rem;
 		padding: 0.75rem 0.875rem;
-		background: var(--color-bg-tertiary);
+		background: var(--color-settings-control-bg);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-md);
 		line-height: 1.45;
@@ -473,7 +475,7 @@
 			padding: 0.45rem 0.625rem;
 			border: 1px solid var(--color-border);
 			border-radius: var(--radius-sm);
-			background: var(--color-bg-tertiary);
+			background: var(--color-settings-control-bg);
 		}
 
 		.current-level {
@@ -500,7 +502,7 @@
 			padding: 0.45rem 0.625rem;
 			border: 1px solid var(--color-border);
 			border-radius: var(--radius-sm);
-			background: var(--color-bg-tertiary);
+			background: var(--color-settings-control-bg);
 		}
 
 		.current-level {

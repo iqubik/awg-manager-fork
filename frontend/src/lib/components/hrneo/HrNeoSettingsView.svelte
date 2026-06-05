@@ -3,6 +3,13 @@
 	import { Toggle, Button, Dropdown } from '$lib/components/ui';
 	import type { HydraRouteConfig } from '$lib/types';
 
+	interface Props {
+		/** Внутри pane-container HR Neo — без заголовка и без вложенных card. */
+		embedded?: boolean;
+	}
+
+	let { embedded = true }: Props = $props();
+
 	let cfg = $state<HydraRouteConfig | null>(null);
 	let dirty = $state(false);
 	let saving = $state(false);
@@ -44,15 +51,23 @@
 	}
 </script>
 
-<div class="settings-pane">
-	<header class="pane-header">
-		<h2>Настройки демона hrneo</h2>
-		{#if dirty}
+<div class="settings-layout settings-pane" class:embedded>
+	{#if !embedded}
+		<header class="pane-header">
+			<h2>Настройки демона hrneo</h2>
+			{#if dirty}
+				<Button variant="primary" size="sm" onclick={save} loading={saving}>
+					Сохранить
+				</Button>
+			{/if}
+		</header>
+	{:else if dirty}
+		<div class="save-bar">
 			<Button variant="primary" size="sm" onclick={save} loading={saving}>
 				Сохранить
 			</Button>
-		{/if}
-	</header>
+		</div>
+	{/if}
 
 	{#if err}<div class="error-banner">{err}</div>{/if}
 
@@ -60,9 +75,9 @@
 		<div class="empty">Загрузка…</div>
 	{:else}
 		<div class="settings-stack">
-			<div>
+			<div class="settings-block">
 				<div class="section-label">Поведение</div>
-				<div class="settings-panel">
+				<div class="block-body" class:card={!embedded}>
 					<div class="setting-row setting-row-toggle">
 						<div class="flex flex-col gap-1">
 							<span class="font-medium">Auto-start</span>
@@ -100,9 +115,9 @@
 				</div>
 			</div>
 
-			<div>
+			<div class="settings-block">
 				<div class="section-label">Ipset</div>
-				<div class="settings-panel">
+				<div class="block-body" class:card={!embedded}>
 					<div class="setting-row setting-row-toggle">
 						<div class="flex flex-col gap-1">
 							<span class="font-medium">Enable timeout</span>
@@ -143,9 +158,9 @@
 				</div>
 			</div>
 
-			<div>
+			<div class="settings-block">
 				<div class="section-label">Логирование</div>
-				<div class="settings-panel">
+				<div class="block-body" class:card={!embedded}>
 					<div class="setting-row">
 						<div class="flex flex-col gap-1">
 							<span class="font-medium">Log mode</span>
@@ -180,12 +195,12 @@
 				</div>
 			</div>
 
-			<div>
-				<button class="disclosure" onclick={() => (advancedOpen = !advancedOpen)}>
+			<div class="settings-block">
+				<button type="button" class="disclosure" onclick={() => (advancedOpen = !advancedOpen)}>
 					{advancedOpen ? '▾' : '▸'} Расширенные (требуют перезапуск hrneo)
 				</button>
 				{#if advancedOpen}
-					<div class="settings-panel">
+					<div class="block-body" class:card={!embedded}>
 						<div class="setting-row setting-row-toggle">
 							<div class="flex flex-col gap-1">
 								<span class="font-medium">DirectRoute enabled</span>
@@ -205,9 +220,23 @@
 
 <style>
 	.settings-pane {
+		min-width: 0;
+	}
+
+	.settings-pane.embedded {
+		gap: var(--settings-gap);
+	}
+
+	.save-bar {
 		display: flex;
-		flex-direction: column;
-		gap: 14px;
+		justify-content: flex-end;
+	}
+
+	.settings-pane.embedded .block-body {
+		padding: 0.875rem 1rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--color-bg-tertiary);
 	}
 
 	.log-select {
@@ -248,6 +277,30 @@
 
 	.num {
 		width: 140px;
+		max-width: 276px;
+		height: 32px;
+		min-height: 32px;
+		box-sizing: border-box;
+		padding: 0.375rem 0.5rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		color: var(--text-primary);
+		font: inherit;
+		font-size: 0.8125rem;
+	}
+
+	.form-input:not(.num) {
+		width: 100%;
+		max-width: 276px;
+		height: 32px;
+		min-height: 32px;
+		box-sizing: border-box;
+		padding: 0.375rem 0.5rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		color: var(--text-primary);
+		font: inherit;
+		font-size: 0.8125rem;
 	}
 
 	.disclosure {
@@ -257,8 +310,10 @@
 		font-size: 0.8125rem;
 		font-weight: 500;
 		cursor: pointer;
-		padding: 4px 0;
+		padding: 0;
+		margin-bottom: 0.5rem;
 		font-family: inherit;
+		text-align: left;
 	}
 
 	@media (max-width: 640px) {
@@ -281,9 +336,10 @@
 		.log-select {
 			width: 100%;
 			min-width: 0;
+			max-width: none;
 		}
 
-		.setting-row input {
+		.form-input:not(.num) {
 			max-width: none;
 		}
 	}

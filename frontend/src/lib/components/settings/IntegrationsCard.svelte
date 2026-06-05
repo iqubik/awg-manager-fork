@@ -115,9 +115,9 @@
 </script>
 
 {#if showSingbox || showHydra}
-	<div class="card">
+	<div class="settings-block">
 		<div class="section-label">Интеграции</div>
-
+		<div class="card">
 		{#if showSingbox}
 			<div class="setting-row">
 				<div class="integration-item">
@@ -257,6 +257,7 @@
 				{/if}
 			</div>
 		{/if}
+		</div>
 	</div>
 {/if}
 
@@ -330,7 +331,7 @@
 	.error-pre {
 		margin: 0;
 		padding: 0.75rem;
-		background: var(--color-bg-tertiary);
+		background: var(--color-settings-control-bg);
 		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
 		font-size: 0.75rem;
@@ -414,7 +415,7 @@
 	.progress-bar {
 		position: relative;
 		height: 6px;
-		background: var(--color-bg-tertiary, rgba(0, 0, 0, 0.08));
+		background: var(--color-settings-control-bg, rgba(0, 0, 0, 0.08));
 		border-radius: 3px;
 		overflow: hidden;
 	}

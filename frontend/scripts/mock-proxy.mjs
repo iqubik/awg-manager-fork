@@ -1858,8 +1858,17 @@ const mockAccessPolicies = [
 		interfaces: [{ name: 'DE vless-tcp-reality', label: 'DE', order: 0 }],
 		deviceCount: 0,
 	},
-	
-	{ name: 'HRNeo', description: '', isStandard: false, standalone: false, interfaces: [], deviceCount: 2 },
+	{
+		name: 'HydraRoute',
+		description: '',
+		isStandard: false,
+		standalone: false,
+		interfaces: [
+			mockPolicyInterfaceRef('awg-demo-1', 0),
+			mockPolicyInterfaceRef('awg-demo-2', 1),
+		],
+		deviceCount: 2,
+	},
 	// Icon gallery — one mock per distinct icon (Policy0–2 + HydraRoute + extended set)
 	{ name: 'Policy3', description: 'guest', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
 	{ name: 'Policy4', description: 'singbox', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },

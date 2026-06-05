@@ -118,7 +118,7 @@
 	});
 </script>
 
-<div class="card sysinfo-heading-card">
+<div class="settings-block sysinfo-block">
 	<div class="head-row">
 		<button
 			type="button"
@@ -148,6 +148,7 @@
 						{updatedLabel}
 					</span>
 				{/if}
+				<!-- TODO: вернуть кнопку обновления
 				<button
 					type="button"
 					class="refresh-btn"
@@ -162,10 +163,12 @@
 						<path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
 					</svg>
 				</button>
+				-->
 			</div>
 		{/if}
 	</div>
 
+	<div class="card sysinfo-heading-card" class:card-collapsed={collapsed}>
 	<div class="collapsible-body" class:body-hidden={collapsed}>
 	<div class="setting-row">
 		<span class="info-key">AWGM</span>
@@ -271,22 +274,15 @@
 		</details>
 	{/if}
 	</div>
+	</div>
 </div>
 
 <style>
-	.head-row {
+	.sysinfo-block > .head-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-	}
-
-	.sysinfo-heading-card {
-		padding-top: 0.5rem;
-		padding-bottom: 0.75rem;
-	}
-
-	.section-label {
-		margin-bottom: 0;
+		margin-bottom: 0.5rem;
 	}
 
 	.section-collapse-btn {
@@ -358,6 +354,10 @@
 			opacity: 0;
 			pointer-events: none;
 		}
+
+		.sysinfo-heading-card.card-collapsed {
+			display: none;
+		}
 	}
 
 	.collapsible-body > .setting-row {
@@ -365,12 +365,6 @@
 		grid-template-columns: minmax(0, 1fr) auto;
 		align-items: center;
 		column-gap: 0.75rem;
-	}
-
-	.collapsible-body > .setting-row:first-child {
-		margin-top: 0.65rem;
-		border-top: 1px solid var(--color-border);
-		padding-top: 0.75rem;
 	}
 
 	.collapsible-body > .setting-row .info-val {

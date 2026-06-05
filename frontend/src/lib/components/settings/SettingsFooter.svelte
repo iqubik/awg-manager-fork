@@ -254,7 +254,7 @@
 		font-size: 0.75rem;
 		font-family: var(--font-mono);
 		color: var(--color-text-muted);
-		background: var(--color-bg-primary);
+		background: var(--color-settings-control-bg);
 		padding: 0.125rem 0.5rem;
 		border-radius: 10px;
 		border: 1px solid var(--color-border);

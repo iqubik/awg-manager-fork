@@ -84,11 +84,15 @@
   --color-warning: #e0af68;
   --color-info: #7dcfff;
 
-  /* Surfaces — 4-step ramp */
+  /* Surfaces — Tokyo Night ramp: editor → sidebar/inset → highlight */
   --color-bg-primary: #1a1b26;
   --color-bg-secondary: #16161e;
   --color-bg-tertiary: #24283b;
   --color-bg-hover: #292e42;
+  /** Settings cards/panels — inset (secondary); controls — highlight (tertiary) */
+  --color-settings-surface-bg: var(--color-bg-secondary);
+  /** Settings controls — highlight layer; light theme uses darker inset (tertiary) */
+  --color-settings-control-bg: var(--color-bg-tertiary);
   /** Icon tile on route cards — contrasts with --color-bg-secondary card surface */
   --color-icon-tile-bg: var(--color-bg-tertiary);
 
@@ -182,6 +186,8 @@ html.light, [data-theme="light"] {
   --color-bg-secondary: #f0f0f3;
   --color-bg-tertiary: #d5d6db;
   --color-bg-hover: #cacbd2;
+  --color-settings-surface-bg: var(--color-bg-secondary);
+  --color-settings-control-bg: var(--color-bg-tertiary);
 
   --color-text-primary: #343b58;
   --color-text-secondary: #434754;
@@ -710,6 +716,79 @@ label {
 	margin-bottom: 0.5rem;
 }
 
+.settings-block {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.settings-block > .section-label,
+.settings-block > .head-row .section-label {
+	font-size: 0.8125rem;
+	line-height: 1.25;
+}
+
+.settings-block > .section-label {
+	margin-bottom: 0.5rem;
+}
+
+.settings-block > .head-row .section-label {
+	margin-bottom: 0;
+}
+
+.settings-block > .card,
+.card.settings-surface {
+	background: var(--color-settings-surface-bg);
+}
+
+.settings-layout {
+	--settings-gap: 0.765rem;
+	display: flex;
+	flex-direction: column;
+	gap: var(--settings-gap);
+}
+
+.settings-layout .settings-stack {
+	display: flex;
+	flex-direction: column;
+	gap: var(--settings-gap);
+}
+
+/* Settings — controls on inset cards use highlight layer */
+.settings-layout :global(.btn.variant-secondary) {
+	background: var(--color-settings-control-bg);
+}
+
+.settings-layout :global(.btn.variant-secondary:hover:not(:disabled):not(.is-disabled)) {
+	background: var(--color-bg-hover);
+}
+
+.settings-layout :global(.toggle-container .toggle-slider) {
+	background: var(--color-settings-control-bg);
+}
+
+.settings-layout :global(.toggle-container:hover input:not(:checked) ~ .toggle-slider) {
+	background: var(--color-bg-hover);
+}
+
+.settings-layout :global(.segmented-control) {
+	background: var(--color-settings-control-bg);
+}
+
+.settings-layout :global(.dropdown .trigger) {
+	background: var(--color-settings-control-bg);
+}
+
+.settings-layout :global(.btn.variant-outline-primary) {
+	background: var(--color-settings-control-bg);
+}
+
+.settings-layout :global(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color'])),
+.settings-layout :global(textarea),
+.settings-layout :global(select) {
+	background: var(--color-settings-control-bg);
+}
+
 .settings-stack {
 	display: flex;
 	flex-direction: column;
@@ -775,7 +854,7 @@ label {
 
 .settings-panel {
 	padding: 1rem;
-	background: var(--bg-tertiary);
+	background: var(--color-settings-surface-bg);
 	border-radius: 8px;
 }
 
