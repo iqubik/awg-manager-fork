@@ -278,6 +278,9 @@
     .overflow-tabs {
         position: relative;
         z-index: 41;
+        max-width: 100%;
+        min-width: 0;
+        overflow: visible;
         margin-bottom: 1rem;
     }
 
@@ -286,14 +289,18 @@
     }
 
     .measure-row {
-        display: flex;
+        display: inline-flex;
         visibility: hidden;
-        position: absolute;
+        position: fixed;
         top: 0;
         left: 0;
+        width: max-content;
+        max-width: none;
         pointer-events: none;
-        height: 0;
-        overflow: hidden;
+        height: auto;
+        overflow: visible;
+        contain: layout style;
+        transform: translateX(-100000px);
     }
 
     .tab-separator {
@@ -308,6 +315,8 @@
     .tab-row {
         display: flex;
         align-items: stretch;
+        min-width: 0;
+        max-width: 100%;
         border-bottom: 1px solid var(--border);
     }
 
@@ -385,6 +394,7 @@
         display: flex;
         align-items: stretch;
         margin-left: auto;
+        overflow: visible;
     }
 
     .more-chip {
