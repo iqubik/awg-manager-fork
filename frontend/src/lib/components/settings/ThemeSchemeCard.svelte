@@ -310,7 +310,10 @@
 	}
 
 	.collapsible-body {
-		margin-top: 0.75rem;
+		border-top: 1px solid var(--color-border);
+		padding-top: 0.875rem;
+		padding-bottom: 0.875rem;
+		border-bottom: 1px solid var(--color-border);
 	}
 
 	.theme-grid {
@@ -494,8 +497,6 @@
 
 	.detail-block {
 		margin-top: 0.9rem;
-		padding-top: 0.9rem;
-		border-top: 1px solid var(--color-border);
 	}
 
 	.detail-title {

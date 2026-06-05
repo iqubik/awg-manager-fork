@@ -46,7 +46,7 @@
 			</div>
 			<div class="footer-links-line">
 				<a href="/terms">Пользовательское соглашение</a>
-				<span class="footer-sep">·</span>
+				<span class="footer-sep" aria-hidden="true">·</span>
 				<a
 					class="github-link"
 					href="https://github.com/hoaxisr/awg-manager"
@@ -57,7 +57,7 @@
 				>
 					GitHub
 				</a>
-				<span class="footer-sep">·</span>
+				<span class="footer-sep" aria-hidden="true">·</span>
 				<a
 					href={genericIssueUrl}
 					target="_blank"
@@ -68,7 +68,7 @@
 					Сообщить о проблеме
 				</a>
 				{#if isExpert}
-					<span class="footer-sep">·</span>
+					<span class="footer-sep" aria-hidden="true">·</span>
 					<a href="/api-docs">Swagger UI</a>
 				{/if}
 			</div>
@@ -144,8 +144,13 @@
 
 	.footer-links-line {
 		display: flex;
-		flex-wrap: wrap;
-		row-gap: 0.125rem;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.125rem;
+	}
+
+	.footer-sep {
+		display: none;
 	}
 
 	.footer-link-group a {
@@ -157,9 +162,19 @@
 		text-decoration: underline;
 	}
 
-	.footer-sep {
-		margin: 0 0.375rem;
-		opacity: 0.4;
+	@media (min-width: 700px) {
+		.footer-links-line {
+			flex-flow: row wrap;
+			align-items: center;
+			gap: 0;
+			row-gap: 0.125rem;
+		}
+
+		.footer-sep {
+			display: inline;
+			margin: 0 0.375rem;
+			opacity: 0.4;
+		}
 	}
 
 	.footer-collapse {
@@ -206,10 +221,6 @@
 		.footer-doc-line,
 		.footer-links-line {
 			line-height: 1.45;
-		}
-
-		.footer-links-line {
-			row-gap: 0.2rem;
 		}
 
 		.footer-collapse-full {

@@ -203,18 +203,15 @@
 		align-items: center;
 		gap: 0.75rem;
 		flex-shrink: 0;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		justify-content: flex-end;
 	}
 
-	.hours-select {
-		width: 180px;
-		min-width: 180px;
-	}
-
+	.hours-select,
 	.num-input {
 		width: 180px;
 		min-width: 180px;
+		flex-shrink: 0;
 	}
 
 	.logging-main-row .hours-select {
@@ -222,8 +219,27 @@
 		min-width: 132px;
 	}
 
+	.hours-select :global(.field),
+	.hours-select :global(.control) {
+		width: 100%;
+	}
+
+	.hours-select :global(.trigger) {
+		height: 32px;
+		min-height: 32px;
+		max-height: 32px;
+		box-sizing: border-box;
+		padding-block: 0;
+		display: flex;
+		align-items: center;
+	}
+
 	.num-input input {
 		width: 100%;
+		height: 32px;
+		min-height: 32px;
+		max-height: 32px;
+		box-sizing: border-box;
 		background: var(--color-bg-primary);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius);
@@ -234,24 +250,31 @@
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 	}
+
 	.num-input input:focus {
 		outline: none;
 		border-color: var(--color-accent);
 	}
+
 	.num-input input:disabled {
 		opacity: 0.6;
 	}
 
-	.logging-main-row {
-		align-items: start;
-	}
-
+	.logging-main-row,
+	.logging-level-row,
 	.logging-buffer-row {
-		align-items: start;
+		display: grid;
+		align-items: center;
+		gap: 1rem;
 	}
 
-	.logging-level-row {
-		align-items: start;
+	.logging-main-row {
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+
+	.logging-level-row,
+	.logging-buffer-row {
+		grid-template-columns: minmax(0, 1fr) 180px;
 	}
 
 	.logging-main-row > :global(.flex.flex-col),
@@ -260,22 +283,11 @@
 		min-width: 0;
 	}
 
-	@media (max-width: 900px) {
-		.logging-main-row {
-			display: grid;
-			grid-template-columns: minmax(0, 1fr) auto;
-			align-items: start;
-			gap: 0.75rem;
-			flex-wrap: nowrap;
-		}
-
-		.setting-controls {
-			flex-wrap: nowrap;
-		}
-
+	@media (max-width: 640px) {
+		.logging-main-row,
 		.logging-level-row,
 		.logging-buffer-row {
-			flex-direction: column;
+			grid-template-columns: minmax(0, 1fr);
 			align-items: stretch;
 			gap: 0.5rem;
 		}
@@ -284,18 +296,6 @@
 		.num-input {
 			width: 100%;
 			min-width: 0;
-		}
-
-		.num-input input {
-			width: 100%;
-			max-width: 100%;
-			display: block;
-		}
-	}
-
-	@media (max-width: 640px) {
-		.logging-main-row {
-			grid-template-columns: minmax(0, 1fr);
 		}
 
 		.setting-controls {

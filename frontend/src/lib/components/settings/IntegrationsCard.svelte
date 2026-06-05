@@ -366,7 +366,16 @@
 		flex-direction: column;
 		gap: 0.35rem;
 		min-width: 0;
-		justify-self: stretch;
+		grid-column: 1 / -1;
+	}
+
+	/* Same action-button floor as settings actions-card (fits «Обновление…»). */
+	@media (min-width: 641px) {
+		.setting-row > :global(.btn) {
+			justify-self: end;
+			align-self: center;
+			min-width: 7.5rem;
+		}
 	}
 
 	@media (min-width: 901px) {
@@ -374,13 +383,6 @@
 			grid-template-columns: minmax(0, 1fr) auto;
 			align-items: start;
 			gap: 0.75rem;
-		}
-
-		.setting-row > :global(.btn) {
-			justify-self: end;
-			align-self: center;
-			white-space: nowrap;
-			min-width: 5rem;
 		}
 
 		.integration-item {
@@ -421,10 +423,7 @@
 			.setting-row > :global(.btn) {
 				justify-self: end;
 				align-self: center;
-			}
-
-			.progress-widget {
-				grid-column: 1 / -1;
+				min-width: 7.5rem;
 			}
 		}
 	}

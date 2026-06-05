@@ -1129,7 +1129,7 @@ $effect(() => {
 	.api-key-controls {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: center;
+		align-items: stretch;
 		gap: 0.5rem;
 		width: 100%;
 		min-width: 0;
@@ -1206,6 +1206,10 @@ $effect(() => {
 	.api-key-input {
 		width: 100%;
 		max-width: none;
+		height: 32px;
+		min-height: 32px;
+		max-height: 32px;
+		box-sizing: border-box;
 		padding: 0.375rem 0.5rem;
 		font-family: var(--font-mono, ui-monospace, monospace);
 		font-size: 0.8rem;
@@ -1220,15 +1224,24 @@ $effect(() => {
 		cursor: text;
 	}
 	.api-key-action {
-		align-self: auto;
+		display: flex;
+		align-items: stretch;
 		white-space: nowrap;
+	}
+
+	.api-key-action :global(.btn) {
+		height: 32px;
+		min-height: 32px;
+		max-height: 32px;
+		box-sizing: border-box;
+		padding-block: 0;
 	}
 
 	.api-key-setting {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(0, min(50%, 34rem));
 		gap: 1rem;
-		align-items: start;
+		align-items: center;
 	}
 	.api-key-setting > *:first-child {
 		min-width: 0;
@@ -1272,7 +1285,7 @@ $effect(() => {
 
 		.api-key-setting {
 			grid-template-columns: minmax(0, 1fr) minmax(0, min(50%, 34rem));
-			align-items: start;
+			align-items: center;
 		}
 
 		.api-key-setting > *:first-child {
@@ -1301,6 +1314,9 @@ $effect(() => {
 		.api-key-action :global(.btn) {
 			width: auto;
 			min-width: 7.5rem;
+			height: 32px;
+			min-height: 32px;
+			max-height: 32px;
 		}
 	}
 

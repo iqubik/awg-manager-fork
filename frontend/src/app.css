@@ -756,6 +756,16 @@ label {
 	border-top: 1px solid var(--border);
 }
 
+/* Highlight wrapper (e.g. deep-link to downloads) breaks adjacent .setting-row chain */
+.setting-row + .settings-highlight-target > .setting-row {
+	border-top: 1px solid var(--border);
+	padding-top: 0.875rem;
+}
+
+.settings-highlight-target + .setting-row {
+	border-top: 1px solid var(--border);
+}
+
 .setting-description {
 	overflow-wrap: break-word;
 	font-size: 0.8125rem;
