@@ -177,7 +177,7 @@
 			}))}
 			<div class="generate-row signature-generate-row">
 				<div class="protocol-select">
-					<Dropdown id="signature-protocol-dropdown" bind:value={selectedProtocol} options={protocolOpts} fullWidth />
+					<Dropdown bind:value={selectedProtocol} options={protocolOpts} fullWidth multilineDescription />
 				</div>
 				<div class="generate-action">
 					<Button variant="primary" size="sm" onclick={handleGenerate}>
@@ -196,7 +196,7 @@
 					onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCapture(); } }}
 				/>
 				<Button
-					variant="secondary"
+					variant="primary"
 					size="sm"
 					onclick={handleCapture}
 					disabled={capturing || !domainInput.trim()}
@@ -370,41 +370,6 @@
 
 	.protocol-select {
 		width: 100%;
-	}
-
-	:global(#signature-protocol-dropdown-listbox.dropdown-panel) {
-		min-width: min(280px, calc(100vw - 32px));
-		max-width: calc(100vw - 32px);
-	}
-
-	:global(#signature-protocol-dropdown-listbox.dropdown-panel .option),
-	:global(#signature-protocol-dropdown-listbox.dropdown-panel [role='option']) {
-		height: auto;
-		min-height: 44px;
-		align-items: flex-start;
-	}
-
-	:global(#signature-protocol-dropdown-listbox.dropdown-panel .option-text) {
-		min-width: 0;
-	}
-
-	:global(#signature-protocol-dropdown-listbox.dropdown-panel .option-desc) {
-		white-space: normal;
-		overflow: visible;
-		text-overflow: clip;
-		display: block;
-		line-height: 1.25;
-		max-width: 100%;
-	}
-
-	:global(#signature-protocol-dropdown-listbox.dropdown-panel .option-check) {
-		flex-shrink: 0;
-	}
-
-	:global(#signature-protocol-dropdown-listbox.dropdown-panel .option-label) {
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
 	}
 
 	.size-indicator {

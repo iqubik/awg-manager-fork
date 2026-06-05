@@ -66,7 +66,7 @@
                 type="checkbox"
                 checked={checked}
                 {disabled}
-                aria-label={ariaLabel}
+                aria-label={ariaLabel ?? (ariaLabelledby ? undefined : label || undefined)}
                 aria-labelledby={ariaLabelledby}
                 oninput={handleInput}
             />
@@ -103,7 +103,7 @@
             type="checkbox"
             checked={checked}
             {disabled}
-            aria-label={ariaLabel}
+            aria-label={ariaLabel ?? (ariaLabelledby ? undefined : label || undefined)}
             aria-labelledby={ariaLabelledby}
             oninput={handleInput}
         />
