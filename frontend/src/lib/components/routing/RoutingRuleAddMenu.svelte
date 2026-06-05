@@ -6,9 +6,10 @@
     interface Props {
         label?: string;
         disabled?: boolean;
-        oncatalog: () => void;
+        oncatalog?: () => void;
         onmanual: () => void;
         importEnabled?: boolean;
+        importLabel?: string;
         onimport?: () => void;
     }
 
@@ -18,6 +19,7 @@
         oncatalog,
         onmanual,
         importEnabled = false,
+        importLabel = 'Загрузить конфигурацию',
         onimport,
     }: Props = $props();
 
@@ -55,28 +57,30 @@
     </Button>
     {#if menuOpen}
         <div class="dropdown-menu">
-            <button
-                type="button"
-                class="dropdown-item"
-                onclick={() => {
-                    menuOpen = false;
-                    oncatalog();
-                }}
-            >
-                <svg
-                    class="dropdown-icon"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
+            {#if oncatalog}
+                <button
+                    type="button"
+                    class="dropdown-item"
+                    onclick={() => {
+                        menuOpen = false;
+                        oncatalog();
+                    }}
                 >
-                    <rect x="3" y="3" width="7" height="7" />
-                    <rect x="14" y="3" width="7" height="7" />
-                    <rect x="3" y="14" width="7" height="7" />
-                    <rect x="14" y="14" width="7" height="7" />
-                </svg>
-                Из каталога
-            </button>
+                    <svg
+                        class="dropdown-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <rect x="3" y="3" width="7" height="7" />
+                        <rect x="14" y="3" width="7" height="7" />
+                        <rect x="3" y="14" width="7" height="7" />
+                        <rect x="14" y="14" width="7" height="7" />
+                    </svg>
+                    Из каталога
+                </button>
+            {/if}
             <button
                 type="button"
                 class="dropdown-item"
@@ -118,7 +122,7 @@
                         <polyline points="17 8 12 3 7 8" />
                         <line x1="12" y1="3" x2="12" y2="15" />
                     </svg>
-                    Загрузить конфигурацию
+                    {importLabel}
                 </button>
             {/if}
         </div>
@@ -181,5 +185,17 @@
         height: 1px;
         background: var(--border);
         margin: 4px 8px;
+    }
+
+    @media (max-width: 640px) {
+        .dropdown-wrapper {
+            display: block;
+            width: 100%;
+        }
+
+        .dropdown-wrapper :global(.btn) {
+            width: 100%;
+            justify-content: center;
+        }
     }
 </style>

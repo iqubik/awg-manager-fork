@@ -6,6 +6,7 @@
     import { notifications } from '$lib/stores/notifications';
     import { clientRoutesStore } from '$lib/stores/routing';
     import RoutingTabBodySkeleton from './RoutingTabBodySkeleton.svelte';
+    import RoutingCreateButton from '$lib/components/routing/RoutingCreateButton.svelte';
     import { ERROR_WORDS, pluralForm, pluralize, RULE_WORDS } from '$lib/utils/pluralize';
 
     interface Props {
@@ -167,7 +168,13 @@
             {#if clientRoutes.length > 0}
                 <Button variant="ghost" size="sm" disabled={bodyLoading} onclick={() => { clientSelectionMode = true; clientSelected = new Set(); }}>Выбрать</Button>
             {/if}
-            <Button variant="primary" size="sm" disabled={bodyLoading} onclick={() => { editingClientRoute = null; clientRouteModalOpen = true; }}>+ Создать</Button>
+            <RoutingCreateButton
+                disabled={bodyLoading}
+                onclick={() => {
+                    editingClientRoute = null;
+                    clientRouteModalOpen = true;
+                }}
+            />
         </div>
     {:else}
         <div class="bulk-bar">

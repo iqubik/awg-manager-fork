@@ -9,6 +9,7 @@
     import { notifications } from '$lib/stores/notifications';
     import { staticRoutesStore } from '$lib/stores/routing';
     import RoutingTabBodySkeleton from './RoutingTabBodySkeleton.svelte';
+    import RoutingRuleAddMenu from '$lib/components/routing/RoutingRuleAddMenu.svelte';
     import { ERROR_WORDS, pluralForm, pluralize, ROUTE_WORDS, RULE_WORDS } from '$lib/utils/pluralize';
 
     interface Props {
@@ -226,11 +227,19 @@
         </span>
         <div class="section-buttons">
             <StoreStatusBadge store={staticRoutesStore} />
-            <Button variant="ghost" size="sm" disabled={bodyLoading} onclick={() => ipImportOpen = true}>Загрузить набор правил</Button>
             {#if ipRoutes.length > 0}
                 <Button variant="ghost" size="sm" disabled={bodyLoading} onclick={() => { ipSelectionMode = true; ipSelected = new Set(); }}>Выбрать</Button>
             {/if}
-            <Button variant="primary" size="sm" disabled={bodyLoading} onclick={() => { editingIpRoute = null; ipCreateOpen = true; }}>+ Новое правило</Button>
+            <RoutingRuleAddMenu
+                disabled={bodyLoading}
+                onmanual={() => {
+                    editingIpRoute = null;
+                    ipCreateOpen = true;
+                }}
+                importEnabled
+                importLabel="Загрузить набор правил"
+                onimport={() => (ipImportOpen = true)}
+            />
         </div>
     {:else}
         <div class="bulk-bar">

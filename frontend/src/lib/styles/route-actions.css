@@ -83,9 +83,12 @@
 	color: var(--text-secondary);
 	display: flex;
 	align-items: center;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	gap: 4px;
 	line-height: 1;
+	min-width: 0;
+	width: 100%;
+	max-width: 100%;
 }
 
 .dns-card .card-route,

@@ -1,8 +1,6 @@
 <script lang="ts" module>
-	import type { SidebarSelection } from './HrNeoTargetSidebar.svelte';
-
 	/** Survives tab unmount on /routing so sidebar target/service selection is restored. */
-	let persistedSelection: SidebarSelection = null;
+	let persistedSelection: import('./HrNeoTargetSidebar.svelte').SidebarSelection = null;
 </script>
 
 <script lang="ts">
@@ -281,9 +279,10 @@
 
 	// Drop a stale persisted target (policy or interface) if it vanished.
 	$effect(() => {
-		if (selection?.type !== 'target') return;
+		const sel = selection;
+		if (!sel || sel.type !== 'target') return;
 		if (!hrNeoDataReady) return;
-		if (targets.some((t) => t.name === selection.name)) return;
+		if (targets.some((t) => t.name === sel.name)) return;
 		selection = null;
 	});
 

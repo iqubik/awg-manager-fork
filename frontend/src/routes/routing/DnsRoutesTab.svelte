@@ -626,25 +626,5 @@
             flex-direction: column;
             align-items: center;
         }
-        .section-buttons {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 0.5rem;
-            width: 100%;
-        }
-
-        .section-buttons > :global([role='status']) {
-            grid-column: 1 / -1;
-        }
-
-        .section-buttons > :global(.dropdown-wrapper) {
-            width: 100%;
-        }
-
-        .section-buttons :global(.btn) {
-            width: 100%;
-            min-height: 28px;
-            justify-content: center;
-        }
     }
 </style>

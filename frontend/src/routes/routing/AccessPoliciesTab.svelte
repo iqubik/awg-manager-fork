@@ -2,6 +2,7 @@
     import { api } from '$lib/api/client';
     import type { AccessPolicy, PolicyDevice, PolicyGlobalInterface } from '$lib/types';
     import { ConfirmModal, StoreStatusBadge, Button } from '$lib/components/ui';
+    import RoutingCreateButton from '$lib/components/routing/RoutingCreateButton.svelte';
     import { PolicyTable, PolicyCreateModal, PolicyEditView } from '$lib/components/accesspolicy';
     import { notifications } from '$lib/stores/notifications';
     import { accessPoliciesStore, policyDevicesStore, policyInterfacesStore, invalidateAllRouting } from '$lib/stores/routing';
@@ -166,7 +167,7 @@
                 {#if accessPolicies.length > 0}
                     <Button variant="ghost" size="sm" onclick={() => { policySelectionMode = true; policySelected = new Set(); }}>Выбрать</Button>
                 {/if}
-                <Button variant="primary" size="sm" onclick={() => policyCreateOpen = true}>+ Создать</Button>
+                <RoutingCreateButton onclick={() => (policyCreateOpen = true)} />
             </div>
         {:else}
             <div class="bulk-bar">
@@ -273,22 +274,5 @@
         }
     }
 
-    @media (max-width: 640px) {
-        .section-buttons {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 0.5rem;
-            width: 100%;
-        }
 
-        .section-buttons > :global([role='status']) {
-            grid-column: 1 / -1;
-        }
-
-        .section-buttons :global(.btn) {
-            width: 100%;
-            min-height: 28px;
-            justify-content: center;
-        }
-    }
 </style>

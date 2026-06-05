@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ClientRoute } from '$lib/types';
-	import { Toggle, Badge } from '$lib/components/ui';
+	import { Toggle } from '$lib/components/ui';
+	import RoutingTargetBadges from '$lib/components/routing/RoutingTargetBadges.svelte';
 	import NdmsIconTile from '$lib/components/ui/NdmsIconTile.svelte';
 	import { DEFAULT_ICON_TILE_BG } from '$lib/utils/icon-tile-background';
 	import {
@@ -84,8 +85,7 @@
 			{/if}
 			<span class="card-stat">{route.fallback === 'drop' ? 'Fallback: блокировать' : 'Fallback: напрямую'}</span>
 			<div class="card-route">
-				<span class="route-arrow">&rarr;</span>
-				<Badge variant="muted" mono size="xs">{tunnelName}</Badge>
+				<RoutingTargetBadges labels={[tunnelName]} overflowNoun="туннелей" />
 			</div>
 		</div>
 	</div>

@@ -291,7 +291,7 @@
 
   const statCells: StatCellData[] = $derived([
     {
-      label: 'Движок sing-box',
+      label: 'Движок',
       value: engineStat.value,
       tone: engineStat.tone,
     },

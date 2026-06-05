@@ -60,12 +60,10 @@
 				<h3 lang="ru" title={rule.name}>{rule.name}</h3>
 				{#if broken}<span class="broken-badge">broken</span>{/if}
 			</div>
-			<div class="card-stats">
-				{#if counts.d > 0}<span class="card-stat">{counts.d} доменов</span>{/if}
-				{#if counts.s > 0}<span class="card-stat">{counts.s} CIDR</span>{/if}
-				{#if counts.gs > 0}<span class="card-stat geo">{counts.gs} geosite</span>{/if}
-				{#if counts.gi > 0}<span class="card-stat geo">{counts.gi} geoip</span>{/if}
-			</div>
+			{#if counts.d > 0}<span class="card-stat">{counts.d} доменов</span>{/if}
+			{#if counts.s > 0}<span class="card-stat">{counts.s} CIDR</span>{/if}
+			{#if counts.gs > 0}<span class="card-stat geo">{counts.gs} geosite</span>{/if}
+			{#if counts.gi > 0}<span class="card-stat geo">{counts.gi} geoip</span>{/if}
 		</div>
 	</div>
 	<div class="card-actions">
@@ -126,7 +124,7 @@
 	.card-info {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: 1px;
 		min-width: 0;
 		max-width: 100%;
 	}
@@ -182,14 +180,6 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		flex-shrink: 0;
-	}
-
-	.card-stats {
-		display: flex;
-		gap: 6px;
-		flex-wrap: wrap;
-		margin-top: 2px;
-		min-width: 0;
 	}
 
 	.card-stat {

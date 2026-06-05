@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { DnsRoute, RoutingTunnel } from '$lib/types';
 	import { Toggle, Badge } from '$lib/components/ui';
+	import RoutingTargetBadges from '$lib/components/routing/RoutingTargetBadges.svelte';
 	import { ServiceIcon } from '$lib/components/dnsroutes';
 
 	interface Props {
@@ -54,16 +55,13 @@
 		return '';
 	});
 
-	let routeTarget = $derived.by(() => {
-		const routes = route.routes ?? [];
-		if (routes.length === 0) return '';
-		const first = routes[0];
-		const tuns = tunnels ?? [];
-		if (tuns.length > 0) {
-			const found = tuns.find(t => t.id === first.tunnelId);
+	let routeTargets = $derived.by(() => {
+		const tuns = tunnels;
+		return (route.routes ?? []).map((target) => {
+			const found = tuns.find((t) => t.id === target.tunnelId);
 			if (found) return found.name;
-		}
-		return first.interface || first.tunnelId;
+			return target.interface || target.tunnelId;
+		});
 	});
 
 	// Orphan = list whose bindings all pointed to a tunnel that got
@@ -130,10 +128,9 @@
 					{dedupReport?.totalRemoved} убрано
 				</span>
 			{/if}
-			{#if routeTarget}
+			{#if routeTargets.length > 0}
 				<div class="card-route">
-					<span class="route-arrow">&rarr;</span>
-					<Badge variant="muted" mono size="xs">{routeTarget}</Badge>
+					<RoutingTargetBadges labels={routeTargets} overflowNoun="туннелей" />
 				</div>
 			{:else if isOrphan}
 				<div class="card-route">

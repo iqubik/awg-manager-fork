@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { StaticRouteList, RoutingTunnel } from '$lib/types';
 	import { Toggle, Badge } from '$lib/components/ui';
+	import RoutingTargetBadges from '$lib/components/routing/RoutingTargetBadges.svelte';
 	import { ServiceIcon } from '$lib/components/dnsroutes';
 	import { parseSubnetComment } from '$lib/utils/cidr';
 
@@ -107,8 +108,7 @@
 			{/if}
 			{#if routeTarget}
 				<div class="card-route">
-					<span class="route-arrow">&rarr;</span>
-					<Badge variant="muted" mono size="xs">{routeTarget}</Badge>
+					<RoutingTargetBadges labels={[routeTarget]} overflowNoun="туннелей" />
 					{#if route.fallback === 'reject'}
 						<Badge variant="error" uppercase size="xs">Kill Switch</Badge>
 					{/if}
