@@ -1769,7 +1769,7 @@
 		}
 
 		.analyzer-note strong {
-			display: none;
+			display: inline;
 		}
 
 		.existing-tunnel-head {

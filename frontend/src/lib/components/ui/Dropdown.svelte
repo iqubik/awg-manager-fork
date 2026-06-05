@@ -26,6 +26,7 @@
     name?: string;
     id?: string;
     fullWidth?: boolean;
+    multilineDescription?: boolean;
     onchange?: (v: T) => void;
   }
 
@@ -41,6 +42,7 @@
     name,
     id,
     fullWidth = false,
+    multilineDescription = false,
     onchange,
   }: Props = $props();
 
@@ -292,6 +294,7 @@
         role="listbox"
         class="dropdown-panel"
         class:menu-up={menuUp}
+        class:multiline-description={multilineDescription}
         tabindex="-1"
         aria-label={label ?? placeholder}
         style="top: {panelTop}px; left: {panelLeft}px; width: {panelWidth}px;"
@@ -533,6 +536,40 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  :global(.dropdown-panel.multiline-description) {
+    min-width: min(280px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
+  }
+
+  :global(.dropdown-panel.multiline-description .option) {
+    height: auto;
+    min-height: 44px;
+    align-items: flex-start;
+  }
+
+  :global(.dropdown-panel.multiline-description .option-text) {
+    min-width: 0;
+  }
+
+  :global(.dropdown-panel.multiline-description .option-desc) {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    display: block;
+    line-height: 1.25;
+    max-width: 100%;
+  }
+
+  :global(.dropdown-panel.multiline-description .option-check) {
+    flex-shrink: 0;
+  }
+
+  :global(.dropdown-panel.multiline-description .option-label) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   :global(.dropdown-panel .option-check) {
