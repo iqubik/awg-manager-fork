@@ -1012,7 +1012,18 @@ label {
 }
 
 @media (max-width: 640px) {
+	.import-upload {
+		gap: 0.75rem;
+	}
+
+	.import-description {
+		width: 100%;
+		text-align: center;
+		line-height: 1.45;
+	}
+
 	.import-upload .drop-zone {
+		box-sizing: border-box;
 		flex-direction: column;
 		text-align: center;
 	}

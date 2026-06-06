@@ -3,6 +3,7 @@
 	import { api } from '$lib/api/client';
 	import { copyToClipboard } from '$lib/utils/clipboard';
 	import { downloadSingboxConfigText } from '$lib/utils/singboxConfigExport';
+	import { highlightJson } from '$lib/utils/shareEditorHighlight';
 	import { notifications } from '$lib/stores/notifications';
 
 	interface Props {
@@ -17,6 +18,7 @@
 	let error = $state<string | null>(null);
 	let copied = $state(false);
 	let lastLoadedFor = $state(false);
+	let highlightedJson = $derived(highlightJson(json));
 
 	async function load() {
 		loading = true;
@@ -81,12 +83,30 @@
 				{copied ? 'Скопировано' : 'Копировать'}
 			</Button>
 			<Button
-				variant="secondary"
+				variant="primary"
 				size="sm"
 				onclick={onExport}
 				disabled={loading || !json}
 			>
-				Экспорт
+				<span class="export-btn-content">
+					<svg
+						class="export-btn-icon"
+						width="14"
+						height="14"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<path d="M5 4h11l3 3v13H5z" />
+						<path d="M8 4v6h8V4" />
+						<path d="M9 18h6" />
+					</svg>
+					<span>Экспорт</span>
+				</span>
 			</Button>
 		</div>
 
@@ -99,7 +119,7 @@
 					<div class="error-message">{error}</div>
 				</div>
 			{:else if json}
-				<pre class="json">{json}</pre>
+				<pre class="json json-highlighted"><code>{@html highlightedJson}</code></pre>
 			{:else}
 				<div class="placeholder">Конфиг пуст</div>
 			{/if}
@@ -119,6 +139,17 @@
 		display: flex;
 		gap: 0.5rem;
 		align-items: center;
+	}
+
+	.export-btn-content {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4375rem;
+	}
+
+	.export-btn-icon {
+		flex-shrink: 0;
 	}
 
 	@media (max-width: 640px) {
@@ -184,5 +215,30 @@
 		overflow: auto;
 		white-space: pre;
 		tab-size: 2;
+	}
+
+	.json-highlighted code {
+		display: block;
+		min-width: fit-content;
+	}
+
+	.json-highlighted :global(.hl-json-key) {
+		color: #93c5fd;
+	}
+
+	.json-highlighted :global(.hl-json-str) {
+		color: #86efac;
+	}
+
+	.json-highlighted :global(.hl-json-num) {
+		color: #fca5a5;
+	}
+
+	.json-highlighted :global(.hl-json-lit) {
+		color: #c4b5fd;
+	}
+
+	.json-highlighted :global(.hl-json-punct) {
+		color: var(--color-text-secondary);
 	}
 </style>

@@ -547,69 +547,71 @@
 			{#if isNDMS}
 				<div class="section-title">Маршрут (порядок = приоритет)</div>
 			{/if}
-			{#if routes.length === 0}
-				<p class="route-hint" class:route-hint-error={routeError}>Добавьте хотя бы один туннель для маршрутизации</p>
-			{/if}
-			{#if routes.length > 0}
-				<div class="route-list">
-					{#each routes as target, i (i)}
-						<div class="route-item">
-							<span class="route-index">{i + 1}.</span>
-							<span class="route-name">{tunnelName(target.tunnelId)}</span>
-							<span class="route-id" title={target.tunnelId}>{target.tunnelId}</span>
-							<div class="route-actions">
-								<button class="btn-move" onclick={() => moveRoute(i, -1)} disabled={i === 0} title="Вверх">&uarr;</button>
-								<button class="btn-move" onclick={() => moveRoute(i, 1)} disabled={i === routes.length - 1} title="Вниз">&darr;</button>
-								<button class="btn-remove" onclick={() => removeRoute(i)} title="Удалить">&times;</button>
+			<div class="route-panel">
+				{#if routes.length === 0}
+					<p class="route-hint" class:route-hint-error={routeError}>Добавьте хотя бы один туннель для маршрутизации</p>
+				{/if}
+				{#if routes.length > 0}
+					<div class="route-list">
+						{#each routes as target, i (i)}
+							<div class="route-item">
+								<span class="route-index">{i + 1}.</span>
+								<span class="route-name">{tunnelName(target.tunnelId)}</span>
+								<span class="route-id" title={target.tunnelId}>{target.tunnelId}</span>
+								<div class="route-actions">
+									<button class="btn-move" onclick={() => moveRoute(i, -1)} disabled={i === 0} title="Вверх">&uarr;</button>
+									<button class="btn-move" onclick={() => moveRoute(i, 1)} disabled={i === routes.length - 1} title="Вниз">&darr;</button>
+									<button class="btn-remove" onclick={() => removeRoute(i)} title="Удалить">&times;</button>
+								</div>
 							</div>
+						{/each}
+					</div>
+				{/if}
+				{#if availableTunnels.length > 0}
+					<div class="route-add">
+						<div class="route-add-select">
+							<Dropdown
+								value={newRouteTunnelId || availableTunnels[0]?.id || ''}
+								options={addRouteTunnelOpts}
+								onchange={(v) => (newRouteTunnelId = v)}
+								fullWidth
+							/>
 						</div>
-					{/each}
-				</div>
-			{/if}
-			{#if availableTunnels.length > 0}
-				<div class="route-add">
-					<div class="route-add-select">
-						<Dropdown
-							value={newRouteTunnelId || availableTunnels[0]?.id || ''}
-							options={addRouteTunnelOpts}
-							onchange={(v) => (newRouteTunnelId = v)}
-							fullWidth
-						/>
+						<Button variant="primary" size="sm" onclick={addRoute} iconBefore={createIcon}>
+							Добавить
+						</Button>
 					</div>
-					<Button variant="primary" size="sm" onclick={addRoute} iconBefore={createIcon}>
-						Добавить
-					</Button>
-				</div>
-			{/if}
+				{/if}
 
-			{#if isNDMS && routes.length > 0}
-				<div class="fallback-group">
-					<!-- svelte-ignore a11y_label_has_associated_control -->
-					<label class="field-label">Если все недоступны:</label>
-					<div class="fallback-options">
-						<label class="fallback-option">
-							<input
-								type="radio"
-								name="fallback"
-								value="auto"
-								checked={currentFallback === 'auto'}
-								onchange={() => handleFallbackChange('auto')}
-							/>
-							<span>провайдер</span>
-						</label>
-						<label class="fallback-option">
-							<input
-								type="radio"
-								name="fallback"
-								value="reject"
-								checked={currentFallback === 'reject'}
-								onchange={() => handleFallbackChange('reject')}
-							/>
-							<span>эксклюзивный</span>
-						</label>
+				{#if isNDMS && routes.length > 0}
+					<div class="fallback-group">
+						<!-- svelte-ignore a11y_label_has_associated_control -->
+						<label class="field-label">Если все недоступны:</label>
+						<div class="fallback-options">
+							<label class="fallback-option">
+								<input
+									type="radio"
+									name="fallback"
+									value="auto"
+									checked={currentFallback === 'auto'}
+									onchange={() => handleFallbackChange('auto')}
+								/>
+								<span>провайдер</span>
+							</label>
+							<label class="fallback-option">
+								<input
+									type="radio"
+									name="fallback"
+									value="reject"
+									checked={currentFallback === 'reject'}
+									onchange={() => handleFallbackChange('reject')}
+								/>
+								<span>эксклюзивный</span>
+							</label>
+						</div>
 					</div>
-				</div>
-			{/if}
+				{/if}
+			</div>
 
 			{#if isPolicyMode}
 				<div class="policy-name-row">
@@ -840,6 +842,10 @@ Ctrl+/ или Cmd+/ комментирует выбранные строки.</s
 		flex: 1;
 	}
 
+	.route-panel {
+		display: contents;
+	}
+
 	.excludes-textarea {
 		font-size: 0.8125rem;
 		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
@@ -899,6 +905,21 @@ Ctrl+/ или Cmd+/ комментирует выбранные строки.</s
 	}
 
 	@media (max-width: 480px) {
+		.route-panel {
+			display: flex;
+			flex-direction: column;
+			gap: 0.75rem;
+			margin-top: 0.125rem;
+			padding: 0.625rem 0.75rem 0.75rem;
+			border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
+			border-top: none;
+			border-radius: 10px;
+			border-top-left-radius: 0;
+			border-top-right-radius: 0;
+			background: color-mix(in srgb, var(--color-bg-secondary) 55%, transparent);
+			box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-border) 72%, transparent);
+		}
+
 		.fallback-options {
 			display: grid;
 			grid-template-columns: repeat(2, minmax(0, 1fr));

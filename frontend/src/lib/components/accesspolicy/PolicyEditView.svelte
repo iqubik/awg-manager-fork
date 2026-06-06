@@ -11,13 +11,12 @@
 		policy: AccessPolicy;
 		devices: PolicyDevice[];
 		globalInterfaces: PolicyGlobalInterface[];
-		onback: () => void;
 		onupdate: () => Promise<void>;
 		ondeviceassigned: (mac: string, policyName: string) => void;
 		ondeviceunassigned: (mac: string, fromPolicy: string) => void;
 	}
 
-	let { policy, devices, globalInterfaces, onback, onupdate, ondeviceassigned, ondeviceunassigned }: Props = $props();
+	let { policy, devices, globalInterfaces, onupdate, ondeviceassigned, ondeviceunassigned }: Props = $props();
 
 	let isHrPolicy = $derived(isHydraRouteAccessPolicy(policy));
 
@@ -130,14 +129,6 @@
 
 <div class="edit-layout">
 	<div class="left-panel">
-		<button class="back-btn" onclick={onback}>
-			<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<line x1="19" y1="12" x2="5" y2="12"/>
-				<polyline points="12 19 5 12 12 5"/>
-			</svg>
-			Назад к списку
-		</button>
-
 		{#if !isHrPolicy}
 			<div class="field-group">
 				<label class="field-label">Описание
@@ -279,9 +270,10 @@
 
 	@media (max-width: 768px) {
 		.edit-layout {
-			grid-template-columns: 1fr;
-			grid-template-rows: auto;
+			display: flex;
+			flex-direction: column;
 			height: auto;
+			min-height: 100%;
 			overflow: visible;
 		}
 
@@ -290,11 +282,13 @@
 			border-bottom: 1px solid var(--border);
 			overflow: visible;
 			min-height: auto;
+			flex: none;
 		}
 
 		.right-panel {
 			overflow: visible;
 			min-height: auto;
+			flex: none;
 		}
 
 		.right-panel-hr {
@@ -336,22 +330,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
-	}
-
-	.back-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		background: none;
-		border: none;
-		color: var(--accent);
-		cursor: pointer;
-		font-size: 0.8125rem;
-		padding: 0;
-	}
-
-	.back-btn:hover {
-		text-decoration: underline;
 	}
 
 	.field-group {

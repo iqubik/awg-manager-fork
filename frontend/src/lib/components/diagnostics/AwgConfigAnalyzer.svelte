@@ -568,7 +568,7 @@
 				<Button variant="primary" onclick={analyze}>Анализировать</Button>
 				<Button variant="secondary" onclick={() => fileInput?.click()}>Файл…</Button>
 				<span class="bar-clear">
-					<Button variant="ghost" onclick={clearAll}>Очистить</Button>
+					<Button variant="secondary" onclick={clearAll}>Очистить</Button>
 				</span>
 				{#if canSave}
 					<span class="bar-save">

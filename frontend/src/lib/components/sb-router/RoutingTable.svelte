@@ -158,6 +158,19 @@
         <span class="mobile-label">Условия</span>
         <span class="matcher-text">{row.matchers}</span>
       </div>
+      <div class="mobile-route-target">
+        <Badge variant={row.actionVariant} size="sm" mono>{row.actionLabel}</Badge>
+        <span class="mobile-route-arrow">→</span>
+        {#if row.outboundKind === 'none'}
+          <span class="dash">—</span>
+        {:else if row.outboundKind === 'direct'}
+          <Badge variant="muted" mono size="sm">direct</Badge>
+        {:else if row.outboundKind === 'reject'}
+          <Badge variant="error" mono size="sm">reject</Badge>
+        {:else}
+          <Badge variant={row.outboundVariant} mono size="sm" title={row.outbound}>{row.outboundLabel}</Badge>
+        {/if}
+      </div>
       <div class="outbound-cell">
         <span class="mobile-label">Выход</span>
         {#if row.outboundKind === 'none'}
@@ -294,6 +307,9 @@
   .matcher-text {
     display: contents;
   }
+  .mobile-route-target {
+    display: none;
+  }
   .action-badge-cell {
     min-width: 0;
     justify-self: center;
@@ -397,35 +413,36 @@
       gap: 4px;
     }
     .action-badge-cell {
+      display: none;
+    }
+    .mobile-route-target {
       order: 2;
       display: flex;
-      flex-wrap: wrap;
       align-items: center;
       gap: 6px;
       min-width: 0;
-      justify-content: flex-start;
-      text-align: left;
+      width: 100%;
     }
-    .outbound-cell {
-      order: 3;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 6px;
-      min-width: 0;
-      max-width: 100%;
-      justify-content: flex-start;
-      text-align: left;
-    }
-    .outbound-cell :global(.badge) {
+    .mobile-route-target :global(.badge) {
       max-width: 100%;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .mobile-route-target :global(.badge:last-child) {
+      flex: 0 1 auto;
+      min-width: 0;
+    }
+    .mobile-route-arrow {
+      color: var(--text-muted);
+      flex: 0 0 auto;
+    }
+    .outbound-cell {
+      display: none;
+    }
     .reorder {
-      order: 4;
+      order: 3;
       justify-content: flex-start;
       gap: 4px;
       padding-top: 8px;

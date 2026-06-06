@@ -272,9 +272,18 @@
 		grid-template-columns: minmax(0, 1fr) auto;
 	}
 
-	.logging-level-row,
-	.logging-buffer-row {
+	.logging-level-row {
 		grid-template-columns: minmax(0, 1fr) 180px;
+	}
+
+	.logging-buffer-row {
+		grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+	}
+
+	.logging-buffer-row .num-input {
+		width: 100%;
+		min-width: 0;
+		justify-self: stretch;
 	}
 
 	.logging-main-row > :global(.flex.flex-col),
@@ -283,7 +292,7 @@
 		min-width: 0;
 	}
 
-	@media (max-width: 640px) {
+	@media (max-width: 768px) {
 		.logging-main-row,
 		.logging-level-row,
 		.logging-buffer-row {

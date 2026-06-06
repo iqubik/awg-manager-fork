@@ -927,16 +927,17 @@
   }
   @media (max-width: 768px) {
     .globals-bar {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.45rem;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 0.5rem;
       padding: 0.625rem 0.875rem;
     }
     .gb-label-full {
       display: none;
     }
     .gb-label-mobile {
-      display: block;
+      display: flex;
+      align-items: center;
       min-width: 0;
       font-size: 10px;
       line-height: 1.2;
@@ -948,6 +949,10 @@
     .route-final-select {
       width: 100%;
       min-width: 0;
+    }
+    .gb-save {
+      grid-column: 1 / -1;
+      width: 100%;
     }
     .globals-summary {
       align-items: flex-start;
