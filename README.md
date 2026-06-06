@@ -5,7 +5,7 @@
 
 > **Disclaimer:** AWG Manager — независимый open-source проект, не аффилированный с [Amnezia.org](https://amnezia.org) и Sing-box [SagerNet](https://github.com/SagerNet/sing-box) и не являющийся их официальным продуктом.Програма находится в стадии вечной BETA версии.
 
-![awgm-showcase](https://raw.githubusercontent.com/hoaxisr/awg-manager/develop/scripts/dev/awgm-showcase.webp)
+![awgm-showcase](https://raw.githubusercontent.com/iqubik/awg-manager/develop/scripts/dev/awgm-showcase.webp)
 
 ---
 
@@ -33,7 +33,7 @@
 ```sh
 opkg update && opkg upgrade
 opkg install curl
-curl -sL https://raw.githubusercontent.com/hoaxisr/awg-manager/master/scripts/install.sh | sh
+curl -sL https://raw.githubusercontent.com/iqubik/awg-manager/master/scripts/install.sh | sh
 ```
 
 Если у вас недоступен GitHub или при выполнении скрипта установки он "зависает", можете воспользоваться зеркалом: 
@@ -65,7 +65,7 @@ AWG Manager создан как независимый инструмент дл
 
 ## Сообщество
 
-Telegram: [@awgmanager](https://t.me/awgmanager)
+Telegram: [@iqubik](https://t.me/kub26)
 
 ---
 
