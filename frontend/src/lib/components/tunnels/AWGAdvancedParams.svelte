@@ -175,16 +175,18 @@
 				label: proto.name,
 				description: proto.description,
 			}))}
-			<div class="generate-row">
+			<div class="generate-row signature-generate-row">
 				<div class="protocol-select">
-					<Dropdown bind:value={selectedProtocol} options={protocolOpts} fullWidth />
+					<Dropdown bind:value={selectedProtocol} options={protocolOpts} fullWidth multilineDescription />
 				</div>
-				<Button variant="secondary" size="sm" onclick={handleGenerate}>
-					Сгенерировать
-				</Button>
+				<div class="generate-action">
+					<Button variant="primary" size="sm" onclick={handleGenerate}>
+						Сгенерировать
+					</Button>
+				</div>
 			</div>
 		{:else}
-			<div class="generate-row">
+			<div class="generate-row signature-generate-row">
 				<input
 					type="text"
 					class="field-input"
@@ -194,7 +196,7 @@
 					onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCapture(); } }}
 				/>
 				<Button
-					variant="secondary"
+					variant="primary"
 					size="sm"
 					onclick={handleCapture}
 					disabled={capturing || !domainInput.trim()}
@@ -335,6 +337,37 @@
 		margin-bottom: 12px;
 	}
 
+	.signature-generate-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		gap: 8px;
+		align-items: stretch;
+		width: 100%;
+	}
+
+	.signature-generate-row > * {
+		min-width: 0;
+	}
+
+	.signature-generate-row .protocol-select,
+	.signature-generate-row .generate-action {
+		width: 100%;
+		min-width: 0;
+	}
+
+	.signature-generate-row .field-input,
+	.signature-generate-row .protocol-select :global(.dropdown-trigger),
+	.signature-generate-row :global(.btn) {
+		height: 34px;
+		min-height: 34px;
+		box-sizing: border-box;
+	}
+
+	.generate-action :global(.btn) {
+		width: 100%;
+		min-height: 34px;
+	}
+
 	.protocol-select {
 		width: 100%;
 	}
@@ -384,9 +417,14 @@
 
 	@media (max-width: 480px) {
 		.mode-options {
-			flex-direction: column;
-			gap: 0.5rem;
-			align-items: flex-start;
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			gap: 8px;
+			align-items: stretch;
+		}
+
+		.mode-option {
+			min-width: 0;
 		}
 	}
 </style>
