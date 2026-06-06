@@ -3,7 +3,7 @@ export type SingboxLayoutMode = 'dense' | 'compact' | 'list';
 
 /**
  * Same breakpoint as the AWG tunnels tab (`isAwgMobile` on the home page).
- * Below this width: layout picker hidden; cards always use compact grid.
+ * Below this width: list layout is unavailable; dense/compact grids stay selectable.
  */
 export const TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX = 760;
 

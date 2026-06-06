@@ -587,20 +587,23 @@
 	let singboxSubscriptionsLayoutReady = false;
 	let showSingboxListOption = $derived($usageLevel !== 'basic');
 	let singboxTunnelsEffectiveLayout = $derived<SingboxLayoutMode>(
-		isAwgMobile || (!showSingboxListOption && singboxTunnelsLayoutMode === 'list')
+		(isAwgMobile && singboxTunnelsLayoutMode === 'list') ||
+			(!showSingboxListOption && singboxTunnelsLayoutMode === 'list')
 			? 'compact'
 			: singboxTunnelsLayoutMode,
 	);
 	let singboxSubscriptionsEffectiveLayout = $derived<SingboxLayoutMode>(
-		isAwgMobile || (!showSingboxListOption && singboxSubscriptionsLayoutMode === 'list')
+		(isAwgMobile && singboxSubscriptionsLayoutMode === 'list') ||
+			(!showSingboxListOption && singboxSubscriptionsLayoutMode === 'list')
 			? 'compact'
 			: singboxSubscriptionsLayoutMode,
 	);
-	let showSingboxLayoutPicker = $derived(!isAwgMobile);
-	let showSingboxGridListToggle = $derived(showSingboxListOption && showSingboxLayoutPicker);
-	let awgEffectiveViewMode = $derived<AwgTunnelViewMode>(
-		isAwgMobile || !showAwgViewModeSwitch ? 'compact' : awgViewMode
-	);
+	let showSingboxGridListToggle = $derived(showSingboxListOption && !isAwgMobile);
+	let awgEffectiveViewMode = $derived.by((): AwgTunnelViewMode => {
+		if (!showAwgViewModeSwitch) return 'compact';
+		if (isAwgMobile && awgViewMode === 'list') return 'compact';
+		return awgViewMode;
+	});
 	let awgCardViewMode = $derived<'cards' | 'compact'>(
 		awgEffectiveViewMode === 'cards' ? 'cards' : 'compact',
 	);
@@ -1593,10 +1596,11 @@
 							/>
 						</div>
 					{/if}
-					{#if showAwgViewModeSwitch && !isAwgMobile}
+					{#if showAwgViewModeSwitch}
 						<LayoutViewToggle
 							value={awgViewMode}
 							denseValue="cards"
+							showListOption={!isAwgMobile}
 							ariaLabel="Вид туннелей"
 							onchange={(mode) => (awgViewMode = mode)}
 						/>
@@ -2123,7 +2127,7 @@
 									/>
 								</div>
 							{/if}
-							{#if subscriptionsList.length > 0 && showSingboxLayoutPicker}
+							{#if subscriptionsList.length > 0}
 								<LayoutViewToggle
 									value={singboxSubscriptionsLayoutMode}
 									showListOption={showSingboxGridListToggle}
@@ -2328,7 +2332,7 @@
 								/>
 							</div>
 						{/if}
-						{#if singboxTunnelsList.length > 0 && showSingboxLayoutPicker}
+						{#if singboxTunnelsList.length > 0}
 							<LayoutViewToggle
 								value={singboxTunnelsLayoutMode}
 								showListOption={showSingboxGridListToggle}

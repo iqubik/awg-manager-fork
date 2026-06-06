@@ -1423,10 +1423,9 @@ label {
 	min-width: 0;
 }
 
-/* Sing-box layout picker — hidden below 760px (see TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX) */
+/* Subscription members toolbar — hidden below 760px (see TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX) */
 @media (max-width: 760px) {
-	.members-toolbar,
-	.tunnels-toolbar .toolbar-actions > .segmented-control {
+	.members-toolbar {
 		display: none !important;
 	}
 }
