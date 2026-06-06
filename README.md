@@ -68,7 +68,7 @@ Telegram: [@awgmanager](https://t.me/awgmanager)
 
 Если проект оказался полезным, можно поддержать разработку донатом:
 
-**USDT (TRC20):** `TEpJh2p9j3fp6MigyqGvq1gC5D3CsxBeJw`
+**USDT (TRC20):** ``
 
 ---
 
