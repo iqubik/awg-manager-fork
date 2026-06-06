@@ -299,6 +299,7 @@ scripts\dev\dev-backend-tests.bat
 - использует постоянные кэши `GOCACHE` и `GOMODCACHE`;
 - поддерживает точечные и полные прогоны в едином формате;
 - по умолчанию запускает тесты с `-count=1`, чтобы не получать ложноположительные результаты из test-cache.
+- Если запустить без аргументов, он сразу выполняет `full` (`go test -count=1 ./...`).
 
 Базовые команды:
 
@@ -318,7 +319,7 @@ scripts\dev\dev-backend-tests.bat run ./internal/managed
 # точечный прогон одного теста
 scripts\dev\dev-backend-tests.bat run ./internal/sys/httpdownload -run TestReader_EmitsAfterByteThreshold
 
-# полный прогон (только на финише)
+# полный прогон (запускается и по умолчанию без аргументов)
 scripts\dev\dev-backend-tests.bat full
 
 # остановить раннер после работы
@@ -455,6 +456,24 @@ git status
 
 Все frontend-проверки и тесты запускаются из папки `frontend`.
 
+### Что есть в `frontend/package.json`
+
+Основные команды:
+
+```json
+"scripts": {
+  "dev": "vite dev",
+  "dev:mock": "npm run sync:openapi && VITE_API_STRIP_PREFIX=1 VITE_API_TARGET=http://127.0.0.1:8081 vite dev",
+  "dev:mock:proxy": "npm run sync:openapi && node scripts/mock-stack.mjs",
+  "mock": "node scripts/mock-api.mjs",
+  "mock:dynamic": "node scripts/mock-api.mjs --dynamic",
+  "build": "svelte-kit sync && vite build",
+  "preview": "vite preview",
+  "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+  "test": "vitest run"
+}
+```
+
 ### Проверка типов / Svelte / a11y (svelte-check)
 
 ```powershell
@@ -472,6 +491,7 @@ cd frontend
 npm exec -- vitest run
 ```
 
+- Через `npm run test` это тот же запуск `vitest run`.
 - Без параметров — прогоняет **все** тесты (23 файла, 177+ тестов на май 2026).
 - Конкретный файл:
   ```powershell
@@ -485,8 +505,8 @@ npm exec -- vitest run
 **Полная проверка фронтенда (перед коммитом / PR):**
 
 1. `npm run check`
-2. `npm exec -- vitest run`
+2. `npm run test` или `npm exec -- vitest run`
 
 Оба шага должны завершаться успешно (зелёный).
 
-Примечание: в `frontend/package.json` нет скрипта `"test"`. Vitest всегда вызывается через `npm exec -- vitest run`.
+Примечание: `npm run check` и `npm run test` уже есть в `frontend/package.json`; `npm run test` запускает `vitest run`.

@@ -90,6 +90,14 @@ describe('resolveOutboundDisplay', () => {
     expect(d.kind).toBe('composite');
   });
 
+  it('composite outbound (loadbalance)', () => {
+    const ob: SingboxRouterOutbound[] = [
+      { tag: 'group-2', type: 'loadbalance' } as unknown as SingboxRouterOutbound,
+    ];
+    const d = resolveOutboundDisplay('group-2', 'route', ob);
+    expect(d.kind).toBe('composite');
+  });
+
   it('unknown outbound by name', () => {
     const d = resolveOutboundDisplay('mystery', 'route', noOutbounds);
     expect(d).toEqual({ name: 'mystery', label: 'mystery', kind: 'unknown' });

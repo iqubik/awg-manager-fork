@@ -622,7 +622,10 @@ func (s *ServiceImpl) CreateBatch(ctx context.Context, lists []DomainList) ([]*D
 		list.Enabled = true
 		list.CreatedAt = now
 		list.UpdatedAt = now
-		list.Domains = deduplicateDomains(list.ManualDomains)
+		list.Domains, list.Subnets = splitDomainsAndSubnets(deduplicateDomains(list.ManualDomains))
+		if err := validateSubnetsLimit(len(list.Subnets)); err != nil {
+			return nil, err
+		}
 
 		if err := s.resolveRouteInterfaces(ctx, list.Routes); err != nil {
 			return nil, fmt.Errorf("resolve routes for %q: %w", list.Name, err)

@@ -54,7 +54,7 @@ function mapAction(rule: SingboxRouterRule): RuleAction {
 
 /* ─── Outbound display ──────────────────────────────────────────────── */
 
-const COMPOSITE_TYPES = new Set(['selector', 'urltest']);
+const COMPOSITE_TYPES = new Set(['selector', 'urltest', 'loadbalance']);
 const AWG_OPTION_GROUPS = new Set(['AWG туннели', 'Системные WireGuard']);
 
 function findOutboundOption(

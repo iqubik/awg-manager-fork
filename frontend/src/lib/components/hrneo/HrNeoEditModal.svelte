@@ -171,10 +171,18 @@
 			iconUrl = undefined;
 			domainsText = '';
 			cidrText = '';
+			policyChoice = 'existing';
+			existingPolicyName = hrCompatiblePolicies[0]?.name ?? '';
+			newPolicyName = '';
+			newPolicyIfaces = [];
 			if (initialTarget?.kind === 'policy') {
 				mode = 'policy';
-				policyChoice = 'existing';
-				existingPolicyName = initialTarget.name;
+				if (hrCompatiblePolicies.some((p) => p.name === initialTarget.name)) {
+					existingPolicyName = initialTarget.name;
+				} else {
+					policyChoice = 'new';
+					newPolicyName = initialTarget.name;
+				}
 			} else if (initialTarget?.kind === 'interface') {
 				mode = 'interface';
 				const t = tunnels.find(
@@ -185,9 +193,7 @@
 				mode = 'interface';
 				tunnelId = tunnels[0]?.id ?? '';
 			}
-			if (!existingPolicyName) existingPolicyName = policies[0]?.name ?? '';
-			newPolicyName = '';
-			newPolicyIfaces = [];
+			if (!existingPolicyName) existingPolicyName = hrCompatiblePolicies[0]?.name ?? '';
 			// Capture snapshot for isDirty (create mode)
 			initialName = '';
 			initialIconUrl = undefined;
@@ -294,7 +300,9 @@
 		splitLines(domainsText).length > 0 || splitLines(cidrText).length > 0,
 	);
 
-	let showCatalogEntry = $derived(!!onpickcatalog && !hasDomainOrCidrContent);
+	let showCatalogEntry = $derived(
+		!!onpickcatalog && (!hasDomainOrCidrContent || selectedPreset !== null),
+	);
 
 	let canSave = $derived.by(() => {
 		if (!name.trim()) return false;
@@ -302,7 +310,9 @@
 		const c = splitLines(cidrText);
 		if (d.length === 0 && c.length === 0) return false;
 		if (mode === 'interface') return !!tunnelId;
-		if (policyChoice === 'existing') return !!existingPolicyName;
+		if (policyChoice === 'existing') {
+			return hrCompatiblePolicies.some((p) => p.name === existingPolicyName);
+		}
 		// New policy: name must pass validation, must not duplicate an existing
 		// HR policy, and at least one interface must be permitted.
 		if (newPolicyNameValidationError !== '') return false;
