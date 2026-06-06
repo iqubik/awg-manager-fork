@@ -23,10 +23,19 @@
 		subscription: Subscription;
 		liveActiveMember?: string | null;
 		layout?: SingboxLayoutMode;
+		/** Mobile list: dense header + action bar instead of a table row. */
+		listAsCard?: boolean;
 		ondelete?: (id: string) => void;
 		ondetail?: (tag: string) => void;
 	}
-	let { subscription, liveActiveMember = null, layout = 'compact', ondelete, ondetail }: Props = $props();
+	let {
+		subscription,
+		liveActiveMember = null,
+		layout = 'compact',
+		listAsCard = false,
+		ondelete,
+		ondetail,
+	}: Props = $props();
 
 	const resolvedMemberTag = $derived(resolveSubscriptionMemberTag(subscription, liveActiveMember));
 
@@ -155,7 +164,7 @@
 	}
 </script>
 
-{#if layout === 'list'}
+{#if layout === 'list' && !listAsCard}
 	<tr
 		role="button"
 		tabindex="0"
@@ -287,20 +296,27 @@
 				/>
 			</td>
 	</tr>
-{:else if layout === 'dense'}
+{:else if layout === 'dense' || listAsCard}
+{@const denseCardClickProps = listAsCard
+	? {}
+	: {
+			role: 'button' as const,
+			tabindex: 0,
+			onclick: (e: MouseEvent) => open(e),
+			onkeydown: (e: KeyboardEvent) => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					open(e);
+				}
+			},
+		}}
 <div
-	role="button"
-	tabindex="0"
-	class="card view-dense inactive-panel"
+	class="card inactive-panel"
+	class:view-dense={!listAsCard}
+	class:view-list={listAsCard}
 	class:err={status === 'error'}
 	class:off={!subscription.enabled}
-	onclick={(e) => open(e)}
-	onkeydown={(e) => {
-		if (e.key === 'Enter' || e.key === ' ') {
-			e.preventDefault();
-			open(e);
-		}
-	}}
+	{...denseCardClickProps}
 >
 	<div class="inactive-header-dense">
 		<div class="inactive-header-main">
@@ -339,6 +355,7 @@
 			</span>
 		{/if}
 	</div>
+	{#if !listAsCard}
 	<hr class="divider" />
 	<div class="inactive-meta-dense secondary mono">
 		<span>{modeLabel}</span>
@@ -351,6 +368,21 @@
 	</div>
 	{#if subscription.lastError}
 		<div class="inactive-err mono" title={subscription.lastError}>{subscription.lastError}</div>
+	{/if}
+	{/if}
+	{#if listAsCard}
+	<div class="actions">
+		<TunnelListActions
+			variant="labeled"
+			onEdit={() => open()}
+			editLabel="Открыть"
+			editTitle="Открыть подписку «{subscription.label || subscription.url}»"
+			onTest={() => (diagnosticsOpen = true)}
+			testTitle="Открыть диагностику подписки «{subscription.label || subscription.url}»"
+			onDelete={ondelete ? () => ondelete(subscription.id) : undefined}
+			deleteTitle="Удалить подписку «{subscription.label || subscription.url}»"
+		/>
+	</div>
 	{/if}
 </div>
 {:else}
@@ -484,6 +516,9 @@
 		text-align: left;
 		font: inherit;
 		color: inherit;
+	}
+	.card.view-list.inactive-panel {
+		cursor: default;
 	}
 	.inactive-header-dense {
 		display: flex;

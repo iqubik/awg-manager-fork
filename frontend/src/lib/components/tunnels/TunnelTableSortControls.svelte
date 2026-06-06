@@ -14,6 +14,8 @@
 		sortAsc: boolean;
 		options: SortOption[];
 		showSearch?: boolean;
+		/** When false, toolbar is search-only (sort via table headers on desktop list). */
+		showSort?: boolean;
 		hideSortOnDesktop?: boolean;
 		onSearchChange: (value: string) => void;
 		onSortChange: (key: string | null) => void;
@@ -26,6 +28,7 @@
 		sortAsc,
 		options,
 		showSearch = false,
+		showSort = true,
 		hideSortOnDesktop = false,
 		onSearchChange,
 		onSortChange,
@@ -50,19 +53,21 @@
 			oninput={(e) => onSearchChange((e.currentTarget as HTMLInputElement).value)}
 		/>
 	{/if}
-	<div class="tunnel-sort-ui">
-		<div class="tunnel-sort-select">
-			<Dropdown
-				value={sortKey ?? DEFAULT_SORT_VALUE}
-				options={dropdownOptions}
-				onchange={(k) => onSortChange(k === DEFAULT_SORT_VALUE ? null : k)}
-				fullWidth
-			/>
+	{#if showSort}
+		<div class="tunnel-sort-ui">
+			<div class="tunnel-sort-select">
+				<Dropdown
+					value={sortKey ?? DEFAULT_SORT_VALUE}
+					options={dropdownOptions}
+					onchange={(k) => onSortChange(k === DEFAULT_SORT_VALUE ? null : k)}
+					fullWidth
+				/>
+			</div>
+			<button class="tunnel-sort-dir" type="button" onclick={onToggleDir} title="Направление сортировки">
+				{sortAsc ? '↑' : '↓'}
+			</button>
 		</div>
-		<button class="tunnel-sort-dir" type="button" onclick={onToggleDir} title="Направление сортировки">
-			{sortAsc ? '↑' : '↓'}
-		</button>
-	</div>
+	{/if}
 </div>
 
 <style>
@@ -119,18 +124,24 @@
 		color: var(--text-primary);
 	}
 
-	@media (max-width: 640px) {
+	@media (max-width: 760px) {
 		.tunnel-sort-controls {
-			display: grid;
-			grid-template-columns: minmax(0, 1fr) auto;
-			gap: 0.375rem;
 			width: 100%;
 		}
 
 		.tunnel-search {
-			grid-column: 1 / -1;
 			width: 100%;
 			min-width: 0;
+		}
+
+		.tunnel-sort-controls:has(.tunnel-sort-ui) {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			gap: 0.375rem;
+		}
+
+		.tunnel-sort-controls:has(.tunnel-sort-ui) .tunnel-search {
+			grid-column: 1 / -1;
 		}
 
 		.tunnel-sort-select {
@@ -142,12 +153,6 @@
 			width: 34px;
 			min-width: 34px;
 			height: 34px;
-		}
-
-		.tunnel-sort-controls.hide-sort-on-desktop .tunnel-sort-ui {
-			display: inline-flex;
-			grid-column: 1 / -1;
-			width: 100%;
 		}
 	}
 </style>

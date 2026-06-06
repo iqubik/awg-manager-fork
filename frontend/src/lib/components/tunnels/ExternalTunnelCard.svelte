@@ -2,14 +2,22 @@
 	import type { ExternalTunnel } from '$lib/types';
 	import { formatBytes } from '$lib/utils/format';
 	import { Button } from '$lib/components/ui';
+	import TunnelTitleRow from '$lib/components/tunnels/TunnelTitleRow.svelte';
 
 	interface Props {
 		tunnel: ExternalTunnel;
-		view?: 'cards' | 'compact';
+		view?: 'cards' | 'compact' | 'list';
 		onadopt?: (interfaceName: string) => void;
 	}
 
 	let { tunnel, view = 'cards', onadopt }: Props = $props();
+
+	let isListCard = $derived(view === 'list');
+	let statusDot = $derived(
+		tunnel.lastHandshake
+			? { variant: 'success' as const, pulse: false, label: 'Подключён' }
+			: { variant: 'muted' as const, pulse: false, label: 'Неактивен' },
+	);
 
 	function handleAdopt(): void {
 		onadopt?.(tunnel.interfaceName);
@@ -19,66 +27,96 @@
 <div
 	class="card ext-card flex flex-col gap-4"
 	class:view-compact={view === 'compact'}
+	class:view-list={isListCard}
 >
-	<div class="header flex justify-between items-start gap-3">
-		<div class="flex flex-col gap-1 min-w-0">
-			<h3 class="tunnel-name">{tunnel.interfaceName}</h3>
-			<div class="flex items-center gap-2 flex-wrap">
-				<span class="iface-name">WG туннель</span>
-				<span class="version-badge badge-external">Внешний</span>
+	{#if isListCard}
+		<div class="header header-dense">
+			<div class="header-dense-body">
+				<TunnelTitleRow
+					title={tunnel.interfaceName}
+					dotVariant={statusDot.variant}
+					dotPulse={statusDot.pulse}
+					dotLabel={statusDot.label}
+					dense
+				/>
+				<div class="meta-tags-dense">
+					<span class="iface-chip-dense">WG туннель</span>
+					<span class="version-badge badge-external">Внешний</span>
+				</div>
 			</div>
 		</div>
-		<div class="shrink-0">
-			{#if tunnel.lastHandshake}
-				<span class="status-badge status-active">
-					<span class="led-dot"></span>
-					Подключён
-				</span>
-			{:else}
-				<span class="status-badge status-inactive">
-					<span class="led-dot"></span>
-					Неактивен
-				</span>
+		<div class="actions">
+			<Button variant="primary" onclick={handleAdopt}>
+				{#snippet iconBefore()}
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+						<polyline points="9 12 12 15 16 10"/>
+					</svg>
+				{/snippet}
+				Взять под управление
+			</Button>
+		</div>
+	{:else}
+		<div class="header flex justify-between items-start gap-3">
+			<div class="flex flex-col gap-1 min-w-0">
+				<h3 class="tunnel-name">{tunnel.interfaceName}</h3>
+				<div class="flex items-center gap-2 flex-wrap">
+					<span class="iface-name">WG туннель</span>
+					<span class="version-badge badge-external">Внешний</span>
+				</div>
+			</div>
+			<div class="shrink-0">
+				{#if tunnel.lastHandshake}
+					<span class="status-badge status-active">
+						<span class="led-dot"></span>
+						Подключён
+					</span>
+				{:else}
+					<span class="status-badge status-inactive">
+						<span class="led-dot"></span>
+						Неактивен
+					</span>
+				{/if}
+			</div>
+		</div>
+
+		<div class="details">
+			{#if tunnel.endpoint}
+				<div class="flex flex-col gap-0.5 min-w-0">
+					<span class="detail-label">Endpoint</span>
+					<span class="detail-value">{tunnel.endpoint}</span>
+				</div>
 			{/if}
-		</div>
-	</div>
-
-	<div class="details">
-		{#if tunnel.endpoint}
-			<div class="flex flex-col gap-0.5 min-w-0">
-				<span class="detail-label">Endpoint</span>
-				<span class="detail-value">{tunnel.endpoint}</span>
-			</div>
-		{/if}
-		{#if tunnel.lastHandshake}
-			<div class="flex flex-col gap-0.5 min-w-0">
-				<span class="detail-label">Handshake</span>
-				<span class="detail-value">{tunnel.lastHandshake}</span>
-			</div>
-		{/if}
-		<div class="flex gap-6">
-			<div class="flex flex-col gap-0.5 min-w-0">
-				<span class="detail-label">RX</span>
-				<span class="detail-value">{formatBytes(tunnel.rxBytes)}</span>
-			</div>
-			<div class="flex flex-col gap-0.5 min-w-0">
-				<span class="detail-label">TX</span>
-				<span class="detail-value">{formatBytes(tunnel.txBytes)}</span>
+			{#if tunnel.lastHandshake}
+				<div class="flex flex-col gap-0.5 min-w-0">
+					<span class="detail-label">Handshake</span>
+					<span class="detail-value">{tunnel.lastHandshake}</span>
+				</div>
+			{/if}
+			<div class="flex gap-6">
+				<div class="flex flex-col gap-0.5 min-w-0">
+					<span class="detail-label">RX</span>
+					<span class="detail-value">{formatBytes(tunnel.rxBytes)}</span>
+				</div>
+				<div class="flex flex-col gap-0.5 min-w-0">
+					<span class="detail-label">TX</span>
+					<span class="detail-value">{formatBytes(tunnel.txBytes)}</span>
+				</div>
 			</div>
 		</div>
-	</div>
 
-	<div class="actions-wrapper">
-		<Button variant="primary" onclick={handleAdopt}>
-			{#snippet iconBefore()}
-				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-					<polyline points="9 12 12 15 16 10"/>
-				</svg>
-			{/snippet}
-			Взять под управление
-		</Button>
-	</div>
+		<div class="actions-wrapper">
+			<Button variant="primary" onclick={handleAdopt}>
+				{#snippet iconBefore()}
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+						<polyline points="9 12 12 15 16 10"/>
+					</svg>
+				{/snippet}
+				Взять под управление
+			</Button>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -87,8 +125,41 @@
 	}
 
 	.ext-card.view-compact {
-		gap: 12px;
-		padding: 12px 14px;
+		gap: 8px;
+		padding: 10px 12px;
+	}
+
+	.ext-card.view-list .actions {
+		display: flex;
+		width: 100%;
+	}
+
+	.ext-card.view-list .actions :global(.btn) {
+		width: 100%;
+		justify-content: center;
+	}
+
+	.meta-tags-dense {
+		display: flex;
+		flex-wrap: wrap;
+		margin-top: 4px;
+		align-items: center;
+		gap: 3px;
+		min-width: 0;
+	}
+
+	.iface-chip-dense {
+		display: inline-block;
+		min-width: 0;
+		font-size: 9px;
+		font-weight: 500;
+		font-family: var(--font-mono, monospace);
+		line-height: 1.3;
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--color-border);
+		background: var(--color-bg-tertiary);
+		color: var(--text-muted);
 	}
 
 	.tunnel-name {

@@ -3,7 +3,7 @@ export type SingboxLayoutMode = 'dense' | 'compact' | 'list';
 
 /**
  * Same breakpoint as the AWG tunnels tab (`isAwgMobile` on the home page).
- * Below this width: list layout is unavailable; dense/compact grids stay selectable.
+ * Below this width: list mode uses compact card rows (dense header + actions).
  */
 export const TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX = 760;
 
@@ -19,6 +19,11 @@ export function parseSingboxLayoutMode(value: string | null): SingboxLayoutMode 
 export function readTunnelMobileLayout(): boolean {
 	if (typeof window === 'undefined') return false;
 	return window.matchMedia(`(max-width: ${TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX}px)`).matches;
+}
+
+/** Mobile list mode: dense card header + action bar (not the desktop table). */
+export function isTunnelMobileCardList(mobile: boolean, layout: string): boolean {
+	return mobile && layout === 'list';
 }
 
 export function subscribeTunnelMobileLayout(onChange: (mobile: boolean) => void): () => void {

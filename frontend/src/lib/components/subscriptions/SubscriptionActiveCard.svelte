@@ -33,6 +33,8 @@
         autoDelayCheckNonce?: number;
         autoDelayCheckDelayMs?: number;
         layout?: SingboxLayoutMode;
+        /** Mobile list: dense header + action bar instead of a table row. */
+        listAsCard?: boolean;
         ondetail?: (tag: string) => void;
     }
     let {
@@ -41,6 +43,7 @@
         autoDelayCheckNonce = 0,
         autoDelayCheckDelayMs = 0,
         layout = 'compact',
+        listAsCard = false,
         ondetail,
     }: Props = $props();
 
@@ -194,7 +197,7 @@
 
 </script>
 
-{#if layout === 'list'}
+{#if layout === 'list' && !listAsCard}
     <tr
         class="sbx-sub-active-row"
         class:ok={cardState === 'ok'}
@@ -315,9 +318,10 @@
                 />
             </td>
     </tr>
-{:else if layout === 'dense'}
+{:else if layout === 'dense' || listAsCard}
 <div
     class="card view-dense"
+    class:view-list={listAsCard}
     class:ok={cardState === 'ok'}
     class:slow={cardState === 'slow'}
     class:fail={cardState === 'fail'}
@@ -373,6 +377,7 @@
         </div>
     </div>
 
+    {#if !listAsCard}
     <div class="details">
     {#if subscription.lastError}
         <div class="sub-error mono">{subscription.lastError}</div>
@@ -421,6 +426,7 @@
         <span>обновлено: {lastFetchedHuman}</span>
     </div>
     </div>
+    {/if}
 
     <div class="actions">
         <TunnelListActions
@@ -435,7 +441,7 @@
         />
     </div>
 
-    {#if !subscription.lastError}
+    {#if !listAsCard && !subscription.lastError}
         <div class="charts-dense">
             <button
                 type="button"

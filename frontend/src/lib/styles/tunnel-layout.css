@@ -519,9 +519,12 @@ button.tunnel-list-traffic-cell:focus-visible {
 }
 
 .tunnel-list-actions--labeled {
-	justify-content: center;
-	flex-wrap: wrap;
-	gap: 0.5rem;
+	display: grid;
+	grid-auto-flow: column;
+	grid-auto-columns: minmax(0, 1fr);
+	justify-content: stretch;
+	width: 100%;
+	gap: 4px;
 }
 
 .tunnel-list-actions__btn {
@@ -546,35 +549,20 @@ button.tunnel-list-traffic-cell:focus-visible {
 }
 
 .tunnel-list-actions--labeled .tunnel-list-actions__btn {
-	width: auto;
+	width: 100%;
+	min-width: 0;
 	height: auto;
-	flex: 0 1 auto;
-	gap: 0.35rem;
-	padding: 0.375rem 0.625rem;
+	flex: unset;
+	justify-content: center;
+	gap: 0.25rem;
+	padding: 0.375rem 0.35rem;
 	font-size: var(--sbx-card-action, 11px);
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
-/* Labeled actions — equal columns on mobile (TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX). */
-@media (max-width: 760px) {
-	.tunnel-list-actions--labeled {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-		width: 100%;
-		flex-wrap: nowrap;
-		gap: 4px;
-	}
-
-	.tunnel-list-actions--labeled .tunnel-list-actions__btn {
-		width: 100%;
-		height: auto;
-		flex: unset;
-		justify-content: center;
-		padding: 0.375rem 0.5rem;
-	}
-
-	.tunnel-list-actions--labeled .tunnel-list-actions__btn svg {
-		flex-shrink: 0;
-	}
+.tunnel-list-actions--labeled .tunnel-list-actions__btn svg {
+	flex-shrink: 0;
 }
 
 /* ─── Tunnel card actions row ─── */
@@ -589,6 +577,7 @@ button.tunnel-list-traffic-cell:focus-visible {
 	gap: 2px;
 	justify-content: center;
 	width: 100%;
+	flex-wrap: nowrap;
 }
 
 .card.view-dense .actions {
@@ -889,6 +878,46 @@ button.tunnel-list-traffic-cell:focus-visible {
 .tunnel-grid.tunnel-grid--compact {
 	grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
 	gap: 12px;
+}
+
+/* Mobile list — single column, dense header + actions */
+.tunnel-grid.tunnel-grid--list {
+	grid-template-columns: 1fr;
+	gap: 8px;
+}
+
+.card.view-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 10px 12px;
+	background: var(--color-bg-secondary);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius);
+}
+
+.card.view-list .actions {
+	display: flex;
+	align-items: stretch;
+	gap: 2px;
+	justify-content: center;
+	width: 100%;
+	margin-top: 0;
+	padding: 0;
+	border: none;
+	flex-wrap: nowrap;
+}
+
+.card.view-list .actions .tunnel-list-actions {
+	width: 100%;
+	min-width: 0;
+}
+
+.tunnel-list-empty {
+	margin: 0.75rem 0 0;
+	text-align: center;
+	color: var(--color-text-muted);
+	font-size: 0.875rem;
 }
 
 /* ─── SB list tables ─── */

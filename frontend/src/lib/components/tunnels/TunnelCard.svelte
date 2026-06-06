@@ -27,7 +27,7 @@
 
 	interface Props {
 		tunnel: TunnelListItem;
-		view?: 'cards' | 'compact';
+		view?: 'cards' | 'compact' | 'list';
 		toggleLoading?: boolean;
 		deleteLoading?: boolean;
 		onToggleOnOff?: () => void;
@@ -244,7 +244,7 @@
 		return 'idle';
 	});
 
-	let isDenseCard = $derived(view === 'cards');
+	let isDenseCard = $derived(view === 'cards' || view === 'list');
 	let pingStatusNote = $derived(awgPingStatusNote(tunnel, isDenseCard ? 'short' : 'full'));
 	let showConnectivityRow = $derived(awgShowConnectivityRow(tunnel.status));
 	let toggleTint = $derived(awgToggleTint(tunnel, connData));
@@ -264,11 +264,12 @@
 	<div
 		class="card border-{borderState}"
 		class:view-compact={view === 'compact'}
-		class:view-dense={view === 'cards'}
+		class:view-dense={view === 'cards' || view === 'list'}
+		class:view-list={view === 'list'}
 	>
 		<!-- Header -->
-		<div class="header" class:header-dense={view === 'cards'}>
-			{#if view === 'cards'}
+		<div class="header" class:header-dense={view === 'cards' || view === 'list'}>
+			{#if view === 'cards' || view === 'list'}
 			<div class="header-dense-body">
 				<div class="tunnel-name-row">
 					<TunnelTitleRow
@@ -412,6 +413,7 @@
 			{/if}
 		</div>
 
+		{#if view !== 'list'}
 		<!-- Details -->
 		<div class="details">
 			{#if view === 'cards'}
@@ -551,6 +553,7 @@
 			{/if}
 			{/if}
 		</div>
+		{/if}
 
 		<!-- Actions -->
 		<div class="actions">
@@ -565,7 +568,7 @@
 		</div>
 
 		<!-- Traffic (running only) -->
-		{#if tunnel.status === 'running'}
+		{#if view !== 'list' && tunnel.status === 'running'}
 			{#if view === 'cards'}
 				<button
 					type="button"

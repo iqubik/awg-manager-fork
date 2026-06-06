@@ -128,6 +128,8 @@
 		}
 
 		.segmented-control--icon .segmented-control-btn {
+			flex: 1 1 28px;
+			min-width: 28px;
 			width: auto;
 			padding: 0;
 		}

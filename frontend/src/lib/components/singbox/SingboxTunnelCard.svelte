@@ -29,6 +29,8 @@
 	interface Props {
 		tunnel: SingboxTunnel;
 		layout?: SingboxLayoutMode;
+		/** Mobile list: dense header + action bar instead of a table row. */
+		listAsCard?: boolean;
 		autoDelayCheckNonce?: number;
 		autoDelayCheckDelayMs?: number;
 		ondetail?: (tag: string) => void;
@@ -37,6 +39,7 @@
 	let {
 		tunnel,
 		layout = 'compact',
+		listAsCard = false,
 		autoDelayCheckNonce = 0,
 		autoDelayCheckDelayMs = 0,
 		ondetail,
@@ -169,7 +172,7 @@
 
 </script>
 
-{#if layout === 'list'}
+{#if layout === 'list' && !listAsCard}
 	<tr
 		class="sbx-tunnel-list-row"
 		class:ok={cardState === 'ok'}
@@ -246,9 +249,10 @@
 			/>
 		</td>
 	</tr>
-{:else if layout === 'dense'}
+{:else if layout === 'dense' || listAsCard}
 <div
 	class="card view-dense"
+	class:view-list={listAsCard}
 	class:ok={cardState === 'ok'}
 	class:slow={cardState === 'slow'}
 	class:fail={cardState === 'fail'}
@@ -287,6 +291,7 @@
 		</div>
 	</div>
 
+	{#if !listAsCard}
 	<div class="details">
 	<div class="details-dense-cols">
 		<div class="details-dense-col details-dense-col-lead">
@@ -333,6 +338,7 @@
 		</div>
 	</div>
 	</div>
+	{/if}
 
 	<div class="actions">
 		<TunnelListActions
@@ -349,6 +355,7 @@
 		/>
 	</div>
 
+	{#if !listAsCard}
 	<div class="charts-dense">
 		<button
 			type="button"
@@ -379,6 +386,7 @@
 			/>
 		</div>
 	</div>
+	{/if}
 </div>
 {:else}
 <div
