@@ -7,7 +7,6 @@
 		SETTINGS_SECTION_ICON_MODE_LABELS,
 		type SettingsSectionIconMode,
 	} from '$lib/stores/settingsSectionIconMode';
-	import { serviceLetterIcons } from '$lib/stores/serviceLetterIcons';
 	import { usageLevel } from '$lib/stores/settings';
 	import {
 		theme,
@@ -238,38 +237,22 @@
 			onchange={(enabled) => compactLayout.setEnabled(enabled)}
 		/>
 	</div>
-	<div class="setting-row letter-icons-row">
-		<div class="flex flex-col gap-1">
-			<span class="font-medium">Буквенные иконки</span>
-			<span class="setting-description">
-				Цветная плитка с первой буквой названия для списков маршрутизации (если не был найден логотип). 
-			</span>
-		</div>
-		<Toggle
-			checked={$serviceLetterIcons}
-			onchange={(enabled) => serviceLetterIcons.setEnabled(enabled)}
-		/>
-	</div>
-	</div>
 </div>
 
 <style>
-	.compact-layout-row,
-	.letter-icons-row {
+	.compact-layout-row {
 		align-items: center;
 	}
 
 	@media (max-width: 640px) {
-		.compact-layout-row,
-		.letter-icons-row {
+		.compact-layout-row {
 			flex-direction: row;
 			align-items: center;
 			flex-wrap: nowrap;
 			gap: 0.75rem;
 		}
 
-		.compact-layout-row > *:first-child,
-		.letter-icons-row > *:first-child {
+		.compact-layout-row > *:first-child {
 			flex: 1 1 auto;
 			min-width: 0;
 		}

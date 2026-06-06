@@ -43,9 +43,8 @@
 		<label class="field">
 			<div class="lbl">Шаблон домена</div>
 			<input class="mono" bind:value={pattern} placeholder="nas.lan · *.discord.media · finland10*.discord.media" />
-			<div class="hint">
-				Без <code>*</code> — точный домен. <code>*.suffix</code> — все поддомены.
-				<code>prefix*.suffix</code> — wildcard внутри первой метки (нужен доменный хвост после <code>*</code>).
+			<div class="hint hint-block">
+				Без <code>*</code> — точный домен. <code>*.suffix</code> — все поддомены. <code>prefix*.suffix</code> — wildcard внутри первой метки (нужен доменный хвост после <code>*</code>).
 			</div>
 		</label>
 		<label class="field">
@@ -66,5 +65,35 @@
 <style>
 	.mono {
 		font-family: ui-monospace, monospace;
+	}
+	.field input {
+		background: var(--bg);
+		border: 1px solid var(--border);
+		padding: 0.4rem 0.6rem;
+		border-radius: 4px;
+		color: var(--text);
+		font-size: 0.85rem;
+		box-sizing: border-box;
+		width: 100%;
+	}
+	.hint {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		line-height: 1.35;
+	}
+	.hint-block {
+		padding: 0.45rem 0.55rem;
+		border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+		border-radius: 6px;
+		background: color-mix(in srgb, var(--bg-secondary) 45%, transparent);
+	}
+	.hint-block code {
+		color: var(--text-secondary);
+		background: transparent;
+		padding: 0;
+	}
+	.error {
+		color: var(--danger, #dc2626);
+		font-size: 0.85rem;
 	}
 </style>

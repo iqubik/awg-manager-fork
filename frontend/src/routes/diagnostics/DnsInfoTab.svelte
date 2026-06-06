@@ -78,10 +78,30 @@
 	<RefreshCcw size={14} strokeWidth={2} aria-hidden="true" />
 {/snippet}
 
+{#snippet saveIcon()}
+	<svg
+		width="14"
+		height="14"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2"
+		aria-hidden="true"
+	>
+		<path d="M5 4h11l3 3v13H5z" stroke-linecap="round" stroke-linejoin="round" />
+		<path d="M8 4v6h8V4" stroke-linecap="round" stroke-linejoin="round" />
+		<path d="M9 18h6" stroke-linecap="round" />
+	</svg>
+{/snippet}
+
 <div class="toolbar">
 	<Button variant="secondary" size="sm" onclick={load} loading={loading} iconBefore={refreshIcon}>Обновить</Button>
 	<Button variant="secondary" size="sm" onclick={copyData} disabled={!info || loading}>Скопировать данные</Button>
-	<Button variant="secondary" size="sm" onclick={saveFile} disabled={!info || loading}>Сохранить файл</Button>
+	<span class="save-file-action">
+		<Button variant="primary" size="sm" onclick={saveFile} disabled={!info || loading} iconBefore={saveIcon}>
+			Сохранить файл
+		</Button>
+	</span>
 </div>
 
 {#if loading && !info}
@@ -125,6 +145,10 @@
 	.dns-sections { display: flex; flex-direction: column; gap: 16px; }
 	.card-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px; }
 	.hint-inline { font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 8px; opacity: .8; }
+	.save-file-action {
+		display: inline-flex;
+		min-width: 0;
+	}
 
 	@media (max-width: 640px) {
 		.toolbar {
@@ -138,12 +162,18 @@
 			min-width: 0;
 		}
 
-		.toolbar :global(.btn:first-child .icon-before) {
+		.toolbar > :global(.btn:first-child .icon-before) {
 			display: none;
 		}
 
-		.toolbar :global(.btn:last-child:nth-child(odd)) {
+		.save-file-action {
 			grid-column: 1 / -1;
+			width: 100%;
+		}
+
+		.save-file-action :global(.btn) {
+			width: 100%;
+			justify-content: center;
 		}
 	}
 </style>

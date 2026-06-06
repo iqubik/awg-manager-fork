@@ -429,6 +429,19 @@
 		</div>
 	{/if}
 
+	<!-- Name -->
+	<div class="form-group" class:field-error={attempted && !name.trim()}>
+		<label class="field-label" for="hr-rule-name">Название</label>
+		<input
+			id="hr-rule-name"
+			class="field-input"
+			type="text"
+			placeholder="Youtube"
+			bind:value={name}
+		/>
+		{#if attempted && !name.trim()}<div class="error-text">Введите название</div>{/if}
+	</div>
+
 	<!-- Icon -->
 	<div class="icon-form-group">
 		<div class="field-label">Иконка</div>
@@ -455,19 +468,6 @@
 				{iconUrl ? 'Сменить иконку' : 'Выбрать иконку'}
 			</Button>
 		</div>
-	</div>
-
-	<!-- Name -->
-	<div class="form-group" class:field-error={attempted && !name.trim()}>
-		<label class="field-label" for="hr-rule-name">Название</label>
-		<input
-			id="hr-rule-name"
-			class="field-input"
-			type="text"
-			placeholder="Youtube"
-			bind:value={name}
-		/>
-		{#if attempted && !name.trim()}<div class="error-text">Введите название</div>{/if}
 	</div>
 
 	<!-- Target — placed near the top so the routing decision (the most

@@ -1,7 +1,7 @@
 <script lang="ts">
     import { api } from '$lib/api/client';
     import type { AccessPolicy, PolicyDevice, PolicyGlobalInterface } from '$lib/types';
-    import { ConfirmModal, StoreStatusBadge, Button } from '$lib/components/ui';
+    import { ConfirmModal, StoreStatusBadge, Button, Modal } from '$lib/components/ui';
     import RoutingCreateButton from '$lib/components/routing/RoutingCreateButton.svelte';
     import { PolicyTable, PolicyCreateModal, PolicyEditView } from '$lib/components/accesspolicy';
     import { notifications } from '$lib/stores/notifications';
@@ -132,19 +132,6 @@
     }
 </script>
 
-{#if editingPolicyData}
-    <div class="policy-tab policy-tab--edit">
-        <PolicyEditView
-            policy={editingPolicyData}
-            devices={policyDevices}
-            globalInterfaces={policyInterfaces}
-            onback={() => { editingPolicy = null; editingPolicyData = null; }}
-            onupdate={refreshPolicyData}
-            ondeviceassigned={handleDeviceAssigned}
-            ondeviceunassigned={handleDeviceUnassigned}
-        />
-    </div>
-{:else}
     <div class="policy-tab policy-tab--list">
     <div class="section-header">
         {#if !policySelectionMode}
@@ -213,6 +200,41 @@
         onclose={() => policyCreateOpen = false}
     />
 
+    {#if editingPolicyData}
+        <Modal
+            open={true}
+            title={`Редактирование: ${editingPolicyData.description || editingPolicyData.name}`}
+            size="xl"
+            bodyLayout="fill"
+            onclose={() => {
+                editingPolicy = null;
+                editingPolicyData = null;
+            }}
+        >
+            <div class="policy-edit-modal-body">
+                <PolicyEditView
+                    policy={editingPolicyData}
+                    devices={policyDevices}
+                    globalInterfaces={policyInterfaces}
+                    onupdate={refreshPolicyData}
+                    ondeviceassigned={handleDeviceAssigned}
+                    ondeviceunassigned={handleDeviceUnassigned}
+                />
+            </div>
+            {#snippet actions()}
+                <Button
+                    variant="secondary"
+                    onclick={() => {
+                        editingPolicy = null;
+                        editingPolicyData = null;
+                    }}
+                >
+                    Назад
+                </Button>
+            {/snippet}
+        </Modal>
+    {/if}
+
     {#if policyDeleteName}
         {@const pol = accessPolicies.find(p => p.name === policyDeleteName)}
         <ConfirmModal
@@ -235,19 +257,13 @@
         />
     {/if}
     </div>
-{/if}
 
 <style>
-    /* Высота под viewport: скролл внутри панелей, не у всей страницы */
-    .policy-tab {
+    .policy-tab--list {
         display: flex;
         flex-direction: column;
         min-height: 0;
         overflow: hidden;
-    }
-
-    .policy-tab--edit,
-    .policy-tab--list {
         height: calc(100dvh - 12.5rem);
         min-height: 280px;
         max-height: calc(100dvh - 12.5rem);
@@ -260,8 +276,16 @@
         padding-right: 2px;
     }
 
+    .policy-edit-modal-body {
+        min-height: 0;
+        height: min(72dvh, 720px);
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
     @media (max-width: 768px) {
-        .policy-tab--edit,
         .policy-tab--list {
             height: auto;
             max-height: none;
@@ -271,6 +295,10 @@
         .policy-list-scroll {
             flex: none;
             overflow-y: visible;
+        }
+
+        .policy-edit-modal-body {
+            height: min(78dvh, 680px);
         }
     }
 

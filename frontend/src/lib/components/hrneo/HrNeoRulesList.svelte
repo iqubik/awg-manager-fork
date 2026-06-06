@@ -154,16 +154,28 @@
 
 	@media (max-width: 640px) {
 		.list-header {
-			flex-wrap: wrap;
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			align-items: stretch;
+			gap: 10px 8px;
 		}
+
 		.list-title {
-			flex: 1 1 100%;
+			grid-column: 1 / -1;
+			min-width: 0;
 		}
+
 		.list-header :global(.dropdown-wrapper) {
-			flex: 1 1 100%;
+			grid-column: 2;
+			width: 100%;
+			min-width: 0;
+			justify-self: stretch;
 		}
+
 		.list-header :global(.dropdown-wrapper .btn) {
 			width: 100%;
+			min-width: 0;
+			justify-content: center;
 		}
 	}
 </style>
