@@ -1,0 +1,88 @@
+name: "🐞 Bug Report"
+description: Создайте репорт для исправления найденных ошибок.
+title: "[BUG]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ **ВАЖНО — ПРОЧТИТЕ ПЕРЕД ОТПРАВКОЙ**  
+        - 🔍 **Поиск по архиву:** Перед созданием Issue проверьте, не заявляли ли об этой ошибке ранее в [закрытых задачах](https://github.com/hoaxisr/awg-manager/issues?q=is%3Aissue+is%3Aclosed). Если нашли совпадение, добавьте комментарий туда вместо создания нового репорта.  
+        - 📜 **Документация проекта:** Возможно, решение вашей проблемы уже описано в разделах [Частые вопросы](https://awgm.hoaxisr.ru/faq/) или [Решение проблем](https://awgm.hoaxisr.ru/troubleshooting/).
+
+        Спасибо, что помогаете улучшать проект! Пожалуйста, укажите как можно больше деталей, чтобы мы могли оперативно исправить ошибку.
+
+  - type: input
+    id: guidelines
+    attributes:
+      label: ✅ Вы прочитали и поняли инструкции выше?
+      placeholder: "Да"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "🔍 Описание ошибки"
+      description: Необходимо очень подробно описать, что не работает, работает не так, как ожидается, или сломано.
+      placeholder: Описание должно однозначно дать понять, о каком функционале идет речь.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: "👣 Шаги для воспроизведения"
+      description: Опишите, что нужно сделать, чтобы получить такую ошибку или поведение программы.
+      placeholder: |
+        1. Нажал вот сюда '...'
+        2. Зашел вот сюда '....'
+        3. Настроил вот это '....'
+        4. Получил ошибку, неправильное поведение
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: "🎯 Ожидаемый результат"
+      description: Какое у вас ожидание от выполненных действий? Как программа должна реагировать на управление?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: "💻 Параметры окружения и логи"
+      description: Скопируйте и вставьте сюда отчет из меню "Диагностика" --> "Окружение".
+      placeholder: |
+        Вставьте отчета сюда...
+        Примечание: предварительно убедитесь, что в настройках указан DEBUG уровень логирования AWGM (если требуется для этой ошибки).
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: diagnostics-check
+    attributes:
+      label: "📋 Проверка диагностических данных"
+      options:
+        - label: Я приложил полный отчет из меню "Диагностика" --> "Окружение" выше
+          required: true
+        - label: Я приложил файл логов роутера отдельно (если применимо)
+          required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: "📸 Снимки экрана / Скриншоты"
+      description: Обязательно для визуальных проблем. Опционально для технических. Перетащите изображения или вставьте из буфера обмена.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: "➕ Дополнительные данные"
+      description: Любая дополнительная информация, которая поможет быстрее найти и устранить проблему.
+    validations:
+      required: false
