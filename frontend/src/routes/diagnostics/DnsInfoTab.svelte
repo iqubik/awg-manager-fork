@@ -96,7 +96,16 @@
 {/snippet}
 
 <div class="toolbar">
-	<Button variant="secondary" size="sm" onclick={load} loading={loading} iconBefore={refreshIcon}>Обновить</Button>
+	<Button
+	variant="secondary"
+	size="sm"
+	onclick={load}
+	loading={loading}
+	iconBefore={refreshIcon}
+	title="Обновить"
+>
+	Обновить
+</Button>
 	<Button variant="secondary" size="sm" onclick={copyData} disabled={!info || loading}>Скопировать данные</Button>
 	<span class="save-file-action">
 		<Button variant="primary" size="sm" onclick={saveFile} disabled={!info || loading} iconBefore={saveIcon}>
@@ -140,6 +149,28 @@
 		flex-wrap: wrap;
 		gap: 0.5rem;
 		margin-bottom: 0.75rem;
+	}
+
+	@media (min-width: 641px) {
+		.toolbar > :global(.btn:first-child) {
+			position: relative;
+			width: 28px;
+			min-width: 28px;
+			padding-inline: 0;
+		}
+
+		.toolbar > :global(.btn:first-child .label) {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			padding: 0;
+			margin: -1px;
+			overflow: hidden;
+			clip: rect(0 0 0 0);
+			clip-path: inset(50%);
+			white-space: nowrap;
+			border: 0;
+		}
 	}
 	.hint { font-size: 0.8125rem; color: var(--text-muted); margin: 0 0 0.75rem; }
 	.warn { color: var(--warning); }
