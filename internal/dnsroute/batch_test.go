@@ -214,3 +214,34 @@ func TestCreateBatch_EmptyInput(t *testing.T) {
 		t.Errorf("created = %d, want 0", len(created))
 	}
 }
+
+func TestCreateBatch_SplitsCIDRIntoSubnets(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	input := []DomainList{
+		{
+			Name: "mixed",
+			ManualDomains: []string{
+				"example.com",
+				"10.0.0.0/8",
+			},
+		},
+	}
+
+	created, err := svc.CreateBatch(ctx, input)
+	if err != nil {
+		t.Fatalf("CreateBatch: %v", err)
+	}
+	if len(created) != 1 {
+		t.Fatalf("created = %d, want 1", len(created))
+	}
+
+	got := created[0]
+	if len(got.Domains) != 1 || got.Domains[0] != "example.com" {
+		t.Fatalf("Domains = %#v, want [example.com]", got.Domains)
+	}
+	if len(got.Subnets) != 1 || got.Subnets[0] != "10.0.0.0/8" {
+		t.Fatalf("Subnets = %#v, want [10.0.0.0/8]", got.Subnets)
+	}
+}

@@ -101,6 +101,7 @@
 			checked={route.enabled}
 			onchange={(checked) => ontoggle(checked)}
 			loading={toggleLoading}
+			ariaLabel={`Переключить клиентское правило "${clientLabel || 'без названия'}"`}
 			size="sm"
 		/>
 		<div class="action-row">

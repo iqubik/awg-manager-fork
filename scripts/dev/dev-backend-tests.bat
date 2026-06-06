@@ -30,7 +30,7 @@ set "CACHE_ROOT=%REPO_ROOT%/.cache/docker-go-test"
 set "GOCACHE_DIR=%CACHE_ROOT%/go-build"
 set "GOMODCACHE_DIR=%CACHE_ROOT%/go-mod"
 
-if "%~1"=="" goto :help
+if "%~1"=="" goto :full
 
 if /I "%~1"=="start" goto :start
 if /I "%~1"=="stop" goto :stop
@@ -167,6 +167,7 @@ exit /b 0
 echo Usage: %~nx0 ^<command^>
 echo.
 echo Commands:
+echo   (no args) - run full suite: go test -count=1 ./...
 echo   start   - start persistent docker runner with mounted Go caches
 echo   stop    - stop/remove persistent runner
 echo   status  - show runner container state
@@ -176,6 +177,7 @@ echo   full     - run full suite: go test -count=1 ./...
 echo   coverage - run backend coverage and write coverage.out/txt/html
 echo.
 echo Examples:
+echo   %~nx0
 echo   %~nx0 start
 echo   %~nx0 run ./internal/managed ./internal/api
 echo   %~nx0 run ./internal/managed -run TestService_Create_CapturesPrivateKey

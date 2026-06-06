@@ -152,6 +152,7 @@
 			onchange={(checked) => ontoggle(checked)}
 			loading={toggleLoading}
 			disabled={isOrphan}
+			ariaLabel={`Переключить DNS правило "${route.name || 'без названия'}"`}
 			size="sm"
 		/>
 		<div class="action-row">
