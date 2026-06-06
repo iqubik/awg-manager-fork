@@ -1,3 +1,4 @@
+import { goto } from '$app/navigation';
 import { writable, type Readable } from 'svelte/store';
 
 export type RouterMode = 'beginner' | 'expert';
@@ -37,10 +38,10 @@ export const mode: Readable<RouterMode> = { subscribe: store.subscribe };
 /**
  * Обновляет mode atomically:
  *   - in-memory store
- *   - URL ?mode= (replaceState — без новой записи в history)
+ *   - URL ?mode= (via SvelteKit goto — без новой записи в history)
  *   - localStorage
  *
- * Ошибки localStorage/history (private mode, restricted) тихо игнорируются.
+ * Ошибки localStorage/navigation (private mode, restricted) тихо игнорируются.
  */
 export function setMode(next: RouterMode): void {
   if (!isValid(next)) return;
@@ -51,9 +52,11 @@ export function setMode(next: RouterMode): void {
   try {
     const url = new URL(window.location.href);
     url.searchParams.set('mode', next);
-    window.history.replaceState({}, '', url.toString());
+    const search = url.searchParams.toString();
+    const target = url.pathname + (search ? `?${search}` : '') + url.hash;
+    void goto(target, { replaceState: true, keepFocus: true, noScroll: true });
   } catch {
-    // restricted history — ignore
+    // restricted navigation — ignore
   }
   try {
     window.localStorage.setItem(STORAGE_KEY, next);

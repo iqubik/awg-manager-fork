@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 
+vi.mock('$app/navigation', () => ({
+  goto: vi.fn((url: string) => {
+    window.history.replaceState({}, '', url);
+    return Promise.resolve();
+  }),
+}));
+
 const STORAGE_KEY = 'awg.sb-router.mode';
 
 function resetEnv(url: string) {
