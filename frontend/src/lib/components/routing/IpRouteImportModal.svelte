@@ -2,6 +2,8 @@
 	import { Modal, Button, Dropdown, type DropdownOption } from '$lib/components/ui';
 	import { parseStaticRouteImport, type PortableStaticRoute } from '$lib/utils/staticroute-export';
 	import type { RoutingTunnel } from '$lib/types';
+	import { pluralize, ROUTE_WORDS } from '$lib/utils/pluralize';
+	import RoutingImportDropZone from './RoutingImportDropZone.svelte';
 
 	interface Props {
 		open: boolean;
@@ -24,8 +26,6 @@
 	let parseError = $state('');
 	let importing = $state(false);
 	let wasOpen = $state(false);
-	let dragging = $state(false);
-	let fileInput = $state<HTMLInputElement>(null!);
 	let defaultTunnelId = $state('');
 	let tunnelOverrides = $state<Record<number, string>>({});
 	let editingTunnelIdx = $state<number | null>(null);
@@ -49,6 +49,10 @@
 	let userTunnels = $derived(tunnels.filter(t => t.type === 'managed' && t.available));
 	let systemTunnels = $derived(tunnels.filter(t => t.type === 'system' && t.available));
 	let noTunnels = $derived(tunnels.filter(t => t.available).length === 0);
+	let tunnelOpts = $derived<DropdownOption[]>([
+		...userTunnels.map((t) => ({ value: t.id, label: t.name, group: 'Пользовательские' })),
+		...systemTunnels.map((t) => ({ value: t.id, label: t.name, group: 'Системные' })),
+	]);
 
 	function isDuplicate(name: string): boolean {
 		return existingLower.includes(name.toLowerCase());
@@ -79,28 +83,6 @@
 		}
 	}
 
-	function handleFile(e: Event) {
-		const input = e.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (file) processFile(file);
-	}
-
-	function handleDrop(e: DragEvent) {
-		e.preventDefault();
-		dragging = false;
-		const file = e.dataTransfer?.files?.[0];
-		if (file) processFile(file);
-	}
-
-	function handleDragOver(e: DragEvent) {
-		e.preventDefault();
-		dragging = true;
-	}
-
-	function handleDragLeave() {
-		dragging = false;
-	}
-
 	function handleImport() {
 		if (!parsed) return;
 		const selected = parsed
@@ -114,40 +96,13 @@
 
 <Modal {open} title="Загрузить набор маршрутов" size="lg" {onclose}>
 	{#if !parsed}
-		<div class="import-upload">
-			<p class="import-description">
-				Загрузка конфигурации IP-маршрутов, <span class="import-accent">ранее сохранённых в AWG Manager</span>.
-			</p>
-			<div
-				class="drop-zone"
-				class:dragging
-				role="button"
-				tabindex="0"
-				onclick={() => fileInput.click()}
-				onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); }}
-				ondrop={handleDrop}
-				ondragover={handleDragOver}
-				ondragleave={handleDragLeave}
-			>
-				<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-					<polyline points="17 8 12 3 7 8"/>
-					<line x1="12" y1="3" x2="12" y2="15"/>
-				</svg>
-				<p class="drop-text">Перетащите .json файл сюда</p>
-				<p class="drop-hint">или нажмите для выбора</p>
-			</div>
-			<input type="file" accept=".json" onchange={handleFile} bind:this={fileInput} class="hidden-input" />
-			{#if parseError}
-				<p class="import-error">{parseError}</p>
-			{/if}
-		</div>
+		<RoutingImportDropZone
+			subject="IP-маршрутами"
+			parseError={parseError}
+			onfile={processFile}
+		/>
 	{:else}
-		<!-- Default tunnel selector -->
-		{@const tunnelOpts: DropdownOption[] = [
-			...userTunnels.map((t) => ({ value: t.id, label: t.name, group: 'Пользовательские' })),
-			...systemTunnels.map((t) => ({ value: t.id, label: t.name, group: 'Системные' })),
-		]}
+		<div class="import-preview">
 		<div class="tunnel-default-bar">
 			<span class="tunnel-default-label">Туннель для всех:</span>
 			<div class="tunnel-select">
@@ -164,8 +119,7 @@
 			<p class="import-error">Создайте хотя бы один туннель перед импортом</p>
 		{/if}
 
-		<!-- Preview list -->
-		<p class="import-hint">Найдено {parsed.length} маршрутов:</p>
+		<p class="import-hint">Найдено {pluralize(parsed.length, ROUTE_WORDS)}</p>
 		<div class="import-list">
 			{#each parsed as route, i}
 				<label class="import-item" class:duplicate={isDuplicate(route.name)} class:overridden={tunnelOverrides[i] != null}>
@@ -175,7 +129,7 @@
 						<span class="import-meta">{route.subnets.length} подсетей</span>
 					</div>
 					{#if isDuplicate(route.name)}
-						<span class="import-dup">(дубликат)</span>
+						<span class="import-dup">Дубликат</span>
 					{/if}
 					{#if editingTunnelIdx === i}
 						<div class="tunnel-select-inline">
@@ -207,6 +161,7 @@
 					{/if}
 				</label>
 			{/each}
+		</div>
 		</div>
 	{/if}
 

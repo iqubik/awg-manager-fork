@@ -193,18 +193,9 @@
 		}
 	});
 
-	// ─── Traffic chart (collapsible, persisted) ────────────────────
+	// ─── Traffic chart ─────────────────────────────────────────────
 	let rxRates = $state<number[]>([]);
 	let txRates = $state<number[]>([]);
-
-	const CHART_KEY_PREFIX = 'chart_expanded_';
-	// svelte-ignore state_referenced_locally — intentional: read once on mount
-	let chartExpanded = $state(localStorage.getItem(CHART_KEY_PREFIX + tunnel.id) !== 'false');
-
-	function toggleChart() {
-		chartExpanded = !chartExpanded;
-		localStorage.setItem(CHART_KEY_PREFIX + tunnel.id, String(chartExpanded));
-	}
 
 	let tunnelId = $derived(tunnel.id);
 	let chartHeight = $derived(view === 'compact' ? 76 : 100);
@@ -456,6 +447,11 @@
 			{#if view === 'cards'}
 			<div class="header-dense-body">
 				<div class="tunnel-name-row">
+					<span
+						class="led title-led led-{ledColor}"
+						class:led-pulse={ledPulse}
+						title={statusHint || listStatusText}
+					></span>
 					<button
 						type="button"
 						class="tunnel-name tunnel-name-dense"
@@ -481,9 +477,8 @@
 				</div>
 			</div>
 			<div class="dense-toolbar" title={statusHint || undefined}>
-				<!-- row 1: LED + toggle -->
+				<!-- row 1: toggle -->
 				<div class="dense-toolbar-top">
-					<span class="led led-{ledColor}" class:led-pulse={ledPulse}></span>
 				<span
 					class:toggle-recovering={borderState === 'recovering'}
 			class:toggle-starting={toggleStarting}
@@ -527,6 +522,11 @@
 			{:else}
 				<div class="head-left">
 					<div class="title-line">
+						<span
+							class="led title-led led-{ledColor}"
+							class:led-pulse={ledPulse}
+							title={statusHint || listStatusText}
+						></span>
 						<button
 							type="button"
 							class="tunnel-name"
@@ -555,10 +555,6 @@
 
 				<div class="head-right">
 					<div class="led-toggle">
-						<span
-							class="led led-{ledColor}"
-							class:led-pulse={ledPulse}
-						></span>
 					<span
 						class:toggle-recovering={borderState === 'recovering'}
 						class:toggle-starting={toggleStarting}
@@ -793,11 +789,7 @@
 				</button>
 			{:else}
 				<div class="chart-section">
-					<button type="button" class="chart-header" onclick={toggleChart}>
-						<span class="chart-label">Трафик</span>
-						<span class="chart-chevron" class:expanded={chartExpanded}>▾</span>
-					</button>
-					<div class="chart-body" class:expanded={chartExpanded}>
+					<div class="chart-body">
 						<TrafficChart
 							{rxRates}
 							{txRates}
@@ -1154,11 +1146,6 @@
 		padding: 0;
 	}
 
-	.card.view-dense .dense-toolbar-top .led {
-		width: 6px;
-		height: 6px;
-	}
-
 	.details-dense-cols {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) 5.5rem;
@@ -1303,16 +1290,22 @@
 		gap: 4px;
 	}
 
-	.card.view-dense .dense-toolbar .led {
-		width: 6px;
-		height: 6px;
-	}
-
 	.head-left {
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
 		min-width: 0;
+	}
+
+	.title-led {
+		flex: 0 0 auto;
+		margin-top: 1px;
+	}
+
+	.card.view-dense .title-led {
+		width: 6px;
+		height: 6px;
+		margin-top: 0;
 	}
 
 	.title-line {
@@ -1635,56 +1628,7 @@
 		border-radius: var(--radius-sm);
 	}
 
-	.chart-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		width: 100%;
-		padding: 7px 12px;
-		border: none;
-		border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
-		background: color-mix(in srgb, var(--color-bg-tertiary) 72%, transparent);
-		color: var(--color-text-secondary);
-		cursor: pointer;
-		user-select: none;
-		font: inherit;
-		transition: background var(--t-fast) ease, border-color var(--t-fast) ease;
-	}
-
-	.chart-header:hover {
-		background: color-mix(in srgb, var(--color-bg-hover) 78%, transparent);
-		border-bottom-color: var(--color-border-hover);
-	}
-
-	.chart-label {
-		font-size: 11px;
-		font-weight: 600;
-		color: var(--color-text-secondary);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-	}
-
-	.chart-chevron {
-		font-size: 14px;
-		color: var(--color-text-secondary);
-		opacity: 0.85;
-		transition: transform var(--t-fast) ease;
-		transform: rotate(-90deg);
-	}
-
-	.chart-chevron.expanded {
-		transform: rotate(0deg);
-	}
-
 	.chart-body {
-		max-height: 0;
-		overflow: hidden;
-		transition: max-height var(--t-med) ease;
-		padding: 0 12px;
-	}
-
-	.chart-body.expanded {
-		max-height: 300px;
 		padding: 0 12px 4px;
 	}
 

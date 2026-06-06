@@ -16,8 +16,8 @@ ARCH="${1:-mipsle}"
 
 cd "$PROJECT_ROOT"
 
-if [[ ! -f "$PROJECT_ROOT/frontend/build/index.html" ]]; then
-    echo "ERROR: Missing frontend/build/index.html"
+if [[ ! -f "$PROJECT_ROOT/frontend/build/index.html.gz" && ! -f "$PROJECT_ROOT/frontend/build/index.html" ]]; then
+    echo "ERROR: Missing frontend/build/index.html(.gz)"
     echo "Run scripts/build-frontend.sh first."
     exit 1
 fi

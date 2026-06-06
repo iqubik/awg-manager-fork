@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,10 @@ type respPoster struct{ body string }
 func (r *respPoster) Post(ctx context.Context, payload any) (json.RawMessage, error) {
 	return json.RawMessage(r.body), nil
 }
+
+type errPoster struct{ err error }
+
+func (e *errPoster) Post(context.Context, any) (json.RawMessage, error) { return nil, e.err }
 
 // Real success response captured from a router (5.01.A.x): the import
 // command returns the created interface name in import.created, plus an
@@ -94,6 +99,31 @@ func TestImportWireguardConfig_EmptyCreated_IncludesIntersects(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "Wireguard5") {
 		t.Errorf("error should name the intersecting interface, got: %v", err)
+	}
+}
+
+func TestImportWireguardConfig_PosterError(t *testing.T) {
+	c := NewWireguardCommands(&errPoster{err: errors.New("boom")}, nil, nil)
+	_, err := c.ImportWireguardConfig(context.Background(), []byte("conf"), "x.conf")
+	if err == nil || !strings.Contains(err.Error(), "import wireguard") {
+		t.Fatalf("err = %v, want contains import wireguard", err)
+	}
+}
+
+func TestImportWireguardConfig_InvalidResponseJSON(t *testing.T) {
+	c := NewWireguardCommands(&respPoster{body: `{"interface":`}, nil, nil)
+	_, err := c.ImportWireguardConfig(context.Background(), []byte("conf"), "x.conf")
+	if err == nil || !strings.Contains(err.Error(), "import wireguard: decode") {
+		t.Fatalf("err = %v, want decode error", err)
+	}
+}
+
+func TestImportWireguardConfig_EmptyCreatedNoStatusMessage(t *testing.T) {
+	body := `{"interface":{"wireguard":{"import":{"intersects":"","created":"","status":[]}}}}`
+	c := NewWireguardCommands(&respPoster{body: body}, nil, nil)
+	_, err := c.ImportWireguardConfig(context.Background(), []byte("conf"), "x.conf")
+	if err == nil || !strings.Contains(err.Error(), "no status message") {
+		t.Fatalf("err = %v, want no status message", err)
 	}
 }
 

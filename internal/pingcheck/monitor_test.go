@@ -48,19 +48,17 @@ func TestWaitHandshake_InterruptedByStopCh(t *testing.T) {
 	}
 }
 
-// TestWaitHandshake_DeadlineWithoutStop verifies that waitHandshake still
-// respects the 30-second deadline when stopCh is NOT closed (normal path).
+// TestWaitHandshake_DeadlineWithoutStop verifies that waitHandshake respects
+// the configured handshake deadline when stopCh is NOT closed (normal path).
 func TestWaitHandshake_DeadlineWithoutStop(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping long test in short mode")
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	const fastTimeout = 40 * time.Millisecond
 	s := &Service{
-		wg:  &slowWGClient{},
-		ctx: ctx,
+		wg:               &slowWGClient{},
+		ctx:              ctx,
+		handshakeTimeout: fastTimeout,
 	}
 
 	stopCh := make(chan struct{}) // never closed
@@ -72,7 +70,10 @@ func TestWaitHandshake_DeadlineWithoutStop(t *testing.T) {
 	if result {
 		t.Error("waitHandshake should return false when deadline expires")
 	}
-	if elapsed < 25*time.Second {
-		t.Errorf("waitHandshake returned too quickly (%v) — deadline should be ~30s", elapsed)
+	if elapsed < fastTimeout/2 {
+		t.Errorf("waitHandshake returned too quickly (%v) — deadline should be about %v", elapsed, fastTimeout)
+	}
+	if elapsed > time.Second {
+		t.Errorf("waitHandshake took too long (%v) for configured timeout %v", elapsed, fastTimeout)
 	}
 }

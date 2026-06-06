@@ -45,6 +45,7 @@ import (
 	ndmstransport "github.com/hoaxisr/awg-manager/internal/ndms/transport"
 	"github.com/hoaxisr/awg-manager/internal/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/pingcheck"
+	"github.com/hoaxisr/awg-manager/internal/presets"
 	"github.com/hoaxisr/awg-manager/internal/routing"
 	"github.com/hoaxisr/awg-manager/internal/server"
 	"github.com/hoaxisr/awg-manager/internal/singbox"
@@ -435,6 +436,10 @@ func main() {
 	// (constructed later, after ndmsCommands is available).
 	staticRouteStore := storage.NewStaticRouteStore(*dataDir)
 
+	// Unified preset catalog (U0: read-only, no CRUD yet)
+	presetStore := presets.NewStore(*dataDir)
+	presetCatalog := presets.NewCatalog(presetStore)
+
 	// Create external tunnel service
 	externalService := external.NewService(awgStore, settingsStore, tunnelService, loggingService)
 
@@ -443,6 +448,7 @@ func main() {
 	var systemTunnelSvc *systemtunnel.ServiceImpl
 
 	testService := testing.NewService(awgStore, loggingService)
+	testService.SetSettingsStore(settingsStore)
 
 	// Ping check service
 	pingCheckService := pingcheck.NewService(settingsStore, awgStore, wgClient, loggingService)
@@ -903,6 +909,7 @@ func main() {
 			KmodLoader:          kmodLoader,
 			UpdaterService:      updaterService,
 			NdmsQueries:         ndmsQueries,
+			NdmsCommands:        ndmsCommands,
 			TrafficHistory:      trafficHistory,
 			DnsRouteService:     dnsRouteService,
 			StaticRouteService:  staticRouteService,
@@ -1054,6 +1061,7 @@ func main() {
 		}()
 	}
 
+	srv.SetPresetCatalog(presetCatalog)
 	srv.SetDeviceProxyService(deviceProxySvc)
 	srv.SetDownloadService(sharedDownloadSvc)
 	// Note: legacy awg-* outbound cleanup happens lazily on first
@@ -1082,6 +1090,10 @@ func main() {
 		SubscriptionComposites: router.NewSubscriptionCompositesAdapter(subAdapter),
 		Orch:                   sbOrch,
 		WANInterfaces:          &routerWANInterfaceAdapter{store: ndmsQueries.Interfaces},
+		BindableInterfaces:     &routerWANInterfaceAdapter{store: ndmsQueries.Interfaces},
+		IngressResolver:        &routerIngressResolverAdapter{store: ndmsQueries.Interfaces},
+		PresetCatalog:          presetCatalog,
+		GeoData:                geoDataStore,
 	})
 	singboxOp.SetOutboundReferenceRenamer(routerSvc)
 	tunnelService.SetAWGSyncer(awgoutboundsSvc)
@@ -1207,11 +1219,15 @@ func main() {
 
 	// Register shutdown hooks for graceful cleanup before syscall.Exec restart.
 	srv.AddShutdownHook(shutdownCancel)
-	if !ndmsinfo.SupportsWireguardASC() {
-		srv.AddShutdownHook(func() {
-			nwgOp.KmodManager().RemoveAllTunnels()
-		})
-	}
+	// Intentionally NOT removing kmod proxy slots on restart: the
+	// reconnect path (EventReconnect → ActionRestoreKmod →
+	// KmodManager.RestoreTunnel) adopts each existing slot without
+	// touching /proc/awg_proxy/del, so kernel WG keeps forwarding
+	// through the live slot across syscall.Exec. This is what makes
+	// "Перезапуск AWGM, туннели продолжат работать" actually true on
+	// proxy-firmware. Touching /proc/del here also opened a kernel-side
+	// race on awg_proxy < 1.1.10 (issue #234) — slots are now left
+	// to the reconnect path.
 	srv.AddShutdownHook(pingCheckService.Stop)
 	srv.AddShutdownHook(monitoringService.Stop)
 	srv.AddShutdownHook(dnsRefreshScheduler.Stop)

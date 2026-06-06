@@ -31,13 +31,13 @@ type Service struct {
 // New creates a new updater service.
 func New(version string, settings *storage.SettingsStore, appLogger logging.AppLogger) *Service {
 	s := &Service{
-		version:    version,
-		appLog:     logging.NewScopedLogger(appLogger, logging.GroupSystem, logging.SubUpdate),
-		settings:   settings,
-		downloader: newDefaultDownloader(),
-		stop:       make(chan struct{}),
-		done:       make(chan struct{}),
+		version:  version,
+		appLog:   logging.NewScopedLogger(appLogger, logging.GroupSystem, logging.SubUpdate),
+		settings: settings,
+		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
 	}
+	s.downloader = newLoggingDownloader(newDefaultDownloader(), s.appLog)
 	s.changelog = newChangelogFetcher(changelogURLForChannel(channelStable), 10*time.Minute, s.downloader)
 	return s
 }
@@ -56,9 +56,9 @@ func (s *Service) SetDownloader(dl Downloader) {
 	if dl == nil {
 		dl = newDefaultDownloader()
 	}
-	s.downloader = dl
+	s.downloader = newLoggingDownloader(dl, s.appLog)
 	if s.changelog != nil {
-		s.changelog.downloader = dl
+		s.changelog.downloader = s.downloader
 	}
 }
 

@@ -14,6 +14,8 @@
 		onChangeIncludeRestart: (v: boolean) => void;
 		onStart: () => void;
 		onDownloadReport: () => void;
+		onCreateIncident: () => void;
+		creatingIncident?: boolean;
 	}
 
 	let {
@@ -28,6 +30,8 @@
 		onChangeIncludeRestart,
 		onStart,
 		onDownloadReport,
+		onCreateIncident,
+		creatingIncident = false,
 	}: Props = $props();
 
 	let startLabel = $derived(
@@ -52,6 +56,15 @@
 		loading={downloadingReport}
 	>
 		⤓ Отчёт
+	</Button>
+	<Button
+		variant="outline-danger"
+		onclick={onCreateIncident}
+		disabled={running || downloadingReport || creatingIncident}
+		loading={creatingIncident}
+		title="Подготовить публичный GitHub issue и скачать отчёт"
+	>
+		⚑ Инцидент
 	</Button>
 
 	{#if hasResults && !running}

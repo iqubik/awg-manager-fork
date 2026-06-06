@@ -164,12 +164,23 @@ func (s *GeoDataStore) Download(fileType, rawURL string) (*GeoFileEntry, error) 
 // DownloadWithClient fetches a .dat file from rawURL using the provided
 // client (or direct client when nil), validates it, and tracks it.
 func (s *GeoDataStore) DownloadWithClient(ctx context.Context, fileType, rawURL string, client *http.Client) (*GeoFileEntry, error) {
+	return s.DownloadWithClientVia(ctx, fileType, rawURL, client, "")
+}
+
+// DownloadWithClientVia is DownloadWithClient plus a UI-visible route label
+// for app logging. The caller is responsible for passing the route used by
+// the provided HTTP client.
+func (s *GeoDataStore) DownloadWithClientVia(ctx context.Context, fileType, rawURL string, client *http.Client, routeLabel string) (*GeoFileEntry, error) {
 	if fileType != "geosite" && fileType != "geoip" {
-		return nil, fmt.Errorf("invalid file type %q: must be geosite or geoip", fileType)
+		err := fmt.Errorf("invalid file type %q: must be geosite or geoip", fileType)
+		s.logGeoDataError("download-url", rawURL, "Ошибка загрузки geo-data", routeLabel, err)
+		return nil, err
 	}
 
 	if err := validateDownloadURL(rawURL); err != nil {
-		return nil, fmt.Errorf("invalid download URL: %w", err)
+		err = fmt.Errorf("invalid download URL: %w", err)
+		s.logGeoDataError("download-url", rawURL, "Ошибка загрузки geo-data", routeLabel, err)
+		return nil, err
 	}
 
 	s.mu.Lock()
@@ -188,7 +199,9 @@ func (s *GeoDataStore) DownloadWithClient(ctx context.Context, fileType, rawURL 
 	}
 	if count >= maxGeoFiles {
 		s.mu.Unlock()
-		return nil, fmt.Errorf("limit reached: maximum %d %s files allowed", maxGeoFiles, fileType)
+		err := fmt.Errorf("limit reached: maximum %d %s files allowed", maxGeoFiles, fileType)
+		s.logGeoDataError("download-url", rawURL, "Ошибка загрузки geo-data", routeLabel, err)
+		return nil, err
 	}
 
 	// Derive destination filename from URL, handling conflicts.
@@ -222,6 +235,7 @@ func (s *GeoDataStore) DownloadWithClient(ctx context.Context, fileType, rawURL 
 		unreserve()
 		report("error", 0, 0, err.Error())
 		s.logWarn("download", rawURL, fmt.Sprintf("%s: %v", fileType, err))
+		s.logGeoDataError("download-url", rawURL, "Ошибка загрузки geo-data", routeLabel, err)
 		return nil, fmt.Errorf("download %s: %w", rawURL, err)
 	}
 
@@ -235,6 +249,7 @@ func (s *GeoDataStore) DownloadWithClient(ctx context.Context, fileType, rawURL 
 		unreserve()
 		report("error", 0, 0, err.Error())
 		s.logWarn("validate", rawURL, fmt.Sprintf("%s: %v", fileType, err))
+		s.logGeoDataError("download-url", rawURL, "Ошибка загрузки geo-data", routeLabel, err)
 		return nil, fmt.Errorf("validate %s: %w", dest, err)
 	}
 	if tagCount == 0 {
@@ -243,7 +258,9 @@ func (s *GeoDataStore) DownloadWithClient(ctx context.Context, fileType, rawURL 
 		emsg := fmt.Sprintf("file has 0 %s entries — wrong type or corrupt download?", fileType)
 		report("error", size, size, emsg)
 		s.logWarn("validate", rawURL, emsg)
-		return nil, fmt.Errorf("%s", emsg)
+		err := fmt.Errorf("%s", emsg)
+		s.logGeoDataError("download-url", rawURL, "Ошибка загрузки geo-data", routeLabel, err)
+		return nil, err
 	}
 	entry := GeoFileEntry{
 		Type:     fileType,
@@ -261,7 +278,9 @@ func (s *GeoDataStore) DownloadWithClient(ctx context.Context, fileType, rawURL 
 		emsg := fmt.Sprintf("download reservation lost for %s", dest)
 		report("error", 0, 0, emsg)
 		s.logWarn("save", rawURL, emsg)
-		return nil, fmt.Errorf("download reservation lost for %s", dest)
+		err := fmt.Errorf("download reservation lost for %s", dest)
+		s.logGeoDataError("download-url", rawURL, "Ошибка загрузки geo-data", routeLabel, err)
+		return nil, err
 	}
 	delete(s.reserved, dest)
 	s.entries = append(s.entries, entry)
@@ -275,11 +294,13 @@ func (s *GeoDataStore) DownloadWithClient(ctx context.Context, fileType, rawURL 
 		emsg := fmt.Sprintf("save metadata: %v", err)
 		report("error", 0, 0, emsg)
 		s.logWarn("save", rawURL, emsg)
+		s.logGeoDataError("download-url", rawURL, "Ошибка загрузки geo-data", routeLabel, err)
 		return nil, fmt.Errorf("save metadata: %w", err)
 	}
 	s.mu.Unlock()
 
 	report("done", size, size, "")
+	s.logInfo("download-url", rawURL, fmt.Sprintf("Загрузка geo-data через %s: %s", normalizeRouteLabel(routeLabel), rawURL))
 	s.logInfo("download", rawURL, fmt.Sprintf("%s downloaded: %d bytes, %d tags", fileType, size, tagCount))
 	return &entry, nil
 }
@@ -369,6 +390,13 @@ func (s *GeoDataStore) Update(path string) (*GeoFileEntry, error) {
 // UpdateWithClient re-downloads a tracked geo file via the provided client
 // (or direct client when nil).
 func (s *GeoDataStore) UpdateWithClient(ctx context.Context, path string, client *http.Client) (*GeoFileEntry, error) {
+	return s.UpdateWithClientVia(ctx, path, client, "")
+}
+
+// UpdateWithClientVia is UpdateWithClient plus a UI-visible route label
+// for app logging. The caller is responsible for passing the route used by
+// the provided HTTP client.
+func (s *GeoDataStore) UpdateWithClientVia(ctx context.Context, path string, client *http.Client, routeLabel string) (*GeoFileEntry, error) {
 	path = filepath.Clean(path)
 	if !s.isManagedPath(path) {
 		return nil, fmt.Errorf("path outside managed geo directories")
@@ -379,17 +407,23 @@ func (s *GeoDataStore) UpdateWithClient(ctx context.Context, path string, client
 	idx := s.findUnlocked(path)
 	if idx < 0 {
 		s.mu.Unlock()
-		return nil, fmt.Errorf("geo file not found: %s", path)
+		err := fmt.Errorf("geo file not found: %s", path)
+		s.logGeoDataError("update-url", path, "Ошибка обновления geo-data", routeLabel, err)
+		return nil, err
 	}
 	if _, busy := s.busyPaths[path]; busy {
 		s.mu.Unlock()
-		return nil, fmt.Errorf("geo file is already being updated")
+		err := fmt.Errorf("geo file is already being updated")
+		s.logGeoDataError("update-url", path, "Ошибка обновления geo-data", routeLabel, err)
+		return nil, err
 	}
 
 	entry := s.entries[idx]
 	if entry.External {
 		s.mu.Unlock()
-		return nil, fmt.Errorf("cannot update external file managed by HydraRoute Neo — use «Взять под управление or update in HR Neo")
+		err := fmt.Errorf("cannot update external file managed by HydraRoute Neo — use «Взять под управление or update in HR Neo")
+		s.logGeoDataError("update-url", path, "Ошибка обновления geo-data", routeLabel, err)
+		return nil, err
 	}
 	sourceURL := entry.URL
 	if sourceURL == "" {
@@ -397,7 +431,9 @@ func (s *GeoDataStore) UpdateWithClient(ctx context.Context, path string, client
 	}
 	if sourceURL == "" {
 		s.mu.Unlock()
-		return nil, fmt.Errorf("no source URL for %s file", entry.Type)
+		err := fmt.Errorf("no source URL for %s file", entry.Type)
+		s.logGeoDataError("update-url", path, "Ошибка обновления geo-data", routeLabel, err)
+		return nil, err
 	}
 	progress := s.progress
 	s.busyPaths[path] = struct{}{}
@@ -418,6 +454,7 @@ func (s *GeoDataStore) UpdateWithClient(ctx context.Context, path string, client
 		if progress != nil {
 			progress(sourceURL, entry.Type, "error", 0, 0, err.Error())
 		}
+		s.logGeoDataError("update-url", sourceURL, "Ошибка обновления geo-data", routeLabel, err)
 		return nil, fmt.Errorf("re-download %s: %w", sourceURL, err)
 	}
 	if progress != nil {
@@ -430,6 +467,7 @@ func (s *GeoDataStore) UpdateWithClient(ctx context.Context, path string, client
 		if progress != nil {
 			progress(sourceURL, entry.Type, "error", 0, 0, err.Error())
 		}
+		s.logGeoDataError("update-url", sourceURL, "Ошибка обновления geo-data", routeLabel, err)
 		return nil, fmt.Errorf("validate after update: %w", err)
 	}
 	if tagCount == 0 {
@@ -438,7 +476,9 @@ func (s *GeoDataStore) UpdateWithClient(ctx context.Context, path string, client
 		if progress != nil {
 			progress(sourceURL, entry.Type, "error", size, size, emsg)
 		}
-		return nil, fmt.Errorf("%s", emsg)
+		err := fmt.Errorf("%s", emsg)
+		s.logGeoDataError("update-url", sourceURL, "Ошибка обновления geo-data", routeLabel, err)
+		return nil, err
 	}
 
 	s.mu.Lock()
@@ -450,7 +490,9 @@ func (s *GeoDataStore) UpdateWithClient(ctx context.Context, path string, client
 		if progress != nil {
 			progress(sourceURL, entry.Type, "error", 0, 0, emsg)
 		}
-		return nil, fmt.Errorf("geo file not found after update: %s", path)
+		err := fmt.Errorf("geo file not found after update: %s", path)
+		s.logGeoDataError("update-url", sourceURL, "Ошибка обновления geo-data", routeLabel, err)
+		return nil, err
 	}
 	geoUpdateSwapHook("before_swap_locked")
 	backup := fmt.Sprintf("%s.backup.%d.%d", path, os.Getpid(), time.Now().UnixNano())
@@ -460,6 +502,7 @@ func (s *GeoDataStore) UpdateWithClient(ctx context.Context, path string, client
 		if progress != nil {
 			progress(sourceURL, entry.Type, "error", 0, 0, err.Error())
 		}
+		s.logGeoDataError("update-url", sourceURL, "Ошибка обновления geo-data", routeLabel, err)
 		return nil, fmt.Errorf("backup current geo file: %w", err)
 	}
 	geoUpdateSwapHook("after_backup_rename")
@@ -475,6 +518,7 @@ func (s *GeoDataStore) UpdateWithClient(ctx context.Context, path string, client
 		if progress != nil {
 			progress(sourceURL, entry.Type, "error", 0, 0, emsg)
 		}
+		s.logGeoDataError("update-url", sourceURL, "Ошибка обновления geo-data", routeLabel, err)
 		return nil, fmt.Errorf("replace geo file: %w", err)
 	}
 
@@ -507,6 +551,7 @@ func (s *GeoDataStore) UpdateWithClient(ctx context.Context, path string, client
 		if rollbackWarn != "" {
 			s.logWarn("rollback", sourceURL, rollbackWarn)
 		}
+		s.logGeoDataError("update-url", sourceURL, "Ошибка обновления geo-data", routeLabel, err)
 		return nil, fmt.Errorf("save metadata: %w", err)
 	}
 
@@ -518,6 +563,7 @@ func (s *GeoDataStore) UpdateWithClient(ctx context.Context, path string, client
 	if progress != nil {
 		progress(sourceURL, entry.Type, "done", size, size, "")
 	}
+	s.logInfo("update-url", sourceURL, fmt.Sprintf("Обновление geo-data через %s: %s", normalizeRouteLabel(routeLabel), sourceURL))
 	return &updated, nil
 }
 
@@ -567,6 +613,13 @@ func (s *GeoDataStore) UpdateAll() (int, error) {
 // UpdateAllWithClient refreshes all tracked geo files via the provided client
 // (or direct client when nil).
 func (s *GeoDataStore) UpdateAllWithClient(ctx context.Context, client *http.Client) (int, error) {
+	return s.UpdateAllWithClientVia(ctx, client, "")
+}
+
+// UpdateAllWithClientVia is UpdateAllWithClient plus a UI-visible route label
+// for app logging. The caller is responsible for passing the route used by
+// the provided HTTP client.
+func (s *GeoDataStore) UpdateAllWithClientVia(ctx context.Context, client *http.Client, routeLabel string) (int, error) {
 	// Collect paths outside the lock so Update can re-acquire it.
 	s.mu.RLock()
 	var paths []string
@@ -581,7 +634,7 @@ func (s *GeoDataStore) UpdateAllWithClient(ctx context.Context, client *http.Cli
 	updated := 0
 	var errs []string
 	for _, path := range paths {
-		if _, err := s.UpdateWithClient(ctx, path, client); err != nil {
+		if _, err := s.UpdateWithClientVia(ctx, path, client, routeLabel); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", path, err))
 			continue
 		}
@@ -592,6 +645,21 @@ func (s *GeoDataStore) UpdateAllWithClient(ctx context.Context, client *http.Cli
 		return updated, fmt.Errorf("update errors: %s", strings.Join(errs, "; "))
 	}
 	return updated, nil
+}
+
+func normalizeRouteLabel(routeLabel string) string {
+	routeLabel = strings.TrimSpace(routeLabel)
+	if routeLabel == "" {
+		return "direct"
+	}
+	return routeLabel
+}
+
+func (s *GeoDataStore) logGeoDataError(action, rawURL, prefix, routeLabel string, err error) {
+	if err == nil {
+		return
+	}
+	s.logWarn(action, rawURL, fmt.Sprintf("%s через %s: %s: %v", prefix, normalizeRouteLabel(routeLabel), rawURL, err))
 }
 
 // GetTags returns the tag list for the given file path, using the cache.

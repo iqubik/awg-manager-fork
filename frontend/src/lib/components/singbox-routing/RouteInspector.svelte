@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Modal, Button } from '$lib/components/ui';
+	import { SideDrawer, Button } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import type {
@@ -507,7 +507,14 @@
 	const isReject = $derived(result?.destination === 'REJECT');
 </script>
 
-<Modal {open} title="Инспектор маршрутов" size="xl" onclose={close}>
+<SideDrawer
+	{open}
+	title="Инспектор маршрутов"
+	width={620}
+	onClose={close}
+	panelClass="route-inspector-drawer"
+	bodyClass="route-inspector-drawer-body"
+>
 	<div class="inspector">
 		<!-- Input section -->
 		<section class="card input-section">
@@ -520,7 +527,7 @@
 					type="text"
 					bind:value={inputValue}
 					onkeydown={handleKeydown}
-					placeholder="например, google.com или 8.8.8.8"
+					placeholder="google.com или 8.8.8.8"
 					class="text-input"
 					autocomplete="off"
 				/>
@@ -828,13 +835,28 @@
 			</div>
 		{/if}
 	</div>
-</Modal>
+</SideDrawer>
 
 <style>
+	:global(.route-inspector-drawer-body) {
+		padding: 0.75rem;
+		min-height: 0;
+	}
+
+	:global(.route-inspector-drawer-body .inspector) {
+		min-width: 0;
+	}
+
 	.inspector {
 		display: flex;
 		flex-direction: column;
 		gap: 0.875rem;
+		min-width: 0;
+	}
+
+	.inspector,
+	.inspector * {
+		min-width: 0;
 	}
 
 	.card {
@@ -852,7 +874,8 @@
 	}
 
 	.input-row {
-		display: flex;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
 		gap: 0.5rem;
 		align-items: stretch;
 	}
@@ -1489,6 +1512,29 @@
 
 		.report-header {
 			flex-direction: column;
+		}
+	}
+
+	@media (max-width: 768px) {
+		:global(.route-inspector-drawer) {
+			max-height: 92vh;
+		}
+
+		:global(.route-inspector-drawer-body) {
+			max-height: calc(92vh - 60px);
+			overflow-y: auto;
+			overscroll-behavior: contain;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.input-row {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.input-row :global(.btn) {
+			width: 100%;
+			justify-content: center;
 		}
 	}
 </style>

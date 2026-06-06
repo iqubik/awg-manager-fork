@@ -127,10 +127,18 @@
 			aria-expanded={!collapsed}
 			aria-label={collapsed ? 'Развернуть информацию о системе' : 'Свернуть информацию о системе'}
 		>
-			<span class="collapse-marker system-collapse-marker" aria-hidden="true">
-				{collapsed ? '▸' : '▾'}
-			</span>
 			<span class="section-label">Система</span>
+			<svg
+				class="section-chevron system-collapse-marker"
+				class:open={!collapsed}
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				aria-hidden="true"
+			>
+				<polyline points="6 9 12 15 18 9" />
+			</svg>
 		</button>
 		{#if !isBasic}
 			<div class="head-actions">
@@ -220,10 +228,18 @@
 	{#if isExpert && details}
 		<details class="more-box" bind:open={detailsOpen}>
 			<summary class="more-summary">
-				<span class="collapse-marker" aria-hidden="true">
-					{detailsOpen ? '▾' : '▸'}
-				</span>
 				<span>Подробнее</span>
+				<svg
+					class="more-chevron"
+					class:open={detailsOpen}
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<polyline points="6 9 12 15 18 9" />
+				</svg>
 			</summary>
 			<div class="more-grid">
 				<div class="setting-row"><span class="info-key">Build Date</span><span class="info-val">{details.firmwareBuildDate || '—'}</span></div>
@@ -276,7 +292,7 @@
 	.section-collapse-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.25rem;
+		gap: 0.35rem;
 		background: none;
 		border: none;
 		padding: 0;
@@ -285,19 +301,26 @@
 		pointer-events: none;
 	}
 
-	.collapse-marker {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 1.125rem;
+	.section-chevron,
+	.more-chevron {
+		width: 14px;
+		height: 14px;
 		flex-shrink: 0;
 		color: var(--color-text-muted);
-		font-size: 1.125rem;
-		line-height: 1;
+		transition: transform var(--t-fast) ease, color var(--t-fast) ease;
+	}
+
+	.section-chevron.open,
+	.more-chevron.open {
+		transform: rotate(180deg);
 	}
 
 	.system-collapse-marker {
 		display: none;
+	}
+
+	.section-collapse-btn:hover .section-chevron {
+		color: var(--color-text-primary);
 	}
 
 	.collapsible-body {
@@ -482,13 +505,14 @@
 	.more-box {
 		margin-top: 0.35rem;
 		border-top: 1px dashed var(--color-border);
-		padding-top: 0.4rem;
+		padding-top: 0.35rem;
 	}
 
 	.more-summary {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.25rem;
+		gap: 0.35rem;
+		padding: 0.125rem 0;
 		cursor: pointer;
 		font-size: 0.6875rem;
 		font-weight: 600;
@@ -496,6 +520,12 @@
 		letter-spacing: 0.05em;
 		color: var(--color-text-muted);
 		list-style: none;
+		transition: color var(--t-fast) ease;
+	}
+
+	.more-summary:hover,
+	.more-summary:hover .more-chevron {
+		color: var(--color-text-secondary);
 	}
 
 	.more-summary::marker {

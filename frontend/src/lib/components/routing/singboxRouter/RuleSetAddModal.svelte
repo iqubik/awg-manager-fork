@@ -2,11 +2,9 @@
 	import Modal from '$lib/components/ui/Modal.svelte';
 	import { Button, Dropdown, SyntaxHighlightedTextarea, type DropdownOption } from '$lib/components/ui';
 	import { highlightJson } from '$lib/utils/shareEditorHighlight';
-	import { highlightInlineRuleListContent } from '$lib/utils/singboxInlineRulesHighlight';
 	import { api } from '$lib/api/client';
 	import type { GeoFileEntry, SingboxRouterRuleSet } from '$lib/types';
 	import type { OutboundGroup } from './outboundOptions';
-	import { HrNeoGeoTagPicker } from '$lib/components/hrneo';
 	import {
 		analyzeInlineRuleListLossy,
 		isInlineRuleListEmpty,
@@ -15,6 +13,8 @@
 		validateRuleSetTag,
 	} from '$lib/utils/singboxInlineRules';
 	import { expandGeoLinesInInput } from '$lib/utils/singboxInlineGeoExpand';
+	import InlineRuleListEditor from './InlineRuleListEditor.svelte';
+	import GeoTagPicker from './GeoTagPicker.svelte';
 
 	interface Props {
 		ruleSet?: SingboxRouterRuleSet;
@@ -32,26 +32,6 @@
 		{ value: '168h', label: '168h (неделя)' },
 	];
 
-	const RULES_LIST_PLACEHOLDER = `# Домены и все поддомены
-chatgpt.com
-*.openai.com 
-https://gemini.google.com/app
-
-# Только поддомены
-.perplexity.ai
-domain_suffix:deepseek.com
-
-# Только домен
-domain:claude.ai
-
-# IP/CIDR
-1.1.1.1
-8.8.8.0/24
-
-# Дополнительно
-keyword:youtube
-geosite:xai`;
-
 	// ── derived ────────────────────────────────────────────────
 	const downloadDetourOptions = $derived<DropdownOption[]>([
 		{ value: '', label: 'автоматически (direct)' },
@@ -62,107 +42,18 @@ geosite:xai`;
 
 	const isEditing = $derived(Boolean(ruleSet));
 
-	let geoFiles = $state<GeoFileEntry[]>([]);
-	let geositePickerOpen = $state(false);
-	let geoipPickerOpen = $state(false);
-	let expandedRulesList = $state('');
-	let geoExpandWarnings = $state<string[]>([]);
-	let geoExpanding = $state(false);
-
-	let geositeFiles = $derived(geoFiles.filter((g) => g.type === 'geosite').map((g) => g.path));
-	let geoipFiles = $derived(geoFiles.filter((g) => g.type === 'geoip').map((g) => g.path));
-
-	$effect(() => {
-		void (async () => {
-			try {
-				geoFiles = (await api.getGeoFiles()) ?? [];
-			} catch {
-				geoFiles = [];
-			}
-		})();
-	});
-
-	$effect(() => {
-		if (type !== 'inline' || inlineMode !== 'list') {
-			expandedRulesList = '';
-			geoExpandWarnings = [];
-			return;
-		}
-		const input = rulesList;
-		const timer = setTimeout(() => {
-			void (async () => {
-				geoExpanding = true;
-				try {
-					const { text, warnings } = await expandGeoLinesInInput(input, async (kind, tag) => {
-						const res = await api.expandGeoTag(kind, tag);
-						return res.lines;
-					});
-					if (input === rulesList) {
-						expandedRulesList = text;
-						geoExpandWarnings = warnings;
-					}
-				} catch {
-					if (input === rulesList) {
-						expandedRulesList = input;
-						geoExpandWarnings = [];
-					}
-				} finally {
-					if (input === rulesList) geoExpanding = false;
-				}
-			})();
-		}, 350);
-		return () => clearTimeout(timer);
-	});
-
-	// ── inline preview derived ──────────────────────────────────
-	const listParsePreview = $derived.by(() => {
-		if (type !== 'inline' || inlineMode !== 'list') {
-			return { rules: [] as Record<string, unknown>[], warnings: [] as string[], errors: [] as string[] };
-		}
-		const source = expandedRulesList || rulesList;
-		const parsed = parseInlineRuleList(source);
-		if (geoExpandWarnings.length === 0) return parsed;
-		return {
-			...parsed,
-			warnings: [...geoExpandWarnings, ...parsed.warnings],
-		};
-	});
-
-	function appendRulesLine(token: string): void {
-		const trimmed = rulesList.trimEnd();
-		rulesList = trimmed ? `${trimmed}\n${token}` : token;
-	}
-
-	function appendGeositeLine(token: string): void {
-		appendRulesLine(token);
-		geositePickerOpen = false;
-	}
-
-	// ── line numbers for list / JSON editors ─────────────────────
+	// ── line numbers for JSON editor ─────────────────────
 	function lineNumbersFor(text: string): string {
 		const count = Math.max(1, text.split(/\r?\n/).length);
 		return Array.from({ length: count }, (_, i) => String(i + 1)).join('\n');
 	}
 
-	let rulesListTextarea = $state<HTMLTextAreaElement | null>(null);
-	let rulesListLineNumberGutter = $state<HTMLPreElement | null>(null);
 	let rulesJsonTextarea = $state<HTMLTextAreaElement | null>(null);
 	let rulesJsonLineNumberGutter = $state<HTMLPreElement | null>(null);
 
-	function syncLineNumberGutter(
-		ta: HTMLTextAreaElement | null,
-		gutter: HTMLPreElement | null,
-	): void {
-		if (!ta || !gutter) return;
-		gutter.scrollTop = ta.scrollTop;
-	}
-
-	function syncRulesListLineNumbersScroll(): void {
-		syncLineNumberGutter(rulesListTextarea, rulesListLineNumberGutter);
-	}
-
 	function syncRulesJsonLineNumbersScroll(): void {
-		syncLineNumberGutter(rulesJsonTextarea, rulesJsonLineNumberGutter);
+		if (!rulesJsonTextarea || !rulesJsonLineNumberGutter) return;
+		rulesJsonLineNumberGutter.scrollTop = rulesJsonTextarea.scrollTop;
 	}
 
 	// ── form state ──────────────────────────────────────────────
@@ -171,9 +62,9 @@ geosite:xai`;
 
 	let rulesList = $state('');
 
-	const listInputEmpty = $derived(isInlineRuleListEmpty(rulesList));
+	type RuleSetFormType = 'remote' | 'local' | 'inline' | 'geosite' | 'geoip';
 
-	let type: 'remote' | 'local' | 'inline' = $state('remote');
+	let type = $state<RuleSetFormType>('remote');
 	let format: 'binary' | 'source' = $state('binary');
 	let tag = $state('');
 	let url = $state('');
@@ -181,8 +72,10 @@ geosite:xai`;
 	let downloadDetour = $state('');
 	let path = $state('');
 	let rulesJson = $state('');
+	let geoFiles = $state<GeoFileEntry[]>([]);
+	let selectedGeoTags = $state<string[]>([]);
+	let geoFilesLoading = $state(false);
 
-	const rulesListLineNumbers = $derived(lineNumbersFor(rulesList));
 	const rulesJsonLineNumbers = $derived(lineNumbersFor(rulesJson));
 
 	let busy = $state(false);
@@ -261,6 +154,26 @@ geosite:xai`;
 		if (type !== 'inline') inlineTabConvertWarnings = [];
 	});
 
+	$effect(() => {
+		if (type !== 'geosite' && type !== 'geoip') return;
+		void (async () => {
+			geoFilesLoading = true;
+			try {
+				geoFiles = (await api.getGeoFiles()) ?? [];
+			} catch {
+				geoFiles = [];
+			} finally {
+				geoFilesLoading = false;
+			}
+		})();
+	});
+
+	const isDatType = $derived(type === 'geosite' || type === 'geoip');
+	const datKind = $derived(type === 'geoip' ? 'geoip' : 'geosite');
+	const datFiles = $derived(
+		isDatType ? geoFiles.filter((g) => g.type === datKind).map((g) => g.path) : [],
+	);
+
 	const inlineLossyAnalysis = $derived.by(() => {
 		if (!ruleSet || ruleSet.type !== 'inline') return { lossy: false, issues: [] as string[] };
 		return analyzeInlineRuleListLossy(ruleSet.rules);
@@ -277,7 +190,7 @@ geosite:xai`;
 
 	// Snapshot initial state for isDirty detection
 	let initialInlineMode: 'list' | 'json' = $state('list');
-	let initialType: 'remote' | 'local' | 'inline' = $state('remote');
+	let initialType: RuleSetFormType = $state('remote');
 	let initialFormat: 'binary' | 'source' = $state('binary');
 	let initialTag = $state('');
 	let initialUrl = $state('');
@@ -286,13 +199,15 @@ geosite:xai`;
 	let initialPath = $state('');
 	let initialRulesList = $state('');
 	let initialRulesJson = $state('');
+	let initialSelectedGeoTags = $state<string[]>([]);
 
 	const formResetKey = $derived(`${isEditing ? 'edit' : 'create'}:${ruleSet?.tag ?? ''}`);
 
 	$effect(() => {
 		void formResetKey;
 
-		const nextType: 'remote' | 'local' | 'inline' = ruleSet?.type ?? 'remote';
+		const datInfo = ruleSet?.type === 'remote' ? datInfoFromUrl(ruleSet.url) : null;
+		const nextType: RuleSetFormType = datInfo?.kind ?? ruleSet?.type ?? 'remote';
 		const nextFormat: 'binary' | 'source' = ruleSet?.format ?? 'binary';
 		const nextTag = ruleSet?.tag ?? '';
 		const nextUrl = ruleSet?.url ?? '';
@@ -325,6 +240,7 @@ geosite:xai`;
 		rulesJson = nextRulesJson;
 		inlineMode = nextInlineMode;
 		rulesList = nextRulesList;
+		selectedGeoTags = datInfo?.tags ?? [];
 
 		initialType = nextType;
 		initialFormat = nextFormat;
@@ -336,6 +252,7 @@ geosite:xai`;
 		initialRulesJson = nextRulesJson;
 		initialInlineMode = nextInlineMode;
 		initialRulesList = nextRulesList;
+		initialSelectedGeoTags = datInfo?.tags ?? [];
 
 		error = '';
 		busy = false;
@@ -353,9 +270,54 @@ geosite:xai`;
 			path !== initialPath ||
 			inlineMode !== initialInlineMode ||
 			rulesList !== initialRulesList ||
-			rulesJson !== initialRulesJson
+			rulesJson !== initialRulesJson ||
+			selectedGeoTags.join('\n') !== initialSelectedGeoTags.join('\n')
 		);
 	});
+
+	function toggleGeoTag(pickedTag: string): void {
+		if ((type !== 'geosite' && type !== 'geoip') || !pickedTag.trim()) return;
+		const shouldUpdateRuleSetTag =
+			tag.trim() === '' ||
+			((type === 'geosite' || type === 'geoip') &&
+				selectedGeoTags.length > 0 &&
+				tag.trim() === standardDatRuleSetTag(type, selectedGeoTags));
+		selectedGeoTags = selectedGeoTags.includes(pickedTag)
+			? selectedGeoTags.filter((t) => t !== pickedTag)
+			: [...selectedGeoTags, pickedTag];
+		if (shouldUpdateRuleSetTag) tag = selectedGeoTags.length > 0 ? standardDatRuleSetTag(type, selectedGeoTags) : '';
+	}
+
+	function setType(next: RuleSetFormType): void {
+		const wasDatKind = type === 'geosite' || type === 'geoip' ? type : null;
+		type = next;
+		if ((next === 'geosite' || next === 'geoip') && wasDatKind && wasDatKind !== next) {
+			if (tag.trim() === standardDatRuleSetTag(wasDatKind, selectedGeoTags)) tag = '';
+			selectedGeoTags = [];
+		}
+	}
+
+	function standardDatRuleSetTag(kind: 'geosite' | 'geoip', pickedTags: string[]): string {
+		return `${kind}-${pickedTags.join('-')}`.toLowerCase().replace(/[^a-z0-9._-]+/g, '-');
+	}
+
+	function savedRuleSetType(t: RuleSetFormType): SingboxRouterRuleSet['type'] {
+		return t === 'geosite' || t === 'geoip' ? 'remote' : t;
+	}
+
+	function datInfoFromUrl(rawUrl?: string): { kind: 'geosite' | 'geoip'; tags: string[] } | null {
+		if (!rawUrl) return null;
+		try {
+			const u = new URL(rawUrl);
+			if (u.pathname !== '/api/singbox/router/rulesets/dat-srs') return null;
+			const kind = u.searchParams.get('kind');
+			const tags = u.searchParams.getAll('tag').filter((t) => t.trim() !== '');
+			if ((kind !== 'geosite' && kind !== 'geoip') || tags.length === 0) return null;
+			return { kind, tags };
+		} catch {
+			return null;
+		}
+	}
 
 	async function save(): Promise<void> {
 		busy = true;
@@ -365,6 +327,11 @@ geosite:xai`;
 			const tagErr = validateRuleSetTag(cleanTag);
 			if (tagErr) {
 				error = tagErr;
+				busy = false;
+				return;
+			}
+			if (isDatType && selectedGeoTags.length === 0) {
+				error = 'Выберите хотя бы один тег из dat-файла';
 				busy = false;
 				return;
 			}
@@ -425,15 +392,22 @@ geosite:xai`;
 				}
 			}
 
+			let builtUrl = url.trim();
+			if (isDatType) {
+				const res = await api.singboxRouterDatRuleSetURL(datKind, selectedGeoTags);
+				builtUrl = res.url;
+			}
+
+			const savedType = savedRuleSetType(type);
 			const built: SingboxRouterRuleSet = {
 				tag: cleanTag,
-				type,
-				format: type === 'inline' ? undefined : format,
-				url: type === 'remote' ? url.trim() : undefined,
-				update_interval: type === 'remote' ? updateInterval : undefined,
+				type: savedType,
+				format: savedType === 'inline' ? undefined : isDatType ? 'binary' : format,
+				url: savedType === 'remote' ? builtUrl : undefined,
+				update_interval: savedType === 'remote' ? (isDatType ? '24h' : updateInterval) : undefined,
 				download_detour: type === 'remote' && downloadDetour ? downloadDetour : undefined,
-				path: type === 'local' ? path.trim() : undefined,
-				rules: type === 'inline' ? parsedRules : undefined,
+				path: savedType === 'local' ? path.trim() : undefined,
+				rules: savedType === 'inline' ? parsedRules : undefined,
 			};
 			await onSave(built);
 		} catch (e) {
@@ -448,10 +422,12 @@ geosite:xai`;
 	<div class="form">
 		<div class="field">
 			<div class="lbl">Тип</div>
-			<div class="segment">
-				<button class:active={type === 'remote'} onclick={() => (type = 'remote')} type="button">Remote</button>
-				<button class:active={type === 'local'} onclick={() => (type = 'local')} type="button">Local</button>
-				<button class:active={type === 'inline'} onclick={() => (type = 'inline')} type="button">Inline</button>
+			<div class="segment segment-type">
+				<button class:active={type === 'remote'} onclick={() => setType('remote')} type="button">Remote</button>
+				<button class:active={type === 'local'} onclick={() => setType('local')} type="button">Local</button>
+				<button class:active={type === 'inline'} onclick={() => setType('inline')} type="button">Inline</button>
+				<button class:active={type === 'geosite'} onclick={() => setType('geosite')} type="button">Geosite</button>
+				<button class:active={type === 'geoip'} onclick={() => setType('geoip')} type="button">GeoIP</button>
 			</div>
 		</div>
 
@@ -465,7 +441,7 @@ geosite:xai`;
 			{/if}
 		</label>
 
-		{#if type !== 'inline'}
+		{#if type !== 'inline' && !isDatType}
 			<label class="field">
 				<div class="lbl">Формат</div>
 				<div class="segment">
@@ -492,6 +468,38 @@ geosite:xai`;
 				<div class="hint">
 					Через какой outbound скачивать этот файл. Полезно если URL заблокирован у провайдера — используйте VPN-туннель.
 				</div>
+			</div>
+		{:else if isDatType}
+			<div class="field dat-picker-field">
+				<div class="dat-picker-head">
+					<div>
+						<div class="lbl">Теги {type}.dat</div>
+						<div class="hint">После сохранения будет создан remote rule-set с локальным URL конвертации в .srs.</div>
+					</div>
+				</div>
+				{#if selectedGeoTags.length > 0}
+					<div class="selected-geo-list" aria-label="Выбранные {type} теги">
+						{#each selectedGeoTags as geoTag}
+							<button type="button" class="selected-geo" onclick={() => toggleGeoTag(geoTag)}>
+								<code>{datKind}:{geoTag}</code>
+								<span aria-hidden="true">×</span>
+							</button>
+						{/each}
+					</div>
+				{:else if geoFilesLoading}
+					<div class="hint">Загрузка dat-файлов…</div>
+				{:else if datFiles.length === 0}
+					<div class="hint">Нет известных файлов {type}.dat. Добавьте их на вкладке «Маршрутизация → Гео-данные».</div>
+				{/if}
+				{#if datFiles.length > 0}
+					<GeoTagPicker
+						kind={datKind}
+						files={datFiles}
+						selected={selectedGeoTags}
+						onToggle={toggleGeoTag}
+					/>
+				{/if}
+				<div class="hint">remote · binary .srs · 24h · direct</div>
 			</div>
 		{:else if type === 'local'}
 			<label class="field">
@@ -534,173 +542,19 @@ geosite:xai`;
 
 			{#if inlineMode === 'list'}
 				<div class="field">
-					<div class="list-toolbar">
-						<div class="lbl" class:lbl-expanding={geoExpanding}>
-							{geoExpanding ? 'Разворачиваем geosite:/geoip: теги…' : 'Список правил'}
+					{#if isEditing && inlineLossyAnalysis.lossy}
+						<div class="parse-messages parse-messages-warning">
+							<div class="parse-messages-title">Потеря данных в режиме "Список"</div>
+							<ul>
+								<li>Этот JSON содержит поля, которые режим Список не может сохранить без потерь. Редактируйте в JSON.</li>
+								{#each inlineLossyAnalysis.issues as issue}
+									<li>{issue}</li>
+								{/each}
+							</ul>
 						</div>
-						<div class="list-toolbar-actions">
-							<Button variant="ghost" size="sm" onclick={() => (geositePickerOpen = !geositePickerOpen)}>
-								+ geosite:TAG
-							</Button>
-							<Button variant="ghost" size="sm" onclick={() => (geoipPickerOpen = !geoipPickerOpen)}>
-								+ geoip:TAG
-							</Button>
-						</div>
-					</div>
-					{#if geositePickerOpen}
-						<HrNeoGeoTagPicker
-							kind="geosite"
-							files={geositeFiles}
-							onpick={appendGeositeLine}
-							onclose={() => (geositePickerOpen = false)}
-						/>
 					{/if}
-					{#if geoipPickerOpen}
-						<HrNeoGeoTagPicker
-							kind="geoip"
-							files={geoipFiles}
-							onpick={(t) => appendRulesLine(t)}
-							onclose={() => (geoipPickerOpen = false)}
-						/>
-					{/if}
-					<div class="rules-editor">
-						<pre class="line-numbers" aria-hidden="true" bind:this={rulesListLineNumberGutter}>{rulesListLineNumbers}</pre>
-						<div class="rules-editor-input">
-							<SyntaxHighlightedTextarea
-								bind:value={rulesList}
-								bind:textareaRef={rulesListTextarea}
-								highlight={highlightInlineRuleListContent}
-								wrap="pre"
-								class="rules-list-ta"
-								placeholder={RULES_LIST_PLACEHOLDER}
-								onscroll={syncRulesListLineNumbersScroll}
-							/>
-						</div>
-					</div>
-				{#if isEditing && inlineLossyAnalysis.lossy}
-					<div class="parse-messages parse-messages-warning">
-						<div class="parse-messages-title">Потеря данных в режиме “Список”</div>
-						<ul>
-							<li>Этот JSON содержит поля, которые режим Список не может сохранить без потерь. Редактируйте в JSON.</li>
-							{#each inlineLossyAnalysis.issues as issue}
-								<li>{issue}</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
-				<details class="inline-help">
-					<summary>Подсказка по формату списка</summary>
-
-					<div class="inline-help-body">
-						<p class="inline-help-intro">
-							Одна строка — одно значение. Пустые строки игнорируются. <br>
-							В списке можно писать комментарии: <code>#</code>, <code>//</code>, <code>;</code> (целая строка или в конце — после пробела). <br>
-							При сохранении или переходе на вкладку JSON комментарии удаляются и в JSON не сохраняются. Порядок строк в списке не имеет значения и может меняться при сохранении.
-						</p>
-
-						<section class="inline-help-section">
-							<div class="help-label">Домены и поддомены</div>
-							<ul>
-								<li><code>domain.com</code>, <code>*.domain.com</code>, <code>domain_suffix:domain.com</code> → хост и его поддомены (в JSON: <code>"domain.com"</code> без точки)</li>
-								<li><code>https://example.domain.com/…</code> — из URL берётся hostname и хранится так же</li>
-								<li><code>*.рф</code> — доменная зона; кириллица будет конвертирована в punycode <code>xn--p1ai</code> без ведущей точки</li>
-							</ul>
-						</section>
-
-						<section class="inline-help-section">
-							<div class="help-label">Только поддомены (без отдельного <code>domain</code>)</div>
-							<ul>
-								<li><code>.domain.com</code> — суффикс <em>с</em> точкой в JSON: <code>[".domain.com"]</code> (apex не матчится)</li>
-								<li><code>domain_suffix:.domain.com</code> — явная dotted-форма, в JSON будет <code>".domain.com"</code></li>
-							</ul>
-						</section>
-
-						<section class="inline-help-section">
-							<div class="help-label">Только точный хост</div>
-							<ul>
-								<li><code>domain:domain.com</code> — только <code>domain</code>, без поддоменов</li>
-							</ul>
-						</section>
-
-						<section class="inline-help-section">
-							<div class="help-label">IP и подсети (только IPv4)</div>
-							<ul>
-								<li><code>1.1.1.1</code> — в JSON как <code>1.1.1.1/32</code>; при обратном переводе снова голый IP</li>
-								<li><code>8.8.8.0/24</code> — CIDR как есть; маски кроме <code>/32</code> не сжимаются</li>
-								<li>префиксы <code>ip:</code>, <code>cidr:</code>, <code>src_ip:</code> — то же правило</li>
-								<li>IPv6 в режиме «Список» не поддерживается — адреса и префиксы IPv6 задавайте в JSON</li>
-							</ul>
-						</section>
-
-						<section class="inline-help-section">
-							<div class="help-label">Geo и прочие matchers</div>
-							<ul>
-								<li><code>geosite:TAG</code> — разворачивается в домены; суффиксы из .dat — <strong>без</strong> ведущей точки (как <code>domain.com</code>)</li>
-								<li><code>geoip:TAG</code> — разворачивается в CIDR; одиночные хосты из geo — в списке без <code>/32</code></li>
-								<li><code>keyword:TAG</code>, <code>regex:…</code> — отдельные поля в JSON</li>
-							</ul>
-						</section>
-
-						<section class="inline-help-section">
-							<div class="help-label">Расширенные matchers</div>
-							<ul>
-								<li><code>port:443</code>, <code>process:curl</code>, <code>package:…</code>, <code>network:tcp|udp</code></li>
-								<li>каждый тип — отдельная группа правил в JSON (не смешивается с доменами в одной записи)</li>
-							</ul>
-						</section>
-
-						<section class="inline-help-section">
-							<div class="help-label">Осторожно</div>
-							<ul>
-								<li><code>port:443</code> — отдельное правило на весь HTTPS-трафик</li>
-								<li><code>process:</code> / <code>process_path:</code> на Keenetic/Entware — только локальные процессы роутера, не LAN-клиенты</li>
-							</ul>
-						</section>
-
-						<section class="inline-help-section">
-							<div class="help-label">Пока не в режиме «Список»</div>
-							<ul>
-								<li>IPv6, исключения <code>@@</code>, <code>port_range:</code></li>
-								<li>логика <code>and</code> / <code>or</code> и любые лишние поля sing-box — только режим <code>JSON</code></li>
-							</ul>
-						</section>
-					</div>
-				</details>
+					<InlineRuleListEditor bind:value={rulesList} />
 				</div>
-
-				{#if listInputEmpty}
-					<div class="hint list-empty-hint">Список пуст — добавьте домены, IP или geosite:/geoip: тег.</div>
-				{:else if listParsePreview.errors.length > 0}
-					<div class="parse-messages parse-messages-error">
-						<div class="parse-messages-title">Ошибки разбора</div>
-						<ul>
-							{#each listParsePreview.errors as msg}
-								<li>{msg}</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
-				{#if listParsePreview.warnings.length > 0}
-					<div class="parse-messages parse-messages-warning">
-						<div class="parse-messages-title">Предупреждения</div>
-						<ul>
-							{#each listParsePreview.warnings as msg}
-								<li>{msg}</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
-				{#if listParsePreview.rules.length > 0}
-					<div class="info">
-						Будет создано групп правил: {listParsePreview.rules.length}
-					</div>
-				{/if}
-				{#if listParsePreview.rules.length > 0}
-					<details class="json-preview">
-						<summary>Предпросмотр JSON</summary>
-						<pre>{JSON.stringify(listParsePreview.rules, null, 2)}</pre>
-					</details>
-				{/if}
 			{:else}
 				<label class="field">
 					<div class="lbl">Правила (JSON-массив)</div>
@@ -763,82 +617,59 @@ geosite:xai`;
 		border-left: 2px solid var(--accent, #3b82f6);
 		border-radius: 4px;
 	}
+	.dat-picker-field {
+		padding: 0.6rem;
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+	}
+	.dat-picker-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+	.selected-geo-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+	}
+	.selected-geo {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		min-width: 0;
+		padding: 0.35rem 0.5rem;
+		border-radius: 4px;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		font-size: 0.78rem;
+		color: var(--muted-text);
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.selected-geo:hover {
+		border-color: var(--danger, #dc2626);
+	}
+	.selected-geo code {
+		min-width: 0;
+		overflow-wrap: anywhere;
+		color: var(--text);
+	}
+	.selected-geo span {
+		color: var(--muted-text);
+		font-size: 0.9rem;
+		line-height: 1;
+	}
 	.lbl {
 		font-size: 0.75rem;
 		color: var(--muted-text);
-	}
-	.lbl-expanding {
-		color: var(--accent, #3b82f6);
-	}
-	.list-toolbar {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.5rem;
-		flex-wrap: wrap;
-	}
-	.list-toolbar-actions {
-		display: flex;
-		gap: 0.35rem;
-		flex-wrap: wrap;
 	}
 	.hint {
 		font-size: 0.75rem;
 		color: var(--muted-text);
 		line-height: 1.4;
 		margin-top: 0.25rem;
-	}
-	.inline-help {
-		margin-top: 0.35rem;
-		padding: 0.5rem 0.65rem;
-		border: 1px solid var(--border);
-		border-radius: 0.45rem;
-		background: var(--surface-1, rgba(255, 255, 255, 0.035));
-		color: var(--muted-text);
-		font-size: 0.8rem;
-		line-height: 1.45;
-	}
-
-	.inline-help summary {
-		cursor: pointer;
-		color: var(--text);
-		font-weight: 700;
-		outline: none;
-	}
-
-	.inline-help-body {
-		margin-top: 0.45rem;
-		display: grid;
-		gap: 0.55rem;
-	}
-
-	.inline-help-intro {
-		margin: 0;
-	}
-
-	.inline-help-section ul {
-		margin: 0.2rem 0 0;
-		padding-left: 1.15rem;
-	}
-
-	.inline-help-section li {
-		margin: 0.12rem 0;
-	}
-
-	.inline-help-section li::marker {
-		color: var(--muted-text);
-	}
-
-	.inline-help code {
-		background: var(--surface-2, rgba(255, 255, 255, 0.06));
-		border-radius: 0.25rem;
-		padding: 0.05rem 0.25rem;
-		font-size: 0.78rem;
-	}
-
-	.help-label {
-		color: var(--text);
-		font-weight: 600;
 	}
 	.field input {
 		background: var(--bg);
@@ -890,6 +721,75 @@ geosite:xai`;
 		color: var(--color-accent-contrast, #ffffff);
 		font-weight: 600;
 	}
+
+	@media (max-width: 640px) {
+		.segment {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			width: 100%;
+			overflow: visible;
+		}
+
+		.segment button {
+			min-height: 2.25rem;
+			padding: 0.45rem 0.5rem;
+			text-align: center;
+		}
+
+		.segment button + button {
+			border-left: none;
+		}
+
+		.segment button {
+			border-left: 1px solid var(--border);
+			border-top: 1px solid var(--border);
+		}
+
+		.segment button:nth-child(-n + 2) {
+			border-top: none;
+		}
+
+		.segment button:nth-child(2n + 1) {
+			border-left: none;
+		}
+
+		.segment:not(.segment-type) button:last-child:nth-child(odd) {
+			grid-column: 2 / 3;
+		}
+
+		.segment-type {
+			grid-template-columns: repeat(6, minmax(0, 1fr));
+		}
+
+		.segment-type button {
+			grid-column: span 2;
+			min-width: 0;
+		}
+
+		.segment-type button:nth-child(4),
+		.segment-type button:nth-child(5) {
+			grid-column: span 3;
+		}
+
+		.segment-type button:nth-child(3) {
+			border-left: 1px solid var(--border);
+			border-top: none;
+		}
+
+		.segment-type button:nth-child(4) {
+			border-left: none;
+			border-top: 1px solid var(--border);
+		}
+
+		.segment-type button:nth-child(5) {
+			border-left: 1px solid var(--border);
+			border-top: 1px solid var(--border);
+		}
+
+		.segment-type button:last-child:nth-child(odd) {
+			grid-column: span 3;
+		}
+	}
 	.error {
 		color: var(--danger, #dc2626);
 		font-size: 0.85rem;
@@ -924,38 +824,10 @@ geosite:xai`;
 		margin: 0;
 	}
 
-	.parse-messages-error {
-		border-color: var(--danger, #dc2626);
-		color: var(--danger, #dc2626);
-		background: rgba(220, 38, 38, 0.08);
-	}
-
 	.parse-messages-warning {
 		border-color: var(--color-warning, #d97706);
 		color: var(--color-warning, #d97706);
 		background: rgba(217, 119, 6, 0.08);
-	}
-	.info {
-		color: #10b981;
-		font-size: 0.85rem;
-	}
-	.json-preview {
-		margin: 0;
-	}
-	.json-preview summary {
-		cursor: pointer;
-		font-size: 0.85rem;
-		color: var(--accent, #3b82f6);
-		outline: none;
-	}
-	.json-preview pre {
-		background: var(--bg);
-		border: 1px solid var(--border);
-		border-radius: 4px;
-		padding: 0.5rem 0.6rem;
-		font-size: 0.75rem;
-		overflow-x: auto;
-		margin-top: 0.25rem;
 	}
 	.rules-editor {
 		display: grid;

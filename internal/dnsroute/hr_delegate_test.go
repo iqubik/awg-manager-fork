@@ -190,6 +190,45 @@ func TestCreate_HRBackend_BrokenTunnelRejected(t *testing.T) {
 	}
 }
 
+func TestSetEnabled_HRRule_TogglesFileComment(t *testing.T) {
+	resolver := &stubResolver{kernelByTunnel: map[string]string{"awg10": "nwg0"}}
+	svc, hydra := newHRTestSvc(t, resolver)
+
+	_, _ = hydra.CreateRule(hydraroute.HRRule{
+		Name: "Youtube", Domains: []string{"youtube.com"}, Target: "nwg0",
+	})
+
+	if err := svc.SetEnabled(context.Background(), "hr:Youtube", false); err != nil {
+		t.Fatalf("SetEnabled disable: %v", err)
+	}
+	rules, _, _ := hydra.ListRules()
+	if len(rules) != 1 || !rules[0].Disabled {
+		t.Fatalf("expected disabled rule: %+v", rules)
+	}
+	lists, err := svc.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *DomainList
+	for i := range lists {
+		if lists[i].ID == "hr:Youtube" {
+			found = &lists[i]
+			break
+		}
+	}
+	if found == nil || found.Enabled {
+		t.Fatalf("List() enabled flag: %+v", found)
+	}
+
+	if err := svc.SetEnabled(context.Background(), "hr:Youtube", true); err != nil {
+		t.Fatalf("SetEnabled enable: %v", err)
+	}
+	rules, _, _ = hydra.ListRules()
+	if len(rules) != 1 || rules[0].Disabled {
+		t.Fatalf("expected enabled rule: %+v", rules)
+	}
+}
+
 func TestDelete_HRRule_RemovesFromHRFile(t *testing.T) {
 	resolver := &stubResolver{kernelByTunnel: map[string]string{"awg10": "nwg0"}}
 	svc, hydra := newHRTestSvc(t, resolver)

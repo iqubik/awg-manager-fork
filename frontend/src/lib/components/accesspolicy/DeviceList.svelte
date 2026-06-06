@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PolicyDevice } from '$lib/types';
+	import { Badge } from '$lib/components/ui';
 
 	interface Props {
 		devices: PolicyDevice[];
@@ -56,7 +57,7 @@
 					{/if}
 				</div>
 				{#if isBusy}
-					<span class="badge-policy">{device.policy}</span>
+					<Badge variant="muted" size="xs">{device.policy}</Badge>
 				{/if}
 				<button
 					class="assign-btn"
@@ -158,16 +159,6 @@
 	.device-ip {
 		font-size: 0.6875rem;
 		color: var(--text-muted);
-	}
-
-	.badge-policy {
-		font-size: 0.625rem;
-		padding: 1px 6px;
-		border-radius: 9999px;
-		background: var(--bg-hover);
-		color: var(--text-muted);
-		border: 1px solid var(--border);
-		white-space: nowrap;
 	}
 
 	.assign-btn {

@@ -10,6 +10,11 @@
 		StaticRecordsCard,
 		RebindCard,
 	} from '$lib/components/diagnostics';
+	import { notifications } from '$lib/stores/notifications';
+	import { systemInfo } from '$lib/stores/system';
+	import { copyToClipboard } from '$lib/utils/clipboard';
+	import { downloadBlob } from '$lib/utils/download';
+	import { dnsInfoReportFilename, formatDnsInfoReport } from '$lib/utils/dns-report';
 
 	let info = $state<DnsProxyInfo | null>(null);
 	let loading = $state(false);
@@ -30,6 +35,41 @@
 		}
 	}
 
+	async function getFreshRouterTimeOrWarn(): Promise<{ routerTime: string; routerOffset?: number } | null> {
+		await systemInfo.refetch();
+		const routerTime = $systemInfo.data?.routerTime;
+		if (!routerTime) {
+			notifications.warning('Время роутера ещё не загружено, попробуйте через несколько секунд');
+			return null;
+		}
+		return {
+			routerTime,
+			routerOffset: $systemInfo.data?.routerTimezoneOffsetMinutes,
+		};
+	}
+
+	async function copyData(): Promise<void> {
+		if (!info || loading) return;
+		const clock = await getFreshRouterTimeOrWarn();
+		if (!clock) return;
+		const { routerTime, routerOffset } = clock;
+		const ok = await copyToClipboard(formatDnsInfoReport(info, routerTime, routerOffset));
+		if (ok) notifications.success('DNS отчёт скопирован');
+		else notifications.error('Не удалось скопировать DNS отчёт');
+	}
+
+	async function saveFile(): Promise<void> {
+		if (!info || loading) return;
+		const clock = await getFreshRouterTimeOrWarn();
+		if (!clock) return;
+		const { routerTime, routerOffset } = clock;
+		const report = formatDnsInfoReport(info, routerTime, routerOffset);
+		downloadBlob(
+			new Blob([report], { type: 'text/plain;charset=utf-8' }),
+			dnsInfoReportFilename(routerTime, routerOffset),
+		);
+	}
+
 	onMount(load);
 </script>
 
@@ -39,8 +79,39 @@
 	</svg>
 {/snippet}
 
+{#snippet saveIcon()}
+	<svg
+		width="14"
+		height="14"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2"
+		aria-hidden="true"
+	>
+		<path d="M5 4h11l3 3v13H5z" stroke-linecap="round" stroke-linejoin="round" />
+		<path d="M8 4v6h8V4" stroke-linecap="round" stroke-linejoin="round" />
+		<path d="M9 18h6" stroke-linecap="round" />
+	</svg>
+{/snippet}
+
 <div class="toolbar">
-	<Button variant="secondary" size="sm" onclick={load} loading={loading} iconBefore={refreshIcon}>Обновить</Button>
+	<Button
+	variant="secondary"
+	size="sm"
+	onclick={load}
+	loading={loading}
+	iconBefore={refreshIcon}
+	title="Обновить"
+>
+	Обновить
+</Button>
+	<Button variant="secondary" size="sm" onclick={copyData} disabled={!info || loading}>Скопировать данные</Button>
+	<span class="save-file-action">
+		<Button variant="primary" size="sm" onclick={saveFile} disabled={!info || loading} iconBefore={saveIcon}>
+			Сохранить файл
+		</Button>
+	</span>
 </div>
 
 {#if loading && !info}
@@ -75,21 +146,64 @@
 <style>
 	.toolbar {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 0.5rem;
 		margin-bottom: 0.75rem;
+	}
+
+	@media (min-width: 641px) {
+		.toolbar > :global(.btn:first-child) {
+			position: relative;
+			width: 28px;
+			min-width: 28px;
+			padding-inline: 0;
+		}
+
+		.toolbar > :global(.btn:first-child .label) {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			padding: 0;
+			margin: -1px;
+			overflow: hidden;
+			clip: rect(0 0 0 0);
+			clip-path: inset(50%);
+			white-space: nowrap;
+			border: 0;
+		}
 	}
 	.hint { font-size: 0.8125rem; color: var(--text-muted); margin: 0 0 0.75rem; }
 	.warn { color: var(--warning); }
 	.dns-sections { display: flex; flex-direction: column; gap: 16px; }
 	.card-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px; }
 	.hint-inline { font-size: 11px; font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 8px; opacity: .8; }
+	.save-file-action {
+		display: inline-flex;
+		min-width: 0;
+	}
 
 	@media (max-width: 640px) {
 		.toolbar {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
 			width: 100%;
 		}
 
 		.toolbar :global(.btn) {
+			width: 100%;
+			min-width: 0;
+		}
+
+		.toolbar > :global(.btn:first-child .icon-before) {
+			display: none;
+		}
+
+		.save-file-action {
+			grid-column: 1 / -1;
+			width: 100%;
+		}
+
+		.save-file-action :global(.btn) {
 			width: 100%;
 			justify-content: center;
 		}

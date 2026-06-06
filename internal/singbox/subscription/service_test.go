@@ -3,6 +3,7 @@ package subscription
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -36,6 +37,7 @@ type fakeMutator struct {
 	removedProxies   []int
 	selectedSelector []string          // "selectorTag→memberTag" pairs recorded by SelectClashProxy
 	clashActiveByTag map[string]string // selectorTag → live active member
+	declaredTags     []string          // DeclaredOutboundTags result; nil = no-op (no pruning)
 }
 
 func (f *fakeMutator) AllocListenPort() (uint16, error) {
@@ -86,6 +88,7 @@ func (f *fakeMutator) RemoveProxy(_ context.Context, idx int) error {
 	return nil
 }
 func (f *fakeMutator) Reload(ctx context.Context) error { return nil }
+func (f *fakeMutator) DeclaredOutboundTags() []string   { return f.declaredTags }
 func (f *fakeMutator) SelectClashProxy(selectorTag, memberTag string) error {
 	f.selectedSelector = append(f.selectedSelector, selectorTag+"→"+memberTag)
 	return nil
@@ -256,6 +259,50 @@ func TestService_Refresh_AddsNewMember(t *testing.T) {
 	updated, _ := store.Get(sub.ID)
 	if len(updated.MemberTags) != 2 {
 		t.Errorf("MemberTags after refresh=%d want 2", len(updated.MemberTags))
+	}
+}
+
+// Root-cause-B: a server that flush() dropped (absent from the declared/
+// emitted set) must be pruned from stored MemberTags on refresh, so it
+// can't be re-introduced as a dangling group member later.
+func TestService_Refresh_PrunesUndeclaredMember(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("vless://3a3b1c2e-9999-4321-aaaa-1234567890ab@example.com:443?security=tls&sni=h\n" +
+			"trojan://p@example.com:444?security=tls&sni=h\n"))
+	}))
+	defer srv.Close()
+
+	store, _ := NewStore(filepath.Join(t.TempDir(), "sub.json"))
+	mutator := &fakeMutator{}
+	svc := NewService(store, mutator)
+	withLegacySetupNoop(svc)
+
+	sub, err := svc.Create(context.Background(), CreateInput{Label: "test", URL: srv.URL, Enabled: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// First refresh: declaredTags nil → no pruning, both members materialize.
+	if _, err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatalf("Refresh#1: %v", err)
+	}
+	updated, _ := store.Get(sub.ID)
+	if len(updated.MemberTags) != 2 {
+		t.Fatalf("after refresh#1 MemberTags=%d want 2", len(updated.MemberTags))
+	}
+
+	// Simulate flush dropping the 2nd server: the slot now declares only the
+	// group + the first server. Second refresh must prune the undeclared one.
+	keep := updated.MemberTags[0]
+	mutator.declaredTags = []string{sub.SelectorTag, keep}
+	if _, err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatalf("Refresh#2: %v", err)
+	}
+	updated2, _ := store.Get(sub.ID)
+	if len(updated2.MemberTags) != 1 || updated2.MemberTags[0] != keep {
+		t.Fatalf("after refresh#2 MemberTags=%v want [%s]", updated2.MemberTags, keep)
+	}
+	if updated2.ActiveMember != keep {
+		t.Fatalf("ActiveMember=%q want %q", updated2.ActiveMember, keep)
 	}
 }
 
@@ -777,7 +824,7 @@ func TestService_Create_SingboxJSONConfig_Happy(t *testing.T) {
 			"dns": {"servers": [{"address": "8.8.8.8"}]},
 			"route": {"rules": []},
 			"outbounds": [
-				{"type":"vless","tag":"NL","server":"nl.example.com","server_port":443,"uuid":"3a3b1c2e-9999-4321-aaaa-1234567890ab","flow":"xtls-rprx-vision","tls":{"enabled":true,"server_name":"sni","reality":{"enabled":true,"public_key":"PK","short_id":"SID"}}},
+				{"type":"vless","tag":"NL","server":"nl.example.com","server_port":443,"uuid":"3a3b1c2e-9999-4321-aaaa-1234567890ab","flow":"xtls-rprx-vision","tls":{"enabled":true,"server_name":"sni","utls":{"enabled":true,"fingerprint":"chrome"},"reality":{"enabled":true,"public_key":"PK","short_id":"SID"}}},
 				{"type":"trojan","tag":"DE","server":"de.example.com","server_port":443,"password":"p"},
 				{"type":"shadowsocks","tag":"SS","server":"ss.example.com","server_port":8388,"method":"aes-256-gcm","password":"sp"},
 				{"type":"hysteria2","tag":"HY","server":"hy.example.com","server_port":8443,"password":"hp"},
@@ -963,6 +1010,7 @@ func TestService_Create_SNI_RealityWithoutServerName_IsEmpty(t *testing.T) {
 				"uuid": "3a3b1c2e-9999-4321-aaaa-1234567890ab",
 				"tls": {
 					"enabled": true,
+					"utls": {"enabled": true, "fingerprint": "chrome"},
 					"reality": {
 						"enabled": true,
 						"public_key": "PK",
@@ -1166,5 +1214,161 @@ func TestService_Create_URLFetchError_DoesNotContainDownloadVia(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "download via") {
 		t.Fatalf("error must not contain downloader route prefix: %v", err)
+	}
+}
+
+func TestService_MoveRejectedToInfo_PromotesToUserInfo(t *testing.T) {
+	store, _ := NewStore(filepath.Join(t.TempDir(), "sub.json"))
+	svc := NewService(store, &fakeMutator{})
+	sub, err := svc.Create(context.Background(), CreateInput{
+		Label:   "extras",
+		Inline:  "vless://3a3b1c2e-9999-4321-aaaa-1234567890ab@h1.example:443?security=tls&sni=h\n",
+		Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	rejectTag := "sub-deadbeef-cafebabe"
+	if err := store.SetRejectedAndInfo(sub.ID, []RejectedMember{{
+		Tag: rejectTag, Label: "DE backup", Protocol: "vless", Reason: "reality requires utls block",
+	}}, nil); err != nil {
+		t.Fatalf("seed rejected: %v", err)
+	}
+
+	updated, err := svc.MoveRejectedToInfo(context.Background(), sub.ID, rejectTag)
+	if err != nil {
+		t.Fatalf("MoveRejectedToInfo: %v", err)
+	}
+	if len(updated.RejectedMembers) != 0 {
+		t.Fatalf("rejected=%+v want empty", updated.RejectedMembers)
+	}
+	if len(updated.InfoItems) != 1 {
+		t.Fatalf("info=%+v", updated.InfoItems)
+	}
+	if updated.InfoItems[0].Label != "DE backup" {
+		t.Fatalf("info item: %+v", updated.InfoItems[0])
+	}
+}
+
+func TestService_MoveRejectedToInfo_InfoFull(t *testing.T) {
+	store, _ := NewStore(filepath.Join(t.TempDir(), "sub.json"))
+	svc := NewService(store, &fakeMutator{})
+	sub, err := svc.Create(context.Background(), CreateInput{
+		Label:   "extras",
+		Inline:  "vless://3a3b1c2e-9999-4321-aaaa-1234567890ab@h1.example:443?security=tls&sni=h\n",
+		Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	full := make([]SubscriptionInfoItem, MaxSubscriptionInfoItems)
+	for i := range full {
+		full[i] = SubscriptionInfoItem{ID: fmt.Sprintf("info-%d", i), Label: fmt.Sprintf("line %d", i), Source: "auto"}
+	}
+	if err := store.SetRejectedAndInfo(sub.ID, []RejectedMember{{Tag: "sub-x", Label: "x", Reason: "bad"}}, full); err != nil {
+		t.Fatalf("seed info: %v", err)
+	}
+	_, err = svc.MoveRejectedToInfo(context.Background(), sub.ID, "sub-x")
+	if !errors.Is(err, ErrInfoItemsFull) {
+		t.Fatalf("expected ErrInfoItemsFull, got %v", err)
+	}
+}
+
+func TestService_RemoveInfoItem_DismissedOnRefresh(t *testing.T) {
+	valid := "vless://3a3b1c2e-9999-4321-aaaa-1234567890ab@example.com:443?security=tls&sni=h\n"
+	banner := "vless://not-a-uuid@localhost:80?security=none#%F0%9F%93%86%20%D0%9E%D1%81%D1%82%D0%B0%D0%BB%D0%BE%D1%81%D1%8C%3A%208%20%D0%B4%D0%BD%D0%B5%D0%B9\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(valid + banner))
+	}))
+	defer srv.Close()
+
+	store, _ := NewStore(filepath.Join(t.TempDir(), "sub.json"))
+	svc := NewService(store, &fakeMutator{})
+	withLegacySetupNoop(svc)
+	sub, err := svc.Create(context.Background(), CreateInput{Label: "info-dismiss", URL: srv.URL, Enabled: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, _ := store.Get(sub.ID)
+	if len(got.InfoItems) != 1 {
+		t.Fatalf("info after create=%+v want 1 banner", got.InfoItems)
+	}
+	removedID := got.InfoItems[0].ID
+
+	if _, err := svc.RemoveInfoItem(context.Background(), sub.ID, removedID); err != nil {
+		t.Fatalf("RemoveInfoItem: %v", err)
+	}
+	afterRemove, _ := store.Get(sub.ID)
+	if len(afterRemove.InfoItems) != 0 {
+		t.Fatalf("info after remove=%+v want empty", afterRemove.InfoItems)
+	}
+	if len(afterRemove.RejectedMembers) == 0 {
+		t.Fatalf("rejected after remove empty, want banner moved from info")
+	}
+	foundRejected := false
+	for _, r := range afterRemove.RejectedMembers {
+		if r.Reason == reasonRemovedFromInfo || strings.Contains(r.Reason, "информации провайдера") {
+			foundRejected = true
+			break
+		}
+	}
+	if !foundRejected {
+		t.Fatalf("rejected=%+v want entry from info remove", afterRemove.RejectedMembers)
+	}
+	if _, err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	after, _ := store.Get(sub.ID)
+	for _, it := range after.InfoItems {
+		if it.ID == removedID {
+			t.Fatalf("dismissed info %q reappeared after refresh: %+v", removedID, after.InfoItems)
+		}
+	}
+	for _, id := range after.DismissedInfoIDs {
+		if id == removedID {
+			return
+		}
+	}
+	t.Fatalf("DismissedInfoIDs=%v want %q", after.DismissedInfoIDs, removedID)
+}
+
+func TestService_Refresh_PrunesUndeclaredMember_RecordsRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("vless://3a3b1c2e-9999-4321-aaaa-1234567890ab@example.com:443?security=tls&sni=h\n" +
+			"trojan://p@example.com:444?security=tls&sni=h\n"))
+	}))
+	defer srv.Close()
+
+	store, _ := NewStore(filepath.Join(t.TempDir(), "sub.json"))
+	mutator := &fakeMutator{}
+	svc := NewService(store, mutator)
+	withLegacySetupNoop(svc)
+
+	sub, err := svc.Create(context.Background(), CreateInput{Label: "test", URL: srv.URL, Enabled: true})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatalf("Refresh#1: %v", err)
+	}
+	updated, _ := store.Get(sub.ID)
+	if len(updated.MemberTags) != 2 {
+		t.Fatalf("MemberTags=%d want 2", len(updated.MemberTags))
+	}
+	prunedTag := updated.MemberTags[1]
+	mutator.declaredTags = []string{sub.SelectorTag, updated.MemberTags[0]}
+	if _, err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatalf("Refresh#2: %v", err)
+	}
+	updated2, _ := store.Get(sub.ID)
+	found := false
+	for _, r := range updated2.RejectedMembers {
+		if r.Tag == prunedTag && strings.Contains(r.Reason, "not materialized") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("RejectedMembers=%+v want pruned tag %q", updated2.RejectedMembers, prunedTag)
 	}
 }

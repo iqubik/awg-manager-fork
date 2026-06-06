@@ -10,11 +10,27 @@ import (
 	"testing"
 
 	"github.com/hoaxisr/awg-manager/internal/downloader"
+	"github.com/hoaxisr/awg-manager/internal/logging"
 )
 
 type fakeDownloader struct {
 	readAllFn      func(ctx context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error)
 	downloadFileFn func(ctx context.Context, req downloader.FileRequest) (downloader.FileResult, error)
+}
+
+type recordingAppLogger struct {
+	entries []logging.LogEntry
+}
+
+func (r *recordingAppLogger) AppLog(level logging.Level, group, subgroup, action, target, message string) {
+	r.entries = append(r.entries, logging.LogEntry{
+		Level:    string(level),
+		Group:    group,
+		Subgroup: subgroup,
+		Action:   action,
+		Target:   target,
+		Message:  message,
+	})
 }
 
 func TestIPKFilenameFromURL_RejectsUnsafeShellCharacters(t *testing.T) {
@@ -75,6 +91,138 @@ func TestCheckWithDownloader_UsesDownloaderRequest(t *testing.T) {
 	}
 	if seen.MaxBodyBytes != packagesMaxBytes {
 		t.Fatalf("max body bytes = %d, want %d", seen.MaxBodyBytes, packagesMaxBytes)
+	}
+}
+
+func TestLoggingDownloader_LogsUpdateCheckChangelogAndUpgradeURLs(t *testing.T) {
+	rec := &recordingAppLogger{}
+	scoped := logging.NewScopedLogger(rec, logging.GroupSystem, logging.SubUpdate)
+	dl := newLoggingDownloader(&fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			return []byte("ok"), downloader.ResponseMeta{
+				StatusCode: http.StatusOK,
+				Route: downloader.RouteInfo{
+					Tag:  "RelayCH",
+					Kind: "AWG",
+				},
+			}, nil
+		},
+		downloadFileFn: func(_ context.Context, req downloader.FileRequest) (downloader.FileResult, error) {
+			return downloader.FileResult{
+				Path: req.DestPath,
+				Size: 123,
+				Route: downloader.RouteInfo{
+					Tag:  "RelayCH",
+					Kind: "AWG",
+				},
+			}, nil
+		},
+	}, scoped)
+
+	_, _, err := dl.ReadAll(context.Background(), downloader.Request{
+		Purpose:      "awgm-update-check",
+		URL:          "http://repo.local/VERSION",
+		MaxBodyBytes: 10,
+	})
+	if err != nil {
+		t.Fatalf("ReadAll update check: %v", err)
+	}
+	_, _, err = dl.ReadAll(context.Background(), downloader.Request{
+		Purpose:      "awgm-changelog",
+		URL:          "http://repo.local/CHANGELOG.md",
+		MaxBodyBytes: 10,
+	})
+	if err != nil {
+		t.Fatalf("ReadAll changelog: %v", err)
+	}
+	_, err = dl.DownloadFile(context.Background(), downloader.FileRequest{
+		Request: downloader.Request{
+			Purpose:      "awgm-update-ipk",
+			URL:          "http://repo.local/awg-manager_2.12.0_aarch64-3.10-kn.ipk",
+			MaxBodyBytes: 10,
+		},
+		DestPath:     filepath.Join(t.TempDir(), "pkg.ipk"),
+		MaxFileBytes: 10,
+	})
+	if err != nil {
+		t.Fatalf("DownloadFile upgrade: %v", err)
+	}
+
+	wantMessages := []string{
+		"Проверка обновлений через RelayCH (AWG): http://repo.local/VERSION",
+		"Загрузка changelog через RelayCH (AWG): http://repo.local/CHANGELOG.md",
+		"Обновление AWGM через RelayCH (AWG): http://repo.local/awg-manager_2.12.0_aarch64-3.10-kn.ipk",
+	}
+	if len(rec.entries) != len(wantMessages) {
+		t.Fatalf("log entries = %d, want %d: %+v", len(rec.entries), len(wantMessages), rec.entries)
+	}
+	for i, want := range wantMessages {
+		if rec.entries[i].Message != want {
+			t.Fatalf("log[%d] message = %q, want %q", i, rec.entries[i].Message, want)
+		}
+		if rec.entries[i].Group != logging.GroupSystem || rec.entries[i].Subgroup != logging.SubUpdate {
+			t.Fatalf("log[%d] scope = %s/%s, want system/update", i, rec.entries[i].Group, rec.entries[i].Subgroup)
+		}
+	}
+}
+
+func TestLoggingDownloader_LogsErrorsWithURLs(t *testing.T) {
+	rec := &recordingAppLogger{}
+	scoped := logging.NewScopedLogger(rec, logging.GroupSystem, logging.SubUpdate)
+	dl := newLoggingDownloader(&fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			return nil, downloader.ResponseMeta{
+				Route: downloader.RouteInfo{
+					Tag:  "RelayCH",
+					Kind: "AWG",
+				},
+			}, errors.New("network down")
+		},
+		downloadFileFn: func(_ context.Context, req downloader.FileRequest) (downloader.FileResult, error) {
+			return downloader.FileResult{
+				Route: downloader.RouteInfo{
+					Tag:  "RelayCH",
+					Kind: "AWG",
+				},
+			}, errors.New("disk full")
+		},
+	}, scoped)
+
+	_, _, _ = dl.ReadAll(context.Background(), downloader.Request{
+		Purpose:      "awgm-update-check",
+		URL:          "http://repo.local/VERSION",
+		MaxBodyBytes: 10,
+	})
+	_, _, _ = dl.ReadAll(context.Background(), downloader.Request{
+		Purpose:      "awgm-changelog",
+		URL:          "http://repo.local/CHANGELOG.md",
+		MaxBodyBytes: 10,
+	})
+	_, _ = dl.DownloadFile(context.Background(), downloader.FileRequest{
+		Request: downloader.Request{
+			Purpose:      "awgm-update-ipk",
+			URL:          "http://repo.local/awg-manager_2.12.0_aarch64-3.10-kn.ipk",
+			MaxBodyBytes: 10,
+		},
+		DestPath:     filepath.Join(t.TempDir(), "pkg.ipk"),
+		MaxFileBytes: 10,
+	})
+
+	wantMessages := []string{
+		"Ошибка проверки обновлений через RelayCH (AWG): http://repo.local/VERSION: network down",
+		"Ошибка загрузки changelog через RelayCH (AWG): http://repo.local/CHANGELOG.md: network down",
+		"Ошибка обновления AWGM через RelayCH (AWG): http://repo.local/awg-manager_2.12.0_aarch64-3.10-kn.ipk: disk full",
+	}
+	if len(rec.entries) != len(wantMessages) {
+		t.Fatalf("log entries = %d, want %d: %+v", len(rec.entries), len(wantMessages), rec.entries)
+	}
+	for i, want := range wantMessages {
+		if rec.entries[i].Level != string(logging.LevelWarn) {
+			t.Fatalf("log[%d] level = %q, want warn", i, rec.entries[i].Level)
+		}
+		if rec.entries[i].Message != want {
+			t.Fatalf("log[%d] message = %q, want %q", i, rec.entries[i].Message, want)
+		}
 	}
 }
 

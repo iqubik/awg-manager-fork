@@ -161,56 +161,61 @@
 </script>
 
 {#if layout === 'list'}
-	<div class="sub-list-group" class:err={status === 'error'} class:off={!subscription.enabled}>
-		<div
-			role="button"
-			tabindex="0"
-			class="sbx-sub-active-row"
-			onclick={(e) => open(e)}
-			onkeydown={(e) => {
-				if (e.key === 'Enter' || e.key === ' ') {
-					e.preventDefault();
-					open(e);
-				}
-			}}
-		>
-			<div class="lc lc-delay" data-label="Delay">
+	<tr
+		role="button"
+		tabindex="0"
+		class="sbx-sub-active-row"
+		class:err={status === 'error'}
+		class:off={!subscription.enabled}
+		onclick={(e) => open(e)}
+		onkeydown={(e) => {
+			if (e.key === 'Enter' || e.key === ' ') {
+				e.preventDefault();
+				open(e);
+			}
+		}}
+	>
+			<td class="lc lc-delay" data-label="Delay">
 				{#if subscription.lastError}
-					<span class="dot fail" aria-hidden="true"></span>
 					<span class="delay-inline-err mono" title={subscription.lastError}>
 						{subscription.lastError}
 					</span>
 				{:else if !subscription.enabled}
-					<span class="dot unknown" aria-hidden="true"></span>
 					<span class="delay-dash">—</span>
 				{:else if resolvedMemberTag}
-					<span class="dot {delayState}" aria-hidden="true"></span>
 					<PingButton
 						label={delayText}
 						state={delayState}
 						checking={testingDelay}
-						size="sm"
+						forceBorder
 						onclick={runDelayCheck}
 					/>
 				{:else}
 					<span class="delay-dash">—</span>
 				{/if}
-			</div>
-			<div class="lc lc-name" data-label="Подписка">
+			</td>
+			<td class="lc lc-name" data-label="Подписка">
 				<div class="name-title-row">
+					{#if subscription.lastError}
+						<span class="dot fail" aria-hidden="true"></span>
+					{:else if !subscription.enabled}
+						<span class="dot unknown" aria-hidden="true"></span>
+					{:else if resolvedMemberTag}
+						<span class="dot {delayState}" aria-hidden="true"></span>
+					{/if}
 					<div class="t1">{subscription.label || subscription.url}</div>
 				</div>
 				<div class="name-meta-row">
 					<Badge variant="accent" size="sm">{sourceKindLabel}</Badge>
 					<span>{subscription.memberTags.length} серверов</span>
-					<span>обновлено {lastFetchedHuman}</span>
+					<span>{lastFetchedHuman}</span>
 				</div>
 				<div class="t2 mono">{proxyIface}{#if kernelIface} · {kernelIface}{/if}</div>
-			</div>
-			<div class="lc lc-mode" data-label="Режим">
+			</td>
+			<td class="lc lc-mode" data-label="Режим">
 				{isURLTest ? 'URLTest' : 'Selector'}
-			</div>
-			<div class="lc lc-endpoint" data-label="Активный сервер">
+			</td>
+			<td class="lc lc-endpoint" data-label="Активный сервер">
 				{#if !subscription.enabled}
 					<span class="off-label">выкл</span>
 				{:else if resolvedMember && endpointText}
@@ -240,8 +245,8 @@
 				{:else}
 					<span class="delay-dash">—</span>
 				{/if}
-			</div>
-			<div class="lc lc-traffic" data-label="Трафик">
+			</td>
+			<td class="lc lc-traffic" data-label="Трафик">
 				{#if subscription.lastError || !subscription.enabled}
 					<span class="delay-dash">—</span>
 				{:else if resolvedMemberTag}
@@ -274,8 +279,8 @@
 				{:else}
 					<span class="delay-dash">—</span>
 				{/if}
-			</div>
-			<div class="lc lc-ping-mini" data-label="Ping">
+			</td>
+			<td class="lc lc-ping-mini" data-label="Ping">
 				{#if subscription.lastError || !subscription.enabled}
 					<span class="delay-dash">—</span>
 				{:else if resolvedMemberTag}
@@ -294,8 +299,8 @@
 				{:else}
 					<span class="delay-dash">—</span>
 				{/if}
-			</div>
-			<div class="lc lc-actions" data-label="">
+			</td>
+			<td class="lc lc-actions col-actions" data-label="">
 				<button
 					type="button"
 					class="action-btn"
@@ -342,9 +347,8 @@
 						</svg>
 					</button>
 				{/if}
-			</div>
-		</div>
-	</div>
+			</td>
+	</tr>
 {:else if layout === 'dense'}
 <div
 	role="button"
@@ -377,15 +381,25 @@
 				<span class="meta-dot" aria-hidden="true">·</span><span>{subscription.memberTags.length} серв.</span>
 			</div>
 		</div>
-		<span
-			class="status-badge status-badge-dense"
-			class:status-off={!subscription.enabled}
-			class:status-error={subscription.enabled && status === 'error'}
-			class:status-ok={subscription.enabled && status === 'ok'}
-			class:status-pending={subscription.enabled && status === 'pending'}
-		>
-			{feedStatusLabel}
-		</span>
+		{#if subscription.enabled && !subscription.lastError && resolvedMemberTag}
+			<PingButton
+				label={delayText}
+				state={delayState}
+				checking={testingDelay}
+				forceBorder
+				onclick={runDelayCheck}
+			/>
+		{:else}
+			<span
+				class="status-badge status-badge-dense"
+				class:status-off={!subscription.enabled}
+				class:status-error={subscription.enabled && status === 'error'}
+				class:status-ok={subscription.enabled && status === 'ok'}
+				class:status-pending={subscription.enabled && status === 'pending'}
+			>
+				{feedStatusLabel}
+			</span>
+		{/if}
 	</div>
 	<hr class="divider" />
 	<div class="inactive-meta-dense secondary mono">
@@ -835,29 +849,8 @@
 	.sub-list-group:last-child {
 		border-bottom: none;
 	}
-	.sub-list-group.off .sbx-sub-active-row {
-		opacity: 0.72;
-	}
-	.sub-list-group.err .sbx-sub-active-row {
-		background: rgba(248, 81, 73, 0.04);
-	}
 	.sbx-sub-active-row {
-		display: grid;
-		grid-template-columns: var(
-			--sbx-sub-list-columns,
-			minmax(80px, 80px)
-			minmax(190px, 1.35fr)
-			minmax(58px, 0.55fr)
-			minmax(190px, 1.2fr)
-			minmax(160px, 0.95fr)
-			minmax(96px, 96px)
-			minmax(76px, 76px)
-		);
-		gap: 0.75rem 1rem;
-		align-items: center;
-		padding: 0.75rem 1rem;
 		cursor: pointer;
-		min-width: max(100%, max(var(--awg-list-min-width, 0px), max-content));
 	}
 	.sbx-sub-active-row:focus-visible {
 		outline: 2px solid var(--color-accent);
@@ -869,6 +862,13 @@
 		min-width: 0;
 		font-size: var(--sbx-card-value);
 		color: var(--color-text-secondary);
+		vertical-align: middle;
+	}
+	.lc-updated {
+		white-space: nowrap;
+		justify-content: center;
+		color: var(--color-text-muted);
+		font-size: var(--sbx-card-value);
 	}
 	.lc-delay {
 		gap: 0.35rem;

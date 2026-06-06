@@ -5,12 +5,18 @@
 		PolicyGlobalInterface,
 		RoutingTunnel,
 	} from '$lib/types';
-	import { SERVICE_PRESETS, type ServicePreset } from '$lib/data/presets';
-	import { Modal, Button, IconButton, Dropdown, type DropdownOption } from '$lib/components/ui';
-	import { CatalogPresetRow, ServiceIcon } from '$lib/components/dnsroutes';
+	import type { CatalogPreset } from '$lib/types';
+	import { Modal, Button, Dropdown, type DropdownOption } from '$lib/components/ui';
+	import { IconPickerModal, ServiceIcon } from '$lib/components/dnsroutes';
+	import { presetCatalog } from '$lib/stores/presets';
+	import {
+		resolvedPresetDnsEntryCount,
+		resolvePresetDnsEntries,
+	} from '$lib/utils/catalog-preset';
 	import { InterfaceList } from '$lib/components/accesspolicy';
 	import HrNeoGeoTagPicker from './HrNeoGeoTagPicker.svelte';
 	import { buildRoutingTunnelDropdownOptions } from '$lib/utils/routingTunnelOptions';
+	import { formatIconUrlHint } from '$lib/utils/custom-icon';
 
 	interface AccessPolicy {
 		name: string;
@@ -29,6 +35,8 @@
 		maxelem: number;
 		saving: boolean;
 		initialTarget?: { kind: 'interface' | 'policy'; name: string };
+		initialPreset?: CatalogPreset | null;
+		onpickcatalog?: () => void;
 		onsave: (payload: Partial<DnsRoute>) => void;
 		onclose: () => void;
 	}
@@ -44,14 +52,15 @@
 		maxelem,
 		saving,
 		initialTarget,
+		initialPreset = null,
+		onpickcatalog,
 		onsave,
 		onclose,
 	}: Props = $props();
 
-	// Only presets with inline domains can be used — HR has no subscriptions.
-	let usablePresets = $derived(SERVICE_PRESETS.filter((p) => (p.domains?.length ?? 0) > 0));
-
 	let name = $state('');
+	let iconUrl = $state<string | undefined>(undefined);
+	let iconPickerOpen = $state(false);
 	let domainsText = $state('');
 	let cidrText = $state('');
 	let mode = $state<'interface' | 'policy'>('interface');
@@ -61,8 +70,7 @@
 	let newPolicyName = $state('');
 	let newPolicyIfaces = $state<AccessPolicyInterface[]>([]);
 
-	let presetPickerOpen = $state(false);
-	let selectedPreset = $state<ServicePreset | null>(null);
+	let selectedPreset = $state<CatalogPreset | null>(null);
 	let geositePickerOpen = $state(false);
 	let geoipPickerOpen = $state(false);
 
@@ -71,6 +79,7 @@
 
 	// Snapshot initial state for isDirty detection
 	let initialName = $state('');
+	let initialIconUrl = $state<string | undefined>(undefined);
 	let initialDomainsText = $state('');
 	let initialCidrText = $state('');
 	let initialMode = $state<'interface' | 'policy'>('interface');
@@ -94,9 +103,10 @@
 		selectedPreset = null;
 		geositePickerOpen = false;
 		geoipPickerOpen = false;
-		presetPickerOpen = false;
+		iconPickerOpen = false;
 		if (rule) {
 			name = rule.name;
+			iconUrl = rule.iconUrl;
 			const allDomains = (rule.domains ?? []).filter((d) => !d.startsWith('geoip:'));
 			const allSubnets = rule.subnets ?? [];
 			domainsText = allDomains.join('\n');
@@ -147,6 +157,7 @@
 			}
 			// Capture snapshot for isDirty
 			initialName = rule.name;
+			initialIconUrl = rule.iconUrl;
 			initialDomainsText = domainsText;
 			initialCidrText = cidrText;
 			initialMode = mode;
@@ -157,12 +168,21 @@
 			initialNewPolicyIfaces = [...newPolicyIfaces];
 		} else {
 			name = '';
+			iconUrl = undefined;
 			domainsText = '';
 			cidrText = '';
+			policyChoice = 'existing';
+			existingPolicyName = hrCompatiblePolicies[0]?.name ?? '';
+			newPolicyName = '';
+			newPolicyIfaces = [];
 			if (initialTarget?.kind === 'policy') {
 				mode = 'policy';
-				policyChoice = 'existing';
-				existingPolicyName = initialTarget.name;
+				if (hrCompatiblePolicies.some((p) => p.name === initialTarget.name)) {
+					existingPolicyName = initialTarget.name;
+				} else {
+					policyChoice = 'new';
+					newPolicyName = initialTarget.name;
+				}
 			} else if (initialTarget?.kind === 'interface') {
 				mode = 'interface';
 				const t = tunnels.find(
@@ -173,11 +193,10 @@
 				mode = 'interface';
 				tunnelId = tunnels[0]?.id ?? '';
 			}
-			if (!existingPolicyName) existingPolicyName = policies[0]?.name ?? '';
-			newPolicyName = '';
-			newPolicyIfaces = [];
+			if (!existingPolicyName) existingPolicyName = hrCompatiblePolicies[0]?.name ?? '';
 			// Capture snapshot for isDirty (create mode)
 			initialName = '';
+			initialIconUrl = undefined;
 			initialDomainsText = '';
 			initialCidrText = '';
 			initialMode = mode;
@@ -186,26 +205,30 @@
 			initialExistingPolicyName = existingPolicyName;
 			initialNewPolicyName = newPolicyName;
 			initialNewPolicyIfaces = [];
+			if (initialPreset) {
+				applyPresetFields(initialPreset);
+			}
 		}
 	});
 
-	function applyPreset(p: ServicePreset) {
-		selectedPreset = p;
-		const entries = p.domains ?? [];
-		const domainLines: string[] = [];
-		const cidrLines: string[] = [];
-		for (const e of entries) {
-			if (e.startsWith('geoip:') || /^[\d.:a-fA-F]+\/\d+$/.test(e)) cidrLines.push(e);
-			else domainLines.push(e);
+	let lastAppliedPresetId = $state<string | null>(null);
+
+	$effect(() => {
+		if (!open) {
+			lastAppliedPresetId = null;
+			return;
 		}
+		if (!initialPreset || initialPreset.id === lastAppliedPresetId) return;
+		lastAppliedPresetId = initialPreset.id;
+		applyPresetFields(initialPreset);
+	});
+
+	function applyPresetFields(p: CatalogPreset) {
+		selectedPreset = p;
+		const { domainLines, cidrLines } = resolvePresetDnsEntries(p, $presetCatalog);
 		domainsText = domainLines.join('\n');
 		cidrText = cidrLines.join('\n');
 		if (!name.trim()) name = p.name;
-		presetPickerOpen = false;
-	}
-
-	function clearPreset() {
-		selectedPreset = null;
 	}
 
 	function appendLine(which: 'domains' | 'cidr', token: string) {
@@ -273,13 +296,23 @@
 
 	const interfaceTunnelOpts = $derived(buildRoutingTunnelDropdownOptions(tunnels));
 
+	let hasDomainOrCidrContent = $derived(
+		splitLines(domainsText).length > 0 || splitLines(cidrText).length > 0,
+	);
+
+	let showCatalogEntry = $derived(
+		!!onpickcatalog && (!hasDomainOrCidrContent || selectedPreset !== null),
+	);
+
 	let canSave = $derived.by(() => {
 		if (!name.trim()) return false;
 		const d = splitLines(domainsText);
 		const c = splitLines(cidrText);
 		if (d.length === 0 && c.length === 0) return false;
 		if (mode === 'interface') return !!tunnelId;
-		if (policyChoice === 'existing') return !!existingPolicyName;
+		if (policyChoice === 'existing') {
+			return hrCompatiblePolicies.some((p) => p.name === existingPolicyName);
+		}
 		// New policy: name must pass validation, must not duplicate an existing
 		// HR policy, and at least one interface must be permitted.
 		if (newPolicyNameValidationError !== '') return false;
@@ -298,6 +331,7 @@
 		};
 		return (
 			name !== initialName ||
+			iconUrl !== initialIconUrl ||
 			domainsText !== initialDomainsText ||
 			cidrText !== initialCidrText ||
 			mode !== initialMode ||
@@ -340,6 +374,8 @@
 			name: name.trim(),
 			backend: 'hydraroute',
 			manualDomains,
+			// Keep an explicit empty string so HR backend can clear the sidecar icon.
+			iconUrl: iconUrl ?? '',
 		};
 		if (mode === 'interface') {
 			payload.hrRouteMode = 'interface';
@@ -357,35 +393,39 @@
 </script>
 
 <Modal {open} {title} size="lg" {onclose} hasUnsavedChanges={() => isDirty}>
-	<!-- Preset bar -->
-	<div class="preset-bar">
-		<div class="preset-bar-left">
+	{#if showCatalogEntry}
+		<div class="catalog-entry">
 			{#if selectedPreset}
-				<ServiceIcon name={selectedPreset.name} iconSlug={selectedPreset.id} size={24} />
-				<div class="preset-bar-info">
-					<div class="preset-bar-name">{selectedPreset.name}</div>
-					<div class="preset-bar-meta">{selectedPreset.domains?.length ?? 0} записей</div>
-				</div>
-				<IconButton ariaLabel="Очистить пресет" onclick={clearPreset}>×</IconButton>
+				<button type="button" class="catalog-picked" onclick={onpickcatalog}>
+					<ServiceIcon
+						name={selectedPreset.name}
+						iconSlug={selectedPreset.iconSlug}
+						size={28}
+					/>
+					<div class="catalog-entry-info">
+						<div class="catalog-entry-name">{selectedPreset.name}</div>
+						<div class="catalog-entry-meta">
+							{resolvedPresetDnsEntryCount(selectedPreset, $presetCatalog)} записей из каталога
+						</div>
+					</div>
+					<span class="catalog-change">Сменить</span>
+				</button>
 			{:else}
-				<span class="preset-bar-label">Пресет не выбран</span>
+				<button type="button" class="catalog-cta" onclick={onpickcatalog}>
+					<span class="catalog-cta-icon" aria-hidden="true">
+						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+							<rect x="3" y="3" width="7" height="7" rx="1" />
+							<rect x="14" y="3" width="7" height="7" rx="1" />
+							<rect x="3" y="14" width="7" height="7" rx="1" />
+							<rect x="14" y="14" width="7" height="7" rx="1" />
+						</svg>
+					</span>
+					<span class="catalog-cta-text">
+						<span class="catalog-cta-title">Заполнить из каталога</span>
+						<span class="catalog-cta-hint">Выберите сервис — подставим домены и CIDR</span>
+					</span>
+				</button>
 			{/if}
-		</div>
-		<Button variant="secondary" size="sm" onclick={() => (presetPickerOpen = !presetPickerOpen)}>
-			{presetPickerOpen ? 'Скрыть каталог' : 'Выбрать из каталога'}
-		</Button>
-	</div>
-
-	{#if presetPickerOpen}
-		<div class="preset-catalog">
-			{#each usablePresets as p (p.id)}
-				<CatalogPresetRow
-					name={p.name}
-					iconSlug={p.id}
-					meta={`${p.domains?.length ?? 0} записей`}
-					onclick={() => applyPreset(p)}
-				/>
-			{/each}
 		</div>
 	{/if}
 
@@ -400,6 +440,34 @@
 			bind:value={name}
 		/>
 		{#if attempted && !name.trim()}<div class="error-text">Введите название</div>{/if}
+	</div>
+
+	<!-- Icon -->
+	<div class="icon-form-group">
+		<div class="field-label">Иконка</div>
+		<div class="icon-row">
+			<ServiceIcon
+				{iconUrl}
+				name={name || selectedPreset?.name || 'rule'}
+				iconSlug={selectedPreset?.iconSlug}
+				size={36}
+			/>
+			<div class="icon-meta">
+				{#if iconUrl}
+					<div class="icon-src">Пользовательская иконка</div>
+					<div class="icon-hint" title={iconUrl}>{formatIconUrlHint(iconUrl)}</div>
+				{:else if selectedPreset}
+					<div class="icon-src">Иконка из пресета</div>
+					<div class="icon-hint">Можно заменить своей иконкой</div>
+				{:else}
+					<div class="icon-src">Авто-определение по имени</div>
+					<div class="icon-hint">Введите имя или загрузите свою иконку</div>
+				{/if}
+			</div>
+			<Button variant="ghost" size="sm" onclick={() => (iconPickerOpen = true)}>
+				{iconUrl ? 'Сменить иконку' : 'Выбрать иконку'}
+			</Button>
+		</div>
 	</div>
 
 	<!-- Target — placed near the top so the routing decision (the most
@@ -577,51 +645,142 @@
 	{/snippet}
 </Modal>
 
+<IconPickerModal
+	open={iconPickerOpen}
+	{iconUrl}
+	ruleName={name || selectedPreset?.name || 'HR rule'}
+	onclose={() => (iconPickerOpen = false)}
+	onapply={(newUrl) => {
+		iconUrl = newUrl ?? undefined;
+		iconPickerOpen = false;
+	}}
+/>
+
 <style>
-	.preset-bar {
+	.icon-form-group {
+		margin-bottom: 14px;
+	}
+
+	.icon-row {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
+		gap: 10px;
 		padding: 10px 12px;
 		background: var(--color-bg-secondary);
 		border: 1px solid var(--color-border);
 		border-radius: 8px;
-		margin-bottom: 14px;
 	}
-	.preset-bar-left {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		min-width: 0;
-	}
-	.preset-bar-info {
+
+	.icon-meta {
 		display: flex;
 		flex-direction: column;
+		gap: 2px;
 		min-width: 0;
+		flex: 1;
 	}
-	.preset-bar-name {
+
+	.icon-src {
+		font-size: 0.8125rem;
 		font-weight: 600;
 		color: var(--color-text-primary);
 	}
-	.preset-bar-meta {
+
+	.icon-hint {
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.catalog-entry {
+		margin-bottom: 14px;
+	}
+
+	.catalog-cta,
+	.catalog-picked {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		width: 100%;
+		padding: 12px 14px;
+		border-radius: 10px;
+		border: 1px solid var(--color-border);
+		background: var(--color-bg-primary);
+		cursor: pointer;
+		font-family: inherit;
+		text-align: left;
+		transition:
+			border-color 0.15s,
+			background 0.15s,
+			box-shadow 0.15s;
+	}
+
+	.catalog-cta {
+		border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+		background: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg-primary));
+	}
+
+	.catalog-cta:hover,
+	.catalog-picked:hover {
+		border-color: var(--color-accent);
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent);
+	}
+
+	.catalog-cta-icon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+		color: var(--color-accent);
+		flex-shrink: 0;
+	}
+
+	.catalog-cta-text {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	.catalog-cta-title {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: var(--color-text-primary);
+	}
+
+	.catalog-cta-hint {
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+	}
+
+	.catalog-picked {
+		background: var(--color-bg-secondary);
+	}
+
+	.catalog-entry-info {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.catalog-entry-name {
+		font-weight: 600;
+		color: var(--color-text-primary);
+	}
+
+	.catalog-entry-meta {
 		color: var(--color-text-muted);
 		font-size: 0.75rem;
 	}
-	.preset-bar-label {
-		color: var(--color-text-muted);
-		font-size: 0.875rem;
-	}
 
-	.preset-catalog {
-		display: flex;
-		flex-direction: column;
-		background: var(--color-bg-secondary);
-		border: 1px solid var(--color-border);
-		border-radius: 8px;
-		margin-bottom: 14px;
-		max-height: 280px;
-		overflow-y: auto;
+	.catalog-change {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--color-accent);
+		flex-shrink: 0;
 	}
 
 	.form-section {

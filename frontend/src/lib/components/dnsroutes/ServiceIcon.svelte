@@ -5,6 +5,7 @@
 	import { iconImageSrc } from '$lib/utils/icon-url-meta';
 	import PresetIcon from '$lib/components/routing/singboxRouter/PresetIcon.svelte';
 	import { serviceLetterIcons } from '$lib/stores/serviceLetterIcons';
+	import { presetCatalog } from '$lib/stores/presets';
 	import IconTile from './IconTile.svelte';
 	import LetterIconTile from './LetterIconTile.svelte';
 
@@ -31,7 +32,7 @@
 	//   3. keyword inline SVG (service-icons.ts, substring match)
 	//   4. letter monogram (NDMS / HR, only when nothing above matched)
 	//   5. globe default (when service letter icons disabled in settings)
-	let slug = $derived(resolveIconSlug(name, iconSlug));
+	let slug = $derived(resolveIconSlug(name, iconSlug, $presetCatalog));
 	let usePreset = $derived(!iconUrl && !!slug && isPresetIconResolvable(slug));
 	let hasKeywordIcon = $derived(hasServiceIconKeywordMatch(name));
 
@@ -94,7 +95,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 8px;
+		border-radius: 6px;
 		flex-shrink: 0;
 	}
 	.service-icon .asset {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -62,12 +63,47 @@ func newFakeIPTables(fe *fakeExec) *IPTables {
 	return &IPTables{
 		restoreNoflush: fe.restoreNoflush,
 		runIPTables:    fe.runIPTables,
+		runIPTablesOut: func(_ context.Context, _ ...string) (string, error) { return jumpsPresentDump(), nil },
 		runIP:          fe.runIP,
 	}
 }
 
+// jumpsPresentDump mimics `iptables -S <table>` output for a fully-installed
+// engine: both chain declarations AND their PREROUTING jumps. Used as the
+// default runIPTablesOut in tests that don't model a jump loss, so Probe
+// reports installed+jumps. The same dump serves the mangle and nat probes
+// (each scans for its own chain).
+func jumpsPresentDump() string {
+	return "-P PREROUTING ACCEPT\n" +
+		"-N " + ChainName + "\n" +
+		"-N " + RedirectChain + "\n" +
+		"-A PREROUTING -m conntrack ! --ctstate INVALID -j " + ChainName + "\n" +
+		"-A PREROUTING -m conntrack ! --ctstate INVALID -j " + RedirectChain + "\n"
+}
+
 func newFakeExec() *fakeExec {
 	return &fakeExec{}
+}
+
+// The netfilter.d hook runs on the live router on every NDMS reload — a
+// syntax error would break on each reload. Validate the generated shell.
+func TestNetfilterHookScript_ValidShell(t *testing.T) {
+	script := netfilterHookScript()
+
+	cmd := exec.Command("sh", "-n")
+	cmd.Stdin = strings.NewReader(script)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated netfilter.d hook is not valid sh: %v\n%s", err, out)
+	}
+
+	// The fix: the install gate must check the PREROUTING jump, not just the
+	// chain. Both per-table gates must carry the anchored jump grep.
+	if !strings.Contains(script, "grep -qE -- '-[jg] "+ChainName+"($| )'") {
+		t.Error("hook missing mangle jump-presence gate")
+	}
+	if !strings.Contains(script, "grep -qE -- '-[jg] "+RedirectChain+"($| )'") {
+		t.Error("hook missing nat jump-presence gate")
+	}
 }
 
 func TestBuildTProxyModulePath(t *testing.T) {
@@ -974,6 +1010,87 @@ func TestHasAnyInstalled_None_ReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestProbe(t *testing.T) {
+	// Builds an IPTables whose `-S <table>` output declares the chain and/or
+	// emits its PREROUTING jump, per table. err short-circuits to the error path.
+	mk := func(mangleChain, mangleJump, natChain, natJump bool, err error) *IPTables {
+		return &IPTables{
+			runIPTablesOut: func(_ context.Context, args ...string) (string, error) {
+				if err != nil {
+					return "", err
+				}
+				table := ""
+				if len(args) >= 2 && args[0] == "-t" {
+					table = args[1]
+				}
+				out := "-P PREROUTING ACCEPT\n"
+				if table == "mangle" {
+					if mangleChain {
+						out += "-N " + ChainName + "\n"
+					}
+					if mangleJump {
+						out += "-A PREROUTING -m conntrack ! --ctstate INVALID -j " + ChainName + "\n"
+					}
+				}
+				if table == "nat" {
+					if natChain {
+						out += "-N " + RedirectChain + "\n"
+					}
+					if natJump {
+						out += "-A PREROUTING -m conntrack ! --ctstate INVALID -j " + RedirectChain + "\n"
+					}
+				}
+				return out, nil
+			},
+		}
+	}
+
+	cases := []struct {
+		name                         string
+		mChain, mJump, nChain, nJump bool
+		wantInstalled, wantJumps     bool
+	}{
+		{"all present", true, true, true, true, true, true},
+		{"chains exist, mangle jump wiped", true, false, true, true, true, false},
+		{"chains exist, nat jump wiped", true, true, true, false, true, false},
+		{"mangle chain missing", false, false, true, true, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			installed, jumps, err := mk(c.mChain, c.mJump, c.nChain, c.nJump, nil).Probe(context.Background())
+			if err != nil {
+				t.Fatalf("unexpected err: %v", err)
+			}
+			if installed != c.wantInstalled || jumps != c.wantJumps {
+				t.Errorf("installed=%v jumps=%v, want installed=%v jumps=%v", installed, jumps, c.wantInstalled, c.wantJumps)
+			}
+		})
+	}
+
+	t.Run("query error surfaces", func(t *testing.T) {
+		_, _, err := mk(true, true, true, true, errors.New("iptables query failed")).Probe(context.Background())
+		if err == nil {
+			t.Error("want error from Probe when the -S query fails")
+		}
+	})
+
+	// AWGM-TPROXY must not match a longer chain name sharing its prefix.
+	t.Run("anchored jump match", func(t *testing.T) {
+		it := &IPTables{
+			runIPTablesOut: func(_ context.Context, args ...string) (string, error) {
+				out := "-P PREROUTING ACCEPT\n-N " + ChainName + "\n-N " + RedirectChain + "\n"
+				out += "-A PREROUTING -j " + ChainName + "-V2\n" // decoy: longer name
+				out += "-A PREROUTING -j " + RedirectChain + "\n"
+				return out, nil
+			},
+		}
+		_, jumps, _ := it.Probe(context.Background())
+		if jumps {
+			t.Error("`-j AWGM-TPROXY-V2` must not satisfy the AWGM-TPROXY jump check")
+		}
+	})
+}
+
 func TestBuildRestoreInput_BypassUDPPorts_AddsReturnRules(t *testing.T) {
 	spec := RestoreInputSpec{
 		PolicyMark:     "0xffffaaa",
@@ -1053,5 +1170,88 @@ func TestBuildRestoreInput_BypassTCPPortsBeforeCatchAll(t *testing.T) {
 	}
 	if bypassIdx > catchAllIdx {
 		t.Errorf("TCP bypass rule appears AFTER catch-all REDIRECT — must be before it")
+	}
+}
+
+func TestBuildRestoreInput_IngressScope(t *testing.T) {
+	spec := RestoreInputSpec{PolicyMark: "0xffffaad", IngressInterfaces: []string{"nwg3"}}
+	got := buildRestoreInput(spec)
+
+	markRule := "-A PREROUTING -i nwg3 -m comment --comment AWGM-INGRESS -j MARK --set-xmark 0xffffaad/0xffffffff"
+	saveRule := "-A PREROUTING -i nwg3 -m comment --comment AWGM-INGRESS -j CONNMARK --save-mark --nfmask 0xffffffff --ctmask 0xffffffff"
+	jump := "-A PREROUTING -m connmark --mark 0xffffaad -m conntrack ! --ctstate INVALID -j " + ChainName
+
+	if !strings.Contains(got, markRule) {
+		t.Fatalf("missing MARK rule in:\n%s", got)
+	}
+	if !strings.Contains(got, saveRule) {
+		t.Fatalf("missing CONNMARK save rule in:\n%s", got)
+	}
+	if strings.Index(got, markRule) > strings.Index(got, jump) {
+		t.Fatalf("MARK rule must precede the connmark jump")
+	}
+}
+
+func TestBuildRestoreInput_IngressScope_MatchAllSkips(t *testing.T) {
+	spec := RestoreInputSpec{MatchAll: true, IngressInterfaces: []string{"nwg3"}}
+	if strings.Contains(buildRestoreInput(spec), "AWGM-INGRESS") {
+		t.Fatalf("ingress rules must be skipped in MatchAll mode")
+	}
+}
+
+func TestBuildRestoreInput_IngressScope_EmptyMarkSkips(t *testing.T) {
+	spec := RestoreInputSpec{PolicyMark: "", IngressInterfaces: []string{"nwg3"}}
+	if strings.Contains(buildRestoreInput(spec), "AWGM-INGRESS") {
+		t.Fatalf("ingress rules must be skipped when PolicyMark empty")
+	}
+}
+
+func TestWriteNetfilterHook_IngressScrub(t *testing.T) {
+	dir := t.TempDir()
+	old := netfilterHookPath
+	netfilterHookPath = filepath.Join(dir, "hook.sh")
+	defer func() { netfilterHookPath = old }()
+
+	if err := writeNetfilterHook(); err != nil {
+		t.Fatalf("writeNetfilterHook: %v", err)
+	}
+	data, _ := os.ReadFile(netfilterHookPath)
+	// Scrub must match BOTH quoted and unquoted `iptables -S` comment
+	// output (`--comment "AWGM-INGRESS"` and `--comment AWGM-INGRESS`):
+	// some iptables builds emit comments unquoted, and a quoted-only
+	// `grep -F` misses them, so the netfilter.d reload re-appends a
+	// duplicate of the rule it failed to scrub. The robust form is an
+	// ERE with an optional quote.
+	if !strings.Contains(string(data), `--comment "?AWGM-INGRESS`) {
+		t.Fatalf("hook script missing robust (quote-optional) AWGM-INGRESS scrub:\n%s", data)
+	}
+	if strings.Contains(string(data), `grep -F -- '--comment "AWGM-INGRESS"'`) {
+		t.Fatalf("hook still uses fragile quoted-only -F scrub for AWGM-INGRESS:\n%s", data)
+	}
+}
+
+// TestEmitHelpers_TableSymmetry locks the invariant that mangle (UDP/TPROXY) and
+// nat (TCP/REDIRECT) carry an identical bypass set and an identically-gated
+// PREROUTING jump — differing only by chain name. Drift here would proxy a
+// device on one protocol and bypass it on the other.
+func TestEmitHelpers_TableSymmetry(t *testing.T) {
+	wan := []string{"203.0.113.5/32"}
+	spec := RestoreInputSpec{PolicyMark: "0xabc", WANIPs: wan}
+
+	var mB, nB strings.Builder
+	emitBypassReturns(&mB, ChainName, wan)
+	emitBypassReturns(&nB, RedirectChain, wan)
+	if m, n := strings.ReplaceAll(mB.String(), ChainName, "C"), strings.ReplaceAll(nB.String(), RedirectChain, "C"); m != n {
+		t.Errorf("bypass set diverges:\nmangle:\n%s\nnat:\n%s", mB.String(), nB.String())
+	}
+	if !strings.Contains(mB.String(), "203.0.113.5/32") {
+		t.Error("WAN IP not rendered in bypass set")
+	}
+
+	var mJ, nJ strings.Builder
+	emitPreroutingJump(&mJ, ChainName, spec)
+	emitPreroutingJump(&nJ, RedirectChain, spec)
+	if m, n := strings.ReplaceAll(mJ.String(), ChainName, "C"), strings.ReplaceAll(nJ.String(), RedirectChain, "C"); m != n {
+		t.Errorf("prerouting jump diverges:\nmangle: %q\nnat: %q", mJ.String(), nJ.String())
 	}
 }

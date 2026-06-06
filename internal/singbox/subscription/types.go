@@ -68,8 +68,11 @@ type Subscription struct {
 	ProxyIndex   int              `json:"proxyIndex"`            // NDMS ProxyN index, -1 if not yet allocated
 	MemberTags   []string         `json:"memberTags"`            // every member outbound tag (kept for back-compat)
 	Members      []MemberInfo     `json:"members,omitempty"`     // per-member parsed metadata
-	OrphanTags   []string         `json:"orphanTags"`            // tags missing on last refresh
-	ActiveMember string           `json:"activeMember,omitempty"` // currently-active selector member tag
+	OrphanTags        []string               `json:"orphanTags"`                  // tags missing on last refresh
+	RejectedMembers   []RejectedMember       `json:"rejectedMembers,omitempty"`   // parsed but not in sing-box / invalid
+	InfoItems         []SubscriptionInfoItem `json:"infoItems,omitempty"`         // provider banners (max 4)
+	DismissedInfoIDs  []string               `json:"dismissedInfoIds,omitempty"`  // hidden on refresh (user removed from UI)
+	ActiveMember      string                 `json:"activeMember,omitempty"`      // currently-active selector member tag
 	Enabled      bool             `json:"enabled"`
 	Mode         SubscriptionMode `json:"mode,omitempty"`        // "" treated as ModeSelector for back-compat
 	URLTest      *URLTestConfig   `json:"urlTest,omitempty"`     // populated when Mode == ModeURLTest

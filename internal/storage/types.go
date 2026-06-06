@@ -10,17 +10,18 @@ type Settings struct {
 	// `Authorization: Bearer <key>` header. Empty disables key-based access
 	// (session is still required when AuthEnabled). Generated client-side
 	// via crypto.randomUUID(); the server treats it as opaque.
-	ApiKey              string            `json:"apiKey,omitempty"`
-	Server              ServerSettings    `json:"server"`
-	PingCheck           PingCheckSettings `json:"pingCheck"`
-	Logging             LoggingSettings   `json:"logging"`
-	DisableMemorySaving bool              `json:"disableMemorySaving"` // false = auto, true = soft mode
-	Updates             UpdateSettings    `json:"updates"`
-	Download            DownloadSettings  `json:"download"`
-	DNSRoute            DNSRouteSettings  `json:"dnsRoute"`
-	UsageLevel          string            `json:"usageLevel"`
-	ServerInterfaces    []string          `json:"serverInterfaces,omitempty"`
-	ManagedServers      []ManagedServer   `json:"managedServers,omitempty"`
+	ApiKey               string            `json:"apiKey,omitempty"`
+	Server               ServerSettings    `json:"server"`
+	PingCheck            PingCheckSettings `json:"pingCheck"`
+	Logging              LoggingSettings   `json:"logging"`
+	DisableMemorySaving  bool              `json:"disableMemorySaving"` // false = auto, true = soft mode
+	Updates              UpdateSettings    `json:"updates"`
+	Download             DownloadSettings  `json:"download"`
+	DNSRoute             DNSRouteSettings  `json:"dnsRoute"`
+	ConnectivityCheckURL string            `json:"connectivityCheckUrl"`
+	UsageLevel           string            `json:"usageLevel"`
+	ServerInterfaces     []string          `json:"serverInterfaces,omitempty"`
+	ManagedServers       []ManagedServer   `json:"managedServers,omitempty"`
 	// ManagedServer is retained for one release as the migration source.
 	// migrateManagedServers() moves it into ManagedServers[0] on first read
 	// and clears it on the next save.
@@ -83,6 +84,10 @@ type SingboxRouterSettings struct {
 	// exclusions in "PORT UDP|TCP" format (e.g. "51820 UDP, 1194 TCP").
 	// Parsed at iptables generation time. Empty = no extras.
 	BypassExtraPorts string `json:"bypassExtraPorts,omitempty"`
+	// IngressInterfaces — ref'ы интерфейсов, чей ingress-трафик заворачивается
+	// в sing-box. Формат: "managed:Wireguard3" (резолвится в kernel-имя на
+	// сборке спека) или "iface:nwg5" (kernel-имя как есть). Пусто = выключено.
+	IngressInterfaces []string `json:"ingressInterfaces,omitempty"`
 }
 
 // ManagedServer represents the user-created WireGuard server interface.

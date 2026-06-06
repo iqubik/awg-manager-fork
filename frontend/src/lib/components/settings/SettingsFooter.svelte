@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { usageLevel } from '$lib/stores/settings';
+	import { GITHUB_BUG_REPORT_URL } from '$lib/utils/githubFeedback';
 
 	const isExpert = $derived($usageLevel === 'expert');
+
+	const genericIssueUrl = GITHUB_BUG_REPORT_URL;
 
 	const credits = [
 		'@amatol',
@@ -36,26 +39,40 @@
 
 <div class="settings-footer">
 	<div class="settings-footer-bar">
-		<span class="footer-link-group">
-			Документация: <a href="https://awgm.hoaxisr.ru" target="_blank" rel="noopener noreferrer">awgm.hoaxisr.ru</a>
-			<span class="footer-sep">·</span>
-			<a href="/terms">Пользовательское соглашение</a>
-			<span class="footer-sep">·</span>
-			<a
-				class="github-link"
-				href="https://github.com/hoaxisr/awg-manager"
-				target="_blank"
-				rel="noopener noreferrer"
-				aria-label="Открыть GitHub репозиторий AWG Manager"
-				title="GitHub репозиторий AWG Manager"
-			>
-				GitHub
-			</a>
-			{#if isExpert}
-				<span class="footer-sep">·</span>
-				<a href="/api-docs">Swagger UI</a>
-			{/if}
-		</span>
+		<div class="footer-link-group">
+			<div class="footer-doc-line">
+				<span class="footer-doc-label">Документация:</span>
+				<a href="https://awgm.hoaxisr.ru" target="_blank" rel="noopener noreferrer">awgm.hoaxisr.ru</a>
+			</div>
+			<div class="footer-links-line">
+				<a href="/terms">Пользовательское соглашение</a>
+				<span class="footer-sep" aria-hidden="true">·</span>
+				<a
+					class="github-link"
+					href="https://github.com/hoaxisr/awg-manager"
+					target="_blank"
+					rel="noopener noreferrer"
+					aria-label="Открыть GitHub репозиторий AWG Manager"
+					title="GitHub репозиторий AWG Manager"
+				>
+					GitHub
+				</a>
+				<span class="footer-sep" aria-hidden="true">·</span>
+				<a
+					href={genericIssueUrl}
+					target="_blank"
+					rel="noopener noreferrer"
+					aria-label="Открыть форму GitHub issue для обратной связи"
+					title="Публичный GitHub issue: это не служба поддержки"
+				>
+					Сообщить о проблеме
+				</a>
+				{#if isExpert}
+					<span class="footer-sep" aria-hidden="true">·</span>
+					<a href="/api-docs">Swagger UI</a>
+				{/if}
+			</div>
+		</div>
 		<button
 			type="button"
 			class="footer-collapse"
@@ -66,7 +83,8 @@
 			<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
 				<path d="M9 6l6 6-6 6"/>
 			</svg>
-			Благодарности ({credits.length})
+			<span class="footer-collapse-full">Благодарности ({credits.length})</span>
+			<span class="footer-collapse-short">Благодарности</span>
 		</button>
 	</div>
 
@@ -92,12 +110,47 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
+		gap: 0.5rem;
 		padding: 0.625rem 0.875rem;
 		background: var(--color-bg-secondary);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius);
 		font-size: 0.8125rem;
 		color: var(--color-text-secondary);
+	}
+
+	.footer-link-group {
+		min-width: 0;
+		flex: 1 1 auto;
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.footer-doc-line,
+	.footer-links-line {
+		min-width: 0;
+	}
+
+	.footer-doc-line {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+	}
+
+	.footer-doc-label {
+		color: var(--color-text-secondary);
+	}
+
+	.footer-links-line {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.125rem;
+	}
+
+	.footer-sep {
+		display: none;
 	}
 
 	.footer-link-group a {
@@ -109,15 +162,26 @@
 		text-decoration: underline;
 	}
 
-	.footer-sep {
-		margin: 0 0.375rem;
-		opacity: 0.4;
+	@media (min-width: 700px) {
+		.footer-links-line {
+			flex-flow: row wrap;
+			align-items: center;
+			gap: 0;
+			row-gap: 0.125rem;
+		}
+
+		.footer-sep {
+			display: inline;
+			margin: 0 0.375rem;
+			opacity: 0.4;
+		}
 	}
 
 	.footer-collapse {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.375rem;
+		flex-shrink: 0;
 		background: none;
 		border: none;
 		color: var(--color-text-muted);
@@ -127,6 +191,45 @@
 		font-weight: 600;
 		cursor: pointer;
 		padding: 0;
+	}
+
+	.footer-collapse-short {
+		display: none;
+	}
+
+	@media (max-width: 640px) {
+		.settings-footer-bar {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: end;
+			column-gap: 0.75rem;
+			row-gap: 0.375rem;
+		}
+
+		.footer-collapse {
+			align-self: end;
+			justify-self: end;
+			text-transform: none;
+			letter-spacing: normal;
+			font-weight: 500;
+		}
+
+		.footer-link-group {
+			gap: 0.25rem;
+		}
+
+		.footer-doc-line,
+		.footer-links-line {
+			line-height: 1.45;
+		}
+
+		.footer-collapse-full {
+			display: none;
+		}
+
+		.footer-collapse-short {
+			display: inline;
+		}
 	}
 
 	.footer-collapse svg {

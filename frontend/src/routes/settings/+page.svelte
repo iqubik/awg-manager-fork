@@ -8,7 +8,7 @@
 	import { singboxStatus } from "$lib/stores/singbox";
 	import { hydrarouteStatus } from "$lib/stores/hydraroute";
 	import { PageContainer, PageHeader, LoadingSpinner } from "$lib/components/layout";
-	import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
+	import { Toggle, Modal, Button, ConfirmModal, SegmentedControl } from "$lib/components/ui";
 	import {
 		SystemInfoGrid,
 		LoggingSettings,
@@ -40,13 +40,20 @@
 		isSectionVisible,
 		isRoutingSubTabVisible,
 		isUpdateChannelSwitchVisible,
+		areDownloadRouteDetailsVisible,
 		type UsageLevel,
 	} from "$lib/types/usageLevel";
 	import { usageLevel } from "$lib/stores/settings";
 	import { waitForBackendRestart } from "$lib/restartRecovery";
 	import { hasDevelopChannelQuizPassed } from "$lib/utils/developChannelGate";
+	import { developFeedbackFabVisible } from "$lib/stores/developFeedbackFab";
+	import { pluralize, AVAILABLE_WORDS, TUNNEL_WORDS } from "$lib/utils/pluralize";
 
 	const expandUsageLevel = $derived($page.url.searchParams.has('mode'));
+	const highlightFeedbackFab = $derived($page.url.searchParams.has('feedbackFab'));
+	const defaultPingTarget = "8.8.8.8";
+	const defaultConnectivityCheckUrl = "http://connectivitycheck.gstatic.com/generate_204";
+	const highlightDownloads = $derived($page.url.searchParams.get('highlight') === 'downloads');
 
 	let systemInfo: SystemInfo | null = $state(null);
 	let settings = $state<Settings | null>(null);
@@ -56,7 +63,9 @@
 	const showSingboxIntegration = $derived(isSectionVisible($usageLevel, "singboxTunnels"));
 	const showHydraIntegration = $derived(isRoutingSubTabVisible($usageLevel, "hrNeo"));
 	const showDnsRouteCard = $derived(isRoutingSubTabVisible($usageLevel, "dnsRoutes"));
+	const showDownloadRouteDetails = $derived(areDownloadRouteDetailsVisible($usageLevel));
 	const downloadRouteLabel = $derived(resolveDownloadRouteLabel(settings, $downloadOutbounds));
+	const visibleDownloadRouteLabel = $derived(showDownloadRouteDetails ? downloadRouteLabel : '');
 	let updateInfo: UpdateInfo | null = $state(null);
 	let restarting = $state(false);
 	let restartConfirmOpen = $state(false);
@@ -222,7 +231,7 @@
 		const availableTunnelCount = list.filter((ob) => ob.tag !== 'direct' && ob.available).length;
 		notifications.success(
 			tunnelCount > 0
-				? `Маршруты обновлены: найдено ${tunnelCount} туннелей (${availableTunnelCount} доступно)`
+				? `Маршруты обновлены: найдено ${pluralize(tunnelCount, TUNNEL_WORDS)} (${pluralize(availableTunnelCount, AVAILABLE_WORDS)})`
 				: 'Маршруты обновлены: туннели не найдены (доступен только Direct)'
 		);
 	}
@@ -254,6 +263,14 @@
 		});
 	}
 
+	function scrollToFeedbackFabSetting() {
+		if (typeof window === "undefined") return;
+		if (!highlightFeedbackFab) return;
+		window.requestAnimationFrame(() => {
+			document.getElementById("feedback-fab")?.scrollIntoView({ behavior: "smooth", block: "center" });
+		});
+	}
+
 onMount(() => {
 	const timer = setInterval(() => {
 		void fetchSystemInfo(true);
@@ -267,7 +284,6 @@ onMount(() => {
 			]);
 			settings = appSettings;
 			setGlobalSettings(appSettings);
-			await ensureDownloadOutboundsLoaded();
 			scrollToSettingsHashTarget();
 		} catch (e) {
 			notifications.error(e instanceof Error ? e.message : "Не удалось загрузить настройки");
@@ -289,6 +305,12 @@ onMount(() => {
 	return () => {
 		clearInterval(timer);
 	};
+});
+
+$effect(() => {
+	if (showDownloadRouteDetails) {
+		void ensureDownloadOutboundsLoaded();
+	}
 });
 
 	async function toggleAuth(enabled: boolean) {
@@ -436,6 +458,29 @@ onMount(() => {
 			notifications.success("Настройки автообновления сохранены");
 		} catch {
 			notifications.error("Ошибка сохранения настроек");
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function savePingTargetsSettings() {
+		if (!settings) return;
+		saving = true;
+		try {
+			settings = await api.updateSettings({
+				pingCheck: {
+					...settings.pingCheck,
+					defaults: {
+						...settings.pingCheck.defaults,
+						target: settings.pingCheck.defaults.target,
+					},
+				},
+				connectivityCheckUrl: settings.connectivityCheckUrl,
+			});
+			setGlobalSettings(settings);
+			notifications.success("Цели проверки пинга сохранены");
+		} catch (e) {
+			notifications.error(e instanceof Error ? e.message : "Ошибка сохранения целей проверки");
 		} finally {
 			saving = false;
 		}
@@ -594,12 +639,25 @@ onMount(() => {
 		await fetchSystemInfo(false);
 	}
 
+	let feedbackFabScrolled = $state(false);
+
 	afterNavigate(async ({ to, from }) => {
 		if (!to?.url || to.url.pathname !== "/settings") return;
 		if (!from?.url || from.url.pathname !== "/settings") {
 			await fetchSystemInfo(true);
 		}
 		scrollToSettingsHashTarget();
+		scrollToFeedbackFabSetting();
+	});
+
+	$effect(() => {
+		if (!highlightFeedbackFab) {
+			feedbackFabScrolled = false;
+			return;
+		}
+		if (loading || !settings || feedbackFabScrolled) return;
+		feedbackFabScrolled = true;
+		scrollToFeedbackFabSetting();
 	});
 </script>
 
@@ -627,13 +685,10 @@ onMount(() => {
 				/>
 
 				<div class="card">
-					<div class="section-label section-label-with-route">
+					<div class="section-label">
 						<span>Обновление AWGM</span>
-						<span class="section-label-route" title={downloadRouteLabel}>
-							через {downloadRouteLabel}
-						</span>
 					</div>
-					<UpdateSection bind:updateInfo {downloadRouteLabel} />
+					<UpdateSection bind:updateInfo />
 				</div>
 
 				<IntegrationsCard
@@ -650,7 +705,6 @@ onMount(() => {
 					onupdateSingbox={updateSingbox}
 					showSingbox={showSingboxIntegration}
 					showHydra={showHydraIntegration}
-					{downloadRouteLabel}
 				/>
 			</aside>
 
@@ -702,45 +756,39 @@ onMount(() => {
 						/>
 					{/if}
 					{#if isUpdateChannelSwitchVisible(settings.usageLevel)}
-						<div class="setting-row channel-setting-row">
+						<div class="setting-row">
 							<div class="flex flex-col gap-1">
 								<span class="font-medium">Канал обновлений</span>
 								<span class="setting-description">
-									develop — свежие, потенциально нестабильные сборки из ветки разработки.
+									Ветка develop — свежие, потенциально нестабильные сборки из ветки разработки.
 								</span>
 							</div>
-							<div class="channel-switch">
-								<button
-									type="button"
-									class="channel-option"
-									class:active={settings.updates.channel === 'stable'}
-									disabled={saving}
-									onclick={() => requestChannel('stable')}
-								>
-									Стабильный
-								</button>
-								<button
-									type="button"
-									class="channel-option"
-									class:active={settings.updates.channel === 'develop'}
-									disabled={saving}
-									onclick={() => requestChannel('develop')}
-								>
-									Канал разработки
-								</button>
-							</div>
+							<SegmentedControl
+								value={settings.updates.channel}
+								options={[
+									{ value: 'stable', label: 'Стабильный' },
+									{ value: 'develop', label: 'Разработка' },
+								] satisfies Array<{ value: 'stable' | 'develop'; label: string }>}
+								ariaLabel="Канал обновлений"
+								disabled={saving}
+								onchange={(channel) => requestChannel(channel)}
+							/>
 						</div>
 					{/if}
-					<DownloadSettings
-						bind:settings
-						{saving}
-						outbounds={$downloadOutbounds}
-						loading={$downloadOutboundsLoading}
-						error={$downloadOutboundsError}
-						routeSelectorEnabled={singboxInstalled || singboxStatusLoading}
-						onRefresh={refreshDownloadOutbounds}
-						onSelectRoute={selectDownloadRoute}
-					/>
+					{#if showDownloadRouteDetails}
+						<div class="settings-highlight-target" class:highlighted={highlightDownloads}>
+							<DownloadSettings
+								bind:settings
+								{saving}
+								outbounds={$downloadOutbounds}
+								loading={$downloadOutboundsLoading}
+								error={$downloadOutboundsError}
+								routeSelectorEnabled={singboxInstalled || singboxStatusLoading}
+								onRefresh={refreshDownloadOutbounds}
+								onSelectRoute={selectDownloadRoute}
+							/>
+						</div>
+					{/if}
 				</div>
 
 				<div class="card">
@@ -755,6 +803,49 @@ onMount(() => {
 
 				{#if $usageLevel === "expert"}
 				<div class="card">
+					<div class="section-label">Проверка пинга</div>
+					<div class="setting-row ping-target-setting">
+						<div class="flex flex-col gap-1">
+							<span class="font-medium">Цели проверки</span>
+							<span class="setting-description">
+								ICMP target используется как глобальный адрес для ping-check. HTTP URL вызывается через туннель для проверки доступности и задержки.
+							</span>
+						</div>
+						<div class="ping-target-controls">
+							<label class="ping-target-field">
+								<span>ICMP target</span>
+								<input
+									type="text"
+									class="settings-text-input"
+									bind:value={settings.pingCheck.defaults.target}
+									placeholder={defaultPingTarget}
+									disabled={saving}
+								/>
+							</label>
+							<label class="ping-target-field">
+								<span>HTTP URL проверки</span>
+								<input
+									type="url"
+									class="settings-text-input"
+									bind:value={settings.connectivityCheckUrl}
+									placeholder={defaultConnectivityCheckUrl}
+									disabled={saving}
+								/>
+							</label>
+							<div class="ping-target-action">
+								<Button variant="secondary" size="md" onclick={savePingTargetsSettings} disabled={saving}>
+									Сохранить
+								</Button>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<div
+					id="feedback-fab"
+					class="card settings-highlight-target"
+					class:highlighted={highlightFeedbackFab}
+				>
 					<div class="section-label">Расширенные</div>
 					<div class="setting-row api-key-setting">
 						<div class="flex flex-col gap-1">
@@ -776,12 +867,27 @@ onMount(() => {
 									: "Сначала нажмите «Сгенерировать»"}
 							/>
 							<div class="api-key-action">
-								<Button variant="secondary" size="sm" onclick={generateApiKey} disabled={saving}>
+								<Button variant="secondary" size="md" onclick={generateApiKey} disabled={saving}>
 									Сгенерировать
 								</Button>
 							</div>
 						</div>
 					</div>
+					{#if settings.updates.channel === 'develop'}
+					<div class="setting-row toggle-inline-row">
+						<div class="flex flex-col gap-1">
+							<span class="font-medium">Кнопка обратной связи</span>
+							<span class="setting-description">
+								Плавающая кнопка «!» в правом нижнем углу на канале разработки.
+								Помогает быстро сообщить об ошибке или предложить улучшение.
+							</span>
+						</div>
+						<Toggle
+							checked={$developFeedbackFabVisible}
+							onchange={(v) => developFeedbackFabVisible.set(v)}
+						/>
+					</div>
+					{/if}
 					{#if singboxInstalled && showSingboxIntegration}
 						<div class="setting-row toggle-inline-row">
 							<div class="flex flex-col gap-1">
@@ -976,38 +1082,110 @@ onMount(() => {
 		gap: 0.375rem;
 		flex-shrink: 0;
 		align-items: center;
+		justify-content: flex-end;
 	}
 
-	.section-label-with-route {
-		display: flex;
-		align-items: baseline;
-		gap: 0.45rem;
-		min-width: 0;
-	}
+	@media (min-width: 641px) {
+		.actions-card > .setting-row > :global(.btn),
+		.action-buttons :global(.btn) {
+			width: 7.5rem;
+			min-width: 7.5rem;
+		}
 
-	.section-label-route {
-		text-transform: none;
-		letter-spacing: normal;
-		font-weight: 500;
-		opacity: 0.9;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		min-width: 0;
+		.action-buttons > span {
+			display: inline-flex;
+		}
+
+		.action-buttons > span :global(.btn) {
+			width: 7.5rem;
+			min-width: 7.5rem;
+		}
 	}
 
 	.api-key-controls {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: center;
+		align-items: stretch;
 		gap: 0.5rem;
 		width: 100%;
 		min-width: 0;
 	}
 
+	.ping-target-setting {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0.65rem;
+		align-items: start;
+	}
+
+	.ping-target-controls {
+		display: grid;
+		grid-template-columns: minmax(8rem, 0.78fr) minmax(16rem, 1.22fr) 7.5rem;
+		gap: 0.5rem 0.625rem;
+		width: 100%;
+		min-width: 0;
+		align-items: end;
+	}
+
+	.ping-target-field {
+		display: grid;
+		gap: 0.25rem;
+		min-width: 0;
+		color: var(--color-text-secondary);
+		font-size: 0.75rem;
+		font-weight: 600;
+	}
+
+	.ping-target-field input {
+		min-width: 0;
+	}
+
+	.settings-text-input {
+		width: 100%;
+		max-width: none;
+		height: 32px;
+		min-height: 32px;
+		max-height: 32px;
+		box-sizing: border-box;
+		padding: 0.375rem 0.5rem;
+		font-family: var(--font-mono, ui-monospace, monospace);
+		font-size: 0.8rem;
+		background: var(--bg, var(--color-bg));
+		border: 1px solid var(--border, var(--color-border));
+		border-radius: 4px;
+		color: var(--text, var(--color-text));
+	}
+
+	.settings-text-input:focus {
+		outline: 2px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+		border-color: var(--color-primary);
+	}
+
+	.ping-target-action {
+		display: flex;
+		align-items: stretch;
+		justify-content: stretch;
+		align-self: end;
+		min-width: 0;
+	}
+
+	.ping-target-action :global(.btn) {
+		width: 100%;
+		min-width: 7.5rem;
+		height: 32px;
+		min-height: 32px;
+		max-height: 32px;
+		box-sizing: border-box;
+		padding-block: 0;
+	}
+
 	.api-key-input {
 		width: 100%;
 		max-width: none;
+		height: 32px;
+		min-height: 32px;
+		max-height: 32px;
+		box-sizing: border-box;
 		padding: 0.375rem 0.5rem;
 		font-family: var(--font-mono, ui-monospace, monospace);
 		font-size: 0.8rem;
@@ -1022,21 +1200,120 @@ onMount(() => {
 		cursor: text;
 	}
 	.api-key-action {
-		align-self: auto;
+		display: flex;
+		align-items: stretch;
 		white-space: nowrap;
+	}
+
+	.api-key-action :global(.btn) {
+		height: 32px;
+		min-height: 32px;
+		max-height: 32px;
+		box-sizing: border-box;
+		padding-block: 0;
 	}
 
 	.api-key-setting {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(0, min(50%, 34rem));
 		gap: 1rem;
-		align-items: start;
+		align-items: center;
 	}
 	.api-key-setting > *:first-child {
 		min-width: 0;
 	}
 
+	@media (min-width: 641px) {
+		.ping-target-setting > *:first-child {
+			display: flex;
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 0.25rem;
+		}
+
+		.ping-target-setting .setting-description {
+			white-space: normal;
+			overflow: visible;
+			text-overflow: clip;
+		}
+
+		.ping-target-controls {
+			grid-template-rows: auto 32px;
+			align-items: stretch;
+		}
+
+		.ping-target-field {
+			display: contents;
+		}
+
+		.ping-target-field > span {
+			grid-row: 1;
+		}
+
+		.ping-target-field > input {
+			grid-row: 2;
+		}
+
+		.ping-target-action {
+			grid-row: 2;
+			align-self: stretch;
+		}
+
+		.api-key-setting {
+			grid-template-columns: minmax(0, 1fr) minmax(0, min(50%, 34rem));
+			align-items: center;
+		}
+
+		.api-key-setting > *:first-child {
+			display: flex;
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 0.25rem;
+		}
+
+		.api-key-setting .setting-description {
+			white-space: normal;
+			overflow: visible;
+			text-overflow: clip;
+		}
+
+		.api-key-controls {
+			width: 100%;
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: stretch;
+		}
+
+		.api-key-action {
+			display: flex;
+		}
+
+		.api-key-action :global(.btn) {
+			width: auto;
+			min-width: 7.5rem;
+			height: 32px;
+			min-height: 32px;
+			max-height: 32px;
+		}
+	}
+
 	@media (max-width: 640px) {
+		.ping-target-setting {
+			grid-template-columns: 1fr;
+			align-items: stretch;
+		}
+
+		.ping-target-controls {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.ping-target-action {
+			justify-content: stretch;
+		}
+
+		.ping-target-action :global(.btn) {
+			width: 100%;
+		}
+
 		.api-key-controls {
 			grid-template-columns: minmax(0, 1fr) auto;
 		}
@@ -1057,6 +1334,18 @@ onMount(() => {
 			min-width: 0;
 		}
 
+		.actions-card > .setting-row:has(.action-buttons) {
+			flex-direction: column;
+			align-items: stretch;
+			flex-wrap: nowrap;
+			gap: 0.625rem;
+		}
+
+		.actions-card > .setting-row:has(.action-buttons) > *:first-child {
+			flex: initial;
+			width: 100%;
+		}
+
 		.actions-card > .setting-row {
 			flex-direction: row;
 			align-items: center;
@@ -1070,8 +1359,30 @@ onMount(() => {
 		}
 
 		.action-buttons {
-			justify-content: flex-end;
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			justify-content: stretch;
 			flex-wrap: nowrap;
+			width: 100%;
+			gap: 0.5rem;
+		}
+
+		.actions-card > .setting-row > :global(.btn) {
+			width: min(50%, 10rem);
+			min-width: 0;
+			margin-left: auto;
+		}
+
+		.action-buttons > span {
+			display: block;
+			width: 100%;
+			min-width: 0;
+		}
+
+		.action-buttons > span :global(.btn),
+		.action-buttons :global(.btn) {
+			width: 100%;
+			min-width: 0;
 		}
 	}
 
@@ -1084,69 +1395,17 @@ onMount(() => {
 		}
 	}
 
-	.channel-setting-row {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: start;
-		gap: 0.75rem 1rem;
+	.settings-highlight-target.highlighted {
+		animation: settings-target-glow 2.8s ease-out forwards;
 	}
 
-	.channel-setting-row > *:first-child {
-		min-width: 0;
-	}
-
-	.channel-setting-row .font-medium {
-		white-space: nowrap;
-	}
-
-	.channel-setting-row .setting-description {
-		max-width: 42rem;
-	}
-
-	.channel-setting-row .channel-switch {
-		align-self: start;
-	}
-
-	@media (max-width: 640px) {
-		.channel-setting-row {
-			grid-template-columns: 1fr;
-			gap: 0.5rem;
-		}
-
-		.channel-setting-row .channel-switch {
-			display: grid;
-			grid-template-columns: repeat(2, minmax(0, 1fr));
-			width: 100%;
-		}
-
-		.channel-setting-row .channel-option {
-			width: 100%;
-			min-width: 0;
-			text-align: center;
-		}
-	}
-
-	.channel-switch {
-		display: inline-flex;
-		border: 1px solid var(--border);
-		border-radius: 0.5rem;
-		overflow: hidden;
-		flex-shrink: 0;
-	}
-	.channel-option {
-		padding: 0.35rem 0.75rem;
-		font-size: 0.85rem;
-		background: transparent;
-		color: var(--text-secondary);
-		border: none;
-		cursor: pointer;
-	}
-	.channel-option.active {
-		background: var(--accent);
-		color: #000 !important;
-	}
-	.channel-option:disabled {
-		opacity: 0.6;
-		cursor: default;
+	@keyframes settings-target-glow {
+		0%   { box-shadow: none; }
+		12%  { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 55%, transparent), 0 0 18px 2px color-mix(in srgb, var(--color-accent) 22%, transparent); }
+		30%  { box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 20%, transparent); }
+		48%  { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 40%, transparent), 0 0 14px 2px color-mix(in srgb, var(--color-accent) 15%, transparent); }
+		65%  { box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 15%, transparent); }
+		82%  { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 22%, transparent), 0 0 8px 1px color-mix(in srgb, var(--color-accent) 10%, transparent); }
+		100% { box-shadow: none; }
 	}
 </style>

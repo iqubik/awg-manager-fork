@@ -5,15 +5,14 @@
 # (http://repo.hoaxisr.ru/develop/singbox/<ver>/...).
 #
 # Usage:
-#   ./scripts/regen-embedded.sh
+#   ./scripts/regen-embedded.sh <singbox-version>
 # Requires: gh CLI authenticated, sha256sum, stat, sed, python3.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-source "$SCRIPT_DIR/singbox-version.env"
-VERSION="$SINGBOX_VERSION"
+VERSION="${1:?usage: regen-embedded.sh <singbox-version>}"
 EMBEDDED_GO="$PROJECT_ROOT/internal/singbox/installer/embedded.go"
 ARCHES=(mipsel-3.4 mips-3.4 aarch64-3.10)
 TMP="$(mktemp -d)"

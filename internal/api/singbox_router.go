@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/logging"
@@ -30,6 +31,7 @@ type SingboxRouterIssueDTO struct {
 type SingboxRouterStatusData struct {
 	Enabled                bool                    `json:"enabled" example:"true"`
 	Installed              bool                    `json:"installed" example:"true"`
+	Active                 bool                    `json:"active" example:"true"`
 	NetfilterAvailable     bool                    `json:"netfilterAvailable" example:"true"`
 	NetfilterComponentName string                  `json:"netfilterComponentName,omitempty" example:"iptables-mod-tproxy"`
 	TProxyTargetAvailable  bool                    `json:"tproxyTargetAvailable" example:"true"`
@@ -77,6 +79,9 @@ type SingboxRouterSettingsData struct {
 	// BypassExtraPorts is a user-defined comma-separated list of extra
 	// port exclusions in "PORT UDP|TCP" format (e.g. "51820 UDP, 1194 TCP").
 	BypassExtraPorts string `json:"bypassExtraPorts,omitempty" example:"51820 UDP"`
+	// IngressInterfaces lists interface refs whose ingress traffic is
+	// redirected through the sing-box router (e.g. "managed:Wireguard3").
+	IngressInterfaces []string `json:"ingressInterfaces,omitempty" example:"managed:Wireguard3"`
 }
 
 // SingboxRouterSettingsResponse is the envelope for GET /singbox/router/settings.
@@ -128,6 +133,17 @@ type SingboxRouterRuleSetsListResponse struct {
 	Data    []SingboxRouterRuleSetDTO `json:"data"`
 }
 
+// SingboxRouterDatRuleSetURLData is the payload for GET /singbox/router/rulesets/dat-url.
+type SingboxRouterDatRuleSetURLData struct {
+	URL string `json:"url" example:"http://127.0.0.1:2222/api/singbox/router/rulesets/dat-srs?kind=geosite&tag=GOOGLE&token=..."`
+}
+
+// SingboxRouterDatRuleSetURLResponse is the envelope for dat rule-set URL metadata.
+type SingboxRouterDatRuleSetURLResponse struct {
+	Success bool                           `json:"success" example:"true"`
+	Data    SingboxRouterDatRuleSetURLData `json:"data"`
+}
+
 // SingboxRouterOutboundDTO mirrors router.Outbound (composite outbound).
 type SingboxRouterOutboundDTO struct {
 	Type          string   `json:"type" example:"selector"`
@@ -148,12 +164,12 @@ type SingboxRouterOutboundsListResponse struct {
 	Data    []SingboxRouterOutboundDTO `json:"data"`
 }
 
-// SingboxRouterPresetRuleRefDTO mirrors internalpresets.RuleRef.
+// SingboxRouterPresetRuleRefDTO mirrors router.RuleRef.
 type SingboxRouterPresetRuleRefDTO struct {
 	Tag string `json:"tag" example:"geosite-cn"`
 }
 
-// SingboxRouterPresetRuleLinkDTO mirrors internalpresets.RuleLink.
+// SingboxRouterPresetRuleLinkDTO mirrors router.RuleLink.
 type SingboxRouterPresetRuleLinkDTO struct {
 	RuleSet      []string `json:"rule_set,omitempty" example:"geosite-cn"`
 	DomainSuffix []string `json:"domain_suffix,omitempty" example:".cn"`
@@ -169,6 +185,7 @@ type SingboxRouterPresetDTO struct {
 	RuleSets  []SingboxRouterPresetRuleRefDTO  `json:"ruleSets"`
 	Rules     []SingboxRouterPresetRuleLinkDTO `json:"rules"`
 	Notice    string                           `json:"notice,omitempty" example:"Routes mainland China traffic via the direct outbound."`
+	Covers    []string                         `json:"covers,omitempty" example:"instagram,whatsapp"`
 	Featured  bool                             `json:"featured,omitempty" example:"true"`
 	Sensitive bool                             `json:"sensitive,omitempty" example:"false"`
 }
@@ -211,7 +228,8 @@ type SingboxRouterWANInterfaceDTO struct {
 }
 
 // SingboxRouterWANInterfacesListResponse is the envelope for
-// GET /singbox/router/wan-interfaces.
+// GET /singbox/router/wan-interfaces and GET /singbox/router/bindable-interfaces.
+// For the bindable-interfaces endpoint, id and priority are always zero (only name, label, up are populated).
 type SingboxRouterWANInterfacesListResponse struct {
 	Success bool                           `json:"success" example:"true"`
 	Data    []SingboxRouterWANInterfaceDTO `json:"data"`
@@ -720,6 +738,81 @@ func (h *SingboxRouterHandler) DeleteRuleSet(w http.ResponseWriter, r *http.Requ
 	response.Success(w, map[string]bool{"ok": true})
 }
 
+// DatRuleSetURL returns the local tokenized URL that sing-box can fetch directly.
+//
+//	@Summary		Build dat→SRS rule-set URL
+//	@Tags			singbox-router
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Param			kind	query	string	true	"geosite or geoip"
+//	@Param			tag		query	[]string	true	"Geo tag(s)"
+//	@Success		200	{object}	SingboxRouterDatRuleSetURLResponse
+//	@Failure		400	{object}	APIErrorEnvelope
+//	@Failure		500	{object}	APIErrorEnvelope
+//	@Router			/singbox/router/rulesets/dat-url [get]
+func (h *SingboxRouterHandler) DatRuleSetURL(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.MethodNotAllowed(w)
+		return
+	}
+	kind := r.URL.Query().Get("kind")
+	tags := nonEmptyQueryValues(r.URL.Query()["tag"])
+	if (kind != "geosite" && kind != "geoip") || len(tags) == 0 {
+		response.BadRequest(w, "kind must be geosite or geoip, tag is required")
+		return
+	}
+	u, err := h.svc.DatRuleSetURL(r.Context(), kind, tags)
+	if err != nil {
+		h.handleErr(w, "dat-url", err)
+		return
+	}
+	response.Success(w, SingboxRouterDatRuleSetURLData{URL: u})
+}
+
+// DatRuleSetSRS serves a compiled .srs artifact for sing-box. It is intentionally
+// not protected by session cookies because sing-box fetches it as a plain remote
+// rule_set URL; access is controlled by the token in the URL.
+func (h *SingboxRouterHandler) DatRuleSetSRS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.MethodNotAllowed(w)
+		return
+	}
+	kind := r.URL.Query().Get("kind")
+	tags := nonEmptyQueryValues(r.URL.Query()["tag"])
+	if (kind != "geosite" && kind != "geoip") || len(tags) == 0 {
+		response.BadRequest(w, "kind must be geosite or geoip, tag is required")
+		return
+	}
+	p, err := h.svc.DatRuleSetFile(
+		r.Context(),
+		kind,
+		tags,
+		r.URL.Query().Get("token"),
+	)
+	if err != nil {
+		if errors.Is(err, router.ErrDatRuleSetForbidden) {
+			response.ErrorWithStatus(w, http.StatusForbidden, "invalid dat rule-set token", "FORBIDDEN")
+			return
+		}
+		h.handleErr(w, "dat-srs", err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="rule-set.srs"`)
+	http.ServeFile(w, r, p)
+}
+
+func nonEmptyQueryValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
 // ListOutbounds returns all composite outbounds.
 //
 //	@Summary		List singbox-router outbounds
@@ -856,7 +949,12 @@ func (h *SingboxRouterHandler) ListPresets(w http.ResponseWriter, r *http.Reques
 		response.MethodNotAllowed(w)
 		return
 	}
-	response.Success(w, router.ListPresets())
+	list, err := h.svc.ListPresets()
+	if err != nil {
+		response.InternalError(w, err.Error())
+		return
+	}
+	response.Success(w, list)
 }
 
 // ApplyPreset materialises the named preset against the chosen outbound.
@@ -910,6 +1008,58 @@ func (h *SingboxRouterHandler) ListWANInterfaces(w http.ResponseWriter, r *http.
 		return
 	}
 	ifaces, err := h.svc.ListWANInterfaces(r.Context())
+	if err != nil {
+		response.InternalError(w, err.Error())
+		return
+	}
+	if ifaces == nil {
+		ifaces = []router.WANInterfaceInfo{}
+	}
+	response.Success(w, ifaces)
+}
+
+// ListBindableInterfaces returns interfaces a user can bind a direct outbound to.
+//
+//	@Summary		List bindable interfaces for direct outbounds
+//	@Description	Returns router interfaces (minus our own and AWG/WG auto-covered) that a direct outbound can bind to. Fields id and priority are not populated for this endpoint (only name, label, up are meaningful).
+//	@Tags			singbox-router
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Success		200	{object}	SingboxRouterWANInterfacesListResponse
+//	@Failure		500	{object}	APIErrorEnvelope
+//	@Router			/singbox/router/bindable-interfaces [get]
+func (h *SingboxRouterHandler) ListBindableInterfaces(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.MethodNotAllowed(w)
+		return
+	}
+	ifaces, err := h.svc.ListBindableInterfaces(r.Context())
+	if err != nil {
+		response.InternalError(w, err.Error())
+		return
+	}
+	if ifaces == nil {
+		ifaces = []router.WANInterfaceInfo{}
+	}
+	response.Success(w, ifaces)
+}
+
+// ListIngressEligibleInterfaces returns interfaces eligible for sing-box ingress-scope.
+//
+//	@Summary		List ingress-eligible interfaces
+//	@Description	Returns router interfaces eligible for sing-box ingress-scope (bindable minus WAN minus LAN bridges). Used by the ingress multiselect in singbox-router settings.
+//	@Tags			singbox-router
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Success		200	{object}	SingboxRouterWANInterfacesListResponse
+//	@Failure		500	{object}	APIErrorEnvelope
+//	@Router			/singbox/router/ingress-eligible-interfaces [get]
+func (h *SingboxRouterHandler) ListIngressEligibleInterfaces(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.MethodNotAllowed(w)
+		return
+	}
+	ifaces, err := h.svc.ListIngressEligibleInterfaces(r.Context())
 	if err != nil {
 		response.InternalError(w, err.Error())
 		return

@@ -30,6 +30,7 @@ func (noopMutator) RemoveProxy(context.Context, int) error              { return
 func (noopMutator) Reload(context.Context) error                        { return nil }
 func (noopMutator) SelectClashProxy(string, string) error               { return nil }
 func (noopMutator) GetClashSelectorActive(string) (string, error)       { return "", nil }
+func (noopMutator) DeclaredOutboundTags() []string                      { return nil }
 
 type fakePresenceProbe struct{ installed bool }
 

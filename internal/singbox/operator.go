@@ -284,6 +284,7 @@ func NewOperator(d OperatorDeps) *Operator {
 	ensureBaseConfigWithLogLevel(configPath, desiredSingboxLogLevel, log)
 	ensureLegacyConfigMigrated(dir)
 	patchTunnelsSlotStripBaseOwnedBlocks(filepath.Join(configPath, "10-tunnels.json"))
+	patchTunnelsSlotEnsureNaiveUDPOverTCP(filepath.Join(configPath, "10-tunnels.json"))
 	stripStrayDirectPlaceholder(configPath)
 	removeFinalFromBase(filepath.Join(configPath, "00-base.json"), log)
 
@@ -513,6 +514,7 @@ func ensureBaseConfigWithLogLevel(configDir, desiredLogLevel string, loggers ...
 		patchBaseDomainResolver(basePath)
 		patchBaseDirectOutbound(basePath, log)
 		patchBaseCacheFilePath(basePath)
+		patchBaseDNSStrategy(basePath)
 		return
 	}
 	_ = os.MkdirAll(configDir, 0755)
@@ -802,6 +804,31 @@ func patchBaseDomainResolver(basePath string) {
 		return
 	}
 	route["default_domain_resolver"] = "dns-bootstrap"
+	_ = writeJSONFile(basePath, m)
+}
+
+// patchBaseDNSStrategy migrates the legacy 00-base.json default
+// dns.strategy "ipv4_only" → "prefer_ipv4". The old default silently
+// dropped all AAAA/IPv6 answers (issue #180); the new default returns IPv6
+// when available. Only the exact legacy value is migrated — any other
+// strategy (incl. a deliberately user-set one) is left untouched.
+func patchBaseDNSStrategy(basePath string) {
+	data, err := os.ReadFile(basePath)
+	if err != nil {
+		return
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return
+	}
+	dns, _ := m["dns"].(map[string]any)
+	if dns == nil {
+		return
+	}
+	if strategy, _ := dns["strategy"].(string); strategy != "ipv4_only" {
+		return
+	}
+	dns["strategy"] = "prefer_ipv4"
 	_ = writeJSONFile(basePath, m)
 }
 
@@ -1114,7 +1141,10 @@ func patchTunnelsSlotStripBaseOwnedBlocks(tunnelsPath string) {
 			delete(dns, "final")
 			changed = true
 		}
-		if strategy, _ := dns["strategy"].(string); strategy == "ipv4_only" {
+		// Strip the strategy that mirrors the 00-base default ("prefer_ipv4"),
+		// plus the legacy "ipv4_only" default from pre-prefer_ipv4 installs —
+		// both are base-owned leakage in this slot, not user intent.
+		if strategy, _ := dns["strategy"].(string); strategy == "prefer_ipv4" || strategy == "ipv4_only" {
 			delete(dns, "strategy")
 			changed = true
 		}
@@ -1124,6 +1154,22 @@ func patchTunnelsSlotStripBaseOwnedBlocks(tunnelsPath string) {
 		}
 	}
 	if changed {
+		_ = writeJSONFile(tunnelsPath, m)
+	}
+}
+
+func patchTunnelsSlotEnsureNaiveUDPOverTCP(tunnelsPath string) {
+	data, err := os.ReadFile(tunnelsPath)
+	if err != nil {
+		return
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return
+	}
+	outbounds, _ := m["outbounds"].([]any)
+	cfg := &Config{raw: map[string]any{"outbounds": outbounds}}
+	if cfg.ensureNaiveUDPOverTCPOutbounds() {
 		_ = writeJSONFile(tunnelsPath, m)
 	}
 }
@@ -1151,7 +1197,7 @@ func freshBaseConfigWithLogLevel(logLevel string) map[string]any {
 			},
 		},
 		"dns": map[string]any{
-			"strategy": "ipv4_only",
+			"strategy": "prefer_ipv4",
 			"servers": []any{
 				map[string]any{"type": "udp", "tag": "dns-bootstrap", "server": "1.1.1.1"},
 			},

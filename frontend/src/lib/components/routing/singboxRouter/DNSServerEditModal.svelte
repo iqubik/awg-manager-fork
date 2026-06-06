@@ -1,6 +1,5 @@
 <script lang="ts">
-	import Modal from '$lib/components/ui/Modal.svelte';
-	import { Button, Dropdown, type DropdownOption } from '$lib/components/ui';
+	import { Button, Dropdown, SideDrawer, type DropdownOption } from '$lib/components/ui';
 	import type {
 		SingboxRouterDNSServer,
 		SingboxRouterDNSType,
@@ -167,12 +166,12 @@
 	}
 </script>
 
-<Modal
+<SideDrawer
 	open
-	onclose={onClose}
+	onClose={onClose}
 	title={server ? 'Редактировать DNS сервер' : 'Новый DNS сервер'}
-	size="lg"
-	hasUnsavedChanges={() => isDirty}
+	width={620}
+	footer={drawerFooter}
 >
 	<div class="form">
 		<div class="fields-grid">
@@ -267,20 +266,19 @@
 
 		{#if error}<div class="error">{error}</div>{/if}
 	</div>
+</SideDrawer>
 
-	{#snippet actions()}
-		<Button variant="ghost" size="md" onclick={onClose} type="button">Отмена</Button>
-		<Button variant="primary" size="md" onclick={save} disabled={busy} loading={busy} type="button">
-			Сохранить
-		</Button>
-	{/snippet}
-</Modal>
+{#snippet drawerFooter()}
+	<Button variant="ghost" size="md" onclick={onClose} type="button">Отмена</Button>
+	<Button variant="primary" size="md" onclick={save} disabled={busy} loading={busy} type="button">
+		Сохранить
+	</Button>
+{/snippet}
 
 <style>
 	.form {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
+		display: grid;
+		gap: 0.875rem;
 		min-width: 0;
 	}
 	.fields-grid {

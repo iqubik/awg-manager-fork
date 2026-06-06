@@ -14,6 +14,7 @@ import (
 
 	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/logging"
+	"github.com/hoaxisr/awg-manager/internal/presets"
 	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/sys/env"
@@ -33,6 +34,14 @@ type Service interface {
 	// system-name from this list.
 	ListWANInterfaces(ctx context.Context) ([]WANInterfaceInfo, error)
 
+	// ListBindableInterfaces returns interfaces a user can bind a direct
+	// outbound to (all interfaces minus auto-managed AWG/WG ones).
+	ListBindableInterfaces(ctx context.Context) ([]WANInterfaceInfo, error)
+
+	// ListIngressEligibleInterfaces returns interfaces eligible for
+	// sing-box ingress-scope (bindable minus WAN minus LAN bridges).
+	ListIngressEligibleInterfaces(ctx context.Context) ([]WANInterfaceInfo, error)
+
 	SetRouteFinal(ctx context.Context, tag string) error
 
 	ListRules(ctx context.Context) ([]Rule, error)
@@ -45,6 +54,8 @@ type Service interface {
 	AddRuleSet(ctx context.Context, rs RuleSet) error
 	UpdateRuleSet(ctx context.Context, tag string, rs RuleSet) error
 	DeleteRuleSet(ctx context.Context, tag string, force bool) error
+	DatRuleSetURL(ctx context.Context, kind string, tags []string) (string, error)
+	DatRuleSetFile(ctx context.Context, kind string, tags []string, token string) (string, error)
 
 	ListCompositeOutbounds(ctx context.Context) ([]CompositeOutboundView, error)
 	AddCompositeOutbound(ctx context.Context, o Outbound) error
@@ -52,6 +63,7 @@ type Service interface {
 	DeleteCompositeOutbound(ctx context.Context, tag string, force bool) error
 
 	ApplyPreset(ctx context.Context, presetID, outboundTag string) error
+	ListPresets() ([]Preset, error)
 
 	ListPolicies(ctx context.Context) ([]PolicyInfo, error)
 	CreatePolicy(ctx context.Context, description string) (PolicyInfo, error)
@@ -101,6 +113,13 @@ type SingboxController interface {
 	Binary() string
 }
 
+// GeoTagExpander is the narrow contract used by dat→SRS rule-set export.
+// *hydraroute.GeoDataStore satisfies it without making router depend on the
+// hydraroute package.
+type GeoTagExpander interface {
+	ExpandGeoTag(kind, tag string) (lines []string, filePath string, err error)
+}
+
 // PolicyDevice is one LAN device known to NDMS hotspot, annotated with
 // whether it is currently bound to a specific policy.
 type PolicyDevice struct {
@@ -121,6 +140,7 @@ type WANInterfaceInfo struct {
 	Label    string `json:"label"`    // human-friendly: description or type-derived
 	Up       bool   `json:"up"`       // current up/down — info-only, never gates selection
 	Priority int    `json:"priority"` // NDMS priority (higher = preferred by user)
+	Type     string `json:"type"`     // NDMS-тип интерфейса: "Wireguard", "Bridge", "PPP", ...
 }
 
 // WANInterfaceLister is the narrow contract the service needs from the
@@ -129,6 +149,22 @@ type WANInterfaceInfo struct {
 // internal/tunnel/wan); the adapter in cmd/awg-manager bridges the gap.
 type WANInterfaceLister interface {
 	ListWAN(ctx context.Context) ([]WANInterfaceInfo, error)
+}
+
+// BindableInterfaceLister enumerates router interfaces a user can bind a
+// direct outbound to (all router interfaces minus our own and the
+// awgoutbounds auto-managed set). Optional dep; nil = no existence check.
+type BindableInterfaceLister interface {
+	ListBindable(ctx context.Context) ([]WANInterfaceInfo, error)
+}
+
+// IngressResolver резолвит ref интерфейса ("managed:Wireguard3") в
+// kernel-имя ("nwg3"). Возвращает "" если не резолвится (сервер удалён /
+// интерфейс ещё не поднят). Реализуется адаптером в cmd/awg-manager
+// поверх InterfaceStore.ResolveSystemName (router не может импортить
+// internal/ndms — цикл через internal/tunnel/wan).
+type IngressResolver interface {
+	Resolve(ctx context.Context, ref string) string
 }
 
 // PolicyInfo is the public projection of one NDMS access policy that
@@ -185,8 +221,10 @@ type StagingEventBus interface {
 }
 
 type Deps struct {
-	AppLog         logging.AppLogger
-	Settings       *storage.SettingsStore
+	AppLog   logging.AppLogger
+	Settings *storage.SettingsStore
+	// PresetCatalog is the unified preset catalog. Required for ListPresets and ApplyPreset.
+	PresetCatalog  *presets.Catalog
 	Singbox        SingboxController
 	Policies       AccessPolicyProvider
 	Events         *events.Bus
@@ -220,6 +258,14 @@ type Deps struct {
 	// slice (UI shows just the "auto" option). Production wiring in
 	// cmd/awg-manager bridges this to ndmsQueries.Interfaces.ListWAN.
 	WANInterfaces WANInterfaceLister
+	// BindableInterfaces enumerates interfaces a user can bind a direct
+	// outbound to. Optional — when nil, ListBindableInterfaces returns an
+	// empty slice and bind_interface existence is not enforced.
+	BindableInterfaces BindableInterfaceLister
+	// IngressResolver резолвит managed:-ref'ы ingress-интерфейсов в
+	// kernel-имена на сборке спека. Optional — nil → managed:-ref'ы
+	// пропускаются (iface:-ref'ы резолвятся без него).
+	IngressResolver IngressResolver
 	// NetfilterPreflight is an optional override for the module-load /
 	// target-availability check that Enable and reconcileInstalled both
 	// call before every Install. When nil, prepareNetfilter runs the
@@ -228,6 +274,7 @@ type Deps struct {
 	// xt_connmark, xt_conntrack, xt_pkttype via
 	// EnsureRouterNetfilterModules). Tests set this to avoid real syscalls.
 	NetfilterPreflight func(context.Context) error
+	GeoData            GeoTagExpander
 }
 
 // routerLoggerAdapter narrows *logging.ScopedLogger to the wanLogger
@@ -260,6 +307,7 @@ type ServiceImpl struct {
 	currentLANBridges       []LANBridgeDNSRedir // last-discovered LAN-bridge (name, ndnproxy port) pairs; reconcile triggers re-install when this changes (e.g. NDMS hotspot reconfigured, bridge added/removed, port reassigned)
 	currentBypassPresets    []string
 	currentBypassExtraPorts string
+	currentIngress          []string // last-installed резолвленные ingress kernel-имена
 
 	// netfilterStateKnown tracks whether we know for certain that the
 	// installed iptables rules match the current desired state. It starts
@@ -274,6 +322,7 @@ type ServiceImpl struct {
 	// sing-box binary, no /tmp writes during NewService) stay clean.
 	inspectCacheOnce sync.Once
 	inspectCache     *ruleSetCache
+	datRuleSetMu     sync.Mutex
 }
 
 func NewService(d Deps) *ServiceImpl {
@@ -294,6 +343,32 @@ func NewService(d Deps) *ServiceImpl {
 
 func (s *ServiceImpl) routerConfigPath() string {
 	return filepath.Join(s.deps.Singbox.ConfigDir(), "20-router.json")
+}
+
+func (s *ServiceImpl) resolveIngressInterfaces(ctx context.Context, refs []string) []string {
+	out := make([]string, 0, len(refs))
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		var name string
+		switch {
+		case strings.HasPrefix(ref, "iface:"):
+			name = strings.TrimPrefix(ref, "iface:")
+		case strings.HasPrefix(ref, "managed:"):
+			if s.deps.IngressResolver != nil {
+				name = s.deps.IngressResolver.Resolve(ctx, ref)
+			}
+		}
+		if name == "" {
+			s.appLog.Warn("resolve-ingress", "", fmt.Sprintf("ingress ref %q не резолвится (сервер не поднят / кэш не готов), пропущен", ref))
+			continue
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
 }
 
 func (s *ServiceImpl) ruleSetMaterializer() ruleSetMaterializer {
@@ -596,7 +671,7 @@ func (s *ServiceImpl) Enable(ctx context.Context) error {
 		return err
 	}
 	cfg.Inbounds = ensureTProxyInbound(cfg.Inbounds)
-	cfg.Outbounds = stripLegacyAWGDirect(cfg.Outbounds)
+	cfg.Outbounds = stripAutoManagedDirect(cfg.Outbounds)
 	cfg.EnsureSystemRules(sr.SnifferEnabled)
 	// Settings was already loaded above; revalidate here in case the
 	// store is corrupted or hand-edited around a schema migration. We
@@ -679,14 +754,20 @@ func (s *ServiceImpl) Enable(ctx context.Context) error {
 		}
 	}
 
+	var ingress []string
+	if policyMode {
+		ingress = s.resolveIngressInterfaces(ctx, sr.IngressInterfaces)
+	}
+
 	bypassUDP, bypassTCP, _ := resolveBypassPorts(sr.BypassPresets, sr.BypassExtraPorts)
 	if err := s.deps.IPTables.Install(ctx, RestoreInputSpec{
-		PolicyMark:     mark,
-		MatchAll:       !policyMode,
-		WANIPs:         wanIPs,
-		LANBridges:     lanBridges,
-		BypassUDPPorts: bypassUDP,
-		BypassTCPPorts: bypassTCP,
+		PolicyMark:        mark,
+		MatchAll:          !policyMode,
+		WANIPs:            wanIPs,
+		LANBridges:        lanBridges,
+		BypassUDPPorts:    bypassUDP,
+		BypassTCPPorts:    bypassTCP,
+		IngressInterfaces: ingress,
 	}); err != nil {
 		// Stop sing-box from listening on the now-orphan TPROXY port,
 		// but DO NOT corrupt the persisted user config. With orchestrator
@@ -707,6 +788,7 @@ func (s *ServiceImpl) Enable(ctx context.Context) error {
 	s.currentLANBridges = lanBridges
 	s.currentBypassPresets = sr.BypassPresets
 	s.currentBypassExtraPorts = sr.BypassExtraPorts
+	s.currentIngress = ingress
 	s.netfilterStateKnown = true
 
 	settings.SingboxRouter = sr
@@ -884,9 +966,18 @@ func (s *ServiceImpl) GetStatus(ctx context.Context) (Status, error) {
 		}
 	}
 
+	// One -S probe per table yields both chain existence and jump presence.
+	// A probe error is treated as "unknown" — installed/jumps stay false but
+	// the badge self-corrects on the next status read (no side effect here,
+	// unlike the reconcile path which must not reinstall on a transient error).
+	installed, jumps, _ := s.deps.IPTables.Probe(ctx)
+	// Active = interception path truly live: chains + PREROUTING jumps + sing-box
+	// actually listening on both inbound sockets.
+	active := jumps && singboxListeningProbe()
 	return Status{
 		Enabled:                sr.Enabled,
-		Installed:              s.deps.IPTables.IsInstalled(ctx),
+		Installed:              installed,
+		Active:                 active,
 		NetfilterAvailable:     IsNetfilterAvailable(),
 		NetfilterComponentName: "Модули ядра подсистемы сетевой фильтрации",
 		TProxyTargetAvailable:  IsTProxyTargetAvailable(ctx),
@@ -917,6 +1008,7 @@ func (s *ServiceImpl) Disable(ctx context.Context) error {
 	s.currentLANBridges = nil
 	s.currentBypassPresets = nil
 	s.currentBypassExtraPorts = ""
+	s.currentIngress = nil
 	s.netfilterStateKnown = false
 
 	if s.deps.Orch != nil {
@@ -1008,6 +1100,11 @@ func (s *ServiceImpl) reconcileInstalled(ctx context.Context, sr storage.Singbox
 		lanBridges, _ = DiscoverLANBridges(ctx, mark)
 	}
 	lanBridgesChanged := !equalLANBridges(s.currentLANBridges, lanBridges)
+	var ingress []string
+	if policyMode {
+		ingress = s.resolveIngressInterfaces(ctx, sr.IngressInterfaces)
+	}
+	ingressChanged := !slices.Equal(s.currentIngress, ingress)
 	bypassPresetsChanged := !slices.Equal(s.currentBypassPresets, sr.BypassPresets)
 	bypassExtraChanged := s.currentBypassExtraPorts != sr.BypassExtraPorts
 
@@ -1018,11 +1115,21 @@ func (s *ServiceImpl) reconcileInstalled(ctx context.Context, sr storage.Singbox
 	// reconcileInstalled after startup always forces a full re-install
 	// regardless of what IsInstalled reports.
 	forceInitialSync := !s.netfilterStateKnown
-	needsInstall := forceInitialSync || markChanged || wanIPsChanged || lanBridgesChanged || bypassPresetsChanged || bypassExtraChanged
+	// Self-heal: chains can survive while PREROUTING jumps get wiped (NDMS
+	// rebuilds PREROUTING on reconfig), leaving the engine "installed" but
+	// intercepting nothing. The netfilter.d hook restores them immediately on
+	// the NDMS reload; this is the slower secondary net. On a probe error treat
+	// the state as unknown and DO NOT reinstall — a transient `-S` failure
+	// during an NDMS reload must not trigger a needless rebuild.
+	_, jumps, probeErr := s.deps.IPTables.Probe(ctx)
+	jumpsMissing := probeErr == nil && !jumps
+	needsInstall := forceInitialSync || jumpsMissing || markChanged || wanIPsChanged || lanBridgesChanged || ingressChanged || bypassPresetsChanged || bypassExtraChanged
 
 	if needsInstall {
 		if forceInitialSync {
 			s.appLog.Info("reconcile", "", "first after daemon start — reinstalling netfilter rules")
+		} else if jumpsMissing {
+			s.appLog.Warn("reconcile", "", "PREROUTING jumps missing while chains present — reinstalling to restore interception")
 		}
 
 		if err := s.prepareNetfilter(ctx); err != nil {
@@ -1032,12 +1139,13 @@ func (s *ServiceImpl) reconcileInstalled(ctx context.Context, sr storage.Singbox
 		bypassUDP, bypassTCP, _ := resolveBypassPorts(sr.BypassPresets, sr.BypassExtraPorts)
 		s.mu.Lock()
 		if err := s.deps.IPTables.Install(ctx, RestoreInputSpec{
-			PolicyMark:     mark,
-			MatchAll:       !policyMode,
-			WANIPs:         wanIPs,
-			LANBridges:     lanBridges,
-			BypassUDPPorts: bypassUDP,
-			BypassTCPPorts: bypassTCP,
+			PolicyMark:        mark,
+			MatchAll:          !policyMode,
+			WANIPs:            wanIPs,
+			LANBridges:        lanBridges,
+			BypassUDPPorts:    bypassUDP,
+			BypassTCPPorts:    bypassTCP,
+			IngressInterfaces: ingress,
 		}); err != nil {
 			s.mu.Unlock()
 			return err
@@ -1047,6 +1155,7 @@ func (s *ServiceImpl) reconcileInstalled(ctx context.Context, sr storage.Singbox
 		s.currentLANBridges = lanBridges
 		s.currentBypassPresets = sr.BypassPresets
 		s.currentBypassExtraPorts = sr.BypassExtraPorts
+		s.currentIngress = ingress
 		s.netfilterStateKnown = true
 		s.mu.Unlock()
 	}
@@ -1357,10 +1466,20 @@ func (s *ServiceImpl) ListCompositeOutbounds(ctx context.Context) ([]CompositeOu
 }
 
 func (s *ServiceImpl) AddCompositeOutbound(ctx context.Context, o Outbound) error {
+	if strings.EqualFold(o.Type, "direct") {
+		if err := s.validateBindInterface(ctx, o.BindInterface); err != nil {
+			return err
+		}
+	}
 	return s.withConfig(ctx, "outbounds", func(c *RouterConfig) error { return c.AddCompositeOutbound(o) })
 }
 
 func (s *ServiceImpl) UpdateCompositeOutbound(ctx context.Context, tag string, o Outbound) error {
+	if strings.EqualFold(o.Type, "direct") {
+		if err := s.validateBindInterface(ctx, o.BindInterface); err != nil {
+			return err
+		}
+	}
 	return s.withConfig(ctx, "outbounds", func(c *RouterConfig) error { return c.UpdateCompositeOutbound(tag, o) })
 }
 
@@ -1368,9 +1487,17 @@ func (s *ServiceImpl) DeleteCompositeOutbound(ctx context.Context, tag string, f
 	return s.withConfig(ctx, "outbounds", func(c *RouterConfig) error { return c.DeleteCompositeOutbound(tag, force) })
 }
 
+func (s *ServiceImpl) ListPresets() ([]Preset, error) {
+	return listRouterPresets(s.deps.PresetCatalog)
+}
+
 func (s *ServiceImpl) ApplyPreset(ctx context.Context, presetID, outboundTag string) error {
+	p, err := findRouterPreset(s.deps.PresetCatalog, presetID)
+	if err != nil {
+		return err
+	}
 	return s.withConfig(ctx, "status", func(c *RouterConfig) error {
-		return ApplyPresetToConfig(c, presetID, outboundTag)
+		return ApplyPresetToConfig(c, p, outboundTag)
 	})
 }
 
@@ -1431,7 +1558,22 @@ func NormalizeSingboxRouterSettings(sr storage.SingboxRouterSettings) (storage.S
 	if _, _, err := parseExtraPorts(sr.BypassExtraPorts); err != nil {
 		return sr, fmt.Errorf("bypassExtraPorts: %w", err)
 	}
+	if err := validateIngressRefs(sr.IngressInterfaces); err != nil {
+		return sr, err
+	}
 	return sr, nil
+}
+
+func validateIngressRefs(refs []string) error {
+	for _, ref := range refs {
+		if !strings.HasPrefix(ref, "managed:") && !strings.HasPrefix(ref, "iface:") {
+			return fmt.Errorf("ingress interface ref %q must be prefixed managed: or iface:", ref)
+		}
+		if strings.TrimSpace(strings.SplitN(ref, ":", 2)[1]) == "" {
+			return fmt.Errorf("ingress interface ref %q has empty target", ref)
+		}
+	}
+	return nil
 }
 
 func ValidateSingboxRouterSettings(sr storage.SingboxRouterSettings) error {
@@ -1444,6 +1586,56 @@ func (s *ServiceImpl) ListWANInterfaces(ctx context.Context) ([]WANInterfaceInfo
 		return []WANInterfaceInfo{}, nil
 	}
 	return s.deps.WANInterfaces.ListWAN(ctx)
+}
+
+// ListBindableInterfaces returns interfaces a user can bind a direct
+// outbound to. Empty when no lister is wired.
+func (s *ServiceImpl) ListBindableInterfaces(ctx context.Context) ([]WANInterfaceInfo, error) {
+	if s.deps.BindableInterfaces == nil {
+		return []WANInterfaceInfo{}, nil
+	}
+	return s.deps.BindableInterfaces.ListBindable(ctx)
+}
+
+// ListIngressEligibleInterfaces возвращает интерфейсы, пригодные для
+// ingress-scope: bindable минус WAN минус LAN-бриджи (по Type). Для UI
+// router-страницы (мультиселект).
+func (s *ServiceImpl) ListIngressEligibleInterfaces(ctx context.Context) ([]WANInterfaceInfo, error) {
+	bindable, err := s.ListBindableInterfaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+	wan, _ := s.ListWANInterfaces(ctx)
+	wanNames := map[string]bool{}
+	for _, w := range wan {
+		wanNames[w.Name] = true
+	}
+	out := make([]WANInterfaceInfo, 0, len(bindable))
+	for _, i := range bindable {
+		if wanNames[i.Name] || strings.EqualFold(i.Type, "Bridge") {
+			continue
+		}
+		out = append(out, i)
+	}
+	return out, nil
+}
+
+// validateBindInterface ensures name refers to a bindable interface. With
+// no lister wired (tests / minimal deployments) it is permissive.
+func (s *ServiceImpl) validateBindInterface(ctx context.Context, name string) error {
+	if s.deps.BindableInterfaces == nil {
+		return nil
+	}
+	ifaces, err := s.deps.BindableInterfaces.ListBindable(ctx)
+	if err != nil {
+		return err
+	}
+	for _, i := range ifaces {
+		if i.Name == name {
+			return nil
+		}
+	}
+	return fmt.Errorf("bind_interface %q is not a selectable interface", name)
 }
 
 func (s *ServiceImpl) computeIssues(cfg *RouterConfig) []Issue {
@@ -1739,12 +1931,12 @@ func (s *ServiceImpl) InspectStream(ctx context.Context, input InspectInput) (<-
 			usingDraft = s.deps.Orch.DraftInfo(orchestrator.SlotRouter).HasDraft
 		}
 		if !emitEvent(InspectStreamEvent{Type: "progress", Progress: &InspectProgress{
-			Phase:      "config_loaded",
-			Message:    fmt.Sprintf("Конфигурация загружена: %d правил, %d rule_set, final: %s", len(cfg.Route.Rules), len(cfg.Route.RuleSet), final),
-			RuleTotal:  intPtr(len(cfg.Route.Rules)),
+			Phase:        "config_loaded",
+			Message:      fmt.Sprintf("Конфигурация загружена: %d правил, %d rule_set, final: %s", len(cfg.Route.Rules), len(cfg.Route.RuleSet), final),
+			RuleTotal:    intPtr(len(cfg.Route.Rules)),
 			RuleSetTotal: intPtr(len(cfg.Route.RuleSet)),
-			Final:      final,
-			UsingDraft: usingDraft,
+			Final:        final,
+			UsingDraft:   usingDraft,
 		}}) {
 			return
 		}

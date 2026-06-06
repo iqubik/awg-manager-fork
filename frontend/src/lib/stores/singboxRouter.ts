@@ -31,6 +31,7 @@ function createSingboxRouterStore() {
 	const dnsGlobals = writable<SingboxRouterDNSGlobals>({ final: '', strategy: '' });
 	const staging = writable<RouterStagingStatusResponse | null>(null);
 	const loading = writable(false);
+	const initialized = writable(false);
 	const error = writable<string | null>(null);
 
 	// options — unified outbound dropdown groups for sub-tabs and wizard.
@@ -93,6 +94,7 @@ function createSingboxRouterStore() {
 			error.set(e instanceof Error ? e.message : 'Не удалось загрузить singbox-router');
 		} finally {
 			loading.set(false);
+			initialized.set(true);
 		}
 		void loadStaging();
 	}
@@ -180,6 +182,7 @@ function createSingboxRouterStore() {
 		options: { subscribe: options.subscribe },
 		optionsReady: { subscribe: optionsReady.subscribe },
 		loading: { subscribe: loading.subscribe },
+		initialized: { subscribe: initialized.subscribe },
 		error: { subscribe: error.subscribe },
 		loadAll,
 		reloadStatus,

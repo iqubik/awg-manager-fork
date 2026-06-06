@@ -96,7 +96,7 @@
 	<div class="flex flex-col gap-1">
 		<span class="font-medium">Служебные загрузки AWGM</span>
 		<span class="setting-description">
-			Используется для обновлений AWGM, загрузки geo.dat, DNSRoute URL-списков: проверки, ручного и автообновления, а также установки и обновления managed sing-box binary. Sing-box URL-подписки всегда выполняются напрямую через WAN.
+			Используется для обновлений AWGM, загрузки geo.dat, DNSRoute URL-списков: проверки, ручного и автообновления, установки и обновления managed sing-box binary, а также Amnezia Premium: входа, списка стран и получения конфигураций. Sing-box URL-подписки всегда выполняются напрямую через WAN.
 		</span>
 		{#if error}
 			<span class="download-error">{error}</span>
@@ -115,7 +115,7 @@
 			</div>
 			<Button
 				variant="secondary"
-				size="sm"
+				size="md"
 				onclick={onRefresh}
 				disabled={saving || loading}
 			>

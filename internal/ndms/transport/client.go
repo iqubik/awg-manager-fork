@@ -88,7 +88,7 @@ func (c *Client) StartPerfDumper(ctx context.Context, interval time.Duration) {
 				if total > 0 {
 					avg := durMs / total
 					if c.appLog != nil {
-						c.appLog.Info("perf-summary", "rci",
+						c.appLog.Debug("perf-summary", "rci",
 							fmt.Sprintf("last %s: %d req, avg %dms, slow(>500ms) %d", interval, total, avg, slow))
 					}
 				}
@@ -110,7 +110,7 @@ func (c *Client) StartPerfDumper(ctx context.Context, interval time.Duration) {
 						if httpCalls > 0 {
 							avgBatch = posted / httpCalls
 						}
-						c.appLog.Info("perf-summary", "rci-batcher",
+						c.appLog.Debug("perf-summary", "rci-batcher",
 							fmt.Sprintf("last %s: submits=%d→posted=%d→http=%d (fold=%d%%, dedup=%d%%, avg-batch=%d) dropped-cancelled=%d",
 								interval, submits, posted, httpCalls, foldRate, dedupRate, avgBatch, dropped))
 					}

@@ -32,6 +32,7 @@
 	let iconUrl = $state<string | undefined>(undefined);
 	let iconPickerOpen = $state(false);
 	let manualDomains = $state<string[]>([]);
+	let manualText = $state('');
 	let subscriptions = $state<DnsRouteSubscription[]>([]);
 	let routes = $state<DnsRouteTarget[]>([]);
 	let newSubUrl = $state('');
@@ -41,6 +42,7 @@
 	let hrRouteMode = $state<'interface' | 'policy'>('interface');
 	let hrPolicyName = $state('');
 	let excludesText = $state('');
+	let excludesTextareaEl = $state<HTMLTextAreaElement | null>(null);
 	let hrInterfaceId = $state('');
 
 	let showBackendSelector = $derived(isOS5 && hydrarouteInstalled);
@@ -58,6 +60,7 @@
 	// Snapshot initial state for isDirty detection
 	let initialName = $state('');
 	let initialManualDomains = $state<string[]>([]);
+	let initialManualText = $state('');
 	let initialSubscriptions = $state<DnsRouteSubscription[]>([]);
 	let initialRoutes = $state<DnsRouteTarget[]>([]);
 	let initialBackend = $state<'ndms' | 'hydraroute'>('ndms');
@@ -78,17 +81,19 @@
 				if (route) {
 					name = route.name;
 					manualDomains = [...(route.manualDomains ?? [])];
+					manualText = route.manualText ?? manualDomains.join('\n');
 					subscriptions = (route.subscriptions ?? []).map((s) => ({ ...s }));
 					routes = (route.routes ?? []).map((r) => ({ ...r }));
 					backend = route.backend || (isOS5 ? 'ndms' : hydrarouteInstalled ? 'hydraroute' : 'ndms');
 					hrRouteMode = route.hrRouteMode || 'interface';
 					hrPolicyName = route.hrPolicyName || '';
-					excludesText = (route.excludes ?? []).join('\n');
+					excludesText = route.excludesText ?? [...(route.excludes ?? []), ...(route.excludeSubnets ?? [])].join('\n');
 					hrInterfaceId = (isHR && route.routes?.[0]?.tunnelId) || tunnels[0]?.id || '';
 					iconUrl = route.iconUrl;
 					// Capture snapshot for isDirty
 					initialName = route.name;
 					initialManualDomains = [...(route.manualDomains ?? [])];
+					initialManualText = manualText;
 					initialSubscriptions = (route.subscriptions ?? []).map((s) => ({ ...s }));
 					initialRoutes = (route.routes ?? []).map((r) => ({ ...r }));
 					initialBackend = backend;
@@ -100,6 +105,7 @@
 				} else {
 					name = '';
 					manualDomains = [];
+					manualText = '';
 					subscriptions = [];
 					routes = [];
 					backend = isOS5 ? 'ndms' : (hydrarouteInstalled ? 'hydraroute' : 'ndms');
@@ -111,6 +117,7 @@
 					// Capture snapshot for isDirty (create mode defaults)
 					initialName = '';
 					initialManualDomains = [];
+					initialManualText = '';
 					initialSubscriptions = [];
 					initialRoutes = [];
 					initialBackend = backend;
@@ -165,6 +172,7 @@
 		};
 		return (
 			name !== initialName ||
+			manualText !== initialManualText ||
 			compareDomains(manualDomains, initialManualDomains) ||
 			compareSubscriptions(subscriptions, initialSubscriptions) ||
 			compareRoutes(routes, initialRoutes) ||
@@ -178,8 +186,9 @@
 	});
 
 	// Handlers
-	function handleDomainsChange(domains: string[]) {
+	function handleDomainsChange(domains: string[], nextManualText: string) {
 		manualDomains = domains;
+		manualText = nextManualText;
 	}
 
 	function addSubscription() {
@@ -266,6 +275,13 @@
 		return routes[routes.length - 1].fallback ?? '';
 	});
 
+	function parseExcludesForPayload(value: string): string[] {
+		return value
+			.split('\n')
+			.map((s) => s.trim())
+			.filter((s) => s !== '' && !s.startsWith('#'));
+	}
+
 	function handleSave() {
 		attempted = true;
 		if (!canSave) {
@@ -273,7 +289,7 @@
 			return;
 		}
 
-		const parsedExcludes = excludesText.split('\n').map(s => s.trim()).filter(s => s !== '');
+		const parsedExcludes = parseExcludesForPayload(excludesText);
 
 		// Build routes based on mode
 		let saveRoutes = routes;
@@ -284,10 +300,12 @@
 		const data: Partial<DnsRoute> = {
 			name: name.trim(),
 			manualDomains,
+			manualText,
 			subscriptions,
 			routes: saveRoutes,
 			backend,
 			excludes: isNDMS ? parsedExcludes : undefined,
+			excludesText: isNDMS ? excludesText : undefined,
 			hrRouteMode: isHR ? hrRouteMode : undefined,
 			hrPolicyName: isPolicyMode ? (hrPolicyName || `AWG_${name.trim().replace(/\s+/g, '_')}`) : undefined,
 			iconUrl: iconUrl || undefined,
@@ -299,6 +317,90 @@
 		if (e.key === 'Enter') {
 			e.preventDefault();
 			addSubscription();
+		}
+	}
+
+	function excludesLineOffset(lines: string[], lineIndex: number): number {
+		let offset = 0;
+		for (let i = 0; i < lineIndex; i++) {
+			offset += lines[i].length + 1;
+		}
+		return offset;
+	}
+
+	function selectedExcludesLineRange(el: HTMLTextAreaElement, lines: string[]) {
+		const start = el.selectionStart;
+		const end = el.selectionEnd;
+
+		let cursor = 0;
+		let startLine = 0;
+		let endLine = lines.length - 1;
+
+		for (let i = 0; i < lines.length; i++) {
+			const lineEnd = cursor + lines[i].length;
+			if (start >= cursor && start <= lineEnd) startLine = i;
+			if (end >= cursor && end <= lineEnd) {
+				endLine = i;
+				break;
+			}
+			cursor = lineEnd + 1;
+		}
+
+		return { startLine, endLine };
+	}
+
+	function toggleExcludesCommentSelection() {
+		const el = excludesTextareaEl;
+		if (!el) return;
+
+		const lines = excludesText.split('\n');
+		const { startLine, endLine } = selectedExcludesLineRange(el, lines);
+		const selected = lines.slice(startLine, endLine + 1);
+
+		const shouldComment = selected.some((line) => {
+			const trimmed = line.trim();
+			return trimmed !== '' && !trimmed.startsWith('#');
+		});
+
+		const changed = selected.map((line) => {
+			if (line.trim() === '') return line;
+
+			if (shouldComment) {
+				const indent = line.match(/^\s*/)?.[0] ?? '';
+				return `${indent}# ${line.slice(indent.length)}`;
+			}
+
+			return line.replace(/^(\s*)# ?/, '$1');
+		});
+
+		const nextLines = [
+			...lines.slice(0, startLine),
+			...changed,
+			...lines.slice(endLine + 1)
+		];
+
+		excludesText = nextLines.join('\n');
+
+		const nextStart = excludesLineOffset(nextLines, startLine);
+		const nextEnd = excludesLineOffset(nextLines, endLine) + nextLines[endLine].length;
+
+		setTimeout(() => {
+			el.focus();
+			el.setSelectionRange(nextStart, nextEnd);
+		}, 0);
+	}
+
+	function handleExcludesKeydown(e: KeyboardEvent) {
+		const isToggleComment =
+			(e.ctrlKey || e.metaKey) &&
+			(
+				e.code === 'Slash' ||
+				e.key === '/'
+			);
+
+		if (isToggleComment) {
+			e.preventDefault();
+			toggleExcludesCommentSelection();
 		}
 	}
 </script>
@@ -340,7 +442,7 @@
 				{/if}
 			</div>
 			<Button variant="ghost" size="sm" onclick={() => (iconPickerOpen = true)}>
-				{iconUrl ? 'Сменить' : 'Выбрать'}
+				{iconUrl ? 'Сменить иконку' : 'Выбрать иконку'}
 			</Button>
 		</div>
 	</div>
@@ -366,7 +468,12 @@
 		{#if isHydraRouteBackend}
 			<span class="field-hint geo-hint">Поддерживается geosite:TAG, например geosite:GOOGLE</span>
 		{/if}
-		<DnsRouteDomainEditor domains={manualDomains} onchange={handleDomainsChange} allowGeoTags={isHydraRouteBackend} />
+		<DnsRouteDomainEditor
+			domains={manualDomains}
+			textValue={manualText}
+			onchange={handleDomainsChange}
+			allowGeoTags={isHydraRouteBackend}
+		/>
 	</div>
 
 	<!-- Subscriptions -->
@@ -440,69 +547,71 @@
 			{#if isNDMS}
 				<div class="section-title">Маршрут (порядок = приоритет)</div>
 			{/if}
-			{#if routes.length === 0}
-				<p class="route-hint" class:route-hint-error={routeError}>Добавьте хотя бы один туннель для маршрутизации</p>
-			{/if}
-			{#if routes.length > 0}
-				<div class="route-list">
-					{#each routes as target, i (i)}
-						<div class="route-item">
-							<span class="route-index">{i + 1}.</span>
-							<span class="route-name">{tunnelName(target.tunnelId)}</span>
-							<span class="route-id" title={target.tunnelId}>{target.tunnelId}</span>
-							<div class="route-actions">
-								<button class="btn-move" onclick={() => moveRoute(i, -1)} disabled={i === 0} title="Вверх">&uarr;</button>
-								<button class="btn-move" onclick={() => moveRoute(i, 1)} disabled={i === routes.length - 1} title="Вниз">&darr;</button>
-								<button class="btn-remove" onclick={() => removeRoute(i)} title="Удалить">&times;</button>
+			<div class="route-panel">
+				{#if routes.length === 0}
+					<p class="route-hint" class:route-hint-error={routeError}>Добавьте хотя бы один туннель для маршрутизации</p>
+				{/if}
+				{#if routes.length > 0}
+					<div class="route-list">
+						{#each routes as target, i (i)}
+							<div class="route-item">
+								<span class="route-index">{i + 1}.</span>
+								<span class="route-name">{tunnelName(target.tunnelId)}</span>
+								<span class="route-id" title={target.tunnelId}>{target.tunnelId}</span>
+								<div class="route-actions">
+									<button class="btn-move" onclick={() => moveRoute(i, -1)} disabled={i === 0} title="Вверх">&uarr;</button>
+									<button class="btn-move" onclick={() => moveRoute(i, 1)} disabled={i === routes.length - 1} title="Вниз">&darr;</button>
+									<button class="btn-remove" onclick={() => removeRoute(i)} title="Удалить">&times;</button>
+								</div>
 							</div>
+						{/each}
+					</div>
+				{/if}
+				{#if availableTunnels.length > 0}
+					<div class="route-add">
+						<div class="route-add-select">
+							<Dropdown
+								value={newRouteTunnelId || availableTunnels[0]?.id || ''}
+								options={addRouteTunnelOpts}
+								onchange={(v) => (newRouteTunnelId = v)}
+								fullWidth
+							/>
 						</div>
-					{/each}
-				</div>
-			{/if}
-			{#if availableTunnels.length > 0}
-				<div class="route-add">
-					<div class="route-add-select">
-						<Dropdown
-							value={newRouteTunnelId || availableTunnels[0]?.id || ''}
-							options={addRouteTunnelOpts}
-							onchange={(v) => (newRouteTunnelId = v)}
-							fullWidth
-						/>
+						<Button variant="primary" size="sm" onclick={addRoute} iconBefore={createIcon}>
+							Добавить
+						</Button>
 					</div>
-					<Button variant="primary" size="sm" onclick={addRoute} iconBefore={createIcon}>
-						Добавить
-					</Button>
-				</div>
-			{/if}
+				{/if}
 
-			{#if isNDMS && routes.length > 0}
-				<div class="fallback-group">
-					<!-- svelte-ignore a11y_label_has_associated_control -->
-					<label class="field-label">Если все недоступны:</label>
-					<div class="fallback-options">
-						<label class="fallback-option">
-							<input
-								type="radio"
-								name="fallback"
-								value="auto"
-								checked={currentFallback === 'auto'}
-								onchange={() => handleFallbackChange('auto')}
-							/>
-							<span>провайдер</span>
-						</label>
-						<label class="fallback-option">
-							<input
-								type="radio"
-								name="fallback"
-								value="reject"
-								checked={currentFallback === 'reject'}
-								onchange={() => handleFallbackChange('reject')}
-							/>
-							<span>эксклюзивный</span>
-						</label>
+				{#if isNDMS && routes.length > 0}
+					<div class="fallback-group">
+						<!-- svelte-ignore a11y_label_has_associated_control -->
+						<label class="field-label">Если все недоступны:</label>
+						<div class="fallback-options">
+							<label class="fallback-option">
+								<input
+									type="radio"
+									name="fallback"
+									value="auto"
+									checked={currentFallback === 'auto'}
+									onchange={() => handleFallbackChange('auto')}
+								/>
+								<span>провайдер</span>
+							</label>
+							<label class="fallback-option">
+								<input
+									type="radio"
+									name="fallback"
+									value="reject"
+									checked={currentFallback === 'reject'}
+									onchange={() => handleFallbackChange('reject')}
+								/>
+								<span>эксклюзивный</span>
+							</label>
+						</div>
 					</div>
-				</div>
-			{/if}
+				{/if}
+			</div>
 
 			{#if isPolicyMode}
 				<div class="policy-name-row">
@@ -518,8 +627,18 @@
 	{#if isNDMS}
 		<div class="form-section">
 			<div class="section-title">Исключения</div>
-			<textarea class="field-textarea" rows="3" placeholder="Домены, которые НЕ маршрутизировать (по одному на строку)" value={excludesText} oninput={(e) => excludesText = (e.target as HTMLTextAreaElement).value}></textarea>
-			<span class="field-hint">Эти домены будут исключены из маршрутизации через туннель</span>
+			<textarea
+				bind:this={excludesTextareaEl}
+				class="field-textarea excludes-textarea"
+				rows="3"
+				placeholder={"# Домены, которые НЕ маршрутизировать\nexample.com\n.local\n\n# Подсети, которые НЕ маршрутизировать\n10.0.0.0/8\n2001:db8::/32"}
+				value={excludesText}
+				oninput={(e) => excludesText = (e.target as HTMLTextAreaElement).value}
+				onkeydown={handleExcludesKeydown}
+			></textarea>
+			<span class="field-hint excludes-hint">Эти домены будут исключены из маршрутизации через туннель.
+Комментарии начинаются с #
+Ctrl+/ или Cmd+/ комментирует выбранные строки.</span>
 		</div>
 	{/if}
 
@@ -723,6 +842,19 @@
 		flex: 1;
 	}
 
+	.route-panel {
+		display: contents;
+	}
+
+	.excludes-textarea {
+		font-size: 0.8125rem;
+		font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+	}
+
+	.excludes-hint {
+		white-space: pre-line;
+	}
+
 	.btn-move {
 		background: none;
 		border: 1px solid var(--color-border);
@@ -773,10 +905,33 @@
 	}
 
 	@media (max-width: 480px) {
-		.fallback-options {
+		.route-panel {
+			display: flex;
 			flex-direction: column;
+			gap: 0.75rem;
+			margin-top: 0.125rem;
+			padding: 0.625rem 0.75rem 0.75rem;
+			border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
+			border-top: none;
+			border-radius: 10px;
+			border-top-left-radius: 0;
+			border-top-right-radius: 0;
+			background: color-mix(in srgb, var(--color-bg-secondary) 55%, transparent);
+			box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-border) 72%, transparent);
+		}
+
+		.fallback-options {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
 			gap: 0.5rem;
-			align-items: flex-start;
+			align-items: stretch;
+		}
+
+		.fallback-option {
+			width: 100%;
+			min-width: 0;
+			justify-content: flex-start;
+			white-space: nowrap;
 		}
 	}
 

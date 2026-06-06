@@ -457,6 +457,7 @@
 	});
 
 	let categories = $derived([...new Set(checks.map((c) => c.cat))]);
+	let hasResults = $derived(version !== null && awgScores !== null && verdict !== null && parsed !== null);
 
 	const icons: Record<string, string> = {
 		pass: '✓',
@@ -485,12 +486,12 @@
 <svelte:window onkeydown={onKeydown} />
 
 <div class="shell">
-	<p class="hint">
-		Анализ выполняется только в браузере: конфиг не отправляется на сервер. Оценки эвристические, не
-		гарантируют обход DPI.
+	<p class="analyzer-note" role="note">
+		<strong>Локально:</strong>
+		<span>Конфиг не отправляется на сервер. Оценки эвристические и не гарантируют обход DPI.</span>
 	</p>
 
-	<div class="layout">
+	<div class="layout" class:has-results={hasResults}>
 		<div class="col-input">
 			{#if !embedded || !lockTunnelSelection}
 				<div class="existing-tunnel-box">
@@ -566,11 +567,15 @@
 			<div class="bar">
 				<Button variant="primary" onclick={analyze}>Анализировать</Button>
 				<Button variant="secondary" onclick={() => fileInput?.click()}>Файл…</Button>
-				<Button variant="ghost" onclick={clearAll}>Очистить</Button>
+				<span class="bar-clear">
+					<Button variant="secondary" onclick={clearAll}>Очистить</Button>
+				</span>
 				{#if canSave}
-					<Button variant="outline-primary" onclick={saveToTunnel} loading={savingTunnel}>
-						Записать в туннель
-					</Button>
+					<span class="bar-save">
+						<Button variant="outline-primary" onclick={saveToTunnel} loading={savingTunnel}>
+							Записать в туннель
+						</Button>
+					</span>
 				{/if}
 				<span class="kbd">⌘/Ctrl+Enter</span>
 			</div>
@@ -598,7 +603,7 @@
 			{/if}
 		</div>
 
-		<div class="col-results">
+		<div class="col-results" class:hidden={!hasResults}>
 			{#if version && awgScores && verdict && parsed}
 		<section class="card ver">
 			<span class="ver-badge">{version.ver}</span>
@@ -784,13 +789,6 @@
 				{/each}
 			</div>
 		{/each}
-			{:else}
-				<div class="results-empty">
-					<p class="results-empty-title">Результаты анализа</p>
-					<p class="results-empty-text">
-						После нажатия «Анализировать» здесь появятся оценка, рекомендации и список проверок.
-					</p>
-				</div>
 			{/if}
 		</div>
 	</div>
@@ -817,13 +815,32 @@
 		padding: 12px 16px 28px;
 	}
 
-	.hint {
+	.analyzer-note {
+		box-sizing: border-box;
+		display: flex;
+		align-items: flex-start;
+		gap: 0.45rem;
+		width: 100%;
+		max-width: 44rem;
 		margin: 0 auto 14px;
-		max-width: 52rem;
+		padding: 8px 10px;
+		border: 1px solid color-mix(in srgb, var(--color-border) 82%, var(--color-accent));
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--color-bg-secondary) 92%, var(--color-accent));
+		color: var(--color-text-secondary);
 		font-size: 12px;
 		line-height: 1.45;
-		color: var(--text-secondary);
-		text-align: center;
+		text-align: left;
+	}
+
+	.analyzer-note strong {
+		flex-shrink: 0;
+		color: var(--color-text-primary);
+		font-weight: 700;
+	}
+
+	.analyzer-note span {
+		min-width: 0;
 	}
 
 	.layout {
@@ -835,8 +852,11 @@
 
 	@media (min-width: 1024px) {
 		.layout {
-			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-			gap: 24px 28px;
+			gap: 20px 18px;
+		}
+
+		.layout.has-results {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 0.96fr);
 		}
 
 		.ta {
@@ -852,31 +872,31 @@
 		}
 	}
 
+	@media (min-width: 641px) and (max-width: 900px) {
+		.existing-tunnel-head {
+			flex-wrap: wrap;
+		}
+
+		.existing-tunnel-title,
+		.existing-tunnel-note {
+			min-width: 0;
+			overflow-wrap: anywhere;
+		}
+
+		.existing-tunnel-row {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			gap: 8px;
+		}
+	}
+
 	.col-input,
 	.col-results {
 		min-width: 0;
 	}
 
-	.results-empty {
-		padding: 20px 18px;
-		border-radius: 10px;
-		border: 1px dashed var(--color-border);
-		background: var(--bg-secondary);
-		text-align: center;
-	}
-
-	.results-empty-title {
-		margin: 0 0 8px;
-		font-size: 13px;
-		font-weight: 600;
-		color: var(--text-primary);
-	}
-
-	.results-empty-text {
-		margin: 0;
-		font-size: 12px;
-		line-height: 1.5;
-		color: var(--text-secondary);
+	.col-results.hidden {
+		display: none;
 	}
 
 	.drop {
@@ -917,6 +937,13 @@
 		outline: none;
 	}
 
+	@media (max-width: 640px) {
+		.ta {
+			min-height: 130px;
+			max-height: 40vh;
+		}
+	}
+
 	.ta::placeholder {
 		color: var(--text-tertiary);
 	}
@@ -944,6 +971,12 @@
 		height: 1px;
 		opacity: 0;
 		pointer-events: none;
+		top: 0;
+		left: 0;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 
 	.err {
@@ -1401,7 +1434,7 @@
 	@media (max-width: 520px) {
 		.score-row {
 			flex-direction: column;
-			align-items: flex-start;
+			align-items: center;
 		}
 		.ring-hold {
 			width: 100px;
@@ -1472,16 +1505,117 @@
 
 	@media (max-width: 640px) {
 		.existing-tunnel-row {
-			flex-direction: column;
+			display: grid;
+			grid-template-columns: 1fr;
+			gap: 8px;
 			align-items: stretch;
 		}
 
 		.existing-tunnel-select {
 			width: 100%;
+			min-width: 0;
 		}
 
 		.existing-tunnel-row :global(button) {
 			width: 100%;
+			min-width: 0;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.shell {
+			width: 100%;
+			max-width: none;
+			padding: 10px 12px 24px;
+		}
+
+		.analyzer-note {
+			width: 100%;
+			max-width: none;
+			margin-bottom: 12px;
+			padding: 8px 9px;
+			font-size: 11.5px;
+			text-align: left;
+			overflow-wrap: anywhere;
+		}
+
+		.analyzer-note strong {
+			display: inline;
+		}
+
+		.existing-tunnel-head {
+			display: grid;
+			grid-template-columns: 1fr;
+			gap: 4px;
+			align-items: start;
+		}
+
+		.existing-tunnel-title,
+		.existing-tunnel-note,
+		.drop-label {
+			min-width: 0;
+			white-space: normal;
+			overflow-wrap: anywhere;
+			word-break: normal;
+		}
+
+		.drop {
+			padding: 10px 12px;
+		}
+
+		.bar {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 8px;
+			align-items: stretch;
+			margin-top: 10px;
+			margin-bottom: 12px;
+		}
+
+		.bar :global(.btn) {
+			width: 100%;
+			min-width: 0;
+			padding-inline: 0.5rem;
+		}
+
+		.bar-clear,
+		.bar-save {
+			grid-column: 1 / -1;
+			min-width: 0;
+		}
+
+		.bar-clear :global(.btn),
+		.bar-save :global(.btn) {
+			width: 100%;
+		}
+
+		.kbd {
+			display: none;
+		}
+
+		.score-row {
+			justify-content: center;
+			text-align: center;
+			gap: 12px;
+		}
+
+		.ring-hold {
+			margin-inline: auto;
+		}
+
+		.verdict {
+			flex: 1 1 100%;
+			min-width: 0;
+			text-align: center;
+		}
+
+		.verdict-badge {
+			margin-inline: auto;
+		}
+
+		.verdict-text {
+			max-width: 18rem;
+			margin-inline: auto;
 		}
 	}
 </style>

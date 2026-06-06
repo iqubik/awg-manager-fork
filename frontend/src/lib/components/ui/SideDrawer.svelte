@@ -10,13 +10,78 @@
 		children: Snippet;
 		footer?: Snippet;
 		width?: number;
+		panelClass?: string;
+		bodyClass?: string;
 	}
 
-	let { open, onClose, title = '', children, footer, width = 480 }: Props = $props();
+	let {
+		open,
+		onClose,
+		title = '',
+		children,
+		footer,
+		width = 480,
+		panelClass = '',
+		bodyClass = '',
+	}: Props = $props();
+
+	/** Min downward drag (px) before the mobile sheet closes on release */
+	const SHEET_CLOSE_DRAG_PX = 140;
+
+	let sheetDragY = $state(0);
+	let sheetDragging = $state(false);
+	let sheetTouchStartY = 0;
 
 	function handleEsc(e: KeyboardEvent) {
 		if (open && e.key === 'Escape') onClose();
 	}
+
+	function resetSheetDrag() {
+		sheetDragging = false;
+		sheetDragY = 0;
+		sheetTouchStartY = 0;
+	}
+
+	function onSheetTouchStart(e: TouchEvent) {
+		if (e.touches.length !== 1) return;
+		sheetTouchStartY = e.touches[0].clientY;
+		sheetDragging = true;
+		sheetDragY = 0;
+	}
+
+	function onSheetTouchMove(e: TouchEvent) {
+		if (!sheetDragging || e.touches.length !== 1) return;
+		const dy = e.touches[0].clientY - sheetTouchStartY;
+		sheetDragY = Math.max(0, dy);
+		if (sheetDragY > 0) e.preventDefault();
+	}
+
+	function onSheetTouchEnd() {
+		if (!sheetDragging) return;
+		if (sheetDragY >= SHEET_CLOSE_DRAG_PX) onClose();
+		resetSheetDrag();
+	}
+
+	/** touchmove needs { passive: false } for preventDefault while dragging the sheet */
+	function sheetSwipeTarget(node: HTMLElement) {
+		const opts = { passive: false } as const;
+		node.addEventListener('touchstart', onSheetTouchStart, { passive: true });
+		node.addEventListener('touchmove', onSheetTouchMove, opts);
+		node.addEventListener('touchend', onSheetTouchEnd);
+		node.addEventListener('touchcancel', onSheetTouchEnd);
+		return {
+			destroy() {
+				node.removeEventListener('touchstart', onSheetTouchStart);
+				node.removeEventListener('touchmove', onSheetTouchMove);
+				node.removeEventListener('touchend', onSheetTouchEnd);
+				node.removeEventListener('touchcancel', onSheetTouchEnd);
+			},
+		};
+	}
+
+	$effect(() => {
+		if (!open) resetSheetDrag();
+	});
 
 	onMount(() => document.addEventListener('keydown', handleEsc));
 	onDestroy(() => document.removeEventListener('keydown', handleEsc));
@@ -30,21 +95,25 @@
 		onkeydown={(e) => e.key === 'Enter' && onClose()}
 	></div>
 	<div
-		class="drawer"
-		style="--drawer-width: {width}px;"
+		class={`drawer ${panelClass}`.trim()}
+		class:sheet-dragging={sheetDragging}
+		style="--drawer-width: {width}px; --sheet-drag-y: {sheetDragY}px;"
 		role="dialog"
 		aria-modal="true"
 		aria-label={title}
 	>
-		<header class="drawer-header">
+		<div class="drawer-handle" aria-hidden="true" use:sheetSwipeTarget></div>
+		<header class="drawer-header" use:sheetSwipeTarget>
 			<h3>{title}</h3>
-			<IconButton ariaLabel="Закрыть" onclick={onClose}>
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-					<path d="M18 6L6 18M6 6l12 12" />
-				</svg>
-			</IconButton>
+			<span class="drawer-close">
+				<IconButton ariaLabel="Закрыть" onclick={onClose}>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="M18 6L6 18M6 6l12 12" />
+					</svg>
+				</IconButton>
+			</span>
 		</header>
-		<div class="drawer-body">
+		<div class={`drawer-body ${bodyClass}`.trim()}>
 			{@render children()}
 		</div>
 		{#if footer}
@@ -59,7 +128,7 @@
 	.backdrop {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.4);
+		background: rgba(0, 0, 0, 0.45);
 		z-index: var(--z-drawer-backdrop);
 		animation: fade-in 150ms ease;
 	}
@@ -79,6 +148,10 @@
 		display: flex;
 		flex-direction: column;
 		-webkit-overflow-scrolling: touch;
+	}
+
+	.drawer-handle {
+		display: none;
 	}
 
 	.drawer-header {
@@ -127,12 +200,76 @@
 
 	@media (max-width: 768px) {
 		.drawer {
-			width: 100%;
+			top: auto !important;
+			right: 0 !important;
+			bottom: 0 !important;
+			left: 0 !important;
+			width: 100% !important;
+			max-width: none !important;
+			height: auto !important;
+			max-height: 85vh;
+			border-radius: 16px 16px 0 0;
 			border-left: none;
-			animation: slide-up 200ms ease;
+			border-right: none;
+			border-top: 1px solid var(--color-border);
+			box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
+			animation: slide-up 220ms ease-out;
+			transform: translateY(var(--sheet-drag-y, 0));
+			transition: transform 0.2s ease;
 		}
-		.backdrop {
+
+		.drawer.sheet-dragging {
+			transition: none;
+		}
+
+		.drawer-handle {
+			display: block;
+			flex-shrink: 0;
+			width: 100%;
+			padding: 10px 0 6px;
+			touch-action: none;
+			cursor: grab;
+		}
+
+		.drawer-handle::before {
+			content: '';
+			display: block;
+			width: 40px;
+			height: 4px;
+			margin: 0 auto;
+			border-radius: 2px;
+			background: var(--color-text-muted, var(--text-muted));
+			opacity: 0.45;
+		}
+
+		.drawer-header {
+			touch-action: none;
+			cursor: grab;
+			user-select: none;
+			padding-top: 0.25rem;
+		}
+
+		.drawer-close {
 			display: none;
+		}
+
+		.drawer-body {
+			max-height: calc(85vh - 60px);
+			overflow-y: auto;
+		}
+
+		.drawer-footer {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			align-items: stretch;
+			gap: 0.5rem;
+			padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom));
+		}
+
+		.drawer-footer :global(.btn) {
+			width: 100%;
+			min-width: 0;
+			justify-content: center;
 		}
 	}
 </style>

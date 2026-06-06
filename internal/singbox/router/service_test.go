@@ -67,6 +67,7 @@ func newStubIPTables(restoreRecorder func(context.Context, string) error) *IPTab
 	return &IPTables{
 		restoreNoflush: restoreRecorder,
 		runIPTables:    func(_ context.Context, _ ...string) error { return nil },
+		runIPTablesOut: func(_ context.Context, _ ...string) (string, error) { return jumpsPresentDump(), nil },
 		runIP:          func(_ context.Context, _ ...string) error { return nil },
 		persistRules:   func(_ string) error { return nil },
 		persistHook:    func() error { return nil },
@@ -434,6 +435,90 @@ func TestReconcile_WANIPsSame_NoOp(t *testing.T) {
 	}
 	if restoreCalls != 0 {
 		t.Errorf("expected no restore (no-op), got %d Install calls", restoreCalls)
+	}
+}
+
+// Self-heal: chains exist (IsInstalled would be true) and nothing else
+// changed, but PREROUTING has no jump into our chains — reconcileInstalled
+// must force a reinstall to restore interception.
+func TestReconcile_JumpsMissing_Reinstalls(t *testing.T) {
+	restoreCalls := 0
+	ipt := &IPTables{
+		restoreNoflush: func(_ context.Context, _ string) error { restoreCalls++; return nil },
+		runIPTables:    func(_ context.Context, _ ...string) error { return nil },
+		// Chains declared but PREROUTING has no `-j AWGM-*` jump → jumps wiped.
+		runIPTablesOut: func(_ context.Context, _ ...string) (string, error) {
+			return "-P PREROUTING ACCEPT\n-N " + ChainName + "\n-N " + RedirectChain + "\n", nil
+		},
+		runIP:        func(_ context.Context, _ ...string) error { return nil },
+		persistRules: func(_ string) error { return nil },
+		persistHook:  func() error { return nil },
+		cleanupHook:  func() {},
+	}
+	collector := &fakeWANIPCollector{ips: []string{"203.0.113.207/32"}}
+
+	svc := &ServiceImpl{
+		deps: Deps{
+			Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
+			IPTables:           ipt,
+			WANIPCollector:     collector,
+			Singbox:            newTestSingbox(t),
+			NetfilterPreflight: func(context.Context) error { return nil },
+		},
+		// Same mark + WAN IPs as stored, initial sync already done — so the
+		// missing jumps are the only thing that can trigger a reinstall.
+		currentMark:         "0xffffaaa",
+		currentWANIPs:       []string{"203.0.113.207/32"},
+		netfilterStateKnown: true,
+	}
+	if err := svc.reconcileInstalled(context.Background(), storage.SingboxRouterSettings{
+		Enabled:       true,
+		PolicyName:    "Policy0",
+		WANAutoDetect: true,
+	}); err != nil {
+		t.Fatalf("reconcileInstalled err: %v", err)
+	}
+	if restoreCalls != 1 {
+		t.Errorf("expected 1 restore (self-heal) when PREROUTING jumps missing, got %d", restoreCalls)
+	}
+}
+
+// Transient probe error must NOT be treated as "jumps missing": a flaky `-S`
+// read during an NDMS reload must not trigger a needless reinstall.
+func TestReconcile_ProbeError_NoReinstall(t *testing.T) {
+	restoreCalls := 0
+	ipt := &IPTables{
+		restoreNoflush: func(_ context.Context, _ string) error { restoreCalls++; return nil },
+		runIPTables:    func(_ context.Context, _ ...string) error { return nil },
+		runIPTablesOut: func(_ context.Context, _ ...string) (string, error) {
+			return "", errors.New("iptables: resource temporarily unavailable")
+		},
+		runIP:        func(_ context.Context, _ ...string) error { return nil },
+		persistRules: func(_ string) error { return nil },
+		persistHook:  func() error { return nil },
+		cleanupHook:  func() {},
+	}
+	svc := &ServiceImpl{
+		deps: Deps{
+			Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
+			IPTables:           ipt,
+			WANIPCollector:     &fakeWANIPCollector{ips: []string{"203.0.113.207/32"}},
+			Singbox:            newTestSingbox(t),
+			NetfilterPreflight: func(context.Context) error { return nil },
+		},
+		currentMark:         "0xffffaaa",
+		currentWANIPs:       []string{"203.0.113.207/32"},
+		netfilterStateKnown: true,
+	}
+	if err := svc.reconcileInstalled(context.Background(), storage.SingboxRouterSettings{
+		Enabled:       true,
+		PolicyName:    "Policy0",
+		WANAutoDetect: true,
+	}); err != nil {
+		t.Fatalf("reconcileInstalled err: %v", err)
+	}
+	if restoreCalls != 0 {
+		t.Errorf("expected no reinstall on probe error, got %d", restoreCalls)
 	}
 }
 
@@ -1340,5 +1425,125 @@ func TestReconcile_BypassPresetsSame_NoOp(t *testing.T) {
 	}
 	if restoreCalls != 0 {
 		t.Errorf("expected no Install (no-op when bypass same), got %d calls", restoreCalls)
+	}
+}
+
+// fakeWAN is a test double for WANInterfaceLister.
+type fakeWAN struct{ list []WANInterfaceInfo }
+
+func (f fakeWAN) ListWAN(_ context.Context) ([]WANInterfaceInfo, error) { return f.list, nil }
+
+func TestListIngressEligibleInterfaces_ExcludesWAN(t *testing.T) {
+	s := &ServiceImpl{deps: Deps{
+		BindableInterfaces: fakeBindable{list: []WANInterfaceInfo{
+			{Name: "nwg3", Type: "Wireguard", Up: true},
+			{Name: "br0", Type: "Bridge", Up: true},
+			{Name: "ppp0", Type: "PPP", Up: true},
+		}},
+		WANInterfaces: fakeWAN{list: []WANInterfaceInfo{{Name: "ppp0"}}},
+	}}
+	got, err := s.ListIngressEligibleInterfaces(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "nwg3" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+type fakeIngressResolver struct{ m map[string]string }
+
+func (f fakeIngressResolver) Resolve(_ context.Context, ref string) string { return f.m[ref] }
+
+func TestResolveIngressInterfaces(t *testing.T) {
+	s := &ServiceImpl{deps: Deps{IngressResolver: fakeIngressResolver{m: map[string]string{
+		"managed:Wireguard3": "nwg3",
+		"managed:Wireguard9": "", // удалён/не поднят
+	}}}}
+	got := s.resolveIngressInterfaces(context.Background(), []string{
+		"managed:Wireguard3", "iface:nwg5", "managed:Wireguard9", "iface:nwg5",
+	})
+	want := []string{"nwg3", "nwg5"} // dead-ref пропущен, дубль убран
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestNormalizeSingboxRouterSettings_IngressRefs(t *testing.T) {
+	base := storage.SingboxRouterSettings{PolicyName: "awgm-router", WANAutoDetect: true}
+
+	ok := base
+	ok.IngressInterfaces = []string{"managed:Wireguard3", "iface:nwg5"}
+	if _, err := NormalizeSingboxRouterSettings(ok); err != nil {
+		t.Fatalf("valid refs rejected: %v", err)
+	}
+
+	bad := base
+	bad.IngressInterfaces = []string{"nwg3"} // нет префикса
+	if _, err := NormalizeSingboxRouterSettings(bad); err == nil {
+		t.Fatalf("expected error for unprefixed ref")
+	}
+}
+
+func TestReconcile_IngressChangeTriggersInstall(t *testing.T) {
+	restoreCalls := 0
+	var lastRestoreInput string
+	ipt := newStubIPTables(func(_ context.Context, input string) error {
+		restoreCalls++
+		lastRestoreInput = input
+		return nil
+	})
+	collector := &fakeWANIPCollector{ips: []string{"203.0.113.207/32"}}
+	resolver := fakeIngressResolver{m: map[string]string{
+		"managed:WG": "nwgX",
+	}}
+
+	baseSettings := storage.SingboxRouterSettings{
+		Enabled:       true,
+		PolicyName:    "Policy0",
+		WANAutoDetect: true,
+		// No IngressInterfaces initially.
+	}
+
+	svc := &ServiceImpl{
+		deps: Deps{
+			Policies:           &fakeAccessPolicyProvider{mark: "0xffffaaa"},
+			IPTables:           ipt,
+			WANIPCollector:     collector,
+			Singbox:            newTestSingbox(t),
+			NetfilterPreflight: func(context.Context) error { return nil },
+			IngressResolver:    resolver,
+		},
+		currentMark:   "0xffffaaa",
+		currentWANIPs: []string{"203.0.113.207/32"},
+		// netfilterStateKnown=false → first reconcile forces install
+	}
+
+	// Initial reconcile: sets netfilterStateKnown=true and currentIngress=[].
+	if err := svc.reconcileInstalled(context.Background(), baseSettings); err != nil {
+		t.Fatalf("first reconcileInstalled: %v", err)
+	}
+	if restoreCalls != 1 {
+		t.Fatalf("expected 1 install on first reconcile (forceInitialSync), got %d", restoreCalls)
+	}
+
+	// Second reconcile: only IngressInterfaces changed; everything else identical.
+	changedSettings := baseSettings
+	changedSettings.IngressInterfaces = []string{"managed:WG"}
+
+	if err := svc.reconcileInstalled(context.Background(), changedSettings); err != nil {
+		t.Fatalf("second reconcileInstalled: %v", err)
+	}
+	if restoreCalls != 2 {
+		t.Errorf("expected 2 total installs (ingress change), got %d", restoreCalls)
+	}
+	// The rendered iptables input must contain the resolved kernel name.
+	ingressRule := "-A PREROUTING -i nwgX -m comment --comment " + IngressTag
+	if !strings.Contains(lastRestoreInput, ingressRule) {
+		t.Errorf("expected ingress rule for nwgX in restore input, got:\n%s", lastRestoreInput)
+	}
+	// currentIngress must be updated.
+	if !slices.Equal(svc.currentIngress, []string{"nwgX"}) {
+		t.Errorf("currentIngress not updated: %v", svc.currentIngress)
 	}
 }

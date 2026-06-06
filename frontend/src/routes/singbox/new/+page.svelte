@@ -4,11 +4,11 @@
 	import { SingboxGhostTerminal } from '$lib/components/singbox';
 	import { Button } from '$lib/components/ui';
 	import { notifications } from '$lib/stores/notifications';
+	import { pluralize, TUNNEL_WORDS } from '$lib/utils/pluralize';
 
 	function onComplete(imported: number): void {
-		notifications.success(
-			imported === 1 ? 'Импортирован 1 туннель' : `Импортировано ${imported} туннелей`,
-		);
+		const verb = imported === 1 ? 'Импортирован' : 'Импортировано';
+		notifications.success(`${verb} ${pluralize(imported, TUNNEL_WORDS)}`);
 		goto('/?tab=singbox');
 	}
 </script>

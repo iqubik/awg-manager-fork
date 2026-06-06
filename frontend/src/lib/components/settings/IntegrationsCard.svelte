@@ -20,7 +20,6 @@
 		onupdateSingbox?: () => void;
 		showSingbox?: boolean;
 		showHydra?: boolean;
-		downloadRouteLabel?: string;
 	}
 
 	let {
@@ -37,7 +36,6 @@
 		onupdateSingbox,
 		showSingbox = true,
 		showHydra = true,
-		downloadRouteLabel = '',
 	}: Props = $props();
 
 	const singboxInstalled = $derived(singboxStatus?.installed ?? false);
@@ -172,11 +170,6 @@
 								</span>
 							{/if}
 						{/if}
-						{#if downloadRouteLabel}
-							<span class="integration-route" title={downloadRouteLabel}>
-								Через {downloadRouteLabel}
-							</span>
-						{/if}
 					</div>
 				</div>
 				{#if installProgress}
@@ -245,11 +238,6 @@
 						{#if !hydraStatusLoading && !hydraStatus && hydraStatusError}
 							<span class="setting-description warning">нет ответа: {hydraStatusError}</span>
 						{/if}
-						{#if downloadRouteLabel}
-							<span class="integration-route" title={downloadRouteLabel}>
-								geo.dat: через {downloadRouteLabel}
-							</span>
-						{/if}
 					</div>
 				</div>
 				{#if hydraInstalled}
@@ -288,6 +276,17 @@
 </Modal>
 
 <style>
+	.card {
+		container-type: inline-size;
+	}
+
+	.setting-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: start;
+		gap: 0.75rem;
+	}
+
 	.integration-item {
 		display: flex;
 		align-items: center;
@@ -303,20 +302,19 @@
 		min-width: 0;
 	}
 
+	.integration-meta .setting-description {
+		min-width: 0;
+	}
+
+	.integration-meta .setting-description.warning {
+		white-space: pre-wrap;
+	}
+
 	.integration-sub {
 		font-size: 0.6875rem;
 		font-family: var(--font-mono);
 		color: var(--color-text-muted);
 	}
-	.integration-route {
-		font-size: 0.6875rem;
-		font-family: var(--font-mono);
-		color: var(--color-text-muted);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
 	.warning {
 		color: var(--color-warning);
 	}
@@ -346,7 +344,67 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.35rem;
-		min-width: 220px;
+		min-width: 0;
+		grid-column: 1 / -1;
+	}
+
+	/* Same action-button floor as settings actions-card (fits «Обновление…»). */
+	@media (min-width: 641px) {
+		.setting-row > :global(.btn) {
+			justify-self: end;
+			align-self: center;
+			min-width: 7.5rem;
+		}
+	}
+
+	@media (min-width: 901px) {
+		.setting-row {
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: start;
+			gap: 0.75rem;
+		}
+
+		.integration-item {
+			display: grid;
+			grid-template-columns: 8px minmax(0, 1fr);
+			align-items: flex-start;
+			column-gap: 0.625rem;
+		}
+
+		.integration-item :global(.dot) {
+			margin-top: 0.42rem;
+		}
+
+		.integration-meta {
+			min-width: 0;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.integration-item {
+			display: grid;
+			grid-template-columns: 8px minmax(0, 1fr);
+			align-items: start;
+			column-gap: 0.625rem;
+		}
+
+		.integration-item :global(.dot) {
+			margin-top: 0.42rem;
+		}
+
+		@container (max-width: 420px) {
+			.setting-row {
+				grid-template-columns: minmax(0, 1fr) auto;
+				align-items: center;
+				gap: 0.625rem;
+			}
+
+			.setting-row > :global(.btn) {
+				justify-self: end;
+				align-self: center;
+				min-width: 7.5rem;
+			}
+		}
 	}
 	.progress-label {
 		font-size: 0.78rem;

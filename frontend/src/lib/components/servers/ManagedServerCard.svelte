@@ -25,9 +25,11 @@
 		onDeleted?: () => void;
 		onUpdated?: () => void;
 		onOpenASC: () => void;
+		ingressEnabled?: boolean;
+		onToggleIngress?: (interfaceName: string, enabled: boolean) => Promise<void>;
 	}
 
-	let { server, stats, routerIP = '', onDeleted = () => {}, onUpdated = () => {}, onOpenASC }: Props = $props();
+	let { server, stats, routerIP = '', onDeleted = () => {}, onUpdated = () => {}, onOpenASC, ingressEnabled = false, onToggleIngress = async () => {} }: Props = $props();
 
 	let serverId = $derived(server.interfaceName);
 
@@ -69,6 +71,7 @@
 				{
 					name: a.description || a.publicKey,
 					ip: a.tunnelIP,
+					endpoint: sa?.endpoint || '-',
 					rxBytes: sa?.rxBytes ?? null,
 					txBytes: sa?.txBytes ?? null,
 					online: sa?.online ?? null,
@@ -77,6 +80,7 @@
 				{
 					name: b.description || b.publicKey,
 					ip: b.tunnelIP,
+					endpoint: sb?.endpoint || '-',
 					rxBytes: sb?.rxBytes ?? null,
 					txBytes: sb?.txBytes ?? null,
 					online: sb?.online ?? null,
@@ -166,6 +170,7 @@
 	}
 
 	let togglingEnabled = $state(false);
+	let restartingServer = $state(false);
 
 	async function handleToggleEnabled() {
 		togglingEnabled = true;
@@ -180,7 +185,34 @@
 		}
 	}
 
+	async function handleRestartOrStart() {
+		if (restartingServer) return;
+		restartingServer = true;
+
+		try {
+			await api.restartManagedServer(serverId);
+			notifications.success(isUp ? 'Команда рестарта отправлена' : 'Команда запуска отправлена');
+			servers.invalidate();
+		} catch {
+			notifications.warning('Команда могла быть отправлена, соединение могло временно прерваться');
+		} finally {
+			restartingServer = false;
+		}
+	}
+
 	let togglingNAT = $state(false);
+	let togglingIngress = $state(false);
+
+	async function handleToggleIngress() {
+		togglingIngress = true;
+		try {
+			await onToggleIngress(server.interfaceName, !ingressEnabled);
+		} catch (e) {
+			notifications.error(e instanceof Error ? e.message : 'Ошибка переключения egress в sing-box');
+		} finally {
+			togglingIngress = false;
+		}
+	}
 
 	async function handleToggleNAT() {
 		togglingNAT = true;
@@ -281,9 +313,24 @@
 			<Toggle
 				checked={isUp}
 				onchange={handleToggleEnabled}
-				disabled={togglingEnabled}
+				disabled={togglingEnabled || restartingServer}
 				size="sm"
 			/>
+			<IconButton
+				ariaLabel={isUp
+					? `Перезапустить сервер ${serverDisplayName}`
+					: `Запустить сервер ${serverDisplayName}`}
+				title={isUp
+					? `Перезапустить сервер «${serverDisplayName}»`
+					: `Запустить сервер «${serverDisplayName}»`}
+				onclick={handleRestartOrStart}
+				disabled={restartingServer || togglingEnabled || deleting}
+			>
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M21 12a9 9 0 1 1-2.64-6.36" />
+					<path d="M21 3v6h-6" />
+				</svg>
+			</IconButton>
 			<IconButton
 				ariaLabel={`Открыть параметры обфускации сервера ${serverDisplayName}`}
 				title={`Параметры обфускации сервера «${serverDisplayName}»`}
@@ -343,6 +390,15 @@
 		/>
 	</div>
 
+	<!-- Egress в sing-box -->
+	<div class="nat-row">
+		<div class="nat-info">
+			<span class="nat-label">Маршрутизация через sing-box</span>
+			<span class="nat-hint">Заворачивать интернет-трафик клиентов данного сервера в sing-box</span>
+		</div>
+		<Toggle checked={ingressEnabled} onchange={handleToggleIngress} disabled={togglingIngress} size="sm" />
+	</div>
+
 	<!-- Policy -->
 	<div class="policy-row">
 		<div class="policy-info">
@@ -368,6 +424,7 @@
 				<PeerSortControls
 					bind:searchQuery
 					showSearch={(server.peers ?? []).length >= 5}
+					hideSortOnDesktop
 				/>
 				<Button variant="secondary" size="sm" onclick={() => addPeerOpen = true} iconBefore={addPeerIcon}>
 					Добавить клиента
@@ -654,5 +711,26 @@
 			align-self: flex-end;
 		}
 
+	}
+
+	@media (max-width: 640px) {
+		.managed-card {
+			overflow: hidden;
+		}
+
+		.peers-controls {
+			display: grid;
+			grid-template-columns: 1fr;
+			width: 100%;
+			gap: 0.4rem;
+		}
+
+		.peers-controls :global(.peer-sort-controls) {
+			width: 100%;
+		}
+
+		.peers-controls :global(.btn) {
+			width: 100%;
+		}
 	}
 </style>

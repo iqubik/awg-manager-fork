@@ -7,10 +7,9 @@
 
 	interface Props {
 		updateInfo: UpdateInfo | null;
-		downloadRouteLabel?: string;
 	}
 
-	let { updateInfo = $bindable(), downloadRouteLabel = '' }: Props = $props();
+	let { updateInfo = $bindable() }: Props = $props();
 
 	let checking = $state(false);
 	let upgrading = $state(false);
@@ -29,21 +28,18 @@
 		checking = true;
 		try {
 			updateInfo = await api.checkUpdate(true);
-			const viaInline = downloadRouteLabel ? ` через ${downloadRouteLabel}` : '';
-			const viaLine = downloadRouteLabel ? `\n(получено через ${downloadRouteLabel})` : '';
 			if (updateInfo.error) {
-				notifications.error(`Ошибка проверки${viaInline}: ${updateInfo.error}`);
+				notifications.error(`Ошибка проверки: ${updateInfo.error}`);
 			} else if (updateInfo.available) {
-				notifications.success(`Доступна версия ${updateInfo.latestVersion}${viaLine}`);
+				notifications.success(`Доступна версия ${updateInfo.latestVersion}`);
 			} else {
-				notifications.info(`Обновлений нет${viaLine}`);
+				notifications.info('Обновлений нет');
 			}
 			if (updateInfo.warning) {
 				notifications.info(updateInfo.warning);
 			}
 		} catch (e) {
-			const via = downloadRouteLabel ? ` через ${downloadRouteLabel}` : '';
-			notifications.error(`Ошибка проверки обновлений${via}`);
+			notifications.error('Ошибка проверки обновлений');
 		} finally {
 			checking = false;
 		}
@@ -180,7 +176,6 @@
 		pendingUpdate={Boolean(updateInfo.available && updateInfo.latestVersion)}
 		fromVersion={updateInfo.available && updateInfo.latestVersion ? updateInfo.currentVersion : ''}
 		toVersion={updateInfo.available && updateInfo.latestVersion ? updateInfo.latestVersion : updateInfo.currentVersion}
-		sourceLabel={downloadRouteLabel}
 		oncheckUpdates={() => {
 			showChangelog = false;
 			void checkForUpdates();

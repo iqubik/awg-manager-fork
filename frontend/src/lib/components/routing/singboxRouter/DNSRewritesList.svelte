@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
-	import { Button } from '$lib/components/ui';
+	import { Button, ConfirmModal } from '$lib/components/ui';
+	import { Trash2, Edit3 } from 'lucide-svelte';
 	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
 	import type { SingboxRouterDNSRewrite } from '$lib/types';
 	import DNSRewriteEditModal from './DNSRewriteEditModal.svelte';
@@ -9,18 +10,37 @@
 	interface Props {
 		rewrites: SingboxRouterDNSRewrite[];
 		onChange: () => Promise<void> | void;
+		/** Показывать встроенный заголовок (счётчик + кнопка «Добавить»). */
+		showHeader?: boolean;
+		hideColumnHeader?: boolean;
+		/** Режим добавления — bindable, чтобы триггерить add из родителя. */
+		addMode?: boolean;
 	}
-	let { rewrites, onChange }: Props = $props();
+	let { rewrites, onChange, showHeader = true, hideColumnHeader = false, addMode = $bindable(false) }: Props = $props();
 
-	let addMode = $state(false);
 	let editIndex = $state<number | null>(null);
+	let deleteIndex = $state<number | null>(null);
+	let deleteBusy = $state(false);
 
-	async function remove(i: number): Promise<void> {
+	function requestEdit(i: number): void {
+		editIndex = i;
+	}
+
+	function requestDelete(i: number): void {
+		deleteIndex = i;
+	}
+
+	async function confirmDelete(): Promise<void> {
+		if (deleteIndex === null) return;
+		deleteBusy = true;
 		try {
-			await api.singboxRouterDeleteDNSRewrite(i);
+			await api.singboxRouterDeleteDNSRewrite(deleteIndex);
+			deleteIndex = null;
 			await onChange();
 		} catch (e) {
 			notifications.error((e as Error).message);
+		} finally {
+			deleteBusy = false;
 		}
 	}
 </script>
@@ -29,33 +49,78 @@
 	<CreateIcon />
 {/snippet}
 
-<div class="header">
-	<div class="hint">{rewrites.length} перезаписей</div>
-	<Button variant="primary" size="sm" onclick={() => (addMode = true)} iconBefore={createIcon}>
-		Добавить
-	</Button>
-</div>
+{#if showHeader}
+	<div class="header">
+		<div class="hint">{rewrites.length} перезаписей</div>
+		<Button variant="primary" size="sm" onclick={() => (addMode = true)} iconBefore={createIcon}>
+			Добавить
+		</Button>
+	</div>
+{/if}
 
 {#if rewrites.length === 0}
 	<div class="empty-mild">
 		Перезаписей нет. «Перезапись» возвращает заданный IP для домена/паттерна.
 	</div>
 {:else}
-	<div class="col-header">
-		<div>Шаблон</div>
-		<div></div>
-		<div>IP-адреса</div>
-		<div></div>
-		<div></div>
-	</div>
+	{#if !hideColumnHeader}
+		<div class="col-header">
+			<div>Шаблон</div>
+			<div></div>
+			<div>IP-адреса</div>
+			<div class="actions-head">Действия</div>
+		</div>
+	{/if}
 	<div class="rows">
 		{#each rewrites as rw, i (i)}
-			<div class="row">
-				<code class="pat mono">{rw.pattern}</code>
+			<div
+				class="row"
+				role="button"
+				tabindex="0"
+				onclick={() => requestEdit(i)}
+				onkeydown={(e) => {
+					if (e.target !== e.currentTarget) return;
+
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						requestEdit(i);
+					}
+				}}
+				aria-label={`Редактировать DNS-перезапись ${rw.pattern}`}
+				title={`Редактировать DNS-перезапись «${rw.pattern}»`}
+			>
+				<code class="pat mono" title={rw.pattern}>{rw.pattern}</code>
 				<span class="arrow">→</span>
-				<span class="ips mono">{rw.ips.join(', ')}</span>
-				<button class="icon-btn" onclick={() => (editIndex = i)} aria-label="Редактировать">✎</button>
-				<button class="icon-btn danger" onclick={() => remove(i)} aria-label="Удалить">✕</button>
+				<span class="ips-line">
+					<span class="mobile-arrow">→</span>
+					<span class="ips mono" title={rw.ips.join(', ')}>{rw.ips.join(', ')}</span>
+				</span>
+				<div class="row-actions">
+					<button
+						type="button"
+						class="route-action-btn"
+						onclick={(e) => {
+							e.stopPropagation();
+							requestEdit(i);
+						}}
+						aria-label={`Редактировать DNS-перезапись ${rw.pattern}`}
+						title={`Редактировать DNS-перезапись «${rw.pattern}»`}
+					>
+						<Edit3 size={15} />
+					</button>
+					<button
+						type="button"
+						class="route-action-btn danger"
+						onclick={(e) => {
+							e.stopPropagation();
+							requestDelete(i);
+						}}
+						aria-label={`Удалить DNS-перезапись ${rw.pattern}`}
+						title={`Удалить DNS-перезапись «${rw.pattern}»`}
+					>
+						<Trash2 size={15} />
+					</button>
+				</div>
 			</div>
 		{/each}
 	</div>
@@ -85,6 +150,15 @@
 	/>
 {/if}
 
+<ConfirmModal
+	open={deleteIndex !== null}
+	title="Удалить перезапись"
+	message={deleteIndex !== null ? `Удалить перезапись «${rewrites[deleteIndex]?.pattern ?? ''}»?` : ''}
+	busy={deleteBusy}
+	onConfirm={confirmDelete}
+	onClose={() => { if (!deleteBusy) deleteIndex = null; }}
+/>
+
 <style>
 	.header {
 		display: flex;
@@ -105,7 +179,7 @@
 	}
 	.col-header {
 		display: grid;
-		grid-template-columns: 1fr 16px 1fr 24px 24px;
+		grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) auto;
 		gap: 0.4rem;
 		padding: 0.25rem 0.75rem;
 		font-size: 0.65rem;
@@ -113,48 +187,136 @@
 		text-transform: uppercase;
 		color: var(--muted-text);
 	}
+	.actions-head {
+		text-align: right;
+		white-space: nowrap;
+	}
 	.rows {
 		display: grid;
 		gap: 0.2rem;
+		min-width: 0;
 	}
 	.row {
+		transition: background-color 0.15s ease;
 		display: grid;
-		grid-template-columns: 1fr 16px 1fr 24px 24px;
+		grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) auto;
 		gap: 0.4rem;
 		align-items: center;
+		min-width: 0;
 		background: var(--surface-bg);
 		padding: 0.5rem 0.75rem;
 		border-radius: 4px;
+		cursor: pointer;
 	}
+
+	.row:focus-visible {
+		outline: 2px solid var(--color-accent, var(--accent));
+		outline-offset: 2px;
+	}
+
+	.row-actions {
+		display: flex;
+		flex-wrap: nowrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+	.ips-line {
+		min-width: 0;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+	.mobile-arrow {
+		display: none;
+	}
+
 	.mono {
 		font-family: ui-monospace, monospace;
 		font-size: 0.8rem;
 	}
 	.pat {
 		color: var(--text);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.arrow {
-		opacity: 0.5;
-		text-align: center;
+		min-width: 0;
+		white-space: normal;
+		overflow: visible;
+		text-overflow: initial;
+		overflow-wrap: anywhere;
+		word-break: normal;
+		line-height: 1.35;
 	}
 	.ips {
 		color: var(--success, #22c55e);
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.icon-btn {
-		background: transparent;
-		border: none;
-		color: var(--muted-text);
-		cursor: pointer;
-		font-size: 0.9rem;
-		padding: 0.15rem;
+
+	@media (hover: hover) and (pointer: fine) {
+		.row:hover {
+			background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+		}
 	}
-	.icon-btn.danger {
-		color: var(--danger, #dc2626);
+
+	@media (max-width: 720px) {
+		.col-header {
+			display: none;
+		}
+
+		.rows {
+			gap: 0;
+		}
+
+		.row {
+			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-areas:
+				'pattern actions'
+				'ips actions';
+			gap: 0.5rem 0.625rem;
+			padding: 0.75rem 0.875rem;
+			border: 0;
+			border-radius: 0;
+			border-bottom: 1px solid var(--border);
+			background: transparent;
+		}
+
+		.row:last-child {
+			border-bottom: 0;
+		}
+
+		.pat { grid-area: pattern; }
+		.ips-line {
+			grid-area: ips;
+			display: inline-flex;
+			align-items: center;
+			gap: 0.35rem;
+			min-width: 0;
+		}
+		.pat {
+			white-space: normal;
+			overflow: visible;
+			text-overflow: initial;
+			overflow-wrap: anywhere;
+			word-break: normal;
+		}
+		.arrow { display: none; }
+		.mobile-arrow {
+			display: inline;
+			flex: 0 0 auto;
+			color: var(--muted-text);
+			line-height: 1;
+			opacity: 0.85;
+		}
+		.ips {
+			min-width: 0;
+			white-space: normal;
+			overflow-wrap: anywhere;
+		}
+		.row-actions {
+			grid-area: actions;
+			align-self: center;
+		}
 	}
 </style>

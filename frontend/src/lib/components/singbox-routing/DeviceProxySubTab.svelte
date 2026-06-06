@@ -7,6 +7,7 @@
 		deviceProxyRuntime,
 		deviceProxyMissingTarget,
 	} from '$lib/stores/deviceproxy';
+	import { configFromInstance, mergeInstanceConfig, newDeviceProxyInstance } from '$lib/utils/deviceProxyInstance';
 	import { SideDrawer, Button } from '$lib/components/ui';
 	import ActiveTunnelCard from '$lib/components/deviceproxy/ActiveTunnelCard.svelte';
 	import SettingsCard from '$lib/components/deviceproxy/SettingsCard.svelte';
@@ -269,29 +270,6 @@
 		return runtime.activeTag || runtime.defaultTag;
 	}
 
-	function configFromInstance(in_: DeviceProxyInstance): DeviceProxyConfig {
-		return {
-			enabled: in_.enabled,
-			listenAll: in_.listenAll,
-			listenInterface: in_.listenInterface,
-			port: in_.port,
-			auth: { ...in_.auth },
-			selectedOutbound: in_.selectedOutbound,
-		};
-	}
-
-	function mergeInstanceConfig(in_: DeviceProxyInstance, cfg: DeviceProxyConfig): DeviceProxyInstance {
-		return {
-			...in_,
-			enabled: cfg.enabled,
-			listenAll: cfg.listenAll,
-			listenInterface: cfg.listenInterface,
-			port: cfg.port,
-			auth: { ...cfg.auth },
-			selectedOutbound: cfg.selectedOutbound,
-		};
-	}
-
 	function upsertInstanceCache(saved: DeviceProxyInstance) {
 		const exists = instances.some((in_) => in_.id === saved.id);
 		const next = exists
@@ -305,30 +283,9 @@
 		deviceProxyInstances.applyMutationResponse(next);
 	}
 
-	function nextFreePort(): number {
-		const used = new Set(instances.map((in_) => in_.port));
-		for (let p = 1099; p <= 65535; p++) {
-			if (!used.has(p)) return p;
-		}
-		return 1100;
-	}
-
-	function newInstance(): DeviceProxyInstance {
-		const n = Math.random().toString(36).slice(2, 8);
-		return {
-			id: `px-${n}`,
-			name: `Прокси ${instances.length + 1}`,
-			enabled: false,
-			listenAll: true,
-			listenInterface: '',
-			port: nextFreePort(),
-			auth: { enabled: false, username: '', password: '' },
-			selectedOutbound: 'direct',
-		};
-	}
 
 	async function createInstance() {
-		const in_ = newInstance();
+		const in_ = newDeviceProxyInstance(instances);
 		try {
 			const saved = await api.saveDeviceProxyInstance(in_);
 			upsertInstanceCache(saved);

@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { Button, Toggle } from '$lib/components/ui';
+	import { Button, SegmentedControl, Toggle } from '$lib/components/ui';
 	import { compactLayout } from '$lib/stores/compactLayout';
-	import { serviceLetterIcons } from '$lib/stores/serviceLetterIcons';
 	import { usageLevel } from '$lib/stores/settings';
 	import {
 		theme,
@@ -138,20 +137,12 @@
 			{#if $theme.supportsModeToggle}
 				<div class="detail-block">
 					<div class="detail-title">Режим {THEME_PRESETS[$theme.preset].label}</div>
-					<div class="mode-switch" role="radiogroup" aria-label={`Режим темы ${THEME_PRESETS[$theme.preset].label}`}>
-						{#each LEGACY_MODE_OPTIONS as option (option.value)}
-							<button
-								type="button"
-								role="radio"
-								aria-checked={$theme.modePreference === option.value}
-								class="mode-pill"
-								class:active={$theme.modePreference === option.value}
-								onclick={() => theme.setMode(option.value)}
-							>
-								{option.label}
-							</button>
-						{/each}
-					</div>
+					<SegmentedControl
+						value={$theme.modePreference}
+						options={LEGACY_MODE_OPTIONS}
+						ariaLabel={`Режим темы ${THEME_PRESETS[$theme.preset].label}`}
+						onchange={(mode) => theme.setMode(mode)}
+					/>
 				</div>
 			{/if}
 
@@ -218,37 +209,22 @@
 			onchange={(enabled) => compactLayout.setEnabled(enabled)}
 		/>
 	</div>
-	<div class="setting-row letter-icons-row">
-		<div class="flex flex-col gap-1">
-			<span class="font-medium">Буквенные иконки</span>
-			<span class="setting-description">
-				Цветная плитка с первой буквой названия для списков маршрутизации (если не был найден логотип). 
-			</span>
-		</div>
-		<Toggle
-			checked={$serviceLetterIcons}
-			onchange={(enabled) => serviceLetterIcons.setEnabled(enabled)}
-		/>
-	</div>
 </div>
 
 <style>
-	.compact-layout-row,
-	.letter-icons-row {
+	.compact-layout-row {
 		align-items: center;
 	}
 
 	@media (max-width: 640px) {
-		.compact-layout-row,
-		.letter-icons-row {
+		.compact-layout-row {
 			flex-direction: row;
 			align-items: center;
 			flex-wrap: nowrap;
 			gap: 0.75rem;
 		}
 
-		.compact-layout-row > *:first-child,
-		.letter-icons-row > *:first-child {
+		.compact-layout-row > *:first-child {
 			flex: 1 1 auto;
 			min-width: 0;
 		}
@@ -318,7 +294,10 @@
 	}
 
 	.collapsible-body {
-		margin-top: 0.75rem;
+		border-top: 1px solid var(--color-border);
+		padding-top: 0.875rem;
+		padding-bottom: 0.875rem;
+		border-bottom: 1px solid var(--color-border);
 	}
 
 	.theme-grid {
@@ -502,8 +481,6 @@
 
 	.detail-block {
 		margin-top: 0.9rem;
-		padding-top: 0.9rem;
-		border-top: 1px solid var(--color-border);
 	}
 
 	.detail-title {
@@ -513,54 +490,13 @@
 		margin-bottom: 0.6rem;
 	}
 
-	.mode-switch {
-		display: inline-flex;
-		background: var(--color-bg-primary);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-pill);
-		padding: 0.25rem;
-		gap: 0.25rem;
+	.detail-block :global(.segmented-control) {
+		width: 100%;
 	}
 
-	.mode-pill {
-		border: 0;
-		border-radius: var(--radius-pill);
-		background: transparent;
-		color: var(--color-text-muted);
-		font: inherit;
-		font-size: 0.75rem;
-		font-weight: 600;
-		padding: 0.35rem 0.8rem;
-		cursor: pointer;
-		transition:
-			background var(--t-fast) ease,
-			color var(--t-fast) ease;
-	}
-
-	.mode-pill.active {
-		background: var(--color-accent);
-		color: var(--color-accent-contrast, var(--color-bg-primary));
-	}
-
-	.mode-pill:focus-visible {
-		outline: 2px solid var(--color-accent);
-		outline-offset: 2px;
-	}
-
-	@media (max-width: 640px) {
-		.mode-switch {
-			display: grid;
-			grid-template-columns: repeat(3, minmax(0, 1fr));
-			width: 100%;
-			border-radius: var(--radius-md);
-		}
-
-		.mode-pill {
-			width: 100%;
-			min-width: 0;
-			padding-inline: 0.25rem;
-			text-align: center;
-		}
+	.detail-block :global(.segmented-control-btn) {
+		flex: 1;
+		min-width: 0;
 	}
 
 	.custom-block {

@@ -1,11 +1,14 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime"
 	"net"
@@ -30,6 +33,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/hydraroute"
 	"github.com/hoaxisr/awg-manager/internal/openapi"
 	"github.com/hoaxisr/awg-manager/internal/orchestrator"
+	"github.com/hoaxisr/awg-manager/internal/presets"
 	"github.com/hoaxisr/awg-manager/internal/routing"
 	"github.com/hoaxisr/awg-manager/internal/singbox"
 	singboxorch "github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
@@ -94,6 +98,7 @@ type Server struct {
 	kmodLoader             *kmod.Loader
 	updaterService         *updater.Service
 	ndmsQueries            *ndmsquery.Queries
+	ndmsCommands           *ndmscommand.Commands
 	trafficHistory         *traffic.History
 	dnsRouteService        api.DNSRouteService
 	staticRouteService     api.StaticRouteService
@@ -119,6 +124,7 @@ type Server struct {
 	clashProxy             *api.ClashProxy
 	singboxOp              *singbox.Operator
 	singboxOrch            *singboxorch.Orchestrator
+	presetCatalog          *presets.Catalog
 	deviceProxySvc         *deviceproxy.Service
 	downloadSvc            *downloader.Service
 	monitoringService      *monitoring.Service
@@ -166,6 +172,7 @@ type Deps struct {
 	KmodLoader           *kmod.Loader
 	UpdaterService       *updater.Service
 	NdmsQueries          *ndmsquery.Queries
+	NdmsCommands         *ndmscommand.Commands
 	TrafficHistory       *traffic.History
 	DnsRouteService      api.DNSRouteService
 	StaticRouteService   api.StaticRouteService
@@ -224,6 +231,7 @@ func New(cfg Config, deps Deps) *Server {
 		kmodLoader:             deps.KmodLoader,
 		updaterService:         deps.UpdaterService,
 		ndmsQueries:            deps.NdmsQueries,
+		ndmsCommands:           deps.NdmsCommands,
 		trafficHistory:         deps.TrafficHistory,
 		dnsRouteService:        deps.DnsRouteService,
 		staticRouteService:     deps.StaticRouteService,
@@ -287,6 +295,11 @@ func (s *Server) SetDnsCheckService(svc *dnscheck.Service) {
 // SetSingboxOperator sets the sing-box operator so system info can report install status.
 func (s *Server) SetSingboxOperator(op *singbox.Operator) {
 	s.singboxOp = op
+}
+
+// SetPresetCatalog wires the unified preset catalog into the server.
+func (s *Server) SetPresetCatalog(c *presets.Catalog) {
+	s.presetCatalog = c
 }
 
 // SetDeviceProxyService wires the device-proxy service into the server
@@ -558,7 +571,6 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	importHandler.SetSettingsStore(s.settings)
 	importHandler.SetPingCheckService(s.pingCheckService)
 	importHandler.SetTunnelsHandler(tunnelsHandler)
-	statusHandler := api.NewStatusHandler(s.tunnelService)
 	wanHandler := api.NewWANHandler(s.tunnelService, appLog)
 	pingCheckHandler := api.NewPingCheckHandler(s.pingCheckService, s.tunnels, s.nwgOp, appLog)
 	pingCheckHandler.SetEventBus(s.bus)
@@ -676,10 +688,6 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/control/restart-all", guarded(controlHandler.RestartAll))
 	mux.HandleFunc("/api/control/toggle-enabled", guarded(controlHandler.ToggleEnabled))
 	mux.HandleFunc("/api/control/toggle-default-route", guarded(controlHandler.ToggleDefaultRoute))
-
-	// Status queries (protected + boot guarded)
-	mux.HandleFunc("/api/status/get", guarded(statusHandler.Get))
-	mux.HandleFunc("/api/status/all", guarded(statusHandler.All))
 
 	// Testing (protected + boot guarded)
 	mux.HandleFunc("/api/test/ip", guarded(testingHandler.CheckIP))
@@ -839,6 +847,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/import/conf", guarded(importHandler.ImportConf))
 
 	amneziaCPHandler := api.NewAmneziaCPHandler(appLog)
+	amneziaCPHandler.SetDownloader(s.downloadSvc)
 	mux.HandleFunc("/api/amnezia-premium/login", guarded(amneziaCPHandler.Login))
 	mux.HandleFunc("/api/amnezia-premium/account-info", guarded(amneziaCPHandler.AccountInfo))
 	mux.HandleFunc("/api/amnezia-premium/download-config", guarded(amneziaCPHandler.DownloadConfig))
@@ -861,18 +870,24 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// VPN Servers (protected + boot guarded)
 	serverHandler := api.NewServersHandler(s.ndmsQueries, s.settings, s.tunnels)
+	serverHandler.SetCommands(s.ndmsCommands)
+	serverHandler.SetEventBus(s.bus)
 	mux.HandleFunc("/api/servers", guarded(serverHandler.List))
 	mux.HandleFunc("/api/servers/all", guarded(serverHandler.GetAll))
 	mux.HandleFunc("/api/servers/get", guarded(serverHandler.Get))
 	mux.HandleFunc("/api/servers/config", guarded(serverHandler.Config))
 	mux.HandleFunc("/api/servers/mark", guarded(serverHandler.Mark))
 	mux.HandleFunc("/api/servers/marked", guarded(serverHandler.Marked))
+	mux.HandleFunc("/api/servers/enabled", guarded(serverHandler.SetEnabled))
+	mux.HandleFunc("/api/servers/restart", guarded(serverHandler.Restart))
 	mux.HandleFunc("/api/servers/wan-ip", guarded(serverHandler.WANIP))
 
 	// Managed WireGuard Servers (protected + boot guarded). The new
 	// route table is id-keyed: see ManagedServerHandler.Subtree for the
 	// full sub-path dispatch (peers, conf, asc, etc).
 	managedHandler := api.NewManagedServerHandler(s.managedService)
+	managedHandler.SetServersHandler(serverHandler)
+	serverHandler.SetManagedHandler(managedHandler)
 	mux.HandleFunc("/api/managed-servers", guarded(managedHandler.Collection))
 	mux.HandleFunc("/api/managed-servers/", guarded(managedHandler.Subtree))
 
@@ -1052,6 +1067,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// Sing-box integration (protected + boot guarded)
 	if s.singboxHandler != nil {
+		s.singboxHandler.SetSettingsStore(s.settings)
 		mux.HandleFunc("/api/singbox/status", guarded(s.singboxHandler.Status))
 		mux.HandleFunc("/api/singbox/install", guarded(s.singboxHandler.Install))
 		mux.HandleFunc("/api/singbox/update", guarded(s.singboxHandler.Update))
@@ -1113,6 +1129,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/api/singbox/router/rulesets/add", guarded(rh.AddRuleSet))
 		mux.HandleFunc("/api/singbox/router/rulesets/update", guarded(rh.UpdateRuleSet))
 		mux.HandleFunc("/api/singbox/router/rulesets/delete", guarded(rh.DeleteRuleSet))
+		mux.HandleFunc("/api/singbox/router/rulesets/dat-url", guarded(rh.DatRuleSetURL))
+		mux.HandleFunc("/api/singbox/router/rulesets/dat-srs", rh.DatRuleSetSRS)
 		mux.HandleFunc("/api/singbox/router/outbounds/list", guarded(rh.ListOutbounds))
 		mux.HandleFunc("/api/singbox/router/outbounds/add", guarded(rh.AddOutbound))
 		mux.HandleFunc("/api/singbox/router/outbounds/update", guarded(rh.UpdateOutbound))
@@ -1121,6 +1139,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/api/singbox/router/presets/apply", guarded(rh.ApplyPreset))
 		mux.HandleFunc("/api/singbox/router/policies", guarded(rh.PoliciesCollection))
 		mux.HandleFunc("/api/singbox/router/wan-interfaces", guarded(rh.ListWANInterfaces))
+		mux.HandleFunc("/api/singbox/router/bindable-interfaces", guarded(rh.ListBindableInterfaces))
+		mux.HandleFunc("/api/singbox/router/ingress-eligible-interfaces", guarded(rh.ListIngressEligibleInterfaces))
 		mux.HandleFunc("/api/singbox/router/policy-devices", guarded(rh.ListPolicyDevices))
 		mux.HandleFunc("/api/singbox/router/policy-devices/bind", guarded(rh.BindDevice))
 		mux.HandleFunc("/api/singbox/router/policy-devices/unbind", guarded(rh.UnbindDevice))
@@ -1170,6 +1190,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/api/singbox/subscriptions/active-now", guarded(sh.ActiveNow))
 		mux.HandleFunc("/api/singbox/subscriptions/get-stream", guarded(sh.GetStream))
 		mux.HandleFunc("/api/singbox/subscriptions/orphans/delete", guarded(sh.OrphansDelete))
+		mux.HandleFunc("/api/singbox/subscriptions/rejected/to-info", guarded(sh.RejectedToInfo))
+		mux.HandleFunc("/api/singbox/subscriptions/info/remove", guarded(sh.InfoRemove))
 		mux.HandleFunc("/api/singbox/subscriptions/members/add", guarded(sh.AddMember))
 		mux.HandleFunc("/api/singbox/subscriptions/members/remove", guarded(sh.RemoveMember))
 	}
@@ -1181,6 +1203,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/api/singbox/router/dns/rewrites/update", guarded(rw.Update))
 		mux.HandleFunc("/api/singbox/router/dns/rewrites/delete", guarded(rw.Delete))
 		mux.HandleFunc("/api/singbox/router/dns/rewrites/move", guarded(rw.Move))
+	}
+
+	// Unified preset catalog (protected, read-only in U0)
+	if s.presetCatalog != nil {
+		presetsHandler := api.NewPresetsHandler(s.presetCatalog)
+		mux.HandleFunc("/api/presets", guarded(presetsHandler.List))
 	}
 
 	// Static files (SPA) - must be last.
@@ -1197,8 +1225,10 @@ func spaHandler(staticFS fs.FS) http.Handler {
 			name = "index.html"
 		}
 
-		info, err := fs.Stat(staticFS, name)
-		if err != nil || info.IsDir() {
+		// A path resolves if either the raw file or its precompressed .gz
+		// twin exists. Build-time gzip (frontend postbuild) drops the raw
+		// original for compressed assets, so the .gz is often the only copy.
+		if !resolves(staticFS, name) {
 			name = "index.html"
 		}
 
@@ -1225,8 +1255,46 @@ func spaHandler(staticFS fs.FS) http.Handler {
 			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		}
 
+		// Prefer the precompressed twin when present. Compression happens at
+		// build time, so the hot path is a plain copy — no per-request gzip.
+		// The rare non-gzip client (curl/wget without --compressed, probes)
+		// gets the asset gunzipped on the fly.
+		if gzData, err := fs.ReadFile(staticFS, name+".gz"); err == nil {
+			w.Header().Set("Vary", "Accept-Encoding")
+			if acceptsGzip(r) {
+				w.Header().Set("Content-Encoding", "gzip")
+				http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(gzData))
+				return
+			}
+			if zr, err := gzip.NewReader(bytes.NewReader(gzData)); err == nil {
+				raw, rerr := io.ReadAll(zr)
+				_ = zr.Close()
+				if rerr == nil {
+					http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(raw))
+					return
+				}
+			}
+		}
+
 		http.ServeFileFS(w, r, staticFS, name)
 	})
+}
+
+// resolves reports whether name maps to a servable asset — either the raw
+// file or its precompressed .gz twin.
+func resolves(staticFS fs.FS, name string) bool {
+	if info, err := fs.Stat(staticFS, name); err == nil && !info.IsDir() {
+		return true
+	}
+	if _, err := fs.Stat(staticFS, name+".gz"); err == nil {
+		return true
+	}
+	return false
+}
+
+// acceptsGzip reports whether the client advertised gzip support.
+func acceptsGzip(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept-Encoding"), "gzip")
 }
 
 // diagLogAdapter adapts logging.Service to diagnostics.LogServiceForDiag.

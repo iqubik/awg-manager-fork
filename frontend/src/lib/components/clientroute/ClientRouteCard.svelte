@@ -1,6 +1,13 @@
 <script lang="ts">
 	import type { ClientRoute } from '$lib/types';
 	import { Toggle } from '$lib/components/ui';
+	import RoutingTargetBadges from '$lib/components/routing/RoutingTargetBadges.svelte';
+	import NdmsIconTile from '$lib/components/ui/NdmsIconTile.svelte';
+	import { DEFAULT_ICON_TILE_BG } from '$lib/utils/icon-tile-background';
+	import {
+		ndmsIconTileInnerSize,
+		NDMS_ICON_TILE_SIZE,
+	} from '$lib/utils/ndms-icon-tile';
 
 	interface Props {
 		route: ClientRoute;
@@ -23,8 +30,11 @@
 		toggleLoading = false,
 		selectable = false,
 		selected = false,
-		onselect
+		onselect,
 	}: Props = $props();
+
+	let clientLabel = $derived(route.clientHostname || route.clientIp);
+	let iconSize = $derived(ndmsIconTileInnerSize(NDMS_ICON_TILE_SIZE));
 </script>
 
 <div
@@ -41,13 +51,26 @@
 				onchange={() => onselect?.()}
 			/>
 		{/if}
-		<svg class="device-icon" width="36" height="36" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-			<rect x="6" y="10" width="24" height="18" rx="3" />
-			<line x1="18" y1="10" x2="18" y2="4" />
-			<circle cx="18" cy="3" r="1.5" fill="currentColor" stroke="none" />
-			<circle cx="13" cy="19" r="1.5" />
-			<circle cx="23" cy="19" r="1.5" />
-		</svg>
+		<NdmsIconTile background={DEFAULT_ICON_TILE_BG} size={NDMS_ICON_TILE_SIZE}>
+			<svg
+				class="device-icon"
+				width={iconSize}
+				height={iconSize}
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="1.75"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				aria-hidden="true"
+			>
+				<rect x="5" y="7" width="14" height="12" rx="2" />
+				<line x1="12" y1="7" x2="12" y2="3" />
+				<circle cx="12" cy="2" r="1" fill="currentColor" stroke="none" />
+				<circle cx="9" cy="13" r="1" fill="currentColor" stroke="none" />
+				<circle cx="15" cy="13" r="1" fill="currentColor" stroke="none" />
+			</svg>
+		</NdmsIconTile>
 		<div class="card-info">
 			<div class="card-title">
 				<span
@@ -60,10 +83,10 @@
 			{#if route.clientHostname}
 				<span class="card-stat">IP: {route.clientIp}</span>
 			{/if}
-			<div class="card-route">
-				<span>&rarr;</span> <code>{tunnelName}</code>
-			</div>
 			<span class="card-stat">{route.fallback === 'drop' ? 'Fallback: блокировать' : 'Fallback: напрямую'}</span>
+			<div class="card-route">
+				<RoutingTargetBadges labels={[tunnelName]} overflowNoun="туннелей" />
+			</div>
 		</div>
 	</div>
 	<div class="card-actions">
@@ -71,20 +94,33 @@
 			checked={route.enabled}
 			onchange={(checked) => ontoggle(checked)}
 			loading={toggleLoading}
+			ariaLabel={`Переключить клиентское правило "${clientLabel || 'без названия'}"`}
 			size="sm"
 		/>
-		<button class="action-btn" title="Изменить" onclick={() => onedit()}>
-			<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-				<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-			</svg>
-		</button>
-		<button class="action-btn danger" title="Удалить" onclick={() => ondelete()}>
-			<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<polyline points="3 6 5 6 21 6"/>
-				<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-			</svg>
-		</button>
+		<div class="action-row">
+			<button
+				type="button"
+				class="route-action-btn"
+				title={`Изменить VPN-маршрут устройства «${clientLabel}»`}
+				onclick={() => onedit()}
+			>
+				<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+					<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+				</svg>
+			</button>
+			<button
+				type="button"
+				class="route-action-btn danger"
+				title={`Удалить VPN-маршрут устройства «${clientLabel}»`}
+				onclick={() => ondelete()}
+			>
+				<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<polyline points="3 6 5 6 21 6"/>
+					<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+				</svg>
+			</button>
+		</div>
 	</div>
 </div>
 
@@ -99,8 +135,8 @@
 		transition: border-color 0.2s;
 	}
 
-	.dns-card.enabled {
-		border: 2px solid var(--success);
+	.dns-card:hover {
+		border-color: var(--border-hover);
 	}
 
 	.dns-card.selected {
@@ -108,19 +144,17 @@
 	}
 
 	.dns-card:not(.enabled) {
-		opacity: 0.5;
+		opacity: 0.4;
 	}
 
 	.card-main {
 		display: flex;
-		align-items: flex-start;
 		gap: 10px;
 		min-width: 0;
 	}
 
 	.device-icon {
-		flex-shrink: 0;
-		color: var(--text-muted);
+		display: block;
 	}
 
 	.card-info {
@@ -147,46 +181,21 @@
 		color: var(--text-muted);
 	}
 
-	.card-route {
-		font-size: 0.6875rem;
-		color: var(--border-hover);
-		margin-top: 3px;
-	}
-
-	.card-route code {
-		background: var(--bg-hover);
-		padding: 1px 6px;
-		border-radius: 3px;
-		font-size: 0.625rem;
-		font-family: monospace;
-	}
-
 	.card-actions {
 		display: flex;
 		flex-direction: column;
 		align-items: flex-end;
-		gap: 6px;
+		gap: 8px;
 		flex-shrink: 0;
 		margin-left: 8px;
+		align-self: stretch;
 	}
 
-	.action-btn {
+	.action-row {
 		display: flex;
-		padding: 2px;
-		background: none;
-		border: none;
-		color: var(--border-hover);
-		cursor: pointer;
-		border-radius: 4px;
-		transition: color 0.15s;
-	}
-
-	.action-btn:hover {
-		color: var(--accent);
-	}
-
-	.action-btn.danger:hover {
-		color: var(--error);
+		gap: 4px;
+		align-items: center;
+		margin-top: auto;
 	}
 
 	.led {

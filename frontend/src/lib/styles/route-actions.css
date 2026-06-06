@@ -1,0 +1,176 @@
+/* Shared CRUD action buttons for routing / NDMS / sing-box router views */
+.route-action-btn {
+	--route-action-color: var(--color-text-primary, var(--text-primary));
+	box-sizing: border-box;
+	background: var(--color-bg-primary, var(--bg-primary));
+	border: none;
+	color: var(--color-text-secondary, var(--text-muted));
+	padding: 8px;
+	border-radius: var(--radius-sm, 6px);
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	min-width: 31px;
+	min-height: 31px;
+	line-height: 0;
+	transition: background 0.15s ease, color 0.15s ease;
+}
+
+.route-action-btn svg {
+	width: 15px;
+	height: 15px;
+	flex-shrink: 0;
+}
+
+.route-action-btn:hover:not(:disabled) {
+	color: var(--route-action-color);
+	background: var(--color-bg-hover, var(--bg-tertiary));
+}
+
+.route-action-btn.danger {
+	--route-action-color: var(--color-error, var(--error, #dc2626));
+}
+
+.route-action-btn.danger:hover:not(:disabled) {
+	background: var(--color-error-tint, color-mix(in srgb, var(--error, #dc2626) 12%, transparent));
+}
+
+.route-action-btn.success {
+	--route-action-color: var(--color-success, var(--success, #22c55e));
+}
+
+.route-action-btn.success:hover:not(:disabled) {
+	background: var(--color-success-tint, color-mix(in srgb, var(--success, #22c55e) 12%, transparent));
+}
+
+.route-action-btn:focus-visible {
+	outline: 1px solid color-mix(in srgb, var(--route-action-color) 85%, transparent);
+	outline-offset: 2px;
+}
+
+.route-action-btn:disabled {
+	opacity: 0.3;
+	cursor: not-allowed;
+}
+
+/* NDMS cards: pin «→ tunnel» row to the action-button row */
+.dns-card .card-main,
+.policy-card .card-main {
+	flex: 1;
+	min-width: 0;
+	align-self: stretch;
+	align-items: stretch;
+}
+
+.dns-card .card-main > :not(.card-info),
+.policy-card .card-main > :not(.card-info) {
+	align-self: flex-start;
+	flex-shrink: 0;
+}
+
+.dns-card .card-info,
+.policy-card .card-info {
+	flex: 1;
+	align-self: stretch;
+	min-height: 0;
+}
+
+.dns-card .card-route,
+.policy-card .card-route {
+	font-size: 0.6875rem;
+	color: var(--text-secondary);
+	display: flex;
+	align-items: center;
+	flex-wrap: nowrap;
+	gap: 4px;
+	line-height: 1;
+	min-width: 0;
+	width: 100%;
+	max-width: 100%;
+}
+
+.dns-card .card-route,
+.policy-card .card-route {
+	margin-top: auto;
+	padding-top: 6px;
+}
+
+.dns-card .card-route {
+	padding-bottom: calc((31px - 18px) / 2);
+}
+
+.policy-card .card-route {
+	padding-bottom: 0;
+}
+
+.dns-card .card-route :global(.badge),
+.policy-card .card-route :global(.badge) {
+	flex-shrink: 0;
+}
+
+.route-arrow {
+	color: var(--text-muted);
+	line-height: 1;
+	flex-shrink: 0;
+}
+
+.policy-card .card-actions {
+	align-self: center;
+}
+
+.policy-card .card-actions .action-row {
+	margin-top: 0;
+}
+
+.dns-card .card-actions {
+	align-self: stretch;
+}
+
+.dns-card .card-actions .action-row {
+	margin-top: auto;
+}
+
+/* Routing views: unified badge row (policies, device/interface lists) */
+.routing-badges {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+}
+
+.routing-badges :global(.badge) {
+	flex-shrink: 0;
+}
+
+/* Ghost up/down reorder controls (expert routing table) */
+.route-reorder-btn {
+	background: transparent;
+	border: none;
+	color: var(--text-muted);
+	padding: 4px;
+	border-radius: 4px;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	transition: color 0.15s, background 0.15s;
+}
+
+.route-reorder-btn svg {
+	width: 15px;
+	height: 15px;
+	flex-shrink: 0;
+}
+
+.route-reorder-btn:hover:not(:disabled) {
+	color: var(--text-primary);
+	background: var(--bg-tertiary);
+}
+
+.route-reorder-btn:disabled {
+	opacity: 0.3;
+	cursor: not-allowed;
+}

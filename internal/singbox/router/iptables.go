@@ -41,6 +41,10 @@ const (
 	// discovered from _NDM_HOTSPOT_DNSREDIR (see lanbridges.go).
 	// Issue #132.
 	DNSRescueTag = "AWGM-DNS-RESCUE"
+	// IngressTag identifies our MARK/CONNMARK rules in mangle PREROUTING
+	// that force selected interfaces' connections to carry the policy
+	// mark (ingress-scope feature). Comment-tagged for idempotent cleanup.
+	IngressTag = "AWGM-INGRESS"
 	// DNSNoPolicyTag is the legacy tag for the previous (failed)
 	// attempt: re-mark mark=0 DNS in mangle PREROUTING up to an NDMS
 	// catch-all mark, expecting _NDM_HOTSPOT_DNSREDIR to forward to
@@ -229,6 +233,11 @@ type RestoreInputSpec struct {
 	// Note: port 79 (NDMS admin) is always excluded by a hardcoded rule;
 	// including 79 here produces a harmless duplicate RETURN rule.
 	BypassTCPPorts []int
+
+	// IngressInterfaces — уже резолвленные kernel-имена (напр. "nwg3"),
+	// чей ingress-трафик помечается policy-меткой в mangle PREROUTING до
+	// connmark-jump'а. Пусто / MatchAll / пустой PolicyMark = no-op.
+	IngressInterfaces []string
 }
 
 var bypassCIDRs = []string{
@@ -242,6 +251,32 @@ var bypassCIDRs = []string{
 	"10.0.0.0/8",
 	"172.16.0.0/12",
 	"192.168.0.0/16",
+}
+
+// emitBypassReturns appends "-A <chain> -d <dst> -j RETURN" for every bypass
+// CIDR and router-owned WAN IP. mangle (UDP/TPROXY) and nat (TCP/REDIRECT) must
+// carry an IDENTICAL bypass set — both tables call this so the set can't drift,
+// which would let traffic enter sing-box on one protocol and bypass on the
+// other (asymmetric loop/leak).
+func emitBypassReturns(b *strings.Builder, chain string, wanIPs []string) {
+	for _, cidr := range bypassCIDRs {
+		fmt.Fprintf(b, "-A %s -d %s -j RETURN\n", chain, cidr)
+	}
+	for _, ip := range wanIPs {
+		fmt.Fprintf(b, "-A %s -d %s -j RETURN\n", chain, ip)
+	}
+}
+
+// emitPreroutingJump appends the PREROUTING jump into chain, gated by the same
+// policy-mark condition for mangle (UDP) and nat (TCP) so a device is proxied
+// by identical criteria on both protocols (drift = "half-broken tunnel").
+func emitPreroutingJump(b *strings.Builder, chain string, spec RestoreInputSpec) {
+	if spec.MatchAll {
+		fmt.Fprintf(b, "-A PREROUTING -m conntrack ! --ctstate INVALID -j %s\n", chain)
+	} else if spec.PolicyMark != "" {
+		fmt.Fprintf(b, "-A PREROUTING -m connmark --mark %s -m conntrack ! --ctstate INVALID -j %s\n",
+			spec.PolicyMark, chain)
+	}
 }
 
 func buildRestoreInput(spec RestoreInputSpec) string {
@@ -288,26 +323,29 @@ func buildRestoreInput(spec RestoreInputSpec) string {
 
 	// set_chain_rules: bypass set. SKeen uses one ipset rule; we render
 	// the same destinations as discrete CIDR rules (semantically equal).
-	for _, cidr := range bypassCIDRs {
-		fmt.Fprintf(&b, "-A %s -d %s -j RETURN\n", ChainName, cidr)
-	}
-	for _, ip := range spec.WANIPs {
-		fmt.Fprintf(&b, "-A %s -d %s -j RETURN\n", ChainName, ip)
-	}
+	emitBypassReturns(&b, ChainName, spec.WANIPs)
 
 	// add_tproxy_rules: catch-all TPROXY for UDP.
 	fmt.Fprintf(&b, "-A %s -p udp -j TPROXY --on-port %d --on-ip 127.0.0.1 --tproxy-mark 0x%x\n",
 		ChainName, TPROXYPort, Fwmark)
 
+	// Ingress-scope: пометить выбранные интерфейсы policy-меткой ДО jump'а,
+	// чтобы connmark-jump (ниже в mangle и в nat) принял их за членов
+	// политики. Эмитится перед jump'ом → в PREROUTING MARK/save сработают
+	// раньше. Skip в MatchAll / при пустой метке (там и так всё проксируется).
+	if !spec.MatchAll && spec.PolicyMark != "" {
+		for _, iface := range spec.IngressInterfaces {
+			fmt.Fprintf(&b, "-A PREROUTING -i %s -m comment --comment %s -j MARK --set-xmark %s/0xffffffff\n",
+				iface, IngressTag, spec.PolicyMark)
+			fmt.Fprintf(&b, "-A PREROUTING -i %s -m comment --comment %s -j CONNMARK --save-mark --nfmask 0xffffffff --ctmask 0xffffffff\n",
+				iface, IngressTag)
+		}
+	}
+
 	// set_prerouting_rules: policy connmark filter ON THE JUMP, no `-p`
 	// matcher (SKeen jumps unconditionally; per-proto matching happens
 	// inside the chain).
-	if spec.MatchAll {
-		fmt.Fprintf(&b, "-A PREROUTING -m conntrack ! --ctstate INVALID -j %s\n", ChainName)
-	} else if spec.PolicyMark != "" {
-		fmt.Fprintf(&b, "-A PREROUTING -m connmark --mark %s -m conntrack ! --ctstate INVALID -j %s\n",
-			spec.PolicyMark, ChainName)
-	}
+	emitPreroutingJump(&b, ChainName, spec)
 
 	b.WriteString("COMMIT\n")
 
@@ -319,12 +357,7 @@ func buildRestoreInput(spec RestoreInputSpec) string {
 	b.WriteString("*nat\n")
 	fmt.Fprintf(&b, ":%s - [0:0]\n", RedirectChain)
 
-	for _, cidr := range bypassCIDRs {
-		fmt.Fprintf(&b, "-A %s -d %s -j RETURN\n", RedirectChain, cidr)
-	}
-	for _, ip := range spec.WANIPs {
-		fmt.Fprintf(&b, "-A %s -d %s -j RETURN\n", RedirectChain, ip)
-	}
+	emitBypassReturns(&b, RedirectChain, spec.WANIPs)
 	// Bypass router admin port so we don't redirect our own UI traffic.
 	// (SKeen has equivalent dynamic admin-port discovery — same intent.)
 	fmt.Fprintf(&b, "-A %s -p tcp --dport 79 -j RETURN\n", RedirectChain)
@@ -337,12 +370,7 @@ func buildRestoreInput(spec RestoreInputSpec) string {
 	// add_redirect_rules: catch-all REDIRECT for TCP.
 	fmt.Fprintf(&b, "-A %s -p tcp -j REDIRECT --to-ports %d\n", RedirectChain, RedirectPort)
 
-	if spec.MatchAll {
-		fmt.Fprintf(&b, "-A PREROUTING -m conntrack ! --ctstate INVALID -j %s\n", RedirectChain)
-	} else if spec.PolicyMark != "" {
-		fmt.Fprintf(&b, "-A PREROUTING -m connmark --mark %s -m conntrack ! --ctstate INVALID -j %s\n",
-			spec.PolicyMark, RedirectChain)
-	}
+	emitPreroutingJump(&b, RedirectChain, spec)
 
 	// ---- DNS-RESCUE: per-bridge short-circuit REDIRECT to ndnproxy ----
 	// For each (bridge, ndnproxy-port) discovered from
@@ -382,12 +410,14 @@ func buildRestoreInput(spec RestoreInputSpec) string {
 
 type restoreNoflushFn func(ctx context.Context, input string) error
 type runFn func(ctx context.Context, args ...string) error
+type runOutFn func(ctx context.Context, args ...string) (string, error)
 
 type persistFn func(input string) error
 
 type IPTables struct {
 	restoreNoflush restoreNoflushFn
 	runIPTables    runFn
+	runIPTablesOut runOutFn
 	runIP          runFn
 	persistRules   persistFn
 	persistHook    func() error
@@ -398,6 +428,7 @@ func NewIPTables() *IPTables {
 	return &IPTables{
 		restoreNoflush: sysiptables.RestoreNoflush,
 		runIPTables:    sysiptables.Run,
+		runIPTablesOut: sysiptables.RunOutput,
 		runIP: func(ctx context.Context, args ...string) error {
 			result, err := sysexec.Run(ctx, "ip", args...)
 			return sysexec.FormatError(result, err)
@@ -405,6 +436,19 @@ func NewIPTables() *IPTables {
 		persistRules: writeNetfilterRulesFile,
 		persistHook:  writeNetfilterHook,
 		cleanupHook:  removeNetfilterRulesFile,
+	}
+}
+
+// drainFwmarkRules deletes every `ip rule` for our fwmark/table, looping until
+// ENOENT (capped by maxIPRuleDrainPasses). Install historically accumulated
+// duplicate rules at auto-assigned priorities, so a single del would leave the
+// rest — both Install (pre-add cleanup) and Uninstall drain via this.
+func (it *IPTables) drainFwmarkRules(ctx context.Context) {
+	for i := 0; i < maxIPRuleDrainPasses; i++ {
+		if err := it.runIP(ctx, "rule", "del", "fwmark", fmt.Sprintf("0x%x", Fwmark),
+			"table", fmt.Sprintf("%d", RoutingTable)); err != nil {
+			break
+		}
 	}
 }
 
@@ -439,12 +483,7 @@ func (it *IPTables) Install(ctx context.Context, spec RestoreInputSpec) error {
 	// rules at priorities 0-N displaces the kernel's `from all lookup
 	// local` rule (normally at prio 0), breaking router-local routing
 	// (sing-box outbounds to direct silently fail).
-	for i := 0; i < maxIPRuleDrainPasses; i++ {
-		if err := it.runIP(ctx, "rule", "del", "fwmark", fmt.Sprintf("0x%x", Fwmark),
-			"table", fmt.Sprintf("%d", RoutingTable)); err != nil {
-			break
-		}
-	}
+	it.drainFwmarkRules(ctx)
 	// Use an explicit priority well above NDMS policy rules (100-200)
 	// and well below the system main/default tables (32766/32767), so
 	// our rule is identifiable and idempotent.
@@ -475,12 +514,19 @@ func writeNetfilterHook() error {
 	if err := os.MkdirAll(filepath.Dir(netfilterHookPath), 0755); err != nil {
 		return err
 	}
-	// Scrub block before restore: when NDMS reloads only one table (e.g.
-	// nat) but leaves mangle intact, restoring --noflush would append a
-	// SECOND PREROUTING jump to AWGM-TPROXY on top of the surviving one.
-	// `-[jg]` regex covers both legacy `-j` and current `-g` syntax so
-	// the upgrade path doesn't leave duplicates around.
-	script := fmt.Sprintf(`#!/bin/sh
+	return os.WriteFile(netfilterHookPath, []byte(netfilterHookScript()), 0755)
+}
+
+// netfilterHookScript renders the netfilter.d hook with all placeholders
+// substituted. Pure (no I/O) so a test can validate the generated shell with
+// `sh -n`.
+//
+// Scrub block before restore: when NDMS reloads only one table (e.g. nat) but
+// leaves mangle intact, restoring --noflush would append a SECOND PREROUTING
+// jump on top of the surviving one. The `-[jg]` regex covers both legacy `-j`
+// and current `-g` syntax so the upgrade path doesn't leave duplicates around.
+func netfilterHookScript() string {
+	return fmt.Sprintf(`#!/bin/sh
 [ "$type" = "ip6tables" ] && exit 0
 case "$table" in mangle|nat) ;; *) exit 0 ;; esac
 [ -f %[1]q ] || exit 0
@@ -492,9 +538,17 @@ for mod in xt_TPROXY xt_comment xt_mark xt_connmark xt_conntrack xt_pkttype; do
   grep -q "^${mod} " /proc/modules 2>/dev/null && continue
   [ -f "/lib/modules/${KREL}/${mod}.ko" ] && insmod "/lib/modules/${KREL}/${mod}.ko" 2>/dev/null || true
 done
+# A chain is "ok" only if it EXISTS and PREROUTING actually jumps into it.
+# NDMS rebuilds PREROUTING and wipes our AWGM PREROUTING jumps while leaving
+# the custom chains intact; gating on chain existence alone would skip the
+# restore in exactly that case, leaving interception silently dead.
 mangle_ok=0; nat_ok=0
-/opt/sbin/iptables -w -t mangle -nL %[2]s >/dev/null 2>&1 && mangle_ok=1
-/opt/sbin/iptables -w -t nat    -nL %[6]s >/dev/null 2>&1 && nat_ok=1
+/opt/sbin/iptables -w -t mangle -nL %[2]s >/dev/null 2>&1 \
+  && /opt/sbin/iptables -w -t mangle -S PREROUTING 2>/dev/null | grep -qE -- '-[jg] %[2]s($| )' \
+  && mangle_ok=1
+/opt/sbin/iptables -w -t nat -nL %[6]s >/dev/null 2>&1 \
+  && /opt/sbin/iptables -w -t nat -S PREROUTING 2>/dev/null | grep -qE -- '-[jg] %[6]s($| )' \
+  && nat_ok=1
 if [ "$mangle_ok" -eq 0 ] || [ "$nat_ok" -eq 0 ]; then
   /opt/sbin/iptables -w -t mangle -S PREROUTING 2>/dev/null \
     | grep -E -- '-[jg] %[2]s($| )' \
@@ -509,14 +563,19 @@ if [ "$mangle_ok" -eq 0 ] || [ "$nat_ok" -eq 0 ]; then
   # not chain jumps). Same drop-and-restore approach as above, just
   # matched via the iptables-save comment serialisation.
   /opt/sbin/iptables -w -t nat -S PREROUTING 2>/dev/null \
-    | grep -F -- '--comment "%[7]s"' \
+    | grep -E -- '--comment "?%[7]s' \
     | sed 's/-A PREROUTING/-D PREROUTING/' \
     | while IFS= read -r line; do /opt/sbin/iptables -w -t nat $line 2>/dev/null; done
   # Legacy DNS-NOPOLICY MARK rules in mangle (dead code from earlier
   # AWGM builds). Always scrub so upgrades don't leave dangling rules
   # accumulating across NDMS reloads.
   /opt/sbin/iptables -w -t mangle -S PREROUTING 2>/dev/null \
-    | grep -F -- '--comment "%[8]s"' \
+    | grep -E -- '--comment "?%[8]s' \
+    | sed 's/-A PREROUTING/-D PREROUTING/' \
+    | while IFS= read -r line; do /opt/sbin/iptables -w -t mangle $line 2>/dev/null; done
+  # Ingress-scope MARK/CONNMARK rules in mangle (comment-tagged).
+  /opt/sbin/iptables -w -t mangle -S PREROUTING 2>/dev/null \
+    | grep -E -- '--comment "?%[9]s' \
     | sed 's/-A PREROUTING/-D PREROUTING/' \
     | while IFS= read -r line; do /opt/sbin/iptables -w -t mangle $line 2>/dev/null; done
   /opt/sbin/iptables-restore --noflush < %[1]q
@@ -524,8 +583,7 @@ if [ "$mangle_ok" -eq 0 ] || [ "$nat_ok" -eq 0 ]; then
   /opt/sbin/ip route add local 0.0.0.0/0 dev lo table %[4]d 2>/dev/null || true
   logger -t awgm-tproxy "netfilter.d: restored AWGM chains after NDMS reload"
 fi
-`, netfilterRulesPath, ChainName, Fwmark, RoutingTable, IPRulePriority, RedirectChain, DNSRescueTag, DNSNoPolicyTag)
-	return os.WriteFile(netfilterHookPath, []byte(script), 0755)
+`, netfilterRulesPath, ChainName, Fwmark, RoutingTable, IPRulePriority, RedirectChain, DNSRescueTag, DNSNoPolicyTag, IngressTag)
 }
 
 // removeNetfilterRulesFile deletes the persisted rules file so the
@@ -558,12 +616,7 @@ func (it *IPTables) Uninstall(ctx context.Context) error {
 	// Drain ALL fwmark rules — historically Install accumulated
 	// duplicates at priorities 0-N (auto-assigned), so a single `del`
 	// would leave the rest. Loop until ENOENT, capped defensively.
-	for i := 0; i < maxIPRuleDrainPasses; i++ {
-		if err := it.runIP(ctx, "rule", "del", "fwmark", fmt.Sprintf("0x%x", Fwmark),
-			"table", fmt.Sprintf("%d", RoutingTable)); err != nil {
-			break
-		}
-	}
+	it.drainFwmarkRules(ctx)
 	_ = it.runIP(ctx, "route", "flush", "table", fmt.Sprintf("%d", RoutingTable))
 	return nil
 }
@@ -581,6 +634,10 @@ func (it *IPTables) removeSourceHooks(ctx context.Context) {
 	// rules are dead code now, but if left in place they'd accumulate
 	// across upgrades.
 	it.removeCommentTaggedRulesFromTable(ctx, "mangle", "PREROUTING", DNSNoPolicyTag)
+	// Ingress-scope: direct MARK/CONNMARK rules in mangle PREROUTING,
+	// tagged AWGM-INGRESS. Scrub before re-install so the list stays
+	// idempotent and removed interfaces don't leave dangling marks.
+	it.removeCommentTaggedRulesFromTable(ctx, "mangle", "PREROUTING", IngressTag)
 }
 
 // removeCommentTaggedRulesFromTable scrubs every rule in `chain` whose
@@ -677,4 +734,67 @@ func (it *IPTables) IsInstalled(ctx context.Context) bool {
 		return false
 	}
 	return true
+}
+
+// Probe reports the live interception state in two booleans, from a single
+// `iptables -S <table>` per table (one exec each instead of separate -nL +
+// -S PREROUTING calls):
+//
+//   - installed: both AWGM chains exist (the `-N AWGM-*` declarations).
+//   - jumps: both chains are actually entered from PREROUTING.
+//
+// Chain existence is necessary but NOT sufficient: NDMS rebuilds PREROUTING on
+// reconfig and can wipe our `-A PREROUTING ... -j AWGM-*` jumps while the
+// custom chains survive, silently disabling interception. The jump match is
+// anchored (`-j`/`-g` + chain + boundary), mirroring the netfilter.d hook, so
+// it is mark-agnostic and not fooled by a substring.
+//
+// On a query error Probe returns (false, false, err); callers must treat that
+// as "unknown" (do NOT reinstall) rather than "broken".
+func (it *IPTables) Probe(ctx context.Context) (installed, jumps bool, err error) {
+	mChain, mJump, err := it.probeTable(ctx, "mangle", ChainName)
+	if err != nil {
+		return false, false, err
+	}
+	nChain, nJump, err := it.probeTable(ctx, "nat", RedirectChain)
+	if err != nil {
+		return false, false, err
+	}
+	installed = mChain && nChain
+	jumps = installed && mJump && nJump
+	return installed, jumps, nil
+}
+
+func (it *IPTables) probeTable(ctx context.Context, table, chain string) (chainExists, jumpExists bool, err error) {
+	out, err := it.runIPTablesOut(ctx, "-t", table, "-S")
+	if err != nil {
+		return false, false, err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "-N "+chain {
+			chainExists = true
+		}
+		if strings.HasPrefix(line, "-A PREROUTING ") && jumpToken(line, chain) {
+			jumpExists = true
+		}
+	}
+	return chainExists, jumpExists, nil
+}
+
+// jumpToken reports whether line jumps to chain via `-j chain` or `-g chain`
+// as a whole token (followed by a space or end-of-line) — the Go equivalent of
+// the hook's `-[jg] CHAIN($| )` regex, so `AWGM-TPROXY` never matches a longer
+// `AWGM-TPROXY-X`.
+func jumpToken(line, chain string) bool {
+	for _, tok := range []string{"-j " + chain, "-g " + chain} {
+		i := strings.Index(line, tok)
+		if i < 0 {
+			continue
+		}
+		if end := i + len(tok); end == len(line) || line[end] == ' ' {
+			return true
+		}
+	}
+	return false
 }

@@ -30,7 +30,7 @@
 		StatusDot,
 		Stat,
 		StatStrip,
-		GridListToggle,
+		LayoutViewToggle,
 	} from '$lib/components/ui';
 	import { singboxDelayHistory, singboxStatus, singboxTraffic, singboxTunnels } from '$lib/stores/singbox';
 	import { SingboxInstallBanner, SingboxTunnelCard } from '$lib/components/singbox';
@@ -49,6 +49,7 @@
 		awgShowConnectivityRow,
 	} from '$lib/utils/awgPingStatus';
 	import { resolveSubscriptionMemberTag } from '$lib/utils/subscriptionMember';
+	import { nativewgUnavailableHint } from '$lib/utils/backendAvailability';
 	import {
 		SINGBOX_LAYOUT_STORAGE_KEY,
 		parseSingboxLayoutMode,
@@ -58,11 +59,31 @@
 	} from '$lib/constants/singboxLayout';
 	import { isMockDevMode as getIsMockDevMode } from '$lib/env';
 	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
+	import { formatRunningSub, pluralForm, SUBSCRIPTION_WORDS, TUNNEL_WORDS } from '$lib/utils/pluralize';
+	import TunnelTableSortHeader from '$lib/components/tunnels/TunnelTableSortHeader.svelte';
+	import TunnelTableSortControls from '$lib/components/tunnels/TunnelTableSortControls.svelte';
+	import {
+		awgTunnelTableSort,
+		singboxSubscriptionTableSort,
+		singboxTunnelTableSort,
+		type AwgTunnelSortKey,
+		type SingboxTunnelSortKey,
+		type SubscriptionSortKey,
+	} from '$lib/stores/tunnelTableSort';
+	import {
+		applyDirection,
+		ariaSort,
+		compareBool,
+		compareDelayLike,
+		compareNullableNumber,
+		compareString,
+	} from '$lib/utils/tunnelTableSort';
 
 	type TunnelTab = 'awg' | 'singbox' | 'subscriptions';
 	type AwgTunnelViewMode = 'cards' | 'compact' | 'list';
 	type ConnectivityCell = { connected: boolean; latency: number | null } | undefined;
 	type EndpointScope = 'managed' | 'system' | 'external';
+	type TunnelSortOption = { value: string; label: string };
 
 	const AWG_TUNNEL_VIEW_STORAGE_KEY = 'awg_tunnel_view_mode';
 	const SINGBOX_TUNNELS_LAYOUT_STORAGE_KEY = 'singbox_tunnels_layout_mode';
@@ -148,6 +169,9 @@
 	let singboxDetailTag = $state<string | null>(null);
 	let awgDiagnosticsTarget = $state<{ id: string; name: string; kind: 'awg' | 'system' } | null>(null);
 	let endpointVisibility = $state<Record<string, boolean>>({});
+	let awgListSearchQuery = $state('');
+	let singboxTunnelsSearchQuery = $state('');
+	let singboxSubscriptionsSearchQuery = $state('');
 
 	function endpointVisibilityKey(scope: EndpointScope, id: string): string {
 		return `${scope}:${id}`;
@@ -821,6 +845,12 @@
 
 	let selectedBackend = $state<'nativewg' | 'kernel'>('nativewg');
 
+	let nativewgHint = $derived(
+		sysInfo !== null && !sysInfo.backendAvailability?.nativewg
+			? nativewgUnavailableHint(sysInfo.nativewgReason)
+			: ''
+	);
+
 	// Auto-select backend based on availability
 	$effect(() => {
 		if (sysInfo?.backendAvailability && !sysInfo.backendAvailability.nativewg && sysInfo.backendAvailability.kernel) {
@@ -1066,6 +1096,361 @@
 		return { bytes, name };
 	});
 
+	const awgSortOptions: TunnelSortOption[] = [
+		{ value: 'name', label: 'По имени' },
+		{ value: 'status', label: 'По статусу' },
+		{ value: 'endpoint', label: 'По endpoint' },
+		{ value: 'traffic', label: 'По трафику' },
+		{ value: 'handshake', label: 'По handshake' },
+	];
+
+	const singboxTunnelSortOptions: TunnelSortOption[] = [
+		{ value: 'delay', label: 'По delay' },
+		{ value: 'name', label: 'По имени' },
+		{ value: 'protocol', label: 'По протоколу' },
+		{ value: 'server', label: 'По серверу' },
+		{ value: 'running', label: 'По процессу' },
+		{ value: 'traffic', label: 'По трафику' },
+		{ value: 'ping', label: 'По ping' },
+	];
+
+	const subscriptionSortOptions: TunnelSortOption[] = [
+		{ value: 'delay', label: 'По delay' },
+		{ value: 'label', label: 'По имени' },
+		{ value: 'mode', label: 'По режиму' },
+		{ value: 'active', label: 'По активному серверу' },
+		{ value: 'traffic', label: 'По трафику' },
+		{ value: 'updated', label: 'По обновлению' },
+		{ value: 'ping', label: 'По ping' },
+	];
+
+	function handleAwgSortChange(key: AwgTunnelSortKey): void {
+		awgTunnelTableSort.toggleSort(key);
+	}
+
+	function handleSingboxTunnelSortChange(key: SingboxTunnelSortKey): void {
+		singboxTunnelTableSort.toggleSort(key);
+	}
+
+	function handleSubscriptionSortChange(key: SubscriptionSortKey): void {
+		singboxSubscriptionTableSort.toggleSort(key);
+	}
+
+	function matchQuery(values: Array<string | null | undefined>, query: string): boolean {
+		const q = query.trim().toLowerCase();
+		if (!q) return true;
+		return values.some((value) => String(value ?? '').toLowerCase().includes(q));
+	}
+
+	function awgStatusRank(tunnel: TunnelListItem): number {
+		switch (tunnelStatusBucket(tunnel.status)) {
+			case 'running':
+				return 0;
+			case 'starting':
+				return 1;
+			case 'broken':
+				return 2;
+			case 'stopped':
+				return 3;
+			case 'disabled':
+				return 4;
+			default:
+				return 5;
+		}
+	}
+
+	let sortedFilteredAwgList = $derived.by(() => {
+		const query = awgListSearchQuery.trim().toLowerCase();
+		const filtered = awgList.filter((tunnel) =>
+			matchQuery(
+				[
+					tunnel.name,
+					tunnel.interfaceName,
+					tunnel.id,
+					tunnel.ndmsName,
+					tunnel.address,
+					tunnel.endpoint,
+					tunnel.backend,
+					tunnel.awgVersion,
+				],
+				query,
+			),
+		);
+		const sortBy = $awgTunnelTableSort.sortBy;
+		if (!sortBy) return filtered;
+		const asc = $awgTunnelTableSort.sortAsc;
+		return [...filtered].sort((a, b) => {
+			switch (sortBy) {
+				case 'name':
+					return applyDirection(compareString(a.name, b.name), asc);
+				case 'status':
+					return applyDirection(compareNullableNumber(awgStatusRank(a), awgStatusRank(b), false), asc);
+				case 'endpoint':
+					return applyDirection(compareString(a.endpoint, b.endpoint), asc);
+				case 'traffic':
+					return applyDirection(
+						compareNullableNumber((a.rxBytes ?? 0) + (a.txBytes ?? 0), (b.rxBytes ?? 0) + (b.txBytes ?? 0), false),
+						asc,
+					);
+				case 'handshake':
+					return applyDirection(
+						compareNullableNumber(
+							a.lastHandshake ? new Date(a.lastHandshake).getTime() : null,
+							b.lastHandshake ? new Date(b.lastHandshake).getTime() : null,
+						),
+						asc,
+					);
+			}
+		});
+	});
+
+	let sortedFilteredSystemList = $derived.by(() => {
+		const query = awgListSearchQuery.trim().toLowerCase();
+		const filtered = visibleSystemList.filter((tunnel) =>
+			matchQuery(
+				[
+					tunnel.description,
+					tunnel.interfaceName,
+					tunnel.id,
+					tunnel.address,
+					tunnel.peer?.endpoint,
+					tunnel.peer?.via,
+				],
+				query,
+			),
+		);
+		const sortBy = $awgTunnelTableSort.sortBy;
+		if (!sortBy) return filtered;
+		const asc = $awgTunnelTableSort.sortAsc;
+		return [...filtered].sort((a, b) => {
+			switch (sortBy) {
+				case 'name':
+					return applyDirection(compareString(a.description || a.id, b.description || b.id), asc);
+				case 'status':
+					return applyDirection(compareBool(a.status === 'up', b.status === 'up'), asc);
+				case 'endpoint':
+					return applyDirection(compareString(a.peer?.endpoint, b.peer?.endpoint), asc);
+				case 'traffic':
+					return applyDirection(
+						compareNullableNumber(
+							(a.peer?.rxBytes ?? 0) + (a.peer?.txBytes ?? 0),
+							(b.peer?.rxBytes ?? 0) + (b.peer?.txBytes ?? 0),
+							false,
+						),
+						asc,
+					);
+				case 'handshake':
+					return applyDirection(
+						compareNullableNumber(
+							a.peer?.lastHandshake ? new Date(a.peer.lastHandshake).getTime() : null,
+							b.peer?.lastHandshake ? new Date(b.peer.lastHandshake).getTime() : null,
+						),
+						asc,
+					);
+			}
+		});
+	});
+
+	let sortedFilteredExternalList = $derived.by(() => {
+		const query = awgListSearchQuery.trim().toLowerCase();
+		const filtered = externalList.filter((tunnel) =>
+			matchQuery([tunnel.interfaceName, tunnel.endpoint, tunnel.publicKey, tunnel.isAWG ? 'awg' : 'wg'], query),
+		);
+		const sortBy = $awgTunnelTableSort.sortBy;
+		if (!sortBy) return filtered;
+		const asc = $awgTunnelTableSort.sortAsc;
+		return [...filtered].sort((a, b) => {
+			switch (sortBy) {
+				case 'name':
+					return applyDirection(compareString(a.interfaceName, b.interfaceName), asc);
+				case 'status':
+					return applyDirection(compareBool(!!a.lastHandshake, !!b.lastHandshake), asc);
+				case 'endpoint':
+					return applyDirection(compareString(a.endpoint, b.endpoint), asc);
+				case 'traffic':
+					return applyDirection(compareNullableNumber(a.rxBytes + a.txBytes, b.rxBytes + b.txBytes, false), asc);
+				case 'handshake':
+					return applyDirection(
+						compareNullableNumber(
+							a.lastHandshake ? new Date(a.lastHandshake).getTime() : null,
+							b.lastHandshake ? new Date(b.lastHandshake).getTime() : null,
+						),
+						asc,
+					);
+			}
+		});
+	});
+
+	let singboxTunnelDelayValue = $derived.by(() => {
+		const map = new Map<string, number | null>();
+		for (const tunnel of singboxTunnelsList) {
+			const history = $singboxDelayHistory.get(tunnel.tag) ?? [];
+			const latest = history.length > 0 ? history[history.length - 1] : null;
+			map.set(tunnel.tag, latest && latest > 0 ? latest : null);
+		}
+		return map;
+	});
+
+	let sortedFilteredSingboxTunnels = $derived.by(() => {
+		const query = singboxTunnelsSearchQuery.trim().toLowerCase();
+		const filtered = singboxTunnelsList.filter((tunnel) =>
+			matchQuery(
+				[
+					tunnel.tag,
+					tunnel.protocol,
+					tunnel.server,
+					tunnel.proxyInterface,
+					tunnel.kernelInterface,
+					tunnel.transport,
+					tunnel.security,
+				],
+				query,
+			),
+		);
+		const sortBy = $singboxTunnelTableSort.sortBy;
+		if (!sortBy) return filtered;
+		const asc = $singboxTunnelTableSort.sortAsc;
+		return [...filtered].sort((a, b) => {
+			switch (sortBy) {
+				case 'delay':
+					return compareDelayLike(singboxTunnelDelayValue.get(a.tag), singboxTunnelDelayValue.get(b.tag), asc);
+				case 'ping':
+					return compareDelayLike(singboxTunnelDelayValue.get(a.tag), singboxTunnelDelayValue.get(b.tag), asc);
+				case 'name':
+					return applyDirection(compareString(a.tag, b.tag), asc);
+				case 'protocol':
+					return applyDirection(compareString(a.protocol, b.protocol), asc);
+				case 'server':
+					return applyDirection(compareString(`${a.server}:${a.port}`, `${b.server}:${b.port}`), asc);
+				case 'running':
+					return applyDirection(compareBool(a.running, b.running), asc);
+				case 'traffic':
+					return applyDirection(
+						compareNullableNumber(
+							($singboxTraffic.get(a.tag)?.download ?? 0) + ($singboxTraffic.get(a.tag)?.upload ?? 0),
+							($singboxTraffic.get(b.tag)?.download ?? 0) + ($singboxTraffic.get(b.tag)?.upload ?? 0),
+							false,
+						),
+						asc,
+					);
+			}
+		});
+	});
+
+	function subscriptionTrafficBytes(subscription: Subscription, activeTag: string | null): number {
+		if (!activeTag) return 0;
+		const traffic = $singboxTraffic.get(activeTag);
+		return (traffic?.download ?? 0) + (traffic?.upload ?? 0);
+	}
+
+	function subscriptionDelayValue(subscription: Subscription, activeTag: string | null): number | null {
+		if (!activeTag) return null;
+		const history = $singboxDelayHistory.get(activeTag) ?? [];
+		const latest = history.length > 0 ? history[history.length - 1] : null;
+		return latest && latest > 0 ? latest : null;
+	}
+
+	let sortedFilteredSubscriptionsActiveCards = $derived.by(() => {
+		const query = singboxSubscriptionsSearchQuery.trim().toLowerCase();
+		const filtered = subscriptionsActiveCards.filter(({ subscription, activeMember }) =>
+			matchQuery(
+				[
+					subscription.label,
+					subscription.url,
+					subscription.inboundTag,
+					subscription.selectorTag,
+					activeMember.tag,
+					activeMember.label,
+					activeMember.server,
+					`Proxy${subscription.proxyIndex}`,
+					`t2s${subscription.proxyIndex}`,
+				],
+				query,
+			),
+		);
+		const sortBy = $singboxSubscriptionTableSort.sortBy;
+		if (!sortBy) return filtered;
+		const asc = $singboxSubscriptionTableSort.sortAsc;
+		return [...filtered].sort((a, b) => {
+			switch (sortBy) {
+				case 'delay':
+					return compareDelayLike(subscriptionDelayValue(a.subscription, a.activeMember.tag), subscriptionDelayValue(b.subscription, b.activeMember.tag), asc);
+				case 'ping':
+					return compareDelayLike(subscriptionDelayValue(a.subscription, a.activeMember.tag), subscriptionDelayValue(b.subscription, b.activeMember.tag), asc);
+				case 'label':
+					return applyDirection(compareString(a.subscription.label, b.subscription.label), asc);
+				case 'mode':
+					return applyDirection(compareString(a.subscription.mode, b.subscription.mode), asc);
+				case 'active':
+					return applyDirection(compareString(a.activeMember.label || a.activeMember.tag, b.activeMember.label || b.activeMember.tag), asc);
+				case 'traffic':
+					return applyDirection(compareNullableNumber(subscriptionTrafficBytes(a.subscription, a.activeMember.tag), subscriptionTrafficBytes(b.subscription, b.activeMember.tag), false), asc);
+				case 'updated':
+					return applyDirection(compareNullableNumber(
+						a.subscription.lastFetched ? new Date(a.subscription.lastFetched).getTime() : null,
+						b.subscription.lastFetched ? new Date(b.subscription.lastFetched).getTime() : null,
+					), asc);
+			}
+		});
+	});
+
+	let sortedFilteredSubscriptionsListRows = $derived.by(() => {
+		const query = singboxSubscriptionsSearchQuery.trim().toLowerCase();
+		const filtered = subscriptionsListRows.filter((subscription) => {
+			const activeTag = liveActives[subscription.id] || null;
+			const member = subscription.members?.find((m) => m.tag === activeTag) ?? null;
+			return matchQuery(
+				[
+					subscription.label,
+					subscription.url,
+					subscription.inboundTag,
+					subscription.selectorTag,
+					member?.tag,
+					member?.label,
+					member?.server,
+					`Proxy${subscription.proxyIndex}`,
+					`t2s${subscription.proxyIndex}`,
+				],
+				query,
+			);
+		});
+		const sortBy = $singboxSubscriptionTableSort.sortBy;
+		if (!sortBy) return filtered;
+		const asc = $singboxSubscriptionTableSort.sortAsc;
+		return [...filtered].sort((a, b) => {
+			const activeA = liveActives[a.id] || resolveSubscriptionMemberTag(a, null);
+			const activeB = liveActives[b.id] || resolveSubscriptionMemberTag(b, null);
+			const memberA = a.members?.find((m) => m.tag === activeA) ?? null;
+			const memberB = b.members?.find((m) => m.tag === activeB) ?? null;
+			switch (sortBy) {
+				case 'delay':
+					return compareDelayLike(subscriptionDelayValue(a, activeA), subscriptionDelayValue(b, activeB), asc);
+				case 'ping':
+					return compareDelayLike(subscriptionDelayValue(a, activeA), subscriptionDelayValue(b, activeB), asc);
+				case 'label':
+					return applyDirection(compareString(a.label, b.label), asc);
+				case 'mode':
+					return applyDirection(compareString(a.mode, b.mode), asc);
+				case 'active':
+					return applyDirection(compareString(memberA?.label || memberA?.tag, memberB?.label || memberB?.tag), asc);
+				case 'traffic':
+					return applyDirection(compareNullableNumber(subscriptionTrafficBytes(a, activeA), subscriptionTrafficBytes(b, activeB), false), asc);
+				case 'updated':
+					return applyDirection(compareNullableNumber(
+						a.lastFetched ? new Date(a.lastFetched).getTime() : null,
+						b.lastFetched ? new Date(b.lastFetched).getTime() : null,
+					), asc);
+			}
+		});
+	});
+
+	let awgListModeRowsCount = $derived(sortedFilteredAwgList.length + sortedFilteredSystemList.length + sortedFilteredExternalList.length);
+	let awgListModeSourceRowsCount = $derived(awgList.length + visibleSystemList.length + externalList.length);
+	let singboxTunnelsListModeRowsCount = $derived(sortedFilteredSingboxTunnels.length);
+	let singboxTunnelsListModeSourceRowsCount = $derived(singboxTunnelsList.length);
+	let singboxSubscriptionsListModeRowsCount = $derived(sortedFilteredSubscriptionsActiveCards.length + sortedFilteredSubscriptionsListRows.length);
+	let singboxSubscriptionsListModeSourceRowsCount = $derived(subscriptionsActiveCards.length + subscriptionsListRows.length);
+
 
 </script>
 
@@ -1147,6 +1532,7 @@
 							class:selected={selectedBackend === 'nativewg'}
 							class:disabled={sysInfo !== null && !sysInfo.backendAvailability?.nativewg}
 							disabled={sysInfo !== null && !sysInfo.backendAvailability?.nativewg}
+							title={nativewgHint}
 							onclick={() => selectedBackend = 'nativewg'}
 						>
 							NativeWG
@@ -1162,6 +1548,9 @@
 							Kernel
 						</button>
 					</div>
+					{#if nativewgHint}
+						<p class="term-backend-hint">{nativewgHint}</p>
+					{/if}
 
 					<div class="term-commands">
 						{#if externalList.length > 0}
@@ -1222,62 +1611,32 @@
 			{@const totalCount = awgSummaryTotal}
 			<div class="tunnels-toolbar">
 				<div class="count-group">
-					<span class="tunnel-count">{totalCount} {totalCount === 1 ? 'туннель' : totalCount < 5 ? 'туннеля' : 'туннелей'}</span>
+					<span class="tunnel-count">{totalCount} {pluralForm(totalCount, TUNNEL_WORDS)}</span>
 					<StoreStatusBadge store={tunnels} />
 				</div>
 				<div class="toolbar-actions">
-					{#if showAwgViewModeSwitch && !isAwgMobile}
-						<div class="view-mode-switch" role="group" aria-label="Вид туннелей">
-							<button
-								type="button"
-								class="view-mode-btn"
-								class:active={awgEffectiveViewMode === 'cards'}
-								aria-pressed={awgEffectiveViewMode === 'cards'}
-								aria-label="Мелкая сетка"
-								title="Мелкая сетка"
-								onclick={() => (awgViewMode = 'cards')}
-							>
-								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-									<rect x="4" y="5" width="7" height="6" rx="1.5" />
-									<rect x="13" y="5" width="7" height="6" rx="1.5" />
-									<rect x="4" y="13" width="7" height="6" rx="1.5" />
-									<rect x="13" y="13" width="7" height="6" rx="1.5" />
-								</svg>
-							</button>
-							<button
-								type="button"
-								class="view-mode-btn"
-								class:active={awgEffectiveViewMode === 'compact'}
-								aria-pressed={awgEffectiveViewMode === 'compact'}
-								aria-label="Сетка"
-								title="Сетка"
-								onclick={() => (awgViewMode = 'compact')}
-							>
-								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-									<rect x="4" y="5" width="16" height="14" rx="2" />
-									<path d="M7 9h10" />
-									<path d="M7 13h6" />
-								</svg>
-							</button>
-							<button
-								type="button"
-								class="view-mode-btn"
-								class:active={awgViewMode === 'list'}
-								aria-pressed={awgViewMode === 'list'}
-								aria-label="Список"
-								title="Список"
-								onclick={() => (awgViewMode = 'list')}
-							>
-								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-									<path d="M9 7h11" />
-									<path d="M9 12h11" />
-									<path d="M9 17h11" />
-									<circle cx="5" cy="7" r="1.2" fill="currentColor" stroke="none" />
-									<circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none" />
-									<circle cx="5" cy="17" r="1.2" fill="currentColor" stroke="none" />
-								</svg>
-							</button>
+					{#if awgEffectiveViewMode === 'list' && awgListModeSourceRowsCount >= 5}
+						<div class="tunnel-toolbar-search">
+							<TunnelTableSortControls
+								searchQuery={awgListSearchQuery}
+								sortKey={$awgTunnelTableSort.sortBy}
+								sortAsc={$awgTunnelTableSort.sortAsc}
+								options={awgSortOptions}
+								showSearch={true}
+								hideSortOnDesktop={true}
+								onSearchChange={(value) => (awgListSearchQuery = value)}
+								onSortChange={(key) => awgTunnelTableSort.setSortBy(key as AwgTunnelSortKey | null)}
+								onToggleDir={() => awgTunnelTableSort.toggleDir()}
+							/>
 						</div>
+					{/if}
+					{#if showAwgViewModeSwitch && !isAwgMobile}
+						<LayoutViewToggle
+							value={awgViewMode}
+							denseValue="cards"
+							ariaLabel="Вид туннелей"
+							onchange={(mode) => (awgViewMode = mode)}
+						/>
 					{/if}
 					<Button variant="secondary" size="md" onclick={handleExportAll} disabled={exporting} iconBefore={exportIcon}>
 						Экспорт
@@ -1292,7 +1651,7 @@
 					<StatStrip>
 						<Stat
 							value={`${awgSummaryActive}/${awgSummaryTotal}`}
-							label="Активные туннели"
+							label={pluralForm(awgSummaryActive, TUNNEL_WORDS)}
 							sub={`AWG ${awgList.length} · system ${visibleSystemList.length} · external ${externalList.length}`}
 						/>
 						<Stat
@@ -1312,19 +1671,50 @@
 						/>
 					</StatStrip>
 				</div>
-
 				<div class="awg-list-table">
 					<div class="awg-list-table-track">
 					<div class="awg-list-row awg-list-row--head">
 						<span></span>
-						<span>Туннель</span>
-						<span>Статус</span>
-						<span>Endpoint</span>
-						<span>Throughput</span>
+						<span>
+							<TunnelTableSortHeader
+								label="Туннель"
+								sortKey={'name'}
+								activeSortKey={$awgTunnelTableSort.sortBy}
+								sortAsc={$awgTunnelTableSort.sortAsc}
+								onchange={(key) => handleAwgSortChange(key as AwgTunnelSortKey)}
+							/>
+						</span>
+						<span>
+							<TunnelTableSortHeader
+								label="Статус"
+								sortKey={'status'}
+								activeSortKey={$awgTunnelTableSort.sortBy}
+								sortAsc={$awgTunnelTableSort.sortAsc}
+								onchange={(key) => handleAwgSortChange(key as AwgTunnelSortKey)}
+							/>
+						</span>
+						<span>
+							<TunnelTableSortHeader
+								label="Endpoint"
+								sortKey={'endpoint'}
+								activeSortKey={$awgTunnelTableSort.sortBy}
+								sortAsc={$awgTunnelTableSort.sortAsc}
+								onchange={(key) => handleAwgSortChange(key as AwgTunnelSortKey)}
+							/>
+						</span>
+						<span>
+							<TunnelTableSortHeader
+								label="Throughput"
+								sortKey={'traffic'}
+								activeSortKey={$awgTunnelTableSort.sortBy}
+								sortAsc={$awgTunnelTableSort.sortAsc}
+								onchange={(key) => handleAwgSortChange(key as AwgTunnelSortKey)}
+							/>
+						</span>
 						<span class="awg-list-head-actions">Действия</span>
 					</div>
 
-				{#each awgList as tunnel (tunnel.id)}
+				{#each sortedFilteredAwgList as tunnel (tunnel.id)}
 					{@const connectivity = awgConnectivityMap.get(tunnel.id)}
 					{@const isEndpointShown = endpointVisible('managed', tunnel.id)}
 					{@const rate = latestRate(tunnel.id)}
@@ -1511,11 +1901,11 @@
 						</div>
 					{/each}
 
-					{#if visibleSystemList.length > 0}
+					{#if sortedFilteredSystemList.length > 0}
 						<div class="awg-list-row awg-list-row--section">
-							<div class="awg-list-section-title">Системные · {visibleSystemList.length}</div>
+							<div class="awg-list-section-title">Системные · {sortedFilteredSystemList.length}</div>
 						</div>
-						{#each visibleSystemList as tunnel (tunnel.id)}
+						{#each sortedFilteredSystemList as tunnel (tunnel.id)}
 							{@const isEndpointShown = endpointVisible('system', tunnel.id)}
 							{@const rate = latestRate(tunnel.id)}
 							{@const spark = sparklineSeries(tunnel.id)}
@@ -1646,11 +2036,11 @@
 						{/each}
 					{/if}
 
-					{#if externalList.length > 0}
+					{#if sortedFilteredExternalList.length > 0}
 						<div class="awg-list-row awg-list-row--section">
-							<div class="awg-list-section-title">Внешние · {externalList.length}</div>
+							<div class="awg-list-section-title">Внешние · {sortedFilteredExternalList.length}</div>
 						</div>
-						{#each externalList as tunnel (tunnel.interfaceName)}
+						{#each sortedFilteredExternalList as tunnel (tunnel.interfaceName)}
 							{@const isEndpointShown = endpointVisible('external', tunnel.interfaceName)}
 							<div class="awg-list-row">
 								<div class="awg-list-cell awg-list-cell-toggle" data-label="Тип">
@@ -1729,6 +2119,11 @@
 							</div>
 						{/each}
 					{/if}
+					{#if awgListSearchQuery.trim() && awgListModeRowsCount === 0}
+						<div class="awg-list-row awg-list-row--section">
+							<div class="awg-list-section-title">Ничего не найдено</div>
+						</div>
+					{/if}
 					</div>
 				</div>
 			{:else}
@@ -1795,13 +2190,29 @@
 					<div class="tunnels-toolbar">
 						<span class="tunnel-count">
 							{subscriptionsList.length}
-							{subscriptionsList.length === 1 ? 'подписка' : subscriptionsList.length < 5 ? 'подписки' : 'подписок'}
+							{pluralForm(subscriptionsList.length, SUBSCRIPTION_WORDS)}
 						</span>
 						<div class="toolbar-actions">
+							{#if singboxSubscriptionsEffectiveLayout === 'list' && singboxSubscriptionsListModeSourceRowsCount >= 5}
+								<div class="tunnel-toolbar-search">
+									<TunnelTableSortControls
+										searchQuery={singboxSubscriptionsSearchQuery}
+										sortKey={$singboxSubscriptionTableSort.sortBy}
+										sortAsc={$singboxSubscriptionTableSort.sortAsc}
+										options={subscriptionSortOptions}
+										showSearch={true}
+										hideSortOnDesktop={true}
+										onSearchChange={(value) => (singboxSubscriptionsSearchQuery = value)}
+										onSortChange={(key) => singboxSubscriptionTableSort.setSortBy(key as SubscriptionSortKey | null)}
+										onToggleDir={() => singboxSubscriptionTableSort.toggleDir()}
+									/>
+								</div>
+							{/if}
 							{#if subscriptionsList.length > 0 && showSingboxLayoutPicker}
-								<GridListToggle
+								<LayoutViewToggle
 									value={singboxSubscriptionsEffectiveLayout}
 									showListOption={showSingboxGridListToggle}
+									ariaLabel="Вид подписок"
 									onchange={(v) => (singboxSubscriptionsLayoutMode = v)}
 								/>
 							{/if}
@@ -1834,9 +2245,12 @@
 						<div class="awg-summary-row">
 							<StatStrip>
 								<Stat
-									value={`${singboxSubscriptionsTrafficStats.count}`}
-									label="Подписок"
-									sub={`в работе ${singboxSubscriptionsTrafficStats.activeCount} · не активные ${singboxSubscriptionsTrafficStats.inactiveCount}`}
+									value={`${singboxSubscriptionsTrafficStats.activeCount}/${singboxSubscriptionsTrafficStats.count}`}
+									label={pluralForm(singboxSubscriptionsTrafficStats.activeCount, SUBSCRIPTION_WORDS)}
+									sub={formatRunningSub(
+										singboxSubscriptionsTrafficStats.activeCount,
+										singboxSubscriptionsTrafficStats.count,
+									)}
 								/>
 								<Stat
 									value={formatBytes(
@@ -1865,19 +2279,43 @@
 								/>
 							</StatStrip>
 						</div>
-						<div class="awg-list-table singbox-sub-list-table">
-							<div class="awg-list-table-track">
-							<div class="sbx-sub-list-row sbx-sub-list-row--head">
-								<span>Delay</span>
-								<span>Подписка</span>
-								<span>Режим</span>
-								<span>Активный сервер</span>
-								<span>Трафик</span>
-								<span>Ping</span>
-								<span class="sbx-sub-list-head-actions">Действия</span>
-							</div>
-							{#if subscriptionsActiveCards.length > 0}
-								{#each subscriptionsActiveCards as card, i (card.subscription.id)}
+						<div class="tunnel-table-wrap">
+							<table class="tunnel-data-table singbox-sub-table">
+								<colgroup>
+									<col class="col-delay" />
+									<col class="col-name" />
+									<col class="col-mode" />
+									<col class="col-active" />
+									<col class="col-traffic" />
+									<col class="col-ping" />
+									<col class="col-actions" />
+								</colgroup>
+								<thead>
+									<tr>
+										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'delay', $singboxSubscriptionTableSort.sortAsc)}>
+											<TunnelTableSortHeader label="Delay" sortKey={'delay'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
+										</th>
+										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'label', $singboxSubscriptionTableSort.sortAsc)}>
+											<TunnelTableSortHeader label="Подписка" sortKey={'label'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
+										</th>
+										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'mode', $singboxSubscriptionTableSort.sortAsc)}>
+											<TunnelTableSortHeader label="Режим" sortKey={'mode'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
+										</th>
+										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'active', $singboxSubscriptionTableSort.sortAsc)}>
+											<TunnelTableSortHeader label="Активный сервер" sortKey={'active'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
+										</th>
+										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'traffic', $singboxSubscriptionTableSort.sortAsc)}>
+											<TunnelTableSortHeader label="Трафик" sortKey={'traffic'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
+										</th>
+										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'ping', $singboxSubscriptionTableSort.sortAsc)}>
+											<TunnelTableSortHeader label="Ping" sortKey={'ping'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
+										</th>
+										<th class="col-actions">Действия</th>
+									</tr>
+								</thead>
+								<tbody>
+							{#if sortedFilteredSubscriptionsActiveCards.length > 0}
+								{#each sortedFilteredSubscriptionsActiveCards as card, i (card.subscription.id)}
 									<SubscriptionActiveCard
 										subscription={card.subscription}
 										activeMember={card.activeMember}
@@ -1888,13 +2326,11 @@
 									/>
 								{/each}
 							{/if}
-							{#if subscriptionsListRows.length > 0}
-								<div class="awg-list-row awg-list-row--section">
-									<div class="awg-list-section-title">
-										Не активные · {subscriptionsListRows.length}
-									</div>
-								</div>
-								{#each subscriptionsListRows as sub (sub.id)}
+							{#if sortedFilteredSubscriptionsListRows.length > 0}
+								<tr class="tunnel-section-row">
+									<td colspan="7">Остановлено · {sortedFilteredSubscriptionsListRows.length}</td>
+								</tr>
+								{#each sortedFilteredSubscriptionsListRows as sub (sub.id)}
 									<SubscriptionCard
 										subscription={sub}
 										liveActiveMember={liveActives[sub.id] || null}
@@ -1904,7 +2340,13 @@
 									/>
 								{/each}
 							{/if}
-							</div>
+							{#if singboxSubscriptionsSearchQuery.trim() && singboxSubscriptionsListModeRowsCount === 0}
+								<tr class="tunnel-empty-row">
+									<td colspan="7">Ничего не найдено</td>
+								</tr>
+							{/if}
+								</tbody>
+							</table>
 						</div>
 					{:else}
 						{#if subscriptionsActiveCards.length > 0}
@@ -1930,7 +2372,7 @@
 								class="external-section"
 								class:singbox-sub-inactive-section={subscriptionsActiveCards.length === 0}
 							>
-								<h2 class="section-title">Не активные</h2>
+								<h2 class="section-title">Остановлено</h2>
 								<div
 									class="tunnel-grid"
 									class:tunnel-grid--dense={singboxSubscriptionsEffectiveLayout === 'dense'}
@@ -1957,13 +2399,29 @@
 				<div class="tunnels-toolbar">
 					<span class="tunnel-count">
 						{singboxTunnelsList.length}
-						{singboxTunnelsList.length === 1 ? 'туннель' : singboxTunnelsList.length < 5 ? 'туннеля' : 'туннелей'}
+						{pluralForm(singboxTunnelsList.length, TUNNEL_WORDS)}
 					</span>
 					<div class="toolbar-actions">
+						{#if singboxTunnelsEffectiveLayout === 'list' && singboxTunnelsListModeSourceRowsCount >= 5}
+							<div class="tunnel-toolbar-search">
+								<TunnelTableSortControls
+									searchQuery={singboxTunnelsSearchQuery}
+									sortKey={$singboxTunnelTableSort.sortBy}
+									sortAsc={$singboxTunnelTableSort.sortAsc}
+									options={singboxTunnelSortOptions}
+									showSearch={true}
+									hideSortOnDesktop={true}
+									onSearchChange={(value) => (singboxTunnelsSearchQuery = value)}
+									onSortChange={(key) => singboxTunnelTableSort.setSortBy(key as SingboxTunnelSortKey | null)}
+									onToggleDir={() => singboxTunnelTableSort.toggleDir()}
+								/>
+							</div>
+						{/if}
 						{#if singboxTunnelsList.length > 0 && showSingboxLayoutPicker}
-							<GridListToggle
+							<LayoutViewToggle
 								value={singboxTunnelsEffectiveLayout}
 								showListOption={showSingboxGridListToggle}
+								ariaLabel="Вид туннелей"
 								onchange={(v) => (singboxTunnelsLayoutMode = v)}
 							/>
 						{/if}
@@ -2040,8 +2498,8 @@
 						<StatStrip>
 							<Stat
 								value={`${singboxTunnelListStats.running}/${singboxTunnelListStats.count}`}
-								label="Процессы"
-								sub={`${singboxTunnelListStats.running} running · ${singboxTunnelListStats.stopped} stopped`}
+								label={pluralForm(singboxTunnelListStats.running, TUNNEL_WORDS)}
+								sub={formatRunningSub(singboxTunnelListStats.running, singboxTunnelListStats.count)}
 							/>
 							<Stat
 								value={formatBytes(singboxTunnelListStats.down + singboxTunnelListStats.up)}
@@ -2062,21 +2520,44 @@
 								label="Лидер по трафику"
 								sub={singboxTunnelListStats.leaderName}
 							/>
-						</StatStrip>
-					</div>
-					<div class="awg-list-table singbox-tunnel-list-table">
-						<div class="awg-list-table-track">
-						<div class="sbx-tunnel-list-row sbx-tunnel-list-row--head">
-							<span>Delay</span>
-							<span>Туннель</span>
-							<span>Протокол</span>
-							<span>Сервер</span>
-							<span>Процесс</span>
-							<span>Трафик</span>
-							<span>Ping</span>
-							<span class="sbx-tunnel-list-head-actions">Действия</span>
+							</StatStrip>
 						</div>
-						{#each singboxTunnelsList as tunnel, i (tunnel.tag)}
+					<div class="tunnel-table-wrap">
+						<table class="tunnel-data-table singbox-tunnel-table">
+							<colgroup>
+								<col class="col-delay" />
+								<col class="col-name" />
+								<col class="col-protocol" />
+								<col class="col-run" />
+								<col class="col-traffic" />
+								<col class="col-ping" />
+								<col class="col-actions" />
+							</colgroup>
+							<thead>
+								<tr>
+									<th aria-sort={ariaSort($singboxTunnelTableSort.sortBy, 'delay', $singboxTunnelTableSort.sortAsc)}>
+										<TunnelTableSortHeader label="Delay" sortKey={'delay'} activeSortKey={$singboxTunnelTableSort.sortBy} sortAsc={$singboxTunnelTableSort.sortAsc} onchange={(key) => handleSingboxTunnelSortChange(key as SingboxTunnelSortKey)} />
+									</th>
+									<th aria-sort={ariaSort($singboxTunnelTableSort.sortBy, 'name', $singboxTunnelTableSort.sortAsc)}>
+										<TunnelTableSortHeader label="Туннель" sortKey={'name'} activeSortKey={$singboxTunnelTableSort.sortBy} sortAsc={$singboxTunnelTableSort.sortAsc} onchange={(key) => handleSingboxTunnelSortChange(key as SingboxTunnelSortKey)} />
+									</th>
+									<th aria-sort={ariaSort($singboxTunnelTableSort.sortBy, 'protocol', $singboxTunnelTableSort.sortAsc)}>
+										<TunnelTableSortHeader label="Протокол" sortKey={'protocol'} activeSortKey={$singboxTunnelTableSort.sortBy} sortAsc={$singboxTunnelTableSort.sortAsc} onchange={(key) => handleSingboxTunnelSortChange(key as SingboxTunnelSortKey)} />
+									</th>
+									<th aria-sort={ariaSort($singboxTunnelTableSort.sortBy, 'running', $singboxTunnelTableSort.sortAsc)}>
+										<TunnelTableSortHeader label="Процесс" sortKey={'running'} activeSortKey={$singboxTunnelTableSort.sortBy} sortAsc={$singboxTunnelTableSort.sortAsc} onchange={(key) => handleSingboxTunnelSortChange(key as SingboxTunnelSortKey)} />
+									</th>
+									<th aria-sort={ariaSort($singboxTunnelTableSort.sortBy, 'traffic', $singboxTunnelTableSort.sortAsc)}>
+										<TunnelTableSortHeader label="Трафик" sortKey={'traffic'} activeSortKey={$singboxTunnelTableSort.sortBy} sortAsc={$singboxTunnelTableSort.sortAsc} onchange={(key) => handleSingboxTunnelSortChange(key as SingboxTunnelSortKey)} />
+									</th>
+									<th aria-sort={ariaSort($singboxTunnelTableSort.sortBy, 'ping', $singboxTunnelTableSort.sortAsc)}>
+										<TunnelTableSortHeader label="Ping" sortKey={'ping'} activeSortKey={$singboxTunnelTableSort.sortBy} sortAsc={$singboxTunnelTableSort.sortAsc} onchange={(key) => handleSingboxTunnelSortChange(key as SingboxTunnelSortKey)} />
+									</th>
+									<th class="col-actions">Действия</th>
+								</tr>
+							</thead>
+							<tbody>
+						{#each sortedFilteredSingboxTunnels as tunnel, i (tunnel.tag)}
 							<SingboxTunnelCard
 								{tunnel}
 								layout="list"
@@ -2085,7 +2566,13 @@
 								ondetail={(tag) => openSingboxDetail(tag)}
 							/>
 						{/each}
-						</div>
+						{#if singboxTunnelsSearchQuery.trim() && singboxTunnelsListModeRowsCount === 0}
+							<tr class="tunnel-empty-row">
+								<td colspan="7">Ничего не найдено</td>
+							</tr>
+						{/if}
+							</tbody>
+						</table>
 					</div>
 				{:else}
 					<div
@@ -2293,7 +2780,22 @@
 	.toolbar-actions {
 		display: flex;
 		align-items: center;
+		justify-content: flex-end;
+		flex-wrap: wrap;
 		gap: 0.5rem;
+	}
+
+	.tunnel-toolbar-search {
+		min-width: 160px;
+		max-width: 220px;
+	}
+
+	.tunnel-toolbar-search :global(.tunnel-sort-controls) {
+		width: 100%;
+	}
+
+	.tunnel-toolbar-search :global(.tunnel-search) {
+		width: 100%;
 	}
 
 	.toolbar-actions :global(.btn.size-md) {
@@ -2312,54 +2814,6 @@
 		color: var(--color-accent);
 		border-color: var(--color-accent);
 		filter: none;
-	}
-
-	.view-mode-switch {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		box-sizing: border-box;
-		height: 32px;
-		padding: 2px;
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-sm);
-		background: var(--color-bg-secondary);
-		flex-shrink: 0;
-	}
-
-	.view-mode-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 28px;
-		height: 26px;
-		padding: 0;
-		border: none;
-		border-radius: calc(var(--radius-sm) - 2px);
-		background: transparent;
-		color: var(--color-text-muted);
-		cursor: pointer;
-		transition: background var(--t-fast) ease, color var(--t-fast) ease;
-	}
-
-	.view-mode-btn:hover {
-		background: var(--color-bg-hover);
-		color: var(--color-text-primary);
-	}
-
-	.view-mode-btn.active {
-		background: var(--color-accent-tint);
-		color: var(--color-accent);
-	}
-
-	.view-mode-btn:focus-visible {
-		outline: 2px solid var(--color-accent);
-		outline-offset: 2px;
-	}
-
-	.view-mode-btn svg {
-		width: 1rem;
-		height: 1rem;
 	}
 
 	:global(.tunnel-grid--dense) {
@@ -2429,7 +2883,14 @@
 
 	.awg-list-table {
 		/* Keep AWG rows compact: cells ellipsize instead of stretching the scroll track to max-content. */
-		--awg-list-min-width: 900px;
+		--awg-list-min-width: 960px;
+		--awg-list-columns:
+			36px
+			minmax(190px, 1.05fr)
+			minmax(155px, 0.85fr)
+			minmax(145px, 0.8fr)
+			minmax(260px, 2.2fr)
+			minmax(82px, max-content);
 		border: 1px solid var(--color-border);
 		border-radius: 12px;
 		background: var(--color-bg-secondary);
@@ -2438,31 +2899,9 @@
 		/* width/max-width/min-width — в app.css, чтобы подписки не раздували страницу */
 	}
 
-	.singbox-tunnel-list-table {
-		--awg-list-min-width: 980px;
-	}
-
-	.singbox-sub-list-table {
-		--awg-list-min-width: 820px;
-		--sbx-sub-list-columns:
-			82px
-			minmax(155px, 1fr)
-			72px
-			minmax(150px, 0.95fr)
-			minmax(170px, 1.15fr)
-			90px
-			86px;
-	}
-
 	.awg-list-row {
 		display: grid;
-		grid-template-columns:
-			36px
-			minmax(205px, 1.35fr)
-			minmax(150px, 0.95fr)
-			minmax(140px, 0.8fr)
-			minmax(138px, 0.75fr)
-			minmax(72px, max-content);
+		grid-template-columns: var(--awg-list-columns);
 		gap: 8px;
 		align-items: center;
 		padding: 0.75rem 0.75rem;
@@ -2475,90 +2914,21 @@
 	}
 
 	.awg-list-row--head {
-		padding-top: 0.75rem;
-		padding-bottom: 0.75rem;
+		padding-top: 0.65rem;
+		padding-bottom: 0.65rem;
 		background: var(--color-bg-tertiary);
 		font-size: 0.6875rem;
 		font-weight: 700;
+		line-height: 1.2;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		color: var(--color-text-muted);
 	}
 
-	.sbx-sub-list-row--head {
-		display: grid;
-		grid-template-columns: var(--sbx-sub-list-columns);
-		column-gap: 0.625rem;
-		align-items: center;
-		padding: 0.75rem 1rem;
-		border-bottom: 1px solid var(--color-border);
-		background: var(--color-bg-tertiary);
-		font-size: 0.6875rem;
-		font-weight: 700;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: var(--color-text-muted);
-		min-width: max(100%, var(--awg-list-min-width, 0px));
-		box-sizing: border-box;
+	.awg-list-row--head :global(.sort-header-btn) {
+		justify-content: flex-start;
 	}
 
-	.sbx-sub-list-head-actions {
-		text-align: center;
-	}
-
-	/* Subscription list rows are child components; the parent table owns the column contract. */
-	:global(.singbox-sub-list-table .sbx-sub-active-row) {
-		display: grid !important;
-		grid-template-columns: var(--sbx-sub-list-columns) !important;
-		column-gap: 0.625rem !important;
-		align-items: center;
-		min-width: max(100%, var(--awg-list-min-width, 0px)) !important;
-		box-sizing: border-box;
-	}
-
-	:global(.singbox-sub-list-table .sub-active-list-group),
-	:global(.singbox-sub-list-table .sub-list-group) {
-		min-width: max(100%, var(--awg-list-min-width, 0px));
-	}
-
-	:global(.singbox-sub-list-table .sbx-sub-list-row--head > span),
-	:global(.singbox-sub-list-table .sbx-sub-active-row > .lc) {
-		justify-self: stretch;
-		min-width: 0;
-	}
-
-	:global(.singbox-sub-list-table .lc-traffic) {
-		align-items: stretch;
-		justify-content: stretch;
-		min-width: 0;
-	}
-
-	:global(.singbox-sub-list-table .traffic-row-list--stack) {
-		width: 100%;
-		min-width: 0;
-	}
-
-	:global(.singbox-sub-list-table .lc-ping-mini) {
-		justify-content: center;
-		align-items: center;
-		min-width: 0;
-		width: 100%;
-	}
-
-	:global(.singbox-sub-list-table .spark-mini) {
-		justify-self: center;
-		width: 100%;
-		max-width: 96px;
-	}
-
-	:global(.singbox-sub-list-table .lc-actions) {
-		justify-content: center;
-	}
-
-	:global(.singbox-sub-list-table .sbx-sub-list-row--head > span:nth-child(6)),
-	:global(.singbox-sub-list-table .sbx-sub-list-row--head > span:nth-child(7)) {
-		text-align: center;
-	}
 
 	.awg-list-row--section {
 		grid-template-columns: minmax(0, 1fr);
@@ -2570,6 +2940,12 @@
 
 	.awg-list-head-actions {
 		text-align: right;
+	}
+
+	@media (hover: hover) and (pointer: fine) {
+		.awg-list-row:not(.awg-list-row--head):not(.awg-list-row--section):hover {
+			background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+		}
 	}
 
 	.awg-list-section-title {
@@ -2892,17 +3268,22 @@
 	.awg-list-cell-actions {
 		display: flex;
 		justify-content: flex-end;
+		align-items: center;
 		flex-wrap: nowrap;
-		gap: 0.375rem;
+		gap: 0.25rem;
+		white-space: nowrap;
 	}
 
 	.awg-action-btn {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		gap: 4px;
-		padding: 0.375rem;
-		border-radius: 6px;
+		width: 28px;
+		height: 28px;
+		flex: 0 0 28px;
+		gap: 0;
+		padding: 0;
+		border-radius: var(--radius-sm);
 		border: none;
 		background: transparent;
 		color: var(--color-text-muted);
@@ -2975,36 +3356,33 @@
 
 	@media (max-width: 1280px) {
 		.awg-list-table:not(.singbox-tunnel-list-table):not(.singbox-sub-list-table) {
-			--awg-list-min-width: 860px;
+			--awg-list-min-width: 900px;
+			--awg-list-columns:
+				34px
+				minmax(180px, 1fr)
+				minmax(140px, 0.78fr)
+				minmax(132px, 0.72fr)
+				minmax(240px, 2fr)
+				minmax(72px, max-content);
 		}
 
-		.awg-list-row {
-			grid-template-columns:
-				34px
-				minmax(190px, 1.25fr)
-				minmax(140px, 0.9fr)
-				minmax(132px, 0.78fr)
-				minmax(128px, 0.7fr)
-				minmax(72px, max-content);
-			gap: 8px;
-		}
 	}
 
 	@media (max-width: 1120px) {
 		.awg-list-table:not(.singbox-tunnel-list-table):not(.singbox-sub-list-table) {
-			--awg-list-min-width: 820px;
+			--awg-list-min-width: 860px;
+			--awg-list-columns:
+				32px
+				minmax(168px, 0.95fr)
+				minmax(128px, 0.72fr)
+				minmax(122px, 0.68fr)
+				minmax(220px, 1.9fr)
+				minmax(70px, max-content);
+			padding: 0.75rem 0.8125rem;
 		}
 
 		.awg-list-row {
-			grid-template-columns:
-				32px
-				minmax(178px, 1.2fr)
-				minmax(132px, 0.88fr)
-				minmax(124px, 0.74fr)
-				minmax(120px, 0.68fr)
-				minmax(70px, max-content);
 			padding: 0.75rem 0.8125rem;
-			gap: 8px;
 		}
 
 		.awg-list-name-button,
@@ -3022,6 +3400,47 @@
 			padding: 0.3125rem 0.4375rem;
 			font-size: 0.6875rem;
 		}
+	}
+
+	:global(html[data-layout-compact='true']) .awg-list-table:not(.singbox-tunnel-list-table):not(.singbox-sub-list-table) {
+		--awg-list-min-width: 0px;
+		--awg-list-columns:
+			28px
+			minmax(150px, 1fr)
+			minmax(120px, 0.78fr)
+			minmax(112px, 0.68fr)
+			minmax(120px, 1.15fr)
+			minmax(64px, max-content);
+	}
+
+	:global(html[data-layout-compact='true']) .awg-list-row {
+		column-gap: 0.5rem !important;
+		padding-left: 0.625rem !important;
+		padding-right: 0.625rem !important;
+		min-width: 100% !important;
+	}
+
+	:global(html[data-layout-compact='true']) :global(.singbox-sub-table .lc-delay),
+	:global(html[data-layout-compact='true']) :global(.singbox-tunnel-table .list-cell-delay) {
+		padding-left: 0.25rem !important;
+		padding-right: 0.25rem !important;
+	}
+
+	:global(html[data-layout-compact='true']) .awg-list-cell-rate,
+	:global(html[data-layout-compact='true']) .awg-rate-button,
+	:global(html[data-layout-compact='true']) .awg-list-rate-stack,
+	:global(html[data-layout-compact='true']) :global(.singbox-tunnel-table .list-cell-traffic),
+	:global(html[data-layout-compact='true']) :global(.singbox-tunnel-table .traffic-row-list),
+	:global(html[data-layout-compact='true']) :global(.singbox-sub-table .lc-traffic),
+	:global(html[data-layout-compact='true']) :global(.singbox-sub-table .traffic-row-list--stack) {
+		min-width: 0 !important;
+		width: 100% !important;
+	}
+
+	:global(html[data-layout-compact='true']) :global(.singbox-sub-table .lc-actions) {
+		gap: 0.375rem !important;
+		padding-left: 0.25rem !important;
+		padding-right: 0 !important;
 	}
 
 	@media (max-width: 760px) {
@@ -3168,6 +3587,14 @@
 	.term-backend-btn.disabled {
 		opacity: 0.4;
 		cursor: not-allowed;
+	}
+
+	.term-backend-hint {
+		margin: 8px 0 0;
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		line-height: 1.4;
+		color: var(--color-text-muted);
 	}
 
 	/* Drag-over / importing overlays */
@@ -3396,110 +3823,321 @@
 		margin-bottom: 1.2rem;
 	}
 
-	.singbox-tunnel-list-table :global(.sbx-tunnel-list-row) {
-		display: grid;
-		grid-template-columns:
-			minmax(80px, 80px)
-			minmax(0, 1.2fr)
-			minmax(0, 1fr)
-			minmax(132px, 1.1fr)
-			minmax(96px, 0.85fr)
-			minmax(150px, 1.1fr)
-			minmax(80px, 80px)
-			minmax(70px, 0.7fr);
-		gap: 0.75rem 1rem;
-		align-items: center;
-		padding: 0.75rem 1rem;
-		border-bottom: 1px solid var(--color-border);
-		min-width: max(100%, max(var(--awg-list-min-width, 0px), max-content));
-	}
-	.singbox-tunnel-list-table :global(.sbx-tunnel-list-row:last-child) {
-		border-bottom: none;
-	}
-	.singbox-tunnel-list-table .sbx-tunnel-list-row--head {
-		background: var(--color-bg-tertiary);
-		font-size: 0.6875rem;
-		font-weight: 700;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: var(--color-text-muted);
-		padding-top: 0.75rem;
-		padding-bottom: 0.75rem;
-	}
-	.sbx-tunnel-list-head-actions {
-		text-align: right;
+	:global(.tunnel-table-wrap) {
+		overflow-x: auto;
+		margin-top: 0.75rem;
+		border: 1px solid var(--color-border);
+		border-radius: 12px;
+		background: var(--color-bg-secondary);
 	}
 
-	.singbox-sub-list-table {
-		margin-bottom: 1.25rem;
-		--awg-list-min-width: 760px;
-		--sbx-sub-list-columns:
-			72px
-			minmax(150px, 210px)
-			62px
-			minmax(126px, 170px)
-			minmax(240px, 1fr)
-			84px
-			76px;
+	:global(.tunnel-data-table) {
+		width: 100%;
+		border-collapse: collapse;
+		table-layout: auto;
+		font-size: 12px;
 	}
-	.singbox-sub-list-table .sbx-sub-list-row--head {
-		display: grid;
-		grid-template-columns: var(--sbx-sub-list-columns);
-		column-gap: 0.5rem;
-		align-items: center;
-		padding: 0.75rem;
-		background: var(--color-bg-tertiary);
+
+	:global(.singbox-tunnel-table) {
+		width: 100%;
+		min-width: 0;
+		table-layout: fixed;
+	}
+
+	:global(.singbox-tunnel-table col.col-delay) { width: 82px; }
+	:global(.singbox-tunnel-table col.col-name) { width: clamp(270px, 31%, 340px); }
+	:global(.singbox-tunnel-table col.col-protocol) { width: 96px; }
+	:global(.singbox-tunnel-table col.col-run) { width: 86px; }
+	:global(.singbox-tunnel-table col.col-traffic) { width: auto; }
+	:global(.singbox-tunnel-table col.col-ping) { width: 82px; }
+	:global(.singbox-tunnel-table col.col-actions) { width: 72px; }
+
+	:global(.singbox-tunnel-table th) {
+		background: transparent;
+		color: var(--color-text-muted);
 		font-size: 0.6875rem;
 		font-weight: 700;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
-		color: var(--color-text-muted);
 		border-bottom: 1px solid var(--color-border);
-		min-width: max(100%, var(--awg-list-min-width, 760px));
-		box-sizing: border-box;
 	}
-	.sbx-sub-list-head-actions {
+
+	:global(.singbox-sub-table th) {
+		background: transparent;
+		color: var(--color-text-muted);
+		font-size: 0.6875rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	:global(.singbox-tunnel-table th .sort-header-btn.active),
+	:global(.singbox-sub-table th .sort-header-btn.active) {
+		color: var(--accent, var(--color-accent));
+	}
+
+	:global(.singbox-tunnel-table th .sort-header-btn.active .sort-indicator),
+	:global(.singbox-sub-table th .sort-header-btn.active .sort-indicator) {
+		color: inherit;
+	}
+
+	:global(.singbox-tunnel-table th),
+	:global(.singbox-tunnel-table td) {
+		overflow: hidden;
+	}
+
+	:global(.singbox-sub-table) {
+		width: 100%;
+		min-width: 0;
+		table-layout: fixed;
+	}
+
+	:global(.singbox-sub-table col.col-delay) { width: 86px; }
+	:global(.singbox-sub-table col.col-name) { width: 260px; }
+	:global(.singbox-sub-table col.col-mode) { width: 86px; }
+	:global(.singbox-sub-table col.col-active) { width: 210px; }
+	:global(.singbox-sub-table col.col-traffic) { width: auto; }
+	:global(.singbox-sub-table col.col-ping) { width: 92px; }
+	:global(.singbox-sub-table col.col-actions) { width: 116px; }
+
+	:global(.tunnel-data-table th) {
 		text-align: center;
+		background: color-mix(in srgb, var(--accent) 16%, transparent);
+		color: var(--accent);
+		border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+		font-weight: 600;
+		padding: 0.65rem 0.75rem;
+		line-height: 1.2;
+		white-space: nowrap;
 	}
 
-	/* Rows are rendered by child components; keep the final list contract here,
-	   after the legacy local 9-column subscription styles. */
-	.singbox-sub-list-table :global(.sbx-sub-active-row) {
-		display: grid !important;
-		grid-template-columns: var(--sbx-sub-list-columns) !important;
-		column-gap: 0.5rem !important;
+	:global(.tunnel-data-table td) {
+		padding: 0.55rem 0.5rem;
+		border-bottom: 1px solid var(--border);
+		vertical-align: middle;
+		transition: background-color 0.15s ease;
+	}
+
+	:global(.tunnel-data-table tbody tr:hover td) {
+		background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+	}
+
+	:global(.tunnel-data-table .mono) {
+		font-family: var(--font-mono, monospace);
+	}
+
+	:global(.tunnel-data-table .col-actions),
+	:global(.tunnel-data-table td.col-actions) {
+		text-align: right;
+		white-space: nowrap;
+	}
+
+	:global(.singbox-tunnel-table th),
+	:global(.singbox-sub-table th) {
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-muted);
+		font-size: 0.6875rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	:global(.tunnel-row-actions) {
+		display: inline-flex;
+		justify-content: flex-end;
 		align-items: center;
-		padding-inline: 0.75rem !important;
-		min-width: max(100%, var(--awg-list-min-width, 760px)) !important;
-		box-sizing: border-box;
+		gap: 0.375rem;
 	}
-	.singbox-sub-list-table :global(.sub-active-list-group),
-	.singbox-sub-list-table :global(.sub-list-group) {
-		min-width: max(100%, var(--awg-list-min-width, 760px)) !important;
+
+	:global(.tunnel-section-row td) {
+		background: var(--color-bg-tertiary);
+		font-size: 0.6875rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--color-text-muted);
 	}
-	.singbox-sub-list-table :global(.sbx-sub-active-row > .lc),
-	.singbox-sub-list-table .sbx-sub-list-row--head > span {
+
+	:global(.tunnel-empty-row td) {
+		padding: 1rem;
+		text-align: center;
+		color: var(--color-text-muted);
+		background: var(--color-bg-secondary);
+	}
+
+	:global(.singbox-tunnel-table .sbx-tunnel-list-row) {
+		display: table-row !important;
+	}
+
+	:global(.singbox-sub-table .sbx-sub-active-row) {
+		display: table-row !important;
+	}
+
+	:global(.singbox-tunnel-table td.list-cell) {
+		display: table-cell !important;
+		vertical-align: middle;
 		min-width: 0;
 	}
-	.singbox-sub-list-table :global(.lc-endpoint) {
-		justify-content: flex-start;
-		gap: 0.3rem;
-	}
-	.singbox-sub-list-table :global(.lc-endpoint-stack) {
-		flex: 0 1 auto !important;
-		max-width: calc(100% - 1.5rem);
-	}
-	.singbox-sub-list-table :global(.lc-traffic) {
+
+	:global(.singbox-sub-table td.lc) {
+		display: table-cell !important;
+		vertical-align: middle;
 		min-width: 0;
-		justify-content: stretch;
 	}
-	.singbox-sub-list-table :global(.traffic-row-list--stack) {
+
+	:global(.singbox-tunnel-table .list-cell-traffic .traffic-row-list) {
 		width: 100%;
 		min-width: 0;
 	}
-	.singbox-sub-list-table :global(.lc-ping-mini),
-	.singbox-sub-list-table :global(.lc-actions) {
+
+	:global(.singbox-tunnel-table .list-cell-actions) {
+		text-align: right;
+	}
+
+	:global(.singbox-tunnel-table .list-cell-name) {
+		min-width: 0;
+	}
+
+	:global(.singbox-tunnel-table .list-title-row),
+	:global(.singbox-tunnel-table .list-sub),
+	:global(.singbox-tunnel-table .list-server-line) {
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	:global(.singbox-tunnel-table .name-btn),
+	:global(.singbox-tunnel-table .list-sub),
+	:global(.singbox-tunnel-table .list-server-host) {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	:global(.singbox-tunnel-table .list-cell-traffic) {
+		min-width: 0;
+	}
+
+	:global(.singbox-tunnel-table .traffic-row-list),
+	:global(.singbox-tunnel-table .traffic-mini-click) {
+		width: 100%;
+		min-width: 0;
+	}
+
+	:global(.singbox-tunnel-table .traffic-mini-click svg) {
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+	}
+
+	:global(.singbox-tunnel-table .list-cell-ping-mini) {
+		text-align: center;
+	}
+
+	:global(.singbox-tunnel-table .list-cell-ping-mini .spark-mini) {
+		width: 78px;
+		max-width: 78px;
+		margin-inline: auto;
+	}
+
+	:global(.singbox-tunnel-table .list-actions) {
+		justify-content: flex-end;
+		gap: 0.25rem;
+	}
+
+	:global(.singbox-tunnel-table .list-actions .action-btn) {
+		width: 28px;
+		height: 28px;
+		padding: 0;
+	}
+
+	:global(.singbox-sub-table .lc-delay),
+	:global(.singbox-sub-table .lc-mode),
+	:global(.singbox-sub-table .lc-ping-mini) {
+		text-align: center;
+	}
+
+	:global(.singbox-sub-table .lc-name),
+	:global(.singbox-sub-table .lc-endpoint),
+	:global(.singbox-sub-table .lc-traffic) {
+		text-align: left;
+	}
+
+	:global(.singbox-sub-table th),
+	:global(.singbox-sub-table td) {
+		overflow: hidden;
+	}
+
+	:global(.singbox-sub-table .lc-name),
+	:global(.singbox-sub-table .lc-endpoint) {
+		min-width: 0;
+	}
+
+	:global(.singbox-sub-table .name-title-row),
+	:global(.singbox-sub-table .name-meta-row),
+	:global(.singbox-sub-table .t2),
+	:global(.singbox-sub-table .lc-endpoint-stack),
+	:global(.singbox-sub-table .lc-endpoint-name) {
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	:global(.singbox-sub-table .name-title-row),
+	:global(.singbox-sub-table .t2),
+	:global(.singbox-sub-table .lc-endpoint-name) {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	:global(.singbox-sub-table .traffic-row-list--stack) {
+		width: 100%;
+		min-width: 0;
+	}
+
+	:global(.singbox-sub-table .lc-ping-mini .spark-mini) {
+		width: 100%;
+		max-width: 92px;
+		margin-inline: auto;
+	}
+
+	:global(.singbox-sub-table th.col-actions),
+	:global(.singbox-sub-table td.col-actions) {
+		padding-left: 0.25rem;
+		padding-right: 1rem;
+	}
+
+	:global(.singbox-sub-table th.col-actions) {
+		text-align: right;
+	}
+
+	:global(.singbox-sub-table .lc-actions) {
+		text-align: right;
+		white-space: nowrap;
+		gap: 0.25rem;
+	}
+
+	:global(.singbox-sub-table .lc-actions .action-btn) {
+		display: inline-flex;
 		justify-content: center;
+		vertical-align: middle;
+		width: 28px;
+		height: 28px;
+		gap: 0;
+		padding: 0;
+	}
+
+	:global(.singbox-sub-table .lc-actions .action-btn + .action-btn) {
+		margin-left: 0.25rem;
+	}
+
+	:global(.singbox-sub-table tr.err td) {
+		background: rgba(248, 81, 73, 0.04);
+	}
+
+	:global(.singbox-sub-table tr.off td) {
+		opacity: 0.72;
 	}
 
 	@media (max-width: 700px) {
@@ -3517,7 +4155,7 @@
 			width: 100%;
 		}
 
-		.toolbar-actions .view-mode-switch {
+		.toolbar-actions :global(.segmented-control) {
 			grid-column: 1 / -1;
 			width: 100%;
 			justify-content: center;
@@ -3528,7 +4166,7 @@
 			min-height: 32px;
 		}
 
-		/* When there's only "+ Добавить" (no GridListToggle), move it to the right cell. */
+		/* When there's only "+ Добавить" (no layout picker), move it to the right cell. */
 		.toolbar-actions > :global(.btn):only-child {
 			grid-column: 2 / 3;
 			justify-self: stretch;

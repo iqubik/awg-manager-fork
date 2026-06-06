@@ -7,10 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hoaxisr/awg-manager/internal/storage"
 )
 
 // Store persists subscriptions to disk as JSON, atomic-writes on every mutation.
@@ -79,14 +80,7 @@ func (s *Store) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp := s.path + ".tmp"
-	if err := os.MkdirAll(filepath.Dir(s.path), 0755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(tmp, b, 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return storage.AtomicWrite(s.path, b)
 }
 
 func newID() string {
@@ -124,21 +118,24 @@ func (s *Store) Create(in CreateInput) (*Subscription, error) {
 		urlTest = &cfg
 	}
 	sub := &Subscription{
-		ID:           id,
-		Label:        in.Label,
-		URL:          in.URL,
-		Inline:       in.Inline,
-		Headers:      in.Headers,
-		RefreshHours: in.RefreshHours,
-		Enabled:      in.Enabled,
-		SelectorTag:  "sub-" + short,
-		InboundTag:   "sub-" + short + "-in",
-		ProxyIndex:   -1,
-		MemberTags:   []string{},
-		Members:      []MemberInfo{},
-		OrphanTags:   []string{},
-		Mode:         mode,
-		URLTest:      urlTest,
+		ID:               id,
+		Label:            in.Label,
+		URL:              in.URL,
+		Inline:           in.Inline,
+		Headers:          in.Headers,
+		RefreshHours:     in.RefreshHours,
+		Enabled:          in.Enabled,
+		SelectorTag:      "sub-" + short,
+		InboundTag:       "sub-" + short + "-in",
+		ProxyIndex:       -1,
+		MemberTags:       []string{},
+		Members:          []MemberInfo{},
+		OrphanTags:       []string{},
+		RejectedMembers:  []RejectedMember{},
+		InfoItems:        []SubscriptionInfoItem{},
+		DismissedInfoIDs: []string{},
+		Mode:             mode,
+		URLTest:          urlTest,
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -254,22 +251,131 @@ func (s *Store) SetMembers(id string, members []MemberInfo, orphans []string) er
 	}
 	sub.MemberTags = tags
 	sub.OrphanTags = orphans
+	reconcileActiveMember(sub, tags)
+	return s.saveLocked()
+}
+
+// SetMembersExtras updates members, orphans, rejected, and info in one write.
+func (s *Store) SetMembersExtras(id string, members []MemberInfo, orphans []string, rejected []RejectedMember, info []SubscriptionInfoItem) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sub, ok := s.data[id]
+	if !ok {
+		return fmt.Errorf("subscription %q not found", id)
+	}
+	sub.Members = members
+	tags := make([]string, len(members))
+	for i, m := range members {
+		tags[i] = m.Tag
+	}
+	sub.MemberTags = tags
+	sub.OrphanTags = orphans
+	if rejected == nil {
+		rejected = []RejectedMember{}
+	}
+	if info == nil {
+		info = []SubscriptionInfoItem{}
+	}
+	sub.RejectedMembers = rejected
+	sub.InfoItems = info
+	reconcileActiveMember(sub, tags)
+	return s.saveLocked()
+}
+
+// RemoveInfoItem moves one info banner to rejectedMembers and dismisses it on refresh.
+func (s *Store) RemoveInfoItem(id, itemID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sub, ok := s.data[id]
+	if !ok {
+		return fmt.Errorf("subscription %q not found", id)
+	}
+	idx := findInfoItem(sub.InfoItems, itemID)
+	if idx < 0 {
+		return ErrInfoItemNotFound
+	}
+	item := sub.InfoItems[idx]
+	removedID := strings.TrimSpace(item.ID)
+	sub.InfoItems = append(sub.InfoItems[:idx], sub.InfoItems[idx+1:]...)
+	sub.DismissedInfoIDs = appendDismissedID(sub.DismissedInfoIDs, removedID)
+	sub.RejectedMembers = appendRejectedUnique(sub.RejectedMembers, rejectedFromInfoItem(item))
+	return s.saveLocked()
+}
+
+func removeDismissedID(dismissed []string, id string) []string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return dismissed
+	}
+	out := make([]string, 0, len(dismissed))
+	for _, d := range dismissed {
+		if strings.TrimSpace(d) != id {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// UnmarkDismissedInfoID allows a previously hidden info line to appear again after refresh.
+func (s *Store) UnmarkDismissedInfoID(id, infoID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sub, ok := s.data[id]
+	if !ok {
+		return fmt.Errorf("subscription %q not found", id)
+	}
+	next := removeDismissedID(sub.DismissedInfoIDs, infoID)
+	if len(next) == len(sub.DismissedInfoIDs) {
+		return nil
+	}
+	sub.DismissedInfoIDs = next
+	return s.saveLocked()
+}
+
+func appendDismissedID(dismissed []string, id string) []string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return dismissed
+	}
+	for _, d := range dismissed {
+		if strings.TrimSpace(d) == id {
+			return dismissed
+		}
+	}
+	return append(dismissed, id)
+}
+
+// SetRejectedAndInfo updates rejected/info slices without touching members.
+// info nil means leave unchanged (used by ClearRejected).
+func (s *Store) SetRejectedAndInfo(id string, rejected []RejectedMember, info []SubscriptionInfoItem) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sub, ok := s.data[id]
+	if !ok {
+		return fmt.Errorf("subscription %q not found", id)
+	}
+	sub.RejectedMembers = rejected
+	if info != nil {
+		sub.InfoItems = info
+	}
+	return s.saveLocked()
+}
+
+func reconcileActiveMember(sub *Subscription, tags []string) {
 	if sub.ActiveMember == "" && len(tags) > 0 {
 		sub.ActiveMember = tags[0]
 	}
-	if sub.ActiveMember != "" {
-		found := false
-		for _, t := range tags {
-			if t == sub.ActiveMember {
-				found = true
-				break
-			}
-		}
-		if !found && len(tags) > 0 {
-			sub.ActiveMember = tags[0]
+	if sub.ActiveMember == "" {
+		return
+	}
+	for _, t := range tags {
+		if t == sub.ActiveMember {
+			return
 		}
 	}
-	return s.saveLocked()
+	if len(tags) > 0 {
+		sub.ActiveMember = tags[0]
+	}
 }
 
 // SetProxyIndex persists the NDMS ProxyN index for this subscription.

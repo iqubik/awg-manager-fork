@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ type Request struct {
 	URL           string
 	Method        string
 	Headers       http.Header
+	Body          []byte
 	Timeout       time.Duration
 	MaxBodyBytes  int64
 	UserAgent     string
@@ -30,6 +32,7 @@ type ResponseMeta struct {
 	StatusCode    int
 	ContentLength int64
 	ContentType   string
+	Headers       http.Header
 	Route         RouteInfo
 }
 
@@ -62,6 +65,7 @@ func (s *Service) ReadAll(ctx context.Context, req Request) ([]byte, ResponseMet
 		return nil, ResponseMeta{}, fmt.Errorf("resolve download route: %w", err)
 	}
 	defer lease.Close()
+	meta := ResponseMeta{Route: lease.Route}
 
 	requestCtx := ctx
 	cancel := func() {}
@@ -74,9 +78,13 @@ func (s *Service) ReadAll(ctx context.Context, req Request) ([]byte, ResponseMet
 	if method == "" {
 		method = http.MethodGet
 	}
-	httpReq, err := http.NewRequestWithContext(requestCtx, method, req.URL, nil)
+	var requestBody io.Reader
+	if req.Body != nil {
+		requestBody = bytes.NewReader(req.Body)
+	}
+	httpReq, err := http.NewRequestWithContext(requestCtx, method, req.URL, requestBody)
 	if err != nil {
-		return nil, ResponseMeta{}, fmt.Errorf("download via %s: build request: %w", lease.Route.DisplayName(), err)
+		return nil, meta, fmt.Errorf("download via %s: build request: %w", lease.Route.DisplayName(), err)
 	}
 	if req.UserAgent != "" {
 		httpReq.Header.Set("User-Agent", req.UserAgent)
@@ -85,6 +93,9 @@ func (s *Service) ReadAll(ctx context.Context, req Request) ([]byte, ResponseMet
 		for _, v := range vals {
 			httpReq.Header.Add(k, v)
 		}
+	}
+	if strings.EqualFold(httpReq.Header.Get("Connection"), "close") {
+		httpReq.Close = true
 	}
 
 	client := lease.Client
@@ -96,29 +107,26 @@ func (s *Service) ReadAll(ctx context.Context, req Request) ([]byte, ResponseMet
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return nil, ResponseMeta{}, fmt.Errorf("download via %s: request failed: %w", lease.Route.DisplayName(), err)
+		return nil, meta, fmt.Errorf("download via %s: request failed: %w", lease.Route.DisplayName(), err)
 	}
 	defer resp.Body.Close()
+	meta.StatusCode = resp.StatusCode
+	meta.ContentLength = resp.ContentLength
+	meta.ContentType = resp.Header.Get("Content-Type")
+	meta.Headers = resp.Header.Clone()
 
 	if !statusAllowed(resp.StatusCode, req.AllowedStatus) {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, ResponseMeta{}, fmt.Errorf("download via %s: status %d: %s", lease.Route.DisplayName(), resp.StatusCode, strings.TrimSpace(string(snippet)))
+		return nil, meta, fmt.Errorf("download via %s: status %d: %s", lease.Route.DisplayName(), resp.StatusCode, strings.TrimSpace(string(snippet)))
 	}
 
 	limited := io.LimitReader(resp.Body, req.MaxBodyBytes+1)
 	body, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, ResponseMeta{}, fmt.Errorf("download via %s: read body: %w", lease.Route.DisplayName(), err)
+		return nil, meta, fmt.Errorf("download via %s: read body: %w", lease.Route.DisplayName(), err)
 	}
 	if int64(len(body)) > req.MaxBodyBytes {
-		return nil, ResponseMeta{}, fmt.Errorf("download via %s: body exceeds limit (%d bytes)", lease.Route.DisplayName(), req.MaxBodyBytes)
-	}
-
-	meta := ResponseMeta{
-		StatusCode:    resp.StatusCode,
-		ContentLength: resp.ContentLength,
-		ContentType:   resp.Header.Get("Content-Type"),
-		Route:         lease.Route,
+		return nil, meta, fmt.Errorf("download via %s: body exceeds limit (%d bytes)", lease.Route.DisplayName(), req.MaxBodyBytes)
 	}
 	return body, meta, nil
 }
@@ -139,6 +147,7 @@ func (s *Service) DownloadFile(ctx context.Context, req FileRequest) (FileResult
 		return FileResult{}, fmt.Errorf("resolve download route: %w", err)
 	}
 	defer lease.Close()
+	result := FileResult{Route: lease.Route}
 
 	requestCtx := ctx
 	cancel := func() {}
@@ -151,9 +160,13 @@ func (s *Service) DownloadFile(ctx context.Context, req FileRequest) (FileResult
 	if method == "" {
 		method = http.MethodGet
 	}
-	httpReq, err := http.NewRequestWithContext(requestCtx, method, req.URL, nil)
+	var requestBody io.Reader
+	if req.Body != nil {
+		requestBody = bytes.NewReader(req.Body)
+	}
+	httpReq, err := http.NewRequestWithContext(requestCtx, method, req.URL, requestBody)
 	if err != nil {
-		return FileResult{}, fmt.Errorf("download via %s: build request: %w", lease.Route.DisplayName(), err)
+		return result, fmt.Errorf("download via %s: build request: %w", lease.Route.DisplayName(), err)
 	}
 	if req.UserAgent != "" {
 		httpReq.Header.Set("User-Agent", req.UserAgent)
@@ -162,6 +175,9 @@ func (s *Service) DownloadFile(ctx context.Context, req FileRequest) (FileResult
 		for _, v := range vals {
 			httpReq.Header.Add(k, v)
 		}
+	}
+	if strings.EqualFold(httpReq.Header.Get("Connection"), "close") {
+		httpReq.Close = true
 	}
 
 	client := lease.Client
@@ -173,16 +189,16 @@ func (s *Service) DownloadFile(ctx context.Context, req FileRequest) (FileResult
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return FileResult{}, fmt.Errorf("download via %s: request failed: %w", lease.Route.DisplayName(), err)
+		return result, fmt.Errorf("download via %s: request failed: %w", lease.Route.DisplayName(), err)
 	}
 	defer resp.Body.Close()
 
 	if !statusAllowed(resp.StatusCode, req.AllowedStatus) {
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return FileResult{}, fmt.Errorf("download via %s: status %d: %s", lease.Route.DisplayName(), resp.StatusCode, strings.TrimSpace(string(snippet)))
+		return result, fmt.Errorf("download via %s: status %d: %s", lease.Route.DisplayName(), resp.StatusCode, strings.TrimSpace(string(snippet)))
 	}
 	if resp.ContentLength > req.MaxFileBytes {
-		return FileResult{}, fmt.Errorf("download via %s: content-length %d exceeds limit %d", lease.Route.DisplayName(), resp.ContentLength, req.MaxFileBytes)
+		return result, fmt.Errorf("download via %s: content-length %d exceeds limit %d", lease.Route.DisplayName(), resp.ContentLength, req.MaxFileBytes)
 	}
 
 	destPath := req.DestPath
@@ -191,10 +207,10 @@ func (s *Service) DownloadFile(ctx context.Context, req FileRequest) (FileResult
 		tmpPath = fmt.Sprintf("%s.tmp-%d", destPath, time.Now().UnixNano())
 	}
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-		return FileResult{}, fmt.Errorf("download via %s: mkdir destination: %w", lease.Route.DisplayName(), err)
+		return result, fmt.Errorf("download via %s: mkdir destination: %w", lease.Route.DisplayName(), err)
 	}
 	if err := os.MkdirAll(filepath.Dir(tmpPath), 0o755); err != nil {
-		return FileResult{}, fmt.Errorf("download via %s: mkdir temp: %w", lease.Route.DisplayName(), err)
+		return result, fmt.Errorf("download via %s: mkdir temp: %w", lease.Route.DisplayName(), err)
 	}
 
 	mode := req.Mode
@@ -203,7 +219,7 @@ func (s *Service) DownloadFile(ctx context.Context, req FileRequest) (FileResult
 	}
 	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
-		return FileResult{}, fmt.Errorf("download via %s: create temp file: %w", lease.Route.DisplayName(), err)
+		return result, fmt.Errorf("download via %s: create temp file: %w", lease.Route.DisplayName(), err)
 	}
 	closed := false
 	success := false
@@ -222,34 +238,38 @@ func (s *Service) DownloadFile(ctx context.Context, req FileRequest) (FileResult
 	}
 	written, err := io.Copy(out, io.LimitReader(src, req.MaxFileBytes+1))
 	if err != nil {
-		return FileResult{}, fmt.Errorf("download via %s: write file: %w", lease.Route.DisplayName(), err)
+		result.Size = written
+		return result, fmt.Errorf("download via %s: write file: %w", lease.Route.DisplayName(), err)
 	}
 	if written > req.MaxFileBytes {
-		return FileResult{}, fmt.Errorf("download via %s: file exceeds limit (%d bytes)", lease.Route.DisplayName(), req.MaxFileBytes)
+		result.Size = written
+		return result, fmt.Errorf("download via %s: file exceeds limit (%d bytes)", lease.Route.DisplayName(), req.MaxFileBytes)
 	}
 	if err := out.Sync(); err != nil {
-		return FileResult{}, fmt.Errorf("download via %s: sync temp file: %w", lease.Route.DisplayName(), err)
+		result.Size = written
+		return result, fmt.Errorf("download via %s: sync temp file: %w", lease.Route.DisplayName(), err)
 	}
 	if err := out.Close(); err != nil {
-		return FileResult{}, fmt.Errorf("download via %s: close temp file: %w", lease.Route.DisplayName(), err)
+		result.Size = written
+		return result, fmt.Errorf("download via %s: close temp file: %w", lease.Route.DisplayName(), err)
 	}
 	closed = true
 
 	if req.Atomic {
 		if err := os.Rename(tmpPath, destPath); err != nil {
-			return FileResult{}, fmt.Errorf("download via %s: atomic move: %w", lease.Route.DisplayName(), err)
+			result.Size = written
+			return result, fmt.Errorf("download via %s: atomic move: %w", lease.Route.DisplayName(), err)
 		}
 	} else if tmpPath != destPath {
 		if err := os.Rename(tmpPath, destPath); err != nil {
-			return FileResult{}, fmt.Errorf("download via %s: move file: %w", lease.Route.DisplayName(), err)
+			result.Size = written
+			return result, fmt.Errorf("download via %s: move file: %w", lease.Route.DisplayName(), err)
 		}
 	}
 	success = true
-	return FileResult{
-		Path:  destPath,
-		Size:  written,
-		Route: lease.Route,
-	}, nil
+	result.Path = destPath
+	result.Size = written
+	return result, nil
 }
 
 func statusAllowed(status int, allowed []int) bool {

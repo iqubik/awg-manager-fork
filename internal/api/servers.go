@@ -2,12 +2,15 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"regexp"
+	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/managed"
 	"github.com/hoaxisr/awg-manager/internal/ndms"
+	ndmscommand "github.com/hoaxisr/awg-manager/internal/ndms/command"
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
 	"github.com/hoaxisr/awg-manager/internal/response"
 	"github.com/hoaxisr/awg-manager/internal/storage"
@@ -125,6 +128,7 @@ func isValidWireguardName(name string) bool {
 // subscribers refetch immediately instead of waiting for the next poll.
 type ServersHandler struct {
 	queries  *query.Queries
+	commands *ndmscommand.Commands
 	settings *storage.SettingsStore
 	awgStore *storage.AWGTunnelStore
 	bus      *events.Bus
@@ -138,6 +142,11 @@ func (h *ServersHandler) SetEventBus(bus *events.Bus) {
 
 // SetManagedHandler sets the managed server handler for shared publishing.
 func (h *ServersHandler) SetManagedHandler(m *ManagedServerHandler) { h.managed = m }
+
+// SetCommands wires NDMS interface commands used by server up/down/restart
+// controls. Kept as a setter so tests using NewServersHandler do not need to
+// construct the full command registry.
+func (h *ServersHandler) SetCommands(commands *ndmscommand.Commands) { h.commands = commands }
 
 // PublishServerSnapshot broadcasts a resource:invalidated hint. Kept
 // as a method on *ServersHandler because ndms/metrics.Poller calls it
@@ -158,6 +167,10 @@ func NewServersHandler(queries *query.Queries, settings *storage.SettingsStore, 
 	return &ServersHandler{queries: queries, settings: settings, awgStore: awgStore}
 }
 
+type serverEnabledRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
 func (h *ServersHandler) validateName(w http.ResponseWriter, name string) bool {
 	if name == "" {
 		response.Error(w, "missing name parameter", "MISSING_NAME")
@@ -168,6 +181,26 @@ func (h *ServersHandler) validateName(w http.ResponseWriter, name string) bool {
 		return false
 	}
 	return true
+}
+
+func (h *ServersHandler) getListedServer(ctx context.Context, name string) (*ndms.WireguardServer, error) {
+	servers, err := h.listServers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range servers {
+		server := servers[i]
+		if server.ID == name || server.InterfaceName == name {
+			return &server, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func serverIsUp(server *ndms.WireguardServer) bool {
+	return server != nil && (server.Status == "up" || server.Connected)
 }
 
 // listServers builds the filtered server list for API response and SSE snapshots.
@@ -360,6 +393,138 @@ func (h *ServersHandler) Mark(w http.ResponseWriter, r *http.Request) {
 
 	publishInvalidated(h.bus, ResourceServers, "mark-changed")
 	h.writeAll(w, r)
+}
+
+// SetEnabled enables or disables a built-in/marked WireGuard server interface.
+// POST /api/servers/enabled?name=Wireguard0
+//
+//	@Summary		Toggle WireGuard server enabled state
+//	@Description	Brings a built-in or marked WireGuard server interface up or down.
+//	@Tags			servers
+//	@Accept			json
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Param			name	query	string				true	"Interface name"
+//	@Param			body	body	serverEnabledRequest	true	"Enabled flag"
+//	@Success		200		{object}	ServersAllResponse
+//	@Failure		400		{object}	APIErrorEnvelope
+//	@Failure		404		{object}	APIErrorEnvelope
+//	@Failure		405		{object}	APIErrorEnvelope
+//	@Router			/servers/enabled [post]
+func (h *ServersHandler) SetEnabled(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.MethodNotAllowed(w)
+		return
+	}
+	if h.commands == nil || h.commands.Interfaces == nil {
+		response.Error(w, "ndms commands not initialized", "INTERNAL_ERROR")
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if !h.validateName(w, name) {
+		return
+	}
+
+	var req serverEnabledRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, "invalid request body", "INVALID_BODY")
+		return
+	}
+
+	server, err := h.getListedServer(r.Context(), name)
+	if err != nil {
+		response.Error(w, err.Error(), "GET_FAILED")
+		return
+	}
+	if server == nil {
+		response.Error(w, "server not found", "NOT_FOUND")
+		return
+	}
+
+	if req.Enabled {
+		if err := h.commands.Interfaces.InterfaceUp(r.Context(), name); err != nil {
+			response.Error(w, err.Error(), "INTERFACE_UP_FAILED")
+			return
+		}
+	} else {
+		if err := h.commands.Interfaces.InterfaceDown(r.Context(), name); err != nil {
+			response.Error(w, err.Error(), "INTERFACE_DOWN_FAILED")
+			return
+		}
+	}
+
+	publishInvalidated(h.bus, ResourceServers, "server-enabled-changed")
+	h.writeAll(w, r)
+}
+
+// Restart accepts a restart/start command for a built-in/marked WireGuard server.
+// POST /api/servers/restart?name=Wireguard0
+//
+//	@Summary		Restart or start WireGuard server
+//	@Description	If the server interface is up, restarts it with down -> pause -> up. If it is down, starts it. The command is accepted quickly and executed in background so a client connected through this server does not cancel the operation.
+//	@Tags			servers
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Param			name	query	string	true	"Interface name"
+//	@Success		200		{object}	APIEnvelope
+//	@Failure		400		{object}	APIErrorEnvelope
+//	@Failure		404		{object}	APIErrorEnvelope
+//	@Failure		405		{object}	APIErrorEnvelope
+//	@Router			/servers/restart [post]
+func (h *ServersHandler) Restart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.MethodNotAllowed(w)
+		return
+	}
+	if h.commands == nil || h.commands.Interfaces == nil {
+		response.Error(w, "ndms commands not initialized", "INTERNAL_ERROR")
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if !h.validateName(w, name) {
+		return
+	}
+
+	server, err := h.getListedServer(r.Context(), name)
+	if err != nil {
+		response.Error(w, err.Error(), "GET_FAILED")
+		return
+	}
+	if server == nil {
+		response.Error(w, "server not found", "NOT_FOUND")
+		return
+	}
+
+	wasUp := serverIsUp(server)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 20*time.Second)
+
+	go func() {
+		defer cancel()
+
+		// Give the accepted response a chance to reach the browser before we
+		// drop the server interface.
+		time.Sleep(300 * time.Millisecond)
+
+		if wasUp {
+			if err := h.commands.Interfaces.InterfaceDown(ctx, name); err != nil {
+				return
+			}
+			time.Sleep(1200 * time.Millisecond)
+		}
+
+		if err := h.commands.Interfaces.InterfaceUp(ctx, name); err != nil {
+			return
+		}
+
+		publishInvalidated(h.bus, ResourceServers, "server-restart")
+	}()
+
+	response.Success(w, map[string]any{
+		"id":       name,
+		"accepted": true,
+	})
 }
 
 // WANIP returns the external WAN IP for .conf generation.

@@ -37,4 +37,12 @@ export type { StatTile, StatTileAccent } from './StatRow.svelte';
 export { default as LatencySparkline } from './LatencySparkline.svelte';
 export { default as PingButton } from './PingButton.svelte';
 export { default as BackLink } from './BackLink.svelte';
-export { default as GridListToggle } from './GridListToggle.svelte';
+export { default as LayoutViewToggle } from './LayoutViewToggle.svelte';
+/** @deprecated Use LayoutViewToggle */
+export { default as GridListToggle } from './LayoutViewToggle.svelte';
+export type { AwgTunnelViewMode, LayoutViewMode, LayoutViewDense } from './layoutViewToggle';
+export { default as SegmentedControl } from './SegmentedControl.svelte';
+export type { SegmentedOption } from './segmentedControl';
+export type { ViewLayoutIconName } from './segmentedControl';
+export { default as SectionLabel } from './SectionLabel.svelte';
+export { default as NdmsIconTile } from './NdmsIconTile.svelte';

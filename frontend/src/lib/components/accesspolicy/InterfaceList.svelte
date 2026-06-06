@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { AccessPolicyInterface, PolicyGlobalInterface } from '$lib/types';
-	import { ConfirmModal } from '$lib/components/ui';
+	import { ConfirmModal, Badge, Button } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import {
@@ -100,9 +100,9 @@
 	<div class="section-header">
 		<h4>Интерфейсы (приоритет)</h4>
 		{#if unassigned.length > 0}
-			<button class="link-btn" onclick={() => (showAdd = !showAdd)}>
+			<Button variant="secondary" size="sm" onclick={() => (showAdd = !showAdd)}>
 				{showAdd ? 'Отмена' : 'Добавить'}
-			</button>
+			</Button>
 		{/if}
 	</div>
 
@@ -132,7 +132,7 @@
 					<span class="led" class:led-green={!iface.denied && isUp(iface.name)} class:led-gray={iface.denied || !isUp(iface.name)}></span>
 					<span class="iface-label" title={iface.name}>{getLabel(iface.name)}</span>
 					{#if iface.denied}
-						<span class="denied-badge">запрещён</span>
+						<Badge variant="error" size="xs">запрещён</Badge>
 					{/if}
 					<button
 						class="icon-btn"
@@ -229,19 +229,6 @@
 		color: var(--text-primary);
 	}
 
-	.link-btn {
-		background: none;
-		border: none;
-		color: var(--accent);
-		cursor: pointer;
-		font-size: 0.8125rem;
-		padding: 0;
-	}
-
-	.link-btn:hover {
-		text-decoration: underline;
-	}
-
 	@media (max-width: 640px) {
 		.section-header {
 			display: grid;
@@ -252,11 +239,6 @@
 		.section-header h4 {
 			min-width: 0;
 			text-align: left;
-		}
-
-		.link-btn {
-			justify-self: end;
-			margin-left: 0;
 		}
 	}
 
@@ -423,16 +405,6 @@
 
 	.iface-row.denied {
 		opacity: 0.5;
-	}
-
-	.denied-badge {
-		font-size: 0.625rem;
-		padding: 1px 6px;
-		border-radius: 9999px;
-		background: rgba(239, 68, 68, 0.15);
-		color: var(--error);
-		font-weight: 500;
-		white-space: nowrap;
 	}
 
 	.led {

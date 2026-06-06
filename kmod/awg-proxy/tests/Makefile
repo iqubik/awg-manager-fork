@@ -26,10 +26,12 @@ SRC     := ../src
 
 all: test
 
-test: test_cps test_transform test_tunnel
+test: test_cps test_transform test_tunnel test_proxy_recv test_proxy_loop
 	./test_cps
 	./test_transform
 	./test_tunnel
+	./test_proxy_recv
+	./test_proxy_loop
 
 test_cps: test_cps.c shim.c shim.h $(SRC)/cps.c
 	$(CC) $(CFLAGS) -o $@ test_cps.c shim.c $(SRC)/cps.c $(LDFLAGS)
@@ -40,5 +42,18 @@ test_transform: test_transform.c shim.c shim.h $(SRC)/transform.c $(SRC)/blake2s
 test_tunnel: test_tunnel.c shim.c shim.h $(SRC)/tunnel.c $(SRC)/transform.c $(SRC)/blake2s.c $(SRC)/cps.c
 	$(CC) $(CFLAGS) -o $@ test_tunnel.c shim.c $(SRC)/tunnel.c $(SRC)/transform.c $(SRC)/blake2s.c $(SRC)/cps.c $(LDFLAGS)
 
+# test_proxy_recv covers src/proxy_recv.h — the dual-mode worker recv-loop
+# classifier. proxy_recv.h is header-only (static inline) and pulls
+# stdbool / errno on the host build, so no extra source files are needed.
+test_proxy_recv: test_proxy_recv.c shim.c shim.h $(SRC)/proxy_recv.h
+	$(CC) $(CFLAGS) -o $@ test_proxy_recv.c shim.c $(LDFLAGS)
+
+# test_proxy_loop replays the worker recv-loop's control flow on top of
+# awg_classify_recv (from proxy_recv.h) with a scripted recv source and
+# a settable should-stop flag — proves the loop converges under stop
+# and does not break early on zero-length-recv floods (issue #234).
+test_proxy_loop: test_proxy_loop.c shim.c shim.h $(SRC)/proxy_recv.h
+	$(CC) $(CFLAGS) -o $@ test_proxy_loop.c shim.c $(LDFLAGS)
+
 clean:
-	rm -f test_cps test_transform test_tunnel *.o
+	rm -f test_cps test_transform test_tunnel test_proxy_recv test_proxy_loop *.o

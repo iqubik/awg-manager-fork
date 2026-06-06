@@ -4,9 +4,15 @@ import (
 	"strings"
 )
 
+// isImpossibleUseBlock is HR Neo's oversized-geoip service section header.
+func isImpossibleUseBlock(listName string) bool {
+	return strings.EqualFold(strings.TrimSpace(listName), "impossible to use")
+}
+
 // parseDomainConf reads a domain.conf body and returns each `## Name` block
 // followed by a `domains/iface` line as a ManagedEntry. Lines that don't
-// match the format are silently skipped.
+// match the format are silently skipped. A leading '#' on the data line
+// marks the rule disabled (HR Neo ignores commented content).
 func parseDomainConf(content string) []ManagedEntry {
 	var entries []ManagedEntry
 	var pendingName string
@@ -22,13 +28,14 @@ func parseDomainConf(content string) []ManagedEntry {
 			continue
 		}
 
-		// Single-'#' comment — skip.
-		if strings.HasPrefix(line, "#") {
+		if pendingName == "" {
 			continue
 		}
 
-		if pendingName == "" {
-			continue
+		disabled := false
+		if strings.HasPrefix(line, "#") {
+			line = strings.TrimPrefix(line, "#")
+			disabled = true
 		}
 
 		slash := strings.LastIndex(line, "/")
@@ -41,6 +48,7 @@ func parseDomainConf(content string) []ManagedEntry {
 			ListName: pendingName,
 			Domains:  domains,
 			Iface:    line[slash+1:],
+			Disabled: disabled,
 		})
 		pendingName = ""
 	}
@@ -54,6 +62,8 @@ func parseDomainConf(content string) []ManagedEntry {
 //     starts with `#/` (HR Neo's 'disabled interface' marker, e.g.
 //     `#/Too-big-geoip-tag`). Only `geoip:TAG` lines in such blocks are
 //     collected; other lines are discarded.
+//
+// For normal rules, `#/Target` or `#` on subnet lines marks the rule disabled.
 //
 // Empty lines or a new `##` header terminate the current block.
 func parseIPList(content string) (entries []ManagedEntry, oversized []string) {
@@ -85,16 +95,20 @@ func parseIPList(content string) (entries []ManagedEntry, oversized []string) {
 			continue
 		}
 
-		// Disabled-target marker ('#/...') turns the current block into a
-		// service block — its body lines that look like geoip tags go into
-		// the oversized slice instead of the regular entries.
 		if strings.HasPrefix(line, "#/") {
-			service = true
+			if active && isImpossibleUseBlock(cur.ListName) {
+				service = true
+			} else if active {
+				cur.Iface = strings.TrimPrefix(line, "#/")
+				cur.Disabled = true
+			}
 			continue
 		}
 
+		disabledLine := false
 		if strings.HasPrefix(line, "#") {
-			continue
+			line = strings.TrimPrefix(line, "#")
+			disabledLine = true
 		}
 
 		if !active {
@@ -110,10 +124,16 @@ func parseIPList(content string) (entries []ManagedEntry, oversized []string) {
 
 		if strings.HasPrefix(line, "/") {
 			cur.Iface = strings.TrimPrefix(line, "/")
+			if disabledLine {
+				cur.Disabled = true
+			}
 			continue
 		}
 
 		cur.Subnets = append(cur.Subnets, line)
+		if disabledLine {
+			cur.Disabled = true
+		}
 	}
 	flush()
 

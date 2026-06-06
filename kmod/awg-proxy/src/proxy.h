@@ -100,6 +100,8 @@ struct awg_proxy {
 	spinlock_t cookie_lock;
 } __aligned(8);
 
+#include "proxy_recv.h"
+
 /*
  * Add a proxy from a procfs config line.
  * Creates sockets, starts threads.

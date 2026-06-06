@@ -38,15 +38,29 @@ type ConfigMutator interface {
 	// Returns ("", nil) when Clash is unreachable — callers treat this
 	// as "no live data" rather than as an error.
 	GetClashSelectorActive(selectorTag string) (string, error)
+	// DeclaredOutboundTags returns the outbound tags currently present in
+	// the committed subscriptions slot (after the last flush). The Service
+	// reconciles stored MemberTags against this so servers that flush
+	// dropped (sing-box rejected) don't linger and get re-introduced as
+	// dangling group members on later rebuilds. Empty slice = "can't
+	// report" (caller must treat as no-op, not as "drop everything").
+	DeclaredOutboundTags() []string
 }
 
 // Service is the subscription business-logic facade.
 type Service struct {
-	store     *Store
-	mutator   ConfigMutator
-	muById    sync.Map // map[string]*sync.Mutex
+	store   *Store
+	mutator ConfigMutator
+	muById  sync.Map // map[string]*sync.Mutex
+	// createMu serializes Create across all subscriptions. Allocation
+	// (AllocListenPort / AllocProxyIndex) scans the slot without reserving,
+	// so two concurrent Creates would hand out the same listen_port / ProxyN
+	// — the documented "subscriptions are created one at a time" invariant
+	// (issue #287). This lock enforces it.
+	createMu  sync.Mutex
 	fetchOpts FetchOpts
-	log       *logging.ScopedLogger // nil-safe; populated via SetAppLogger
+	log       *logging.ScopedLogger // nil-safe; sing-box journal (runtime)
+	appLog    *logging.ScopedLogger // nil-safe; app journal (subscription partition)
 }
 
 func NewService(store *Store, mutator ConfigMutator) *Service {
@@ -59,6 +73,7 @@ func NewService(store *Store, mutator ConfigMutator) *Service {
 // be invisible to the user.
 func (s *Service) SetAppLogger(app logging.AppLogger) {
 	s.log = logging.NewScopedLogger(app, logging.GroupSingbox, logging.SubSBRuntime)
+	s.appLog = logging.NewScopedLogger(app, logging.GroupRouting, logging.SubSubscription)
 }
 
 func (s *Service) logInfo(action, target, msg string) {
@@ -70,6 +85,22 @@ func (s *Service) logInfo(action, target, msg string) {
 func (s *Service) logWarn(action, target, msg string) {
 	if s.log != nil {
 		s.log.Warn(action, target, msg)
+	}
+}
+
+func (s *Service) logPartitionResult(subID string, parts partitionResult) {
+	if s.appLog == nil {
+		return
+	}
+	for _, it := range parts.Info {
+		s.appLog.Debug("subscription-info", subID,
+			fmt.Sprintf("provider banner → info: %q (id=%s)", it.Label, it.ID))
+	}
+	for _, r := range parts.Rejected {
+		if strings.Contains(r.Reason, "info slot full") {
+			s.appLog.Debug("subscription-info-full", subID,
+				fmt.Sprintf("banner overflow → rejected: %q (%s)", r.Label, r.Reason))
+		}
 	}
 }
 
@@ -94,6 +125,13 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Subscription, er
 	case in.URL != "" && in.Inline != "":
 		return nil, errors.New("subscription: URL and inline content are mutually exclusive")
 	}
+	// Serialize the whole Create: allocation scans-without-reserve, so two
+	// concurrent Creates must not interleave between allocate and commit
+	// (issue #287). Per-subscription locks below don't help — each Create has
+	// a fresh random ID, hence a distinct lock.
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+
 	sub, err := s.store.Create(in)
 	if err != nil {
 		s.logWarn("subscription-create", in.Label, "failed to create store row: "+err.Error())
@@ -134,6 +172,15 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Subscription, er
 	}
 
 	if _, err := s.refreshLocked(ctx, sub.ID); err != nil {
+		// refreshLocked commits to the slot incrementally (each AddOutbound
+		// flushes + persists), so a mid-failure may have already written
+		// member outbounds / selector / inbound / route to
+		// 40-subscriptions.json. Purge them — otherwise they linger as
+		// orphans referencing a subscription that is about to be deleted,
+		// and (issue #287) break every later flush. Reads the live slot via
+		// DeclaredOutboundTags since the store's MemberTags are not written
+		// on a failed refresh.
+		s.purgeCreatedSlotEntries(sub)
 		// EnsureProxy succeeded above — the NDMS Proxy interface is now
 		// live in the router. We must roll it back before dropping the
 		// storage row; otherwise every failed Create leaks a ProxyN that
@@ -141,6 +188,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Subscription, er
 		// the RemoveProxy error: the storage row is going away regardless,
 		// and a stranded ProxyN is recoverable via Settings → cleanup.
 		_ = s.mutator.RemoveProxy(ctx, proxyIdx)
+		_ = s.mutator.Reload(ctx)
 		s.store.Delete(sub.ID)
 		s.logWarn("subscription-create", sub.ID, "initial refresh failed: "+err.Error())
 		return nil, fmt.Errorf("subscription: initial fetch failed: %w", err)
@@ -235,13 +283,11 @@ func (s *Service) refreshLocked(ctx context.Context, id string) (*RefreshResult,
 		parseRes = vlink.ParseBatch(lines)
 	}
 
-	if len(parseRes.Outbounds) == 0 {
-		// Distinguish failure shapes:
-		//  1. Clash YAML parsed cleanly with proxies: []  → subscription empty
-		//  2. sing-box JSON parsed cleanly with outbounds: [] → empty
-		//  3. Clash YAML / sing-box JSON / share-link parsed with errors → bad entries.
-		//  4. Body in unsupported format → 0 entries, 0 errors, not structured.
-		emptyClean := len(parseRes.Errors) == 0 && parseRes.SkippedVmess == 0 && parseRes.SkippedUnsupp == 0
+	parts := partitionParsedOutbounds(id, parseRes.Outbounds)
+	s.logPartitionResult(id, parts)
+	if len(parts.Valid) == 0 {
+		emptyClean := len(parseRes.Errors) == 0 && parseRes.SkippedVmess == 0 && parseRes.SkippedUnsupp == 0 &&
+			len(parts.Info) == 0 && len(parts.Rejected) == 0
 		var errMsg string
 		switch {
 		case isClash && emptyClean:
@@ -253,6 +299,9 @@ func (s *Service) refreshLocked(ctx context.Context, id string) (*RefreshResult,
 			errMsg = fmt.Sprintf("subscription: %s Первая ошибка парсера: %s", hint, parseRes.Errors[0].Error())
 		default:
 			hint := "ни одной валидной ссылки. Поддерживаются: base64-encoded share-links, HTML с share-link якорями, plain text со ссылками vless://, trojan://, ss://, hysteria2://, mieru://, mierus://, Clash YAML / mihomo, а также sing-box JSON (одиночный, массив конфигов, или массив outbounds; типы vless, trojan, ss, hysteria2, mieru). Записи vmess пропускаются."
+			if len(parts.Info) > 0 {
+				hint += fmt.Sprintf(" (инфо-строк провайдера: %d — не являются серверами)", len(parts.Info))
+			}
 			errMsg = fmt.Sprintf("subscription: %s", hint)
 		}
 		err := errors.New(errMsg)
@@ -261,7 +310,7 @@ func (s *Service) refreshLocked(ctx context.Context, id string) (*RefreshResult,
 		return nil, err
 	}
 
-	diff := ApplyDiff(id, sub.MemberTags, parseRes.Outbounds)
+	diff := ApplyDiff(id, sub.MemberTags, parts.Valid)
 
 	if err := s.applyDiff(ctx, sub, diff); err != nil {
 		s.store.UpdateState(id, RefreshResult{When: time.Now(), Err: err})
@@ -276,7 +325,20 @@ func (s *Service) refreshLocked(ctx context.Context, id string) (*RefreshResult,
 	for _, e := range diff.Existing {
 		newMembers = append(newMembers, toMemberInfo(e.Tag, e.Out))
 	}
-	if err := s.store.SetMembers(id, newMembers, diff.Orphan); err != nil {
+	// Reconcile against what actually materialized: flush() may have dropped
+	// servers sing-box rejected. Keeping them in MemberTags would re-create
+	// dangling group members on the next rebuild (cross-slot unknown-outbound).
+	declared := make(map[string]bool)
+	for _, t := range s.mutator.DeclaredOutboundTags() {
+		declared[t] = true
+	}
+	newMembers, prunedTags := filterDeclaredMembers(newMembers, declared)
+	rejected := appendRejectedUnique(parts.Rejected, rejectedFromPrunedTags(sub, prunedTags)...)
+	info := mergeInfoItems(sub.InfoItems, filterDismissedInfo(parts.Info, sub.DismissedInfoIDs))
+	if len(prunedTags) > 0 {
+		s.logWarn("subscription-refresh", id, fmt.Sprintf("pruned %d member(s) not materialized (dropped by validation): %s", len(prunedTags), strings.Join(prunedTags, ", ")))
+	}
+	if err := s.store.SetMembersExtras(id, newMembers, diff.Orphan, rejected, info); err != nil {
 		return nil, err
 	}
 
@@ -298,6 +360,47 @@ func (s *Service) refreshLocked(ctx context.Context, id string) (*RefreshResult,
 	}
 	s.logInfo("subscription-refresh", id, fmt.Sprintf("done added=%d updated=%d orphaned=%d skipped_dup=%d skipped_vmess=%d skipped_other=%d parse_errors=%d", res.Added, res.Updated, res.Orphaned, res.SkippedDuplicate, res.SkippedVmess, res.SkippedOther, len(res.ParseErrors)))
 	return res, nil
+}
+
+// filterDeclaredMembers keeps only members whose outbound tag is actually
+// declared in the emitted slot, returning the kept members and the dropped
+// tags. flush() may silently drop servers sing-box rejects; without this the
+// stored MemberTags would keep referencing them and later group rebuilds
+// (SetActiveMember / add / replace / re-enable) would re-introduce dangling
+// members — the cross-slot unknown-outbound failure. When declared is empty
+// (mutator can't report) members pass through unchanged: never nuke
+// everything on missing data.
+func filterDeclaredMembers(members []MemberInfo, declared map[string]bool) (kept []MemberInfo, dropped []string) {
+	if len(declared) == 0 {
+		return members, nil
+	}
+	for _, m := range members {
+		if declared[m.Tag] {
+			kept = append(kept, m)
+		} else {
+			dropped = append(dropped, m.Tag)
+		}
+	}
+	return kept, dropped
+}
+
+// purgeCreatedSlotEntries removes everything a partial Create committed to the
+// subscription slot: member outbounds (enumerated from the live slot by the
+// subscription's tag prefix), the selector, the mixed inbound and the route
+// rule. Used to roll back a failed Create so it cannot leave orphans in
+// 40-subscriptions.json (issue #287). Reads the actual slot via
+// DeclaredOutboundTags rather than the store, because the store's MemberTags
+// are not written when refreshLocked fails mid-commit. The caller is
+// responsible for the subsequent Reload.
+func (s *Service) purgeCreatedSlotEntries(sub *Subscription) {
+	memberPrefix := sub.SelectorTag + "-" // "sub-<short>-"
+	for _, tag := range s.mutator.DeclaredOutboundTags() {
+		if tag == sub.SelectorTag || strings.HasPrefix(tag, memberPrefix) {
+			s.mutator.RemoveOutbound(tag)
+		}
+	}
+	s.mutator.RemoveInbound(sub.InboundTag)
+	s.mutator.RemoveRouteRule(sub.InboundTag, sub.SelectorTag)
 }
 
 // applyDiff commits the diff to sing-box config. Selector + mixed inbound +
@@ -613,7 +716,31 @@ func (s *Service) AddManualMember(ctx context.Context, id, shareLink string) (*S
 	if len(parsed.Outbounds) != 1 {
 		return nil, ErrShareLinkInvalid
 	}
-	out := parsed.Outbounds[0]
+	parts := partitionParsedOutbounds(sub.ID, parsed.Outbounds)
+	s.logPartitionResult(sub.ID, parts)
+	if len(parts.Valid) == 0 {
+		rejected := appendRejectedUnique(sub.RejectedMembers, parts.Rejected...)
+		info := mergeInfoItems(sub.InfoItems, filterDismissedInfo(parts.Info, sub.DismissedInfoIDs))
+		if len(rejected) == len(sub.RejectedMembers) && len(info) == len(sub.InfoItems) {
+			if len(parts.Rejected) > 0 {
+				return nil, fmt.Errorf("subscription: %s", parts.Rejected[0].Reason)
+			}
+			if len(parts.Info) > 0 {
+				return nil, errors.New("subscription: info banner (not a server); use «Перенести в info» after refresh or add a valid share-link")
+			}
+			return nil, ErrShareLinkInvalid
+		}
+		if err := s.store.SetRejectedAndInfo(id, rejected, info); err != nil {
+			return nil, err
+		}
+		updated, err := s.store.Get(id)
+		if err != nil {
+			return nil, err
+		}
+		s.logInfo("subscription-member-add", id, fmt.Sprintf("stored extras rejected=%d info=%d (no valid member)", len(parts.Rejected), len(parts.Info)))
+		return updated, nil
+	}
+	out := parts.Valid[0]
 	tag := StableTag(sub.ID, out)
 
 	for _, existing := range sub.MemberTags {
@@ -652,7 +779,9 @@ func (s *Service) AddManualMember(ctx context.Context, id, shareLink string) (*S
 
 	newMembers := append([]MemberInfo{}, sub.Members...)
 	newMembers = append(newMembers, toMemberInfo(tag, out))
-	if err := s.store.SetMembers(id, newMembers, sub.OrphanTags); err != nil {
+	rejected := appendRejectedUnique(sub.RejectedMembers, parts.Rejected...)
+	info := mergeInfoItems(sub.InfoItems, filterDismissedInfo(parts.Info, sub.DismissedInfoIDs))
+	if err := s.store.SetMembersExtras(id, newMembers, sub.OrphanTags, rejected, info); err != nil {
 		return nil, err
 	}
 
@@ -783,6 +912,71 @@ func (s *Service) GetActiveNow(_ context.Context, id string) (string, error) {
 		s.logInfo("subscription-active-now", id, "live active member: "+now)
 	}
 	return now, nil
+}
+
+// ErrInfoItemsFull is returned when MoveRejectedToInfo would exceed MaxSubscriptionInfoItems.
+var ErrInfoItemsFull = errors.New("subscription: info block is full (max 4 items)")
+
+// ErrRejectedMemberNotFound is returned when the tag is not in RejectedMembers.
+var ErrRejectedMemberNotFound = errors.New("subscription: rejected member not found")
+
+// ErrInfoItemNotFound is returned when RemoveInfoItem cannot find the id.
+var ErrInfoItemNotFound = errors.New("subscription: info item not found")
+
+// MoveRejectedToInfo promotes one rejected entry to the pinned info block (user source).
+func (s *Service) MoveRejectedToInfo(ctx context.Context, id, memberTag string) (*Subscription, error) {
+	s.logInfo("subscription-rejected-to-info", id, "move requested: "+memberTag)
+	mu := s.lockSub(id)
+	mu.Lock()
+	defer mu.Unlock()
+	sub, err := s.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	idx := findRejected(sub.RejectedMembers, memberTag)
+	if idx < 0 {
+		return nil, ErrRejectedMemberNotFound
+	}
+	if len(sub.InfoItems) >= MaxSubscriptionInfoItems {
+		return nil, ErrInfoItemsFull
+	}
+	r := sub.RejectedMembers[idx]
+	label := strings.TrimSpace(r.Label)
+	if label == "" {
+		label = r.Tag
+	}
+	item := SubscriptionInfoItem{
+		ID:     infoItemID(r.Tag, label),
+		Label:  label,
+		Tag:    r.Tag,
+		Source: "auto",
+	}
+	for _, existing := range sub.InfoItems {
+		if existing.ID == item.ID {
+			return nil, fmt.Errorf("subscription: info item %q already present", item.ID)
+		}
+	}
+	rejected := append(sub.RejectedMembers[:idx], sub.RejectedMembers[idx+1:]...)
+	info := append(sub.InfoItems, item)
+	if err := s.store.SetRejectedAndInfo(id, rejected, info); err != nil {
+		return nil, err
+	}
+	if item.ID != "" {
+		_ = s.store.UnmarkDismissedInfoID(id, item.ID)
+	}
+	return s.store.Get(id)
+}
+
+// RemoveInfoItem moves a provider info line to rejectedMembers; refresh won't re-add it to info.
+func (s *Service) RemoveInfoItem(ctx context.Context, id, itemID string) (*Subscription, error) {
+	s.logInfo("subscription-info-remove", id, "remove requested: "+itemID)
+	mu := s.lockSub(id)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := s.store.RemoveInfoItem(id, itemID); err != nil {
+		return nil, err
+	}
+	return s.store.Get(id)
 }
 
 // DeleteOrphans removes orphan-flagged outbounds from sing-box config and

@@ -262,12 +262,7 @@ func (s *ServiceImpl) Get(ctx context.Context, tunnelID string) (*TunnelWithStat
 		return nil, tunnel.ErrNotFound
 	}
 
-	var stateInfo tunnel.StateInfo
-	if stored.Backend == "nativewg" && s.nwgOperator != nil {
-		stateInfo = s.nwgOperator.GetState(ctx, stored)
-	} else {
-		stateInfo = s.state.GetState(ctx, tunnelID)
-	}
+	stateInfo := s.stateForStored(ctx, stored)
 
 	var ifaceName, ndmsName string
 	if stored.Backend == "nativewg" {
@@ -315,14 +310,7 @@ func (s *ServiceImpl) List(ctx context.Context) ([]TunnelWithStatus, error) {
 		go func(i int) {
 			defer wg.Done()
 			t := stored[i]
-			var stateInfo tunnel.StateInfo
-			if !t.Enabled {
-				stateInfo = tunnel.StateInfo{State: tunnel.StateDisabled}
-			} else if t.Backend == "nativewg" && s.nwgOperator != nil {
-				stateInfo = s.nwgOperator.GetState(ctx, &t)
-			} else {
-				stateInfo = s.state.GetState(ctx, t.ID)
-			}
+			stateInfo := s.stateForStored(ctx, &t)
 
 			var ifaceName, ndmsName string
 			if t.Backend == "nativewg" {
@@ -547,8 +535,20 @@ func (s *ServiceImpl) applyDiffNWG(ctx context.Context, oldStored, newStored *st
 		}
 	}
 
-	if oldStored.Peer.Endpoint != newStored.Peer.Endpoint || oldStored.ISPInterface != newStored.ISPInterface {
-		s.logInfo("update", tunnelID, "endpoint/ISPInterface changed; restart tunnel to apply route changes")
+	// Rebuild the kmod proxy slot when fields that shape it change. Without
+	// this, the slot keeps pre-Update keys/obfuscation silently, and the
+	// next daemon-restart's RestoreTunnel adopts the stale slot — handshake
+	// fails forever with no log line beyond "adopt-tunnel". SyncKmodSlot
+	// is a no-op on ASC-native firmware (no kmod slot exists).
+	if kmodShapingChanged(oldStored, newStored) {
+		if err := s.nwgOperator.SyncKmodSlot(ctx, newStored); err != nil {
+			s.logWarn("update", tunnelID, "Failed to sync kmod slot: "+err.Error())
+			errs = append(errs, fmt.Errorf("sync kmod slot: %w", err))
+		}
+	}
+
+	if oldStored.ISPInterface != newStored.ISPInterface {
+		s.logInfo("update", tunnelID, "ISPInterface changed; restart tunnel to apply route changes")
 	}
 
 	if oldStored.DefaultRoute != newStored.DefaultRoute {
@@ -599,6 +599,20 @@ func awgPeerEqual(a, b storage.AWGPeer) bool {
 // new obfuscation fields without manual enumeration.
 func awgParamsEqual(a, b storage.AWGInterface) bool {
 	return a.AWGObfuscation == b.AWGObfuscation
+}
+
+// kmodShapingChanged reports whether any field that shapes the awg_proxy.ko
+// slot differs between the old and new stored configs: PrivateKey,
+// Peer.PublicKey, Peer.Endpoint, and obfuscation parameters. When true,
+// applyDiffNWG must rebuild the slot — otherwise it keeps pre-Update
+// values silently and the next daemon-restart's RestoreTunnel adopts the
+// stale slot. PresharedKey is NOT included: it's WG-side only, the kmod
+// proxy does not see it.
+func kmodShapingChanged(old, neu *storage.AWGTunnel) bool {
+	return old.Interface.PrivateKey != neu.Interface.PrivateKey ||
+		old.Peer.PublicKey != neu.Peer.PublicKey ||
+		old.Peer.Endpoint != neu.Peer.Endpoint ||
+		old.Interface.AWGObfuscation != neu.Interface.AWGObfuscation
 }
 
 // SetEnabled changes the enabled/autostart state of a tunnel.
@@ -901,22 +915,32 @@ func (s *ServiceImpl) CheckAddressConflicts(_ context.Context, tunnelID string) 
 
 // GetState returns the current state of a tunnel.
 func (s *ServiceImpl) GetState(ctx context.Context, tunnelID string) tunnel.StateInfo {
-	// NativeWG: use nwgOperator.GetState directly
 	stored, err := s.store.Get(tunnelID)
 	if err != nil {
 		return tunnel.StateInfo{State: tunnel.StateUnknown}
 	}
+	return s.stateForStored(ctx, stored)
+}
+
+// stateForStored is the single source of truth for a tunnel's canonical state.
+// It reads the raw state (nativewg RCI or kernel matrix), then applies the
+// Enabled-correction: a tunnel we disabled (Enabled=false) reads as Disabled
+// regardless of backend or a lingering interface — this also normalizes the
+// nativewg path (classifyNWGState reports Stopped for conf=disabled) to the
+// same "disabled" the kernel matrix reports. An out-of-band bring-up
+// (Intent=UP while Enabled=false) still surfaces its real state, so the user
+// sees the divergence. Get, List and GetState all route through here.
+func (s *ServiceImpl) stateForStored(ctx context.Context, stored *storage.AWGTunnel) tunnel.StateInfo {
+	var info tunnel.StateInfo
 	if s.nwgOperator != nil && s.isNativeWG(stored) {
-		return s.nwgOperator.GetState(ctx, stored)
+		info = s.nwgOperator.GetState(ctx, stored)
+	} else {
+		info = s.state.GetState(ctx, stored.ID)
 	}
 
-	// === Kernel path ===
-	info := s.state.GetState(ctx, tunnelID)
-
-	// After our Stop: state matrix sees Intent=DOWN + Process=true → NeedsStop.
-	// But if we disabled the tunnel (Enabled=false), it's Disabled, not NeedsStop.
-	if info.State == tunnel.StateNeedsStop {
-		if !stored.Enabled {
+	if !stored.Enabled {
+		switch info.State {
+		case tunnel.StateNeedsStop, tunnel.StateStopped, tunnel.StateDisabled:
 			info.State = tunnel.StateDisabled
 		}
 	}

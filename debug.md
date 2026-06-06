@@ -299,6 +299,7 @@ scripts\dev\dev-backend-tests.bat
 - использует постоянные кэши `GOCACHE` и `GOMODCACHE`;
 - поддерживает точечные и полные прогоны в едином формате;
 - по умолчанию запускает тесты с `-count=1`, чтобы не получать ложноположительные результаты из test-cache.
+- Если запустить без аргументов, он сразу выполняет `full` (`go test -count=1 ./...`).
 
 Базовые команды:
 
@@ -318,11 +319,34 @@ scripts\dev\dev-backend-tests.bat run ./internal/managed
 # точечный прогон одного теста
 scripts\dev\dev-backend-tests.bat run ./internal/sys/httpdownload -run TestReader_EmitsAfterByteThreshold
 
-# полный прогон (только на финише)
+# полный прогон (запускается и по умолчанию без аргументов)
 scripts\dev\dev-backend-tests.bat full
 
 # остановить раннер после работы
 scripts\dev\dev-backend-tests.bat stop
+```
+
+### Coverage baseline через dev-runner
+
+Для локального baseline покрытия backend используйте отдельную команду раннера:
+
+```powershell
+scripts\dev\dev-backend-tests.bat coverage
+```
+
+Что делает команда:
+- запускает backend-тесты с `-count=1`;
+- собирает профиль покрытия `coverage.out`;
+- генерирует сводку `go tool cover -func` в `coverage.txt`;
+- генерирует HTML-отчёт `coverage.html` для визуального просмотра.
+
+Быстрая проверка после прогона:
+
+```powershell
+Test-Path coverage.out
+Test-Path coverage.txt
+Test-Path coverage.html
+Get-Content coverage.txt | Select-String "total:"
 ```
 
 Рекомендуемый workflow:
@@ -432,6 +456,24 @@ git status
 
 Все frontend-проверки и тесты запускаются из папки `frontend`.
 
+### Что есть в `frontend/package.json`
+
+Основные команды:
+
+```json
+"scripts": {
+  "dev": "vite dev",
+  "dev:mock": "npm run sync:openapi && VITE_API_STRIP_PREFIX=1 VITE_API_TARGET=http://127.0.0.1:8081 vite dev",
+  "dev:mock:proxy": "npm run sync:openapi && node scripts/mock-stack.mjs",
+  "mock": "node scripts/mock-api.mjs",
+  "mock:dynamic": "node scripts/mock-api.mjs --dynamic",
+  "build": "svelte-kit sync && vite build",
+  "preview": "vite preview",
+  "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+  "test": "vitest run"
+}
+```
+
 ### Проверка типов / Svelte / a11y (svelte-check)
 
 ```powershell
@@ -449,6 +491,7 @@ cd frontend
 npm exec -- vitest run
 ```
 
+- Через `npm run test` это тот же запуск `vitest run`.
 - Без параметров — прогоняет **все** тесты (23 файла, 177+ тестов на май 2026).
 - Конкретный файл:
   ```powershell
@@ -462,8 +505,319 @@ npm exec -- vitest run
 **Полная проверка фронтенда (перед коммитом / PR):**
 
 1. `npm run check`
-2. `npm exec -- vitest run`
+2. `npm run test` или `npm exec -- vitest run`
 
 Оба шага должны завершаться успешно (зелёный).
 
-Примечание: в `frontend/package.json` нет скрипта `"test"`. Vitest всегда вызывается через `npm exec -- vitest run`.
+Примечание: `npm run check` и `npm run test` уже есть в `frontend/package.json`; `npm run test` запускает `vitest run`.
+
+---
+
+Вердикт: **отделяться можно, но не через постоянный merge upstream/develop в свой develop**.
+
+То есть это уже не “обычный fork с подтягиванием upstream”, а **свой продуктовый develop + выборочный импорт upstream**.
+
+## Правильная схема
+
+У тебя должны быть 2 remote:
+
+```powershell
+git remote -v
+
+git remote add upstream https://github.com/hoaxisr/awg-manager.git
+git fetch origin
+git fetch upstream
+```
+
+Где:
+
+```text
+origin   = iqubik/awg-manager-fork
+upstream = hoaxisr/awg-manager
+```
+
+Твой основной рабочий ствол:
+
+```text
+origin/develop
+```
+
+Авторский источник:
+
+```text
+upstream/develop
+```
+
+## Главное правило
+
+**Не делай регулярно:**
+
+```powershell
+git merge upstream/develop
+```
+
+и не делай:
+
+```powershell
+git rebase upstream/develop
+```
+
+пока ты уже пошёл своим путём.
+
+Почему: upstream сейчас несёт 44 коммита, там есть `VERSION`, `OpenAPI`, backend, большие UI-переделки. Слепой merge превратит твой develop в полукопию авторского с конфликтами и случайным перетиранием твоих решений.
+
+## Рабочий процесс
+
+### 1. Обновлять ссылки
+
+Перед анализом:
+
+```powershell
+git fetch origin
+git fetch upstream
+git checkout develop
+git pull --ff-only origin develop
+```
+
+### 2. Смотреть, насколько разошлись
+
+```powershell
+git rev-list --left-right --count upstream/develop...origin/develop
+```
+
+Покажет:
+
+```text
+сколько коммитов только в upstream
+сколько коммитов только у тебя
+```
+
+Подробно:
+
+```powershell
+git log --oneline --left-right --cherry-pick upstream/develop...origin/develop
+```
+
+### 3. PR автора анализировать отдельно
+
+Да, **можно продолжать анализировать PR в авторском репо**.
+
+Правильный путь:
+
+```text
+PR в hoaxisr/awg-manager
+→ читаем diff PR
+→ проверяем scope
+→ решаем: нужно / не нужно
+→ переносим только нужное в свою ветку
+```
+
+Не “автор смержил — значит мне тоже надо”.
+
+## Как забирать конкретный PR автора
+
+### Вариант А — если PR ещё открыт
+
+Создаёшь локальную ветку под импорт:
+
+```powershell
+git fetch upstream pull/303/head:import/upstream-pr-303
+git checkout import/upstream-pr-303
+```
+
+Смотришь diff относительно авторского develop:
+
+```powershell
+git diff upstream/develop...import/upstream-pr-303 --stat
+git diff upstream/develop...import/upstream-pr-303
+```
+
+Потом переносишь в свой develop не merge’ом, а через отдельную интеграционную ветку:
+
+```powershell
+git checkout develop
+git pull --ff-only origin develop
+git checkout -b integrate/upstream-pr-303
+```
+
+Дальше либо cherry-pick коммитов:
+
+```powershell
+git cherry-pick <commit_sha>
+```
+
+либо, если PR большой и конфликтный, лучше руками сделать patch по нужным файлам.
+
+Проверка:
+
+```powershell
+cd frontend
+npm run check
+npm run build
+```
+
+Потом merge в свой develop через свой PR.
+
+### Вариант Б — если PR уже смержен в авторский develop
+
+Ищешь merge/squash commit в upstream:
+
+```powershell
+git log --oneline upstream/develop
+```
+
+Потом:
+
+```powershell
+git checkout develop
+git pull --ff-only origin develop
+git checkout -b integrate/upstream-commit-XXXX
+git cherry-pick <commit_sha>
+```
+
+Если конфликтует — это нормально. Решать конфликт в пользу твоей архитектуры, а не blindly upstream.
+
+## Как находить правки автора без PR
+
+Это отдельный регулярный аудит.
+
+Команда:
+
+```powershell
+git log --oneline --cherry-pick origin/develop...upstream/develop
+```
+
+Или только upstream-коммиты, которых нет у тебя:
+
+```powershell
+git log --oneline origin/develop..upstream/develop
+```
+
+Посмотреть файлы:
+
+```powershell
+git diff --stat origin/develop...upstream/develop
+git diff --name-status origin/develop...upstream/develop
+```
+
+По конкретному файлу:
+
+```powershell
+git diff origin/develop...upstream/develop -- frontend/src/lib/components/ui/Toggle.svelte
+```
+
+## Как я бы вёл твой fork
+
+Структура:
+
+```text
+develop                         твой основной продуктовый develop
+integrate/upstream-pr-303        временная ветка под перенос PR
+audit/upstream-develop           временная ветка для анализа отличий upstream
+vendor/upstream-develop          необязательно, read-only зеркало upstream/develop
+```
+
+Правило:
+
+```text
+upstream/develop никогда напрямую не merge в develop.
+Только cherry-pick / patch / ручной перенос после аудита.
+```
+
+## Что делать с авторскими PR
+
+Да, продолжать анализировать PR — правильно.
+
+Но pipeline такой:
+
+```text
+1. PR автора открыт/смёржен
+2. Смотрим diff
+3. Проверяем: нужно ли это твоему fork
+4. Проверяем файлы риска:
+   - backend/**
+   - internal/openapi/**
+   - VERSION
+   - package-lock
+   - frontend/src/app.css
+   - общие UI компоненты
+5. Если scope чистый — cherry-pick
+6. Если scope грязный — переносить только нужные hunks руками
+7. Коммитить у себя отдельным commit:
+   chore(upstream): import PR 303 selectively
+   или
+   fix(...): port upstream fix for ...
+```
+
+## Что делать с upstream/develop
+
+Раз в день/неделю:
+
+```powershell
+git fetch upstream
+git diff --name-status origin/develop...upstream/develop
+git log --oneline origin/develop..upstream/develop
+```
+
+Дальше не “догонять всё”, а разбирать по категориям:
+
+```text
+A. bugfix нужен тебе → cherry-pick
+B. backend/API изменение → отдельно аудитить
+C. VERSION/build bump → обычно игнор
+D. UI redesign автора → только если совпадает с твоим направлением
+E. тесты полезные → можно забирать отдельно
+F. конфликтует с твоей архитектурой → не брать
+```
+
+## Мини-протокол для тебя
+
+Перед любой интеграцией:
+
+```powershell
+git fetch origin
+git fetch upstream
+git checkout develop
+git pull --ff-only origin develop
+git checkout -b integrate/upstream-что-то
+```
+
+После переноса:
+
+```powershell
+git status
+git diff --stat
+git diff --name-status
+cd frontend
+npm run check
+npm run build
+```
+
+Если backend затронут:
+
+```powershell
+go test ./...
+```
+
+Потом push:
+
+```powershell
+git push -u origin integrate/upstream-что-то
+```
+
+И PR в **свой** `iqubik/awg-manager-fork:develop`.
+
+## Коротко
+
+Правильно так:
+
+```text
+свой develop = главный
+upstream/develop = внешний донор
+авторские PR = источник патчей
+merge upstream/develop = не делать
+cherry-pick/patch = делать
+периодический diff upstream/develop = делать
+```
+
+Текущий статус: **ветки уже diverged, поэтому режим “я просто подтягиваю upstream” закончился. Теперь нужен режим selective upstream import.**

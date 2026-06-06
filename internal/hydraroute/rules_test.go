@@ -158,6 +158,40 @@ func TestUpdateRule_AllowsRename(t *testing.T) {
 	}
 }
 
+func TestUpdateRule_RenamePreservesDisabled(t *testing.T) {
+	svc, domainPath, _ := setupRuleFiles(t)
+
+	_, _ = svc.CreateRule(HRRule{Name: "Old", Domains: []string{"a.com"}, Target: "nwg0"})
+	if err := svc.SetRuleEnabled("Old", false); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := svc.UpdateRule("Old", HRRule{
+		Name:    "New",
+		Domains: []string{"a.com"},
+		Target:  "nwg0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rules, _, err := svc.ListRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].Name != "New" || !rules[0].Disabled {
+		t.Fatalf("after rename: %+v", rules)
+	}
+
+	data, err := os.ReadFile(domainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAll(string(data), []string{"## New", "#a.com/nwg0"}) {
+		t.Errorf("expected disabled line after rename:\n%s", string(data))
+	}
+}
+
 func TestDeleteRule_RemovesEntry(t *testing.T) {
 	svc, _, _ := setupRuleFiles(t)
 
@@ -198,6 +232,47 @@ func TestListRules_SplitsRulesFromOversizedServiceBlock(t *testing.T) {
 	wantOversized := []string{"geoip:ru-blocked"}
 	if !reflect.DeepEqual(oversized, wantOversized) {
 		t.Errorf("oversized = %v, want %v", oversized, wantOversized)
+	}
+}
+
+func TestSetRuleEnabled_WritesCommentAndRoundtrip(t *testing.T) {
+	svc, domainPath, _ := setupRuleFiles(t)
+
+	_, err := svc.CreateRule(HRRule{
+		Name:    "Youtube",
+		Domains: []string{"youtube.com"},
+		Target:  "nwg0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.SetRuleEnabled("Youtube", false); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(domainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAll(string(data), []string{"## Youtube", "#youtube.com/nwg0"}) {
+		t.Errorf("expected disabled line:\n%s", string(data))
+	}
+
+	rules, _, err := svc.ListRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || !rules[0].Disabled {
+		t.Fatalf("ListRules: %+v", rules)
+	}
+
+	if err := svc.SetRuleEnabled("Youtube", true); err != nil {
+		t.Fatal(err)
+	}
+	rules, _, _ = svc.ListRules()
+	if len(rules) != 1 || rules[0].Disabled {
+		t.Fatalf("after re-enable: %+v", rules)
 	}
 }
 

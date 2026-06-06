@@ -45,6 +45,7 @@ func TestObjectGroupCommands_UpsertGroup_AddsAndRemoves(t *testing.T) {
 		AddIncludes:    []string{"example.com"},
 		RemoveIncludes: []string{"gone.com"},
 		AddExcludes:    []string{"bad.com"},
+		RemoveExcludes: []string{"old-exclude.com"},
 	})
 	fqdn := poster.Payloads()[0].(map[string]any)["object-group"].(map[string]any)["fqdn"].(map[string]any)
 	g := fqdn["my-group"].(map[string]any)
@@ -64,8 +65,16 @@ func TestObjectGroupCommands_UpsertGroup_AddsAndRemoves(t *testing.T) {
 		t.Errorf("add must not have 'no': %#v", ad)
 	}
 	excludes := g["exclude"].([]any)
-	if len(excludes) != 1 {
+	if len(excludes) != 2 {
 		t.Errorf("excludes len: %d", len(excludes))
+	}
+	xrm := excludes[0].(map[string]any)
+	if xrm["no"] != true || xrm["address"] != "old-exclude.com" {
+		t.Errorf("exclude remove[0]: %#v", xrm)
+	}
+	xad := excludes[1].(map[string]any)
+	if xad["address"] != "bad.com" {
+		t.Errorf("exclude add[1]: %#v", xad)
 	}
 }
 
