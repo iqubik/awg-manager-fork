@@ -36,7 +36,12 @@ opkg install curl
 curl -sL https://raw.githubusercontent.com/iqubik/awg-manager-fork/master/scripts/install.sh | sh
 ```
 
-После установки веб-интерфейс доступен по адресу роутера на назначенном порту.
+Если у вас недоступен GitHub или при выполнении скрипта установки он "зависает", можете воспользоваться зеркалом: 
+```sh
+wget -qO- http://repo.hoaxisr.ru/install.sh | sh
+```
+
+После установки веб-интерфейс доступен по адресу роутера и обычно по 2222 порту.
 
 ---
 
