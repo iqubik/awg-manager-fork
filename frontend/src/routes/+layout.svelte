@@ -442,23 +442,23 @@
 		<div class="donate-wallets">
 			<div class="donate-wallet">
 				<span class="donate-wallet-label">USDT / ETH</span>
-				<code class="donate-wallet-addr">0x7eae43b82157f2e4ea233eddf5d9ce19a1064f04</code>
+				<code class="donate-wallet-addr">TODO_PROJECT_USDT_ETH_ADDRESS</code>
 			</div>
 			<div class="donate-wallet">
 				<span class="donate-wallet-label">USDT ERC20</span>
-				<code class="donate-wallet-addr">0x35eC46d51f06DAf2DDbfA2a1b9B28a360643fEa8</code>
+				<code class="donate-wallet-addr">TODO_PROJECT_USDT_ERC20_ADDRESS</code>
 			</div>
 			<div class="donate-wallet">
 				<span class="donate-wallet-label">USDT / TRC20</span>
-				<code class="donate-wallet-addr">TEpJh2p9j3fp6MigyqGvq1gC5D3CsxBeJw</code>
+				<code class="donate-wallet-addr">TODO_PROJECT_USDT_TRC20_ADDRESS</code>
 			</div>
 			<div class="donate-wallet">
-				<span class="donate-wallet-label">Boosty</span>
-				<a class="donate-wallet-link" href="https://boosty.to/awgm_hoaxisr/donate" target="_blank" rel="noopener">boosty.to/awgm_hoaxisr/donate</a>
+				<span class="donate-wallet-label">Support link 1</span>
+				<code class="donate-wallet-addr">TODO_PROJECT_SUPPORT_URL_1</code>
 			</div>
 			<div class="donate-wallet">
-				<span class="donate-wallet-label">ЮMoney</span>
-				<a class="donate-wallet-link" href="https://yoomoney.ru/fundraise/1GF36UHR07L.260312" target="_blank" rel="noopener">yoomoney.ru/fundraise</a>
+				<span class="donate-wallet-label">Support link 2</span>
+				<code class="donate-wallet-addr">TODO_PROJECT_SUPPORT_URL_2</code>
 			</div>
 		</div>
 	</Modal>
