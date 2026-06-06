@@ -33,7 +33,7 @@
 ```sh
 opkg update && opkg upgrade
 opkg install curl
-curl -sL https://raw.githubusercontent.com/iqubik/awg-manager/master/scripts/install.sh | sh
+curl -sL https://raw.githubusercontent.com/iqubik/awg-manager-fork/master/scripts/install.sh | sh
 ```
 
 Если у вас недоступен GitHub или при выполнении скрипта установки он "зависает", можете воспользоваться зеркалом: 
