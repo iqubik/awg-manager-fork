@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  export type StatusDotVariant = 'success' | 'error' | 'warning' | 'info' | 'muted';
+  export type StatusDotVariant = 'success' | 'error' | 'warning' | 'info' | 'muted' | 'broken';
   export type StatusDotSize = 'sm' | 'md';
 </script>
 
@@ -26,6 +26,7 @@
   class:variant-warning={variant === 'warning'}
   class:variant-info={variant === 'info'}
   class:variant-muted={variant === 'muted'}
+  class:variant-broken={variant === 'broken'}
   class:size-sm={size === 'sm'}
   class:size-md={size === 'md'}
   class:is-pulse={pulse}
@@ -43,11 +44,12 @@
   .size-sm { width: 6px; height: 6px; }
   .size-md { width: 8px; height: 8px; }
 
-  .variant-success { background: var(--color-success); }
-  .variant-error { background: var(--color-error); }
-  .variant-warning { background: var(--color-warning); }
-  .variant-info { background: var(--color-info); }
-  .variant-muted { background: var(--color-text-muted); }
+  .variant-success { background: var(--color-success); box-shadow: 0 0 6px var(--color-success-border); }
+  .variant-error { background: var(--color-error); box-shadow: 0 0 6px var(--color-error-border); }
+  .variant-warning { background: var(--color-warning); box-shadow: 0 0 6px var(--color-warning-border); }
+  .variant-info { background: var(--color-info); box-shadow: 0 0 6px var(--color-info-border); }
+  .variant-muted { background: var(--color-text-muted); box-shadow: 0 0 4px color-mix(in srgb, var(--color-text-muted) 40%, transparent); }
+  .variant-broken { background: var(--color-broken); box-shadow: 0 0 6px var(--color-broken-border, var(--color-error-border)); }
 
   .is-pulse {
     animation: dot-pulse 1.4s ease-in-out infinite;

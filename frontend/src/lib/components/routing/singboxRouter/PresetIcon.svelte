@@ -14,8 +14,11 @@
 		ShieldOff,
 		GlobeLock,
 	} from 'lucide-svelte';
+	import NdmsIconTile from '$lib/components/ui/NdmsIconTile.svelte';
 	import { brandIcons } from '$lib/generated/brandIcons';
 	import { getPresetInlineIcon, type ServiceIconConfig } from '$lib/utils/service-icons';
+	import { resolveNeutralServiceIconStyle } from '$lib/utils/ndms-card-icon-style';
+	import { settingsSectionIconMode } from '$lib/stores/settingsSectionIconMode';
 	import LetterIconTile from '$lib/components/dnsroutes/LetterIconTile.svelte';
 
 	interface Props {
@@ -30,6 +33,10 @@
 		kind: 'brand';
 		path: string;
 		hex: string;
+		viewBox: string;
+		pathFill: string;
+		innerScale?: number;
+		fillRule?: 'evenodd' | 'nonzero';
 	}
 
 	interface LucideIcon {
@@ -38,16 +45,12 @@
 		bg: string;
 	}
 
-	interface InstagramIcon {
-		kind: 'instagram';
-	}
-
 	interface InlineIcon {
 		kind: 'inline';
 		config: ServiceIconConfig;
 	}
 
-	type ResolvedIcon = BrandIconResolved | LucideIcon | InstagramIcon | InlineIcon | null;
+	type ResolvedIcon = BrandIconResolved | LucideIcon | InlineIcon | null;
 
 	const lucideMap: Record<string, { component: typeof CircleSlash; bg: string }> = {
 		'lucide-circle-slash': { component: CircleSlash, bg: '#dc2626' },
@@ -75,14 +78,25 @@
 		if (lucide) {
 			return { kind: 'lucide', component: lucide.component, bg: lucide.bg };
 		}
-		if (slug === 'instagram') {
-			return { kind: 'instagram' };
-		}
 		const brand = brandIcons[slug];
 		if (brand) {
-			return { kind: 'brand', path: brand.path, hex: '#' + brand.hex };
+			return {
+				kind: 'brand',
+				path: brand.path,
+				hex: '#' + brand.hex,
+				viewBox: brand.viewBox ?? '0 0 24 24',
+				pathFill: brand.pathFill ? '#' + brand.pathFill : '#ffffff',
+				innerScale: brand.innerScale,
+				fillRule: brand.fillRule,
+			};
 		}
 		return null;
+	});
+
+	const brandInnerSize = $derived.by(() => {
+		if (resolved?.kind !== 'brand') return 0;
+		if (resolved.innerScale != null) return size * resolved.innerScale;
+		return resolved.viewBox === '0 0 24 24' ? size * 0.56 : size * 0.88;
 	});
 
 	const inlineInnerSize = $derived.by(() => {
@@ -91,21 +105,46 @@
 		if (cfg.assetSrc && cfg.assetFit === 'cover') return size;
 		return Math.round(size * (cfg.scale ?? 0.56));
 	});
+
+	const neutralGlobeStyle = $derived(resolveNeutralServiceIconStyle($settingsSectionIconMode));
+	const isNeutralGlobeLucide = $derived(
+		resolved?.kind === 'lucide' &&
+			(slug === 'lucide-globe' || slug === 'lucide-globe-lock'),
+	);
 </script>
 
+{#if isNeutralGlobeLucide && resolved?.kind === 'lucide'}
+	{@const Component = resolved.component}
+	<NdmsIconTile
+		background={neutralGlobeStyle.background}
+		foreground={neutralGlobeStyle.foreground}
+		{size}
+	>
+		<Component size={Math.floor(size * 0.56)} color="currentColor" strokeWidth={1.75} />
+	</NdmsIconTile>
+{:else}
 <div class="icon-box" style="width:{size}px;height:{size}px">
 	{#if resolved === null}
 		<LetterIconTile label={label || slug || '?'} {size} />
 	{:else if resolved.kind === 'brand'}
 		<div class="brand" style="background:{resolved.hex}">
-			<svg viewBox="0 0 24 24" width={size * 0.56} height={size * 0.56} fill="white" xmlns="http://www.w3.org/2000/svg">
-				<path d={resolved.path} />
+			<svg
+				viewBox={resolved.viewBox}
+				width={brandInnerSize}
+				height={brandInnerSize}
+				xmlns="http://www.w3.org/2000/svg"
+			>
+				<path
+					d={resolved.path}
+					fill={resolved.pathFill}
+					fill-rule={resolved.fillRule ?? 'nonzero'}
+				/>
 			</svg>
 		</div>
 	{:else if resolved.kind === 'lucide'}
 		{@const Component = resolved.component}
 		<div class="brand" style="background:{resolved.bg}">
-			<Component size={Math.floor(size * 0.56)} color="white" />
+			<Component size={Math.floor(size * 0.56)} color="white" strokeWidth={1.75} />
 		</div>
 	{:else if resolved.kind === 'inline'}
 		<div class="brand" style="background:{resolved.config.background}">
@@ -129,16 +168,9 @@
 				</svg>
 			{/if}
 		</div>
-	{:else if resolved.kind === 'instagram'}
-		<div class="brand ig">
-			<svg viewBox="0 0 24 24" width={size * 0.56} height={size * 0.56} fill="white" xmlns="http://www.w3.org/2000/svg">
-				<path
-					d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.899 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.899-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06zm0 3.678c-3.405 0-6.162 2.76-6.162 6.162 0 3.405 2.76 6.162 6.162 6.162 3.405 0 6.162-2.76 6.162-6.162 0-3.405-2.76-6.162-6.162-6.162zM12 16c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm7.846-10.405c0 .795-.646 1.44-1.44 1.44-.795 0-1.44-.646-1.44-1.44 0-.794.646-1.439 1.44-1.439.793-.001 1.44.645 1.44 1.439z"
-				/>
-			</svg>
-		</div>
 	{/if}
 </div>
+{/if}
 
 <style>
 	.icon-box {
@@ -151,9 +183,6 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-	}
-	.brand.ig {
-		background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
 	}
 	.brand .asset {
 		object-fit: contain;

@@ -6,6 +6,7 @@
 	import { page } from '$app/stores';
 	import { theme } from '$lib/stores/theme';
 	import { compactLayout, isCompactLayoutActive } from '$lib/stores/compactLayout';
+	import { settingsSectionIconMode } from '$lib/stores/settingsSectionIconMode';
 	import { serviceLetterIcons } from '$lib/stores/serviceLetterIcons';
 	import { auth, isAuthenticated, isLoading } from '$lib/stores/auth';
 	import { notifications } from '$lib/stores/notifications';
@@ -26,7 +27,9 @@
 	import { invalidateResource, invalidateAll } from '$lib/stores/storeRegistry';
 	import { setDeviceProxyMissingTarget, clearDeviceProxyMissingTarget } from '$lib/stores/deviceproxy';
 	import { settings as settingsStore, reloadSettings, usageLevel } from '$lib/stores/settings';
+	import { loadPresetCatalog } from '$lib/stores/presets';
 	import { donateModalOpen, openDonateModal, closeDonateModal } from '$lib/stores/donateModal';
+	import DevelopFeedbackFab from '$lib/components/layout/DevelopFeedbackFab.svelte';
 	import {
 		isSectionVisible,
 		pathToSection,
@@ -60,6 +63,8 @@
 
 	let disconnectSSE: (() => void) | null = null;
 	let unsubSysInfo: (() => void) | null = null;
+
+	const isDevelopChannel = $derived($settingsStore?.updates?.channel === 'develop');
 
 	let knownInstanceId = '';
 
@@ -255,6 +260,7 @@
 			// every active polling store. Inactive stores auto-refetch on
 			// their next subscribe via invalidate()'s mark-stale branch.
 			invalidateAll();
+			void loadPresetCatalog(true);
 			wasOffline = false;
 		}
 	});
@@ -287,6 +293,14 @@
 	$effect(() => {
 		if ($isAuthenticated && get(settingsStore) === null) {
 			void reloadSettings();
+		}
+	});
+
+	// Preset catalog needs an authenticated session; onMount alone races login
+	// and a cold backend — DnsRoutePresetModal would show "Каталог пуст" until F5.
+	$effect(() => {
+		if ($isAuthenticated) {
+			void loadPresetCatalog();
 		}
 	});
 
@@ -325,6 +339,7 @@
 	onMount(async () => {
 		theme.init();
 		compactLayout.init();
+		settingsSectionIconMode.init();
 		serviceLetterIcons.init();
 		await auth.checkStatus();
 	});
@@ -437,6 +452,10 @@
 			</div>
 		</div>
 	</Modal>
+
+	{#if $isAuthenticated && isDevelopChannel}
+		<DevelopFeedbackFab />
+	{/if}
 {/if}
 
 <style>

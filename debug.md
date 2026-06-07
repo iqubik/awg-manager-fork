@@ -325,6 +325,29 @@ scripts\dev\dev-backend-tests.bat full
 scripts\dev\dev-backend-tests.bat stop
 ```
 
+### Coverage baseline через dev-runner
+
+Для локального baseline покрытия backend используйте отдельную команду раннера:
+
+```powershell
+scripts\dev\dev-backend-tests.bat coverage
+```
+
+Что делает команда:
+- запускает backend-тесты с `-count=1`;
+- собирает профиль покрытия `coverage.out`;
+- генерирует сводку `go tool cover -func` в `coverage.txt`;
+- генерирует HTML-отчёт `coverage.html` для визуального просмотра.
+
+Быстрая проверка после прогона:
+
+```powershell
+Test-Path coverage.out
+Test-Path coverage.txt
+Test-Path coverage.html
+Get-Content coverage.txt | Select-String "total:"
+```
+
 Рекомендуемый workflow:
 1. Во время отладки использовать `run` только по изменённым пакетам/тестам.
 2. `full` запускать один раз в конце, когда точечные прогоны уже зелёные.

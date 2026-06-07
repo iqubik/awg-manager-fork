@@ -205,8 +205,8 @@ func TestEnsureBaseConfig_FullSkeleton(t *testing.T) {
 	if !ok {
 		t.Fatalf("dns block missing: %#v", base["dns"])
 	}
-	if dns["strategy"] != "ipv4_only" {
-		t.Errorf("dns.strategy: want ipv4_only, got %v", dns["strategy"])
+	if dns["strategy"] != "prefer_ipv4" {
+		t.Errorf("dns.strategy: want prefer_ipv4, got %v", dns["strategy"])
 	}
 	servers, _ := dns["servers"].([]any)
 	if len(servers) != 1 {
@@ -560,12 +560,52 @@ func TestEnsureBaseConfig_MaterialisesMissingRouteBlock(t *testing.T) {
 	if route["default_domain_resolver"] != "dns-bootstrap" {
 		t.Errorf("default_domain_resolver want dns-bootstrap, got %v", route["default_domain_resolver"])
 	}
-	// Other blocks preserved.
-	if m["dns"].(map[string]any)["strategy"] != "ipv4_only" {
-		t.Errorf("dns block lost: %v", m["dns"])
+	// dns block preserved, but legacy ipv4_only strategy migrated to prefer_ipv4.
+	if m["dns"].(map[string]any)["strategy"] != "prefer_ipv4" {
+		t.Errorf("dns.strategy must be migrated ipv4_only→prefer_ipv4: %v", m["dns"])
 	}
 	if m["log"].(map[string]any)["level"] != "trace" {
 		t.Errorf("log.level lost: %v", m["log"])
+	}
+}
+
+// Existing installs carry 00-base.json with the legacy dns.strategy
+// "ipv4_only" (issue #180 — drops AAAA/IPv6). ensureBaseConfig must migrate
+// it to "prefer_ipv4" on startup; a non-legacy strategy is left untouched.
+func TestEnsureBaseConfig_MigratesIpv4OnlyStrategy(t *testing.T) {
+	configDir := filepath.Join(t.TempDir(), "config.d")
+	_ = os.MkdirAll(configDir, 0755)
+	basePath := filepath.Join(configDir, "00-base.json")
+	stale := `{"dns":{"final":"dns-bootstrap","servers":[{"server":"1.1.1.1","tag":"dns-bootstrap","type":"udp"}],"strategy":"ipv4_only"},"route":{"default_domain_resolver":"dns-bootstrap"},"outbounds":[{"type":"direct","tag":"direct"}]}`
+	if err := os.WriteFile(basePath, []byte(stale), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ensureBaseConfig(configDir)
+	raw, _ := os.ReadFile(basePath)
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got := m["dns"].(map[string]any)["strategy"]; got != "prefer_ipv4" {
+		t.Errorf("strategy: want prefer_ipv4 (migrated), got %v", got)
+	}
+}
+
+// A non-legacy strategy in 00-base.json must NOT be rewritten by the migration.
+func TestEnsureBaseConfig_KeepsNonLegacyStrategy(t *testing.T) {
+	configDir := filepath.Join(t.TempDir(), "config.d")
+	_ = os.MkdirAll(configDir, 0755)
+	basePath := filepath.Join(configDir, "00-base.json")
+	cfg := `{"dns":{"final":"dns-bootstrap","servers":[{"server":"1.1.1.1","tag":"dns-bootstrap","type":"udp"}],"strategy":"ipv6_only"},"route":{"default_domain_resolver":"dns-bootstrap"},"outbounds":[{"type":"direct","tag":"direct"}]}`
+	if err := os.WriteFile(basePath, []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ensureBaseConfig(configDir)
+	raw, _ := os.ReadFile(basePath)
+	var m map[string]any
+	_ = json.Unmarshal(raw, &m)
+	if got := m["dns"].(map[string]any)["strategy"]; got != "ipv6_only" {
+		t.Errorf("non-legacy strategy must be preserved, got %v", got)
 	}
 }
 
@@ -904,6 +944,43 @@ func TestPatchTunnelsSlotStripBaseOwnedBlocks_StripsTopLevelLog(t *testing.T) {
 	}
 }
 
+func TestPatchTunnelsSlotEnsureNaiveUDPOverTCP(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "10-tunnels.json")
+	legacy := `{
+		"inbounds": [],
+		"outbounds": [
+			{"type":"naive","tag":"N","server":"h","server_port":443,"username":"u","password":"p"},
+			{"type":"vless","tag":"V","server":"h","server_port":443,"uuid":"u"}
+		],
+		"route": {"rules":[]}
+	}`
+	if err := os.WriteFile(p, []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	patchTunnelsSlotEnsureNaiveUDPOverTCP(p)
+
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	outbounds := m["outbounds"].([]any)
+	naive := outbounds[0].(map[string]any)
+	uot, _ := naive["udp_over_tcp"].(map[string]any)
+	if uot == nil || uot["enabled"] != true || uot["version"] != float64(2) {
+		t.Fatalf("udp_over_tcp=%v", uot)
+	}
+	vless := outbounds[1].(map[string]any)
+	if _, ok := vless["udp_over_tcp"]; ok {
+		t.Fatalf("vless must not get udp_over_tcp: %v", vless)
+	}
+}
+
 // TestPatchTunnelsSlotStripBaseOwnedBlocks_IdempotentOnClean is the steady-state
 // case: a clean slot file (no dns block) must round-trip unchanged.
 func TestPatchTunnelsSlotStripBaseOwnedBlocks_IdempotentOnClean(t *testing.T) {
@@ -987,7 +1064,7 @@ func TestPatchTunnelsSlotStripBaseOwnedBlocks_StripsDanglingFinalReference(t *te
 		t.Errorf("final must be stripped (dangling reference to removed dns-doh): %s", raw)
 	}
 	if _, present := dns["strategy"]; present {
-		t.Errorf("strategy=ipv4_only must be stripped (mirrors base default): %s", raw)
+		t.Errorf("strategy=ipv4_only must be stripped (legacy base default): %s", raw)
 	}
 	servers, _ := dns["servers"].([]any)
 	if len(servers) != 1 {

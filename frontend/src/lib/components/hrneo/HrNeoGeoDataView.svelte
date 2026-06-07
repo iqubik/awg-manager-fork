@@ -15,6 +15,7 @@
 	import { ConfirmModal, Button, Dropdown } from '$lib/components/ui';
 	import { geoDownloadProgress } from '$lib/stores/geoDownload';
 	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
+	import DownloadErrorNotice from '$lib/components/downloads/DownloadErrorNotice.svelte';
 
 	interface Props {
 		files: GeoFileEntry[];
@@ -67,7 +68,10 @@
 		ok: boolean;
 		action: string;
 		routeLabel: string;
-		message: string;
+		// Success text; on failure the raw caught error is kept in `error`
+		// and humanized at render time via DownloadErrorNotice.
+		message?: string;
+		error?: unknown;
 	};
 
 	let activeDownload = $state<DownloadOperation | null>(null);
@@ -138,13 +142,11 @@
 			};
 			onrefresh();
 		} catch (e: unknown) {
-			const msg = e instanceof Error ? e.message : String(e);
-			err = `Не удалось скачать через «${op.routeLabel}»: ${msg}`;
 			lastDownload = {
 				ok: false,
 				action: 'Добавление geo-файла',
 				routeLabel: op.routeLabel,
-				message: msg,
+				error: e,
 			};
 		} finally {
 			busy = null;
@@ -171,13 +173,11 @@
 			};
 			onrefresh();
 		} catch (e: unknown) {
-			const msg = e instanceof Error ? e.message : String(e);
-			err = `Не удалось скачать через «${op.routeLabel}»: ${msg}`;
 			lastDownload = {
 				ok: false,
 				action: 'Добавление пресета',
 				routeLabel: op.routeLabel,
-				message: msg,
+				error: e,
 			};
 		} finally {
 			busy = null;
@@ -203,13 +203,11 @@
 			};
 			onrefresh();
 		} catch (e: unknown) {
-			const msg = e instanceof Error ? e.message : String(e);
-			err = `Не удалось обновить через «${op.routeLabel}»: ${msg}`;
 			lastDownload = {
 				ok: false,
 				action: `Обновление ${fileName(path)}`,
 				routeLabel: op.routeLabel,
-				message: msg,
+				error: e,
 			};
 		} finally {
 			busy = null;
@@ -259,12 +257,11 @@
 			}
 
 			if (notes.length > 0) {
-				err = notes.join('; ');
 				lastDownload = {
 					ok: false,
 					action: 'Синхронизация geo-файлов',
 					routeLabel: op.routeLabel,
-					message: notes.join('; '),
+					error: notes.join('; '),
 				};
 			} else {
 				lastDownload = {
@@ -350,18 +347,24 @@
 
 <div class="geo-pane">
 	<header class="pane-header">
-		<h2>Гео-данные</h2>
-		<span class="pane-meta">{files.length} файла</span>
-		<Button
-			variant="ghost"
-			size="sm"
-			disabled={routeActionsDisabled}
-			loading={busy === 'sync'}
-			onclick={syncFromHR}
-			title="Подтянуть пути из hrneo.conf (External) и перекачать файлы AWGM (External не трогаем — обновляйте в HR Neo)"
-		>
-			Синхронизировать
-		</Button>
+		<div class="pane-title">
+			<h2>Гео-данные</h2>
+			<span class="pane-meta">{files.length} файла</span>
+		</div>
+
+		<div class="pane-actions">
+			<Button
+				variant="secondary"
+				size="sm"
+				fullWidth
+				disabled={routeActionsDisabled}
+				loading={busy === 'sync'}
+				onclick={syncFromHR}
+				title="Подтянуть пути из hrneo.conf (External) и перекачать файлы AWGM (External не трогаем — обновляйте в HR Neo)"
+			>
+				Синхронизировать
+			</Button>
+		</div>
 	</header>
 
 	{#if err}<div class="error-banner">{err}</div>{/if}
@@ -379,23 +382,22 @@
 		<div class="route-status route-status-warn">
 			Через: <strong>{downloadRouteLabel}</strong>. Не удалось обновить список маршрутов, используется последний известный список: {routeSettingsWarning}
 		</div>
-		{:else}
-		<div class="route-status route-status-live">
-			Загрузка и обновления через: <strong>{downloadRouteLabel}</strong>.
-			Изменяется в <a href="/settings#downloads" data-sveltekit-reload>Настройки → Загрузки и обновления</a>.
-		</div>
 	{/if}
-	{#if activeDownload}
-		<div class="route-status route-status-live">
-			Текущая операция через <strong>{activeDownload.routeLabel}</strong>
-		</div>
-	{:else if lastDownload}
-		<div class="route-status {lastDownload.ok ? 'route-status-ok' : 'route-status-error'}">
-			{lastDownload.ok ? 'Последняя операция успешна' : 'Последняя операция завершилась ошибкой'}:
-			{lastDownload.action} ({lastDownload.routeLabel}){#if lastDownload.message}
-				— {lastDownload.message}
-			{/if}
-		</div>
+	{#if !activeDownload && lastDownload}
+		{#if lastDownload.ok}
+			<div class="route-status route-status-ok">
+				Последняя операция успешна: {lastDownload.action} ({lastDownload.routeLabel}){#if lastDownload.message}
+					— {lastDownload.message}
+				{/if}
+			</div>
+		{:else}
+			<div class="route-status route-status-error">
+				<span class="route-status-head">
+					Не удалось: {lastDownload.action} ({lastDownload.routeLabel})
+				</span>
+				<DownloadErrorNotice error={lastDownload.error} />
+			</div>
+		{/if}
 	{/if}
 	</div>
 	
@@ -452,7 +454,7 @@
 						{/if}
 						{#if canUpdate(f)}
 							<Button
-								variant="ghost"
+								variant="secondary"
 								size="sm"
 								disabled={routeActionsDisabled}
 								loading={busy === f.path}
@@ -461,9 +463,8 @@
 								Обновить
 							</Button>
 						{/if}
-						<!-- TODO Phase 1: ghost variant with red danger hover (was .row-danger) -->
 						<Button
-							variant="ghost"
+							variant="secondary"
 							size="sm"
 							disabled={busy !== null}
 							onclick={() => requestRemove(f)}
@@ -601,15 +602,29 @@
 	}
 
 	.pane-header {
-		display: flex;
-		align-items: baseline;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
 		gap: 10px;
-		flex-wrap: wrap;
 		padding-bottom: 10px;
 		border-bottom: 1px solid var(--border);
 	}
-	.pane-header :global(button) {
-		margin-left: auto;
+
+	.pane-title {
+		display: flex;
+		align-items: baseline;
+		gap: 10px;
+		min-width: 0;
+	}
+
+	.pane-actions {
+		display: flex;
+		justify-content: flex-end;
+		min-width: 0;
+	}
+
+	.pane-actions :global(.btn) {
+		min-width: 150px;
 	}
 	.pane-header h2 {
 		margin: 0;
@@ -728,8 +743,15 @@
 
 	.file-actions {
 		display: flex;
-		gap: 4px;
+		gap: 6px;
 		flex-shrink: 0;
+		align-items: center;
+		justify-content: flex-end;
+	}
+
+	.file-actions :global(.btn) {
+		width: auto;
+		min-width: auto;
 	}
 
 	.add-form {
@@ -789,13 +811,6 @@
 		color: var(--text-primary);
 		border-left: 3px solid var(--accent);
 	}
-	.route-status a {
-		color: var(--accent);
-		text-decoration: none;
-	}
-	.route-status a:hover {
-		text-decoration: underline;
-	}
 
 	.route-status-ok {
 		background: rgba(74, 222, 128, 0.1);
@@ -813,6 +828,16 @@
 		background: rgba(245, 158, 11, 0.12);
 		color: var(--warning, #f59e0b);
 		border-left: 3px solid var(--warning, #f59e0b);
+	}
+
+	.route-status-error {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.route-status-head {
+		font-weight: 500;
 	}
 
 	.add-type-select {
@@ -874,6 +899,24 @@
 	}
 
 	@media (max-width: 640px) {
+		.pane-header {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			align-items: center;
+		}
+
+		.pane-title {
+			min-width: 0;
+		}
+
+		.pane-actions {
+			width: 100%;
+		}
+
+		.pane-actions :global(.btn) {
+			width: 100%;
+			min-width: 0;
+		}
+
 		.file-row {
 			flex-direction: column;
 			align-items: stretch;
@@ -884,8 +927,48 @@
 			row-gap: 4px;
 		}
 		.file-actions {
-			justify-content: flex-end;
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 6px;
+			width: 100%;
+			justify-content: stretch;
 		}
+
+		.file-actions :global(.btn) {
+			width: 100%;
+			min-width: 0;
+			height: 28px;
+			min-height: 28px;
+			max-height: 28px;
+		}
+
+		.file-actions :global(.btn):only-child {
+			grid-column: 1 / -1;
+		}
+
+		.file-actions :global(.btn:first-child:nth-last-child(3)) {
+			grid-column: 1 / -1;
+		}
+
+		.preset-row {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 6px;
+			align-items: stretch;
+		}
+
+		.preset-row :global(.btn) {
+			width: 100%;
+			min-width: 0;
+			height: 28px;
+			min-height: 28px;
+			max-height: 28px;
+		}
+
+		.preset-hint {
+			grid-column: 1 / -1;
+		}
+
 		.add-row {
 			grid-template-columns: 1fr;
 		}

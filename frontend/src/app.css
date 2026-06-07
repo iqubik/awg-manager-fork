@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 @import '@skeletonlabs/skeleton';
+@import './lib/styles/route-actions.css';
+@import './lib/styles/tunnel-layout.css';
 
 /* ─── Self-hosted IBM Plex (Latin + Cyrillic subsets) ─── */
 @font-face {
@@ -83,11 +85,15 @@
   --color-warning: #e0af68;
   --color-info: #7dcfff;
 
-  /* Surfaces — 4-step ramp */
+  /* Surfaces — Tokyo Night ramp: editor → sidebar/inset → highlight */
   --color-bg-primary: #1a1b26;
   --color-bg-secondary: #16161e;
   --color-bg-tertiary: #24283b;
   --color-bg-hover: #292e42;
+  /** Settings cards/panels — inset (secondary); controls — highlight (tertiary) */
+  --color-settings-surface-bg: var(--color-bg-secondary);
+  /** Settings controls — highlight layer; light theme uses darker inset (tertiary) */
+  --color-settings-control-bg: var(--color-bg-tertiary);
   /** Icon tile on route cards — contrasts with --color-bg-secondary card surface */
   --color-icon-tile-bg: var(--color-bg-tertiary);
 
@@ -159,6 +165,7 @@
   --z-sticky-secondary: 50; /* TunnelEditHeader sub-sticky under AppHeader */
   --z-page-overlay: 60;     /* tab dropdowns, popovers, member-pickers */
   --z-sticky-header: 80;    /* AppHeader sticky bar */
+  --z-fab: 95;              /* floating action buttons (below drawers) */
   --z-drawer-backdrop: 90;  /* hamburger / drawer dimming layer */
   --z-drawer: 100;          /* hamburger panel, SideDrawer panel */
   --z-full-overlay: 150;    /* full-screen blocking screens (e.g. kernel-unavailable) */
@@ -180,6 +187,8 @@ html.light, [data-theme="light"] {
   --color-bg-secondary: #f0f0f3;
   --color-bg-tertiary: #d5d6db;
   --color-bg-hover: #cacbd2;
+  --color-settings-surface-bg: var(--color-bg-secondary);
+  --color-settings-control-bg: var(--color-bg-tertiary);
 
   --color-text-primary: #343b58;
   --color-text-secondary: #434754;
@@ -263,24 +272,38 @@ html.light, [data-theme="light"] {
   --layout-gutter-y-top: var(--layout-gutter-y);
   --layout-gutter-y-bottom: var(--layout-gutter-y);
   --header-gutter-x: 1.25rem;
+
+  /* ─── sb-router redesign aliases (design tokens.css mapping) ─── */
+  /* (--bg-*, --text-*, --border*, --accent, --accent-hover, --success/error/warning/info
+     already declared above; only the missing aliases are added here) */
+  --accent-soft:  var(--color-accent-tint);
+  --accent-line:  var(--color-accent-border);
+
+  /* ─── sb-router: spacing scale (compact) ─── */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+
+  /* ─── sb-router: compact type scale ─── */
+  --fs-xs:   0.6875rem;
+  --fs-sm:   0.75rem;
+  --fs-md:   0.8125rem;
+  --fs-base: 0.875rem;
+  --fs-lg:   1rem;
+  --fs-h4:   1.125rem;
+  --fs-h3:   1.25rem;
+  --fs-h2:   1.5rem;
+  --fs-h1:   1.75rem;
+
+  /* ─── sb-router: line heights ─── */
+  --lh-tight: 1.2;
+  --lh-body:  1.5;
 }
 
-/* List mode — rem scale aligned with .awg-list-* (+page.svelte). */
-:is(
-  .singbox-tunnel-list-table,
-  .singbox-sub-list-table,
-  .member-list-table,
-  .awg-list-table-track > .sub-list-group,
-  .awg-list-table-track > .sub-active-list-group
-) {
-  --sbx-card-title: 0.9375rem;
-  --sbx-card-meta: 0.75rem;
-  --sbx-card-value: 0.8125rem;
-  --sbx-card-note: 0.75rem;
-  --sbx-card-badge: 0.625rem;
-  --sbx-card-status: 0.8125rem;
-  --sbx-card-action: 0.75rem;
-}
+/* List mode rem scale — see tunnel-layout.css */
 
 /* Компактная ширина — как в v2.8.2 / базовом режиме: main 960px, узкие боковые поля. */
 html[data-layout-compact='true'] {
@@ -679,6 +702,131 @@ label {
 	margin-bottom: 0.5rem;
 }
 
+.settings-block {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.settings-block > .card {
+	background: var(--color-settings-surface-bg);
+}
+
+.settings-layout .card > .settings-section-label.header + .setting-row {
+	padding-top: 0;
+}
+
+.settings-layout {
+	--settings-gap: 0.765rem;
+	display: flex;
+	flex-direction: column;
+	gap: var(--settings-gap);
+}
+
+/* Settings — controls on inset cards use highlight layer */
+.settings-layout .btn.variant-secondary {
+	background: var(--color-settings-control-bg);
+}
+
+.settings-layout .btn.variant-secondary:hover:not(:disabled):not(.is-disabled) {
+	background: var(--color-bg-hover);
+}
+
+.settings-layout .toggle-container .toggle-slider {
+	background: var(--color-settings-control-bg);
+}
+
+.settings-layout .toggle-container:hover input:not(:checked) ~ .toggle-slider {
+	background: var(--color-bg-hover);
+}
+
+.settings-layout .segmented-control {
+	background: var(--color-settings-control-bg);
+}
+
+.settings-layout .field .trigger {
+	background: var(--color-settings-control-bg);
+}
+
+.settings-layout .btn.variant-outline-primary {
+	background: var(--color-settings-control-bg);
+}
+
+/* Settings text/number fields — one surface for inputs, dropdowns, toggles */
+.settings-layout input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='hidden']),
+.settings-layout textarea,
+.settings-layout select {
+	box-sizing: border-box;
+	background: var(--color-settings-control-bg);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-sm);
+	color: var(--color-text-primary);
+	font: inherit;
+	font-size: 13px;
+	line-height: 1.4;
+	transition: border-color var(--t-fast) ease;
+}
+
+.settings-layout input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='hidden'])::placeholder,
+.settings-layout textarea::placeholder {
+	color: var(--color-text-muted);
+}
+
+.settings-layout input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='hidden']):focus,
+.settings-layout textarea:focus,
+.settings-layout select:focus {
+	outline: none;
+	border-color: var(--color-accent);
+}
+
+.settings-layout input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='hidden']):disabled,
+.settings-layout textarea:disabled,
+.settings-layout select:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.settings-layout input[type='number']::-webkit-outer-spin-button,
+.settings-layout input[type='number']::-webkit-inner-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+
+.settings-layout input[type='number'] {
+	-moz-appearance: textfield;
+	appearance: textfield;
+}
+
+.settings-layout .ping-target-field input,
+.settings-layout .api-key-controls input,
+.settings-layout .num-input input,
+.settings-layout .inline-form input[type='number'],
+.settings-layout .inline-form input[type='time'] {
+	height: 32px;
+	min-height: 32px;
+	max-height: 32px;
+	padding: 0.375rem 0.5rem;
+	max-width: none;
+	color: var(--color-text-primary);
+}
+
+.settings-layout .ping-target-field input,
+.settings-layout .api-key-controls input {
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 0.8rem;
+	font-weight: 400;
+}
+
+.settings-layout .api-key-controls input:read-only {
+	opacity: 0.85;
+	cursor: text;
+}
+
+.settings-layout .num-input input {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
 .settings-stack {
 	display: flex;
 	flex-direction: column;
@@ -697,6 +845,10 @@ label {
 .setting-row > *:first-child {
 	min-width: 0;
 	flex: 1 1 0;
+}
+
+.setting-row .flex.flex-col {
+	min-width: 0;
 }
 
 .setting-row:first-child {
@@ -721,16 +873,26 @@ label {
 	border-top: 1px solid var(--border);
 }
 
+/* Highlight wrapper (e.g. deep-link to downloads) breaks adjacent .setting-row chain */
+.setting-row + .settings-highlight-target > .setting-row {
+	border-top: 1px solid var(--border);
+	padding-top: 0.875rem;
+}
+
+.settings-highlight-target + .setting-row {
+	border-top: 1px solid var(--border);
+}
+
 .setting-description {
-	overflow-wrap: anywhere;
+	overflow-wrap: break-word;
 	font-size: 0.8125rem;
 	color: var(--text-muted);
-	text-wrap: balance;
+	text-wrap: pretty;
 }
 
 .settings-panel {
 	padding: 1rem;
-	background: var(--bg-tertiary);
+	background: var(--color-settings-surface-bg);
 	border-radius: 8px;
 }
 
@@ -767,71 +929,92 @@ label {
 .import-upload {
 	display: flex;
 	flex-direction: column;
-	align-items: center;
-	gap: 1rem;
-	padding: 2rem;
+	gap: 0.875rem;
 }
 
-.drop-zone {
-	border: 2px dashed var(--border);
-	border-radius: 10px;
-	padding: 2rem 1.5rem;
-	cursor: pointer;
-	text-align: center;
-	color: var(--text-muted);
-	transition: border-color 0.2s, background 0.2s;
-	width: 100%;
-}
-
-.drop-zone:hover, .drop-zone.dragging {
-	border-color: var(--accent);
-	background: rgba(59, 130, 246, 0.05);
-}
-
-.drop-text {
-	font-size: 0.8125rem;
+.import-description {
 	color: var(--text-secondary);
-	margin: 0.5rem 0 0;
+	font-size: 0.8125rem;
+	margin: 0;
+	line-height: 1.45;
 }
 
-.drop-hint {
+.import-accent {
+	font-weight: 500;
+	color: var(--accent);
+}
+
+.import-upload .drop-zone {
+	display: flex;
+	align-items: center;
+	gap: 1.375rem;
+	width: 100%;
+	min-height: 5.5rem;
+	padding: 1rem 1.125rem;
+	border: 1.5px dashed var(--border);
+	border-radius: 8px;
+	background: var(--bg-primary);
+	cursor: pointer;
+	text-align: left;
+	transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.import-upload .drop-zone:hover,
+.import-upload .drop-zone.dragging {
+	border-color: var(--accent);
+	background: var(--bg-hover, var(--bg-secondary));
+}
+
+.import-upload .drop-icon {
+	flex-shrink: 0;
+	width: 1.5rem;
+	height: 1.5rem;
+	color: var(--accent);
+}
+
+.import-upload .drop-title {
+	margin: 0;
+	font-size: 0.8125rem;
+	font-weight: 500;
+	color: var(--text-primary);
+	line-height: 1.35;
+}
+
+.import-upload .drop-title .drop-hint {
+	display: block;
+	margin-top: 0.1875rem;
 	font-size: 0.6875rem;
+	font-weight: 400;
 	color: var(--text-muted);
-	margin: 0.25rem 0 0;
 }
 
 .hidden-input {
 	display: none;
 }
 
-.import-description {
-	color: var(--text-secondary);
-	font-size: 0.8125rem;
-	text-align: center;
-	margin-bottom: 0.5rem;
-}
-
-.import-accent {
-	color: var(--error);
-	font-weight: 500;
-}
-
 .import-error {
-	color: var(--error);
+	margin: 0;
 	font-size: 0.8125rem;
+	color: var(--error);
+}
+
+.import-preview {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
 }
 
 .import-hint {
 	color: var(--text-secondary);
-	font-size: 0.875rem;
-	margin-bottom: 0.75rem;
+	font-size: 0.8125rem;
+	margin: 0;
 }
 
 .import-list {
 	display: flex;
 	flex-direction: column;
-	gap: 0.5rem;
-	max-height: 400px;
+	gap: 0.375rem;
+	max-height: min(400px, 50vh);
 	overflow-y: auto;
 }
 
@@ -839,7 +1022,7 @@ label {
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
-	padding: 0.5rem 0.75rem;
+	padding: 0.5rem 0.625rem;
 	background: var(--bg-primary);
 	border: 1px solid var(--border);
 	border-radius: 6px;
@@ -848,11 +1031,17 @@ label {
 }
 
 .import-item.duplicate {
-	opacity: 0.5;
+	opacity: 0.65;
 }
 
 .import-item.overridden {
-	border-color: var(--accent-muted, rgba(59, 130, 246, 0.3));
+	border-color: var(--accent);
+}
+
+.import-item input[type='checkbox'] {
+	flex-shrink: 0;
+	margin: 0;
+	accent-color: var(--accent);
 }
 
 .import-item-info {
@@ -866,6 +1055,9 @@ label {
 .import-name {
 	font-weight: 500;
 	color: var(--text-primary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .import-meta {
@@ -874,9 +1066,9 @@ label {
 }
 
 .import-dup {
-	color: var(--warning);
+	flex-shrink: 0;
 	font-size: 0.6875rem;
-	font-style: italic;
+	color: var(--warning);
 }
 
 .tunnel-default-bar {
@@ -884,10 +1076,9 @@ label {
 	align-items: center;
 	gap: 0.75rem;
 	padding: 0.625rem 0.75rem;
-	background: var(--bg-primary);
+	background: var(--bg-secondary);
 	border: 1px solid var(--border);
-	border-radius: 8px;
-	margin-bottom: 1rem;
+	border-radius: 6px;
 }
 
 .tunnel-default-label {
@@ -898,42 +1089,66 @@ label {
 
 .tunnel-select {
 	flex: 1;
-	background: var(--bg-secondary);
-	border: 1px solid var(--border);
-	border-radius: 4px;
-	padding: 0.375rem 0.5rem;
-	color: var(--text-primary);
-	font-size: 0.8125rem;
+	min-width: 0;
 }
 
 .tunnel-select-inline {
-	background: var(--bg-secondary);
-	border: 1px solid var(--accent);
-	border-radius: 4px;
-	padding: 0.25rem 0.375rem;
-	color: var(--text-primary);
-	font-size: 0.6875rem;
-	max-width: 140px;
+	flex-shrink: 0;
+	min-width: 8rem;
+	max-width: 10rem;
 }
 
 .tunnel-name-btn {
+	flex-shrink: 0;
+	max-width: 9rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	background: none;
 	border: none;
 	padding: 0.125rem 0.375rem;
 	color: var(--text-muted);
 	font-size: 0.6875rem;
+	font-family: inherit;
 	cursor: pointer;
 	border-radius: 4px;
 	white-space: nowrap;
 }
 
-.tunnel-name-btn:hover {
+.tunnel-name-btn:hover:not(:disabled) {
 	background: var(--bg-secondary);
 	color: var(--text-secondary);
 }
 
 .tunnel-name-btn.overridden {
 	color: var(--accent);
+}
+
+.tunnel-name-btn:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+	.import-upload .drop-zone {
+		flex-direction: column;
+		text-align: center;
+	}
+
+	.import-item {
+		flex-wrap: wrap;
+	}
+
+	.tunnel-name-btn,
+	.tunnel-select-inline {
+		margin-left: 1.5rem;
+		max-width: none;
+		width: calc(100% - 1.5rem);
+	}
+
+	.tunnel-default-bar {
+		flex-direction: column;
+		align-items: stretch;
+	}
 }
 
 /* ─── Bulk Action Bar ─── */
@@ -1137,6 +1352,34 @@ label {
 		gap: 0.5rem;
 	}
 
+	.section-buttons {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		width: 100%;
+	}
+
+	.section-buttons > :not([role='status']) {
+		flex: 1 1 calc(50% - 0.25rem);
+		min-width: calc(50% - 0.25rem);
+		max-width: 100%;
+	}
+
+	.section-buttons > [role='status'] {
+		flex: 1 1 100%;
+		min-width: 100%;
+	}
+
+	.section-buttons > .dropdown-wrapper {
+		width: 100%;
+	}
+
+	.section-buttons .btn {
+		width: 100%;
+		min-height: 28px;
+		justify-content: center;
+	}
+
 	.setting-row {
 		flex-direction: column;
 		align-items: stretch;
@@ -1180,10 +1423,9 @@ label {
 	min-width: 0;
 }
 
-/* Sing-box layout picker — hidden below 760px (see TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX) */
+/* Subscription members toolbar — hidden below 760px (see TUNNEL_MOBILE_LAYOUT_MAX_WIDTH_PX) */
 @media (max-width: 760px) {
-	.members-toolbar,
-	.tunnels-toolbar .toolbar-actions > .view-mode-switch {
+	.members-toolbar {
 		display: none !important;
 	}
 }

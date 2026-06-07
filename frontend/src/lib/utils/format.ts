@@ -1,3 +1,5 @@
+import { DAY_WORDS, HOUR_WORDS, MINUTE_WORDS, pluralForm } from './pluralize';
+
 /**
  * Format bytes to human readable string
  */
@@ -132,32 +134,14 @@ export function formatRelativeTime(timestamp: string | Date): string {
 
     const diffMin = Math.floor(diffSec / 60);
     if (diffMin < 60) {
-        const lastDigit = diffMin % 10;
-        const lastTwo = diffMin % 100;
-        let word = 'минут';
-        if (lastTwo >= 11 && lastTwo <= 19) word = 'минут';
-        else if (lastDigit === 1) word = 'минуту';
-        else if (lastDigit >= 2 && lastDigit <= 4) word = 'минуты';
-        return `${diffMin} ${word} назад`;
+        return `${diffMin} ${pluralForm(diffMin, MINUTE_WORDS)} назад`;
     }
 
     const diffHours = Math.floor(diffSec / 3600);
     if (diffHours < 24) {
-        const lastDigit = diffHours % 10;
-        const lastTwo = diffHours % 100;
-        let word = 'часов';
-        if (lastTwo >= 11 && lastTwo <= 19) word = 'часов';
-        else if (lastDigit === 1) word = 'час';
-        else if (lastDigit >= 2 && lastDigit <= 4) word = 'часа';
-        return `${diffHours} ${word} назад`;
+        return `${diffHours} ${pluralForm(diffHours, HOUR_WORDS)} назад`;
     }
 
     const diffDays = Math.floor(diffSec / 86400);
-    const lastDigit = diffDays % 10;
-    const lastTwo = diffDays % 100;
-    let word = 'дней';
-    if (lastTwo >= 11 && lastTwo <= 19) word = 'дней';
-    else if (lastDigit === 1) word = 'день';
-    else if (lastDigit >= 2 && lastDigit <= 4) word = 'дня';
-    return `${diffDays} ${word} назад`;
+    return `${diffDays} ${pluralForm(diffDays, DAY_WORDS)} назад`;
 }

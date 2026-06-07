@@ -5,6 +5,7 @@
 	import { api } from '$lib/api/client';
 	import { singboxTunnels } from '$lib/stores/singbox';
 	import { PageContainer } from '$lib/components/layout';
+	import { ArrowLeft } from 'lucide-svelte';
 	import { Button, Dropdown } from '$lib/components/ui';
 
 	let tag = $derived($page.params.tag!);
@@ -442,9 +443,7 @@
 </PageContainer>
 
 {#snippet backIcon()}
-	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-		<path d="M19 12H5M12 19l-7-7 7-7"/>
-	</svg>
+	<ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />
 {/snippet}
 
 <style>

@@ -50,6 +50,7 @@ const (
 	SubAccessPolicy   = "access-policy"
 	SubClientRoute    = "client-route"
 	SubSingboxRouter  = "singbox-router"
+	SubSubscription   = "subscription"
 	SubDeviceProxy    = "deviceproxy"
 	SubHrNeo          = "hrneo"
 	SubRoutingCatalog = "catalog"
@@ -112,7 +113,7 @@ var KnownSubgroups = map[string][]string{
 	},
 	GroupRouting: {
 		SubDnsRoute, SubStaticRoute, SubAccessPolicy, SubClientRoute,
-		SubSingboxRouter, SubDeviceProxy, SubHrNeo, SubRoutingCatalog,
+		SubSingboxRouter, SubSubscription, SubDeviceProxy, SubHrNeo, SubRoutingCatalog,
 		SubAWGOutbounds,
 	},
 	GroupServer: {

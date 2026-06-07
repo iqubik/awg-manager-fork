@@ -58,6 +58,16 @@ func TestProxyCommands_DeleteProxy(t *testing.T) {
 	}
 }
 
+func TestProxyCommands_ProxyUp(t *testing.T) {
+	cmds, poster, _ := newTestProxyCommands(t)
+	_ = cmds.ProxyUp(context.Background(), "Proxy0")
+	p := poster.Payloads()[0].(map[string]any)
+	iface := p["interface"].(map[string]any)["Proxy0"].(map[string]any)
+	if iface["up"] != true {
+		t.Errorf("up: %v", iface["up"])
+	}
+}
+
 func TestProxyCommands_ProxyDown_UsesDownKey(t *testing.T) {
 	cmds, poster, _ := newTestProxyCommands(t)
 	_ = cmds.ProxyDown(context.Background(), "Proxy0")

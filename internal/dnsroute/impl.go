@@ -236,6 +236,10 @@ func (s *ServiceImpl) Create(ctx context.Context, list DomainList) (*DomainList,
 	if strings.TrimSpace(list.Name) == "" {
 		return nil, fmt.Errorf("name must not be empty")
 	}
+
+	applyManualText(&list)
+	applyExcludesText(&list)
+
 	if len(list.ManualDomains) == 0 && len(list.Subscriptions) == 0 {
 		return nil, fmt.Errorf("at least one domain or subscription is required")
 	}
@@ -373,6 +377,9 @@ func (s *ServiceImpl) Update(ctx context.Context, list DomainList) (*DomainList,
 	}
 
 	existing := &data.Lists[idx]
+	excludesProvided := list.Excludes != nil
+	excludeSubnetsProvided := list.ExcludeSubnets != nil
+	excludesTextProvided := list.ExcludesText != nil
 
 	// Preserve fields not sent by the frontend update payload.
 	list.CreatedAt = existing.CreatedAt
@@ -419,6 +426,23 @@ func (s *ServiceImpl) Update(ctx context.Context, list DomainList) (*DomainList,
 	}
 	if list.HRPolicyName == "" {
 		list.HRPolicyName = existing.HRPolicyName
+	}
+	if list.ManualText == nil {
+		list.ManualText = existing.ManualText
+	} else {
+		applyManualText(&list)
+	}
+	if excludesTextProvided {
+		applyExcludesText(&list)
+	} else if excludesProvided || excludeSubnetsProvided {
+		// Legacy/API caller updated active excludes without raw text.
+		// Do not keep stale raw ExcludesText; UI will fall back to active arrays.
+		list.ExcludesText = nil
+	} else {
+		list.ExcludesText = existing.ExcludesText
+		if list.ExcludesText != nil {
+			applyExcludesText(&list)
+		}
 	}
 
 	// Validate any new subscription URLs before saving.
@@ -476,7 +500,19 @@ func (s *ServiceImpl) Delete(ctx context.Context, id string) error {
 		if !s.hrReady() {
 			return fmt.Errorf("HydraRoute Neo is not installed")
 		}
-		return s.hydra.DeleteRule(nameFromHRID(id))
+		name := nameFromHRID(id)
+		if err := s.hydra.DeleteRule(name); err != nil {
+			return err
+		}
+		if data := s.store.GetCached(); data != nil && data.HRRuleIcons != nil {
+			if _, ok := data.HRRuleIcons[name]; ok {
+				delete(data.HRRuleIcons, name)
+				if err := s.store.Save(data); err != nil {
+					return fmt.Errorf("save after HR icon delete: %w", err)
+				}
+			}
+		}
+		return nil
 	}
 
 	data := s.store.GetCached()
@@ -574,6 +610,10 @@ func (s *ServiceImpl) CreateBatch(ctx context.Context, lists []DomainList) ([]*D
 		if strings.TrimSpace(list.Name) == "" {
 			continue
 		}
+
+		applyManualText(&list)
+		applyExcludesText(&list)
+
 		if len(list.ManualDomains) == 0 && len(list.Subscriptions) == 0 {
 			continue
 		}
@@ -643,6 +683,21 @@ func (s *ServiceImpl) CreateBatch(ctx context.Context, lists []DomainList) ([]*D
 func (s *ServiceImpl) SetEnabled(ctx context.Context, id string, enabled bool) error {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
+
+	if isHRID(id) {
+		if !s.hrReady() {
+			return fmt.Errorf("HydraRoute Neo is not installed")
+		}
+		name := nameFromHRID(id)
+		if name == "" {
+			return fmt.Errorf("invalid HR rule id %q", id)
+		}
+		if err := s.hydra.SetRuleEnabled(name, enabled); err != nil {
+			return err
+		}
+		s.logInfo("set-enabled", id, fmt.Sprintf("enabled=%v name=%q backend=hydraroute", enabled, name))
+		return nil
+	}
 
 	data := s.store.GetCached()
 	if data == nil {

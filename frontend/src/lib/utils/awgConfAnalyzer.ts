@@ -1121,15 +1121,15 @@ export function getVerdict(score: number): AwgVerdict {
 	if (score >= 88) {
 		return {
 			label: 'Максимальная защита',
-			color: 'var(--color-accent, #a855f7)',
-			tint: 'color-mix(in srgb, var(--color-accent, #a855f7) 18%, transparent)',
+			color: 'var(--color-accent, var(--accent))',
+			tint: 'var(--color-accent-tint)',
 			text: 'AWG 2.0 с CPS мимикрией. Трафик неотличим от реального протокола. Высочайшая устойчивость к DPI и глубокому анализу.',
 		};
 	}
 	if (score >= 70) {
 		return {
 			label: 'Хорошая защита',
-			color: 'var(--color-success, #22c55e)',
+			color: 'var(--color-success, var(--success))',
 			tint: 'var(--color-success-tint)',
 			text: 'Надёжная конфигурация AWG. Есть параметры для улучшения — проверьте рекомендации.',
 		};
@@ -1137,7 +1137,7 @@ export function getVerdict(score: number): AwgVerdict {
 	if (score >= 50) {
 		return {
 			label: 'Средняя защита',
-			color: 'var(--color-warning, #f59e0b)',
+			color: 'var(--color-warning, var(--warning))',
 			tint: 'var(--color-warning-tint)',
 			text: 'Базовая обфускация. Продвинутые DPI-системы могут идентифицировать трафик как AWG/WireGuard.',
 		};
@@ -1152,16 +1152,16 @@ export function getVerdict(score: number): AwgVerdict {
 	}
 	return {
 		label: 'Стандартный WireGuard',
-		color: 'var(--color-error, #ef4444)',
+		color: 'var(--color-error, var(--error))',
 		tint: 'var(--color-error-tint)',
 		text: 'Нет обфускации. DPI немедленно идентифицирует и может заблокировать трафик.',
 	};
 }
 
 export function dpiLabel(d: number): { text: string; color: string } {
-	if (d <= 20) return { text: 'LOW', color: 'var(--color-success, #22c55e)' };
-	if (d <= 45) return { text: 'MEDIUM', color: 'var(--color-warning, #f59e0b)' };
-	return { text: 'HIGH', color: 'var(--color-error, #ef4444)' };
+	if (d <= 20) return { text: 'LOW', color: 'var(--color-success, var(--success))' };
+	if (d <= 45) return { text: 'MEDIUM', color: 'var(--color-warning, var(--warning))' };
+	return { text: 'HIGH', color: 'var(--color-error, var(--error))' };
 }
 
 export function camouflageFromI1(iface: AwgIface): AwgCamouflage {

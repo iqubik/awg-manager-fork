@@ -40,14 +40,9 @@
 		}
 	}
 
-	@media (max-width: 560px) {
+	@media (max-width: 760px) {
 		.strip {
-			grid-template-columns: minmax(0, 1fr);
-		}
-
-		.strip > :global(:not(:last-child)) {
-			border-right: none;
-			border-bottom: 1px solid var(--color-border);
+			border-radius: 8px;
 		}
 	}
 </style>

@@ -147,6 +147,10 @@ func (o *OperatorNativeWG) createViaImport(ctx context.Context, stored *storage.
 		return 0, fmt.Errorf("post-import settings: %w", err)
 	}
 
+	// Keep the interface cache coherent with the freshly-imported interface
+	// (same rationale as the batch path — issue #255).
+	o.queries.Interfaces.Invalidate(ndmsName)
+
 	o.appLog.Full("create", stored.Name, fmt.Sprintf("Created NDMS interface %s via import", ndmsName))
 	o.appLog.Info("create", ndmsName, "via import path")
 	return idx, nil
@@ -235,6 +239,11 @@ func (o *OperatorNativeWG) createViaBatch(ctx context.Context, stored *storage.A
 			}
 		}
 	}
+
+	// Refresh the interface cache so the next nextFreeIndex sees this slot
+	// as occupied. Without it, back-to-back creates (no Start in between)
+	// re-read the stale map and allocate the same index — issue #255.
+	o.queries.Interfaces.OnCreated(ctx, ndmsName)
 
 	o.appLog.Full("create", stored.Name, fmt.Sprintf("Creating NDMS interface %s", ndmsName))
 	o.appLog.Info("create", ndmsName, "interface created")
@@ -475,6 +484,10 @@ func (o *OperatorNativeWG) Delete(ctx context.Context, stored *storage.AWGTunnel
 	// 4. Persist
 	_, _ = o.transport.Post(ctx, payloads.CmdSave())
 
+	// 5. Free the slot in the interface cache so the index can be reused
+	// without an AWGM restart — issue #255.
+	o.queries.Interfaces.OnDestroyed(names.NDMSName)
+
 	o.appLog.Info("delete", names.NDMSName, "tunnel deleted")
 	return nil
 }
@@ -668,7 +681,7 @@ func (o *OperatorNativeWG) RestoreKmodTunnel(ctx context.Context, stored *storag
 	if err != nil {
 		return fmt.Errorf("build kmod config: %w", err)
 	}
-	result, err := o.kmod.AddTunnel(stored.ID, kmodCfg)
+	result, err := o.kmod.RestoreTunnel(stored.ID, kmodCfg)
 	if err != nil {
 		return err
 	}
@@ -684,9 +697,46 @@ func (o *OperatorNativeWG) RestoreKmodTunnel(ctx context.Context, stored *storag
 	return nil
 }
 
-// KmodManager returns the kmod manager (for shutdown hook).
-func (o *OperatorNativeWG) KmodManager() *KmodManager {
-	return o.kmod
+// SyncKmodSlot rebuilds the awg_proxy.ko slot from the freshly-stored
+// config and pushes the resulting listen port to the NDMS peer endpoint.
+// Used by Service.applyDiffNWG when an Update changes a kmod-shaping
+// field (PrivateKey, Peer.PublicKey, Peer.Endpoint, obfuscation) on a
+// running tunnel — without this the slot keeps the pre-Update params
+// silently, and the next daemon-restart RestoreTunnel would adopt the
+// stale slot. AddTunnel always installs a fresh slot, EEXIST'ing the
+// existing one out of the way; that's the rebuild we need.
+//
+// No-op on ASC-native firmware (no kmod slot exists).
+func (o *OperatorNativeWG) SyncKmodSlot(ctx context.Context, stored *storage.AWGTunnel) error {
+	if o.supportsASC() {
+		return nil
+	}
+	bindIface := o.ResolveActiveWAN(ctx, stored)
+
+	endpointIP, endpointPort, err := o.resolveEndpointWithFallback(stored)
+	if err != nil {
+		return fmt.Errorf("resolve endpoint: %w", err)
+	}
+	kmodCfg, err := buildKmodConfigResolved(stored, endpointIP, endpointPort, bindIface)
+	if err != nil {
+		return fmt.Errorf("build kmod config: %w", err)
+	}
+
+	result, err := o.kmod.AddTunnel(stored.ID, kmodCfg)
+	if err != nil {
+		return fmt.Errorf("kmod add: %w", err)
+	}
+
+	// listen port likely changed on rebuild — push it to NDMS so the
+	// kernel WG peer points at the new local proxy.
+	names := NewNWGNames(stored.NWGIndex)
+	proxyEndpoint := fmt.Sprintf("127.0.0.1:%d", result.ListenPort)
+	if _, err := o.transport.Post(ctx, payloads.CmdWireguardPeerEndpoint(names.NDMSName, stored.Peer.PublicKey, proxyEndpoint)); err != nil {
+		o.appLog.Warn("sync-kmod-slot", names.NDMSName, "update peer endpoint to "+proxyEndpoint+": "+err.Error())
+	}
+
+	o.appLog.Info("sync-kmod-slot", names.NDMSName, fmt.Sprintf("slot rebuilt → 127.0.0.1:%d", result.ListenPort))
+	return nil
 }
 
 // ResolveActiveWAN reads the peer "via" field from RCI and resolves the

@@ -31,9 +31,14 @@ type ManagedServerService interface {
 
 	// Enable/disable
 	SetEnabled(ctx context.Context, id string, enabled bool) error
+	RestartOrStart(ctx context.Context, id string) error
 
 	// NAT
-	SetNAT(ctx context.Context, id string, enabled bool) error
+	SetNATMode(ctx context.Context, id, mode string) error
+
+	// LAN segments
+	SetLANSegments(ctx context.Context, id string, segments []string) error
+	ListLANSegments(ctx context.Context) ([]LANSegmentDTO, error)
 
 	// Policy
 	SetPolicy(ctx context.Context, id, policy string) error

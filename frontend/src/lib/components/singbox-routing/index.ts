@@ -1,10 +1,4 @@
 export { default as StagingBanner } from './StagingBanner.svelte';
-export { default as SingboxRoutingPage } from './SingboxRoutingPage.svelte';
 export { default as JsonConfigDrawer } from './JsonConfigDrawer.svelte';
 export { default as RouteInspector } from './RouteInspector.svelte';
-export { default as EngineSubTab } from './EngineSubTab.svelte';
-export { default as RulesSubTab } from './RulesSubTab.svelte';
-export { default as RuleSetsSubTab } from './RuleSetsSubTab.svelte';
-export { default as OutboundsSubTab } from './OutboundsSubTab.svelte';
-export { default as DnsSubTab } from './DnsSubTab.svelte';
 export { default as DeviceProxySubTab } from './DeviceProxySubTab.svelte';

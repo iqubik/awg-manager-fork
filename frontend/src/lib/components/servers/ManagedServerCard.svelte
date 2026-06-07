@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { ManagedServer, ManagedPeer, ManagedPeerStats, ManagedServerStats } from '$lib/types';
+	import type { ManagedServer, ManagedPeer, ManagedPeerStats, ManagedServerStats, ASCParams } from '$lib/types';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { servers } from '$lib/stores/servers';
 	import { formatBytes } from '$lib/utils/format';
-	import { Toggle, Button, IconButton, Dropdown, type DropdownOption } from '$lib/components/ui';
+	import { EarthLock, Plus, RefreshCw, Settings, Trash2 } from 'lucide-svelte';
+	import { Toggle, Button, Dropdown, ChipMultiSelect, VersionBadge, type DropdownOption } from '$lib/components/ui';
 	import {
 		EditManagedServerModal,
 		AddManagedPeerModal,
@@ -17,6 +18,7 @@
 	import { comparePeerFieldsDirected } from '$lib/utils/peerSort';
 	import { peerSort } from '$lib/stores/peerSort';
 	import { isStandardAccessPolicyName } from '$lib/utils/accessPolicy';
+	import { classifyAwgVersionFromAsc } from '$lib/utils/classifyAwgVersion';
 
 	interface Props {
 		server: ManagedServer;
@@ -25,9 +27,12 @@
 		onDeleted?: () => void;
 		onUpdated?: () => void;
 		onOpenASC: () => void;
+		ingressEnabled?: boolean;
+		onToggleIngress?: (interfaceName: string, enabled: boolean) => Promise<void>;
+		lanSegmentOptions?: { value: string; label: string }[];
 	}
 
-	let { server, stats, routerIP = '', onDeleted = () => {}, onUpdated = () => {}, onOpenASC }: Props = $props();
+	let { server, stats, routerIP = '', onDeleted = () => {}, onUpdated = () => {}, onOpenASC, ingressEnabled = false, onToggleIngress = async () => {}, lanSegmentOptions = [] }: Props = $props();
 
 	let serverId = $derived(server.interfaceName);
 
@@ -62,6 +67,9 @@
 			);
 		}
 
+		const sortBy = $peerSort.sortBy;
+		if (sortBy === null) return peers;
+
 		const sorted = [...peers].sort((a, b) => {
 			const sa = getPeerStats(a.publicKey);
 			const sb = getPeerStats(b.publicKey);
@@ -69,6 +77,7 @@
 				{
 					name: a.description || a.publicKey,
 					ip: a.tunnelIP,
+					endpoint: sa?.endpoint || '-',
 					rxBytes: sa?.rxBytes ?? null,
 					txBytes: sa?.txBytes ?? null,
 					online: sa?.online ?? null,
@@ -77,12 +86,13 @@
 				{
 					name: b.description || b.publicKey,
 					ip: b.tunnelIP,
+					endpoint: sb?.endpoint || '-',
 					rxBytes: sb?.rxBytes ?? null,
 					txBytes: sb?.txBytes ?? null,
 					online: sb?.online ?? null,
 					lastHandshake: sb?.lastHandshake ?? null,
 				},
-				$peerSort.sortBy,
+				sortBy,
 				$peerSort.sortAsc,
 			);
 		});
@@ -166,6 +176,7 @@
 	}
 
 	let togglingEnabled = $state(false);
+	let restartingServer = $state(false);
 
 	async function handleToggleEnabled() {
 		togglingEnabled = true;
@@ -180,19 +191,70 @@
 		}
 	}
 
-	let togglingNAT = $state(false);
+	async function handleRestartOrStart() {
+		if (restartingServer) return;
+		restartingServer = true;
 
-	async function handleToggleNAT() {
+		try {
+			await api.restartManagedServer(serverId);
+			notifications.success(isUp ? 'Команда рестарта отправлена' : 'Команда запуска отправлена');
+			servers.invalidate();
+		} catch {
+			notifications.warning('Команда могла быть отправлена, соединение могло временно прерваться');
+		} finally {
+			restartingServer = false;
+		}
+	}
+
+	let togglingNAT = $state(false);
+	let togglingIngress = $state(false);
+
+	let natMode = $derived<'full' | 'internet-only' | 'none'>(
+		server.natMode ?? (server.natEnabled ? 'full' : 'none')
+	);
+
+	const natModeOptions: DropdownOption<'full' | 'internet-only' | 'none'>[] = [
+		{ value: 'full', label: 'Полный NAT' },
+		{ value: 'internet-only', label: 'NAT только для интернета' },
+		{ value: 'none', label: 'Без NAT' },
+	];
+
+	async function handleToggleIngress() {
+		togglingIngress = true;
+		try {
+			await onToggleIngress(server.interfaceName, !ingressEnabled);
+		} catch (e) {
+			notifications.error(e instanceof Error ? e.message : 'Ошибка переключения egress в sing-box');
+		} finally {
+			togglingIngress = false;
+		}
+	}
+
+	async function handleSetNATMode(mode: 'full' | 'internet-only' | 'none') {
+		if (mode === natMode) return;
 		togglingNAT = true;
 		try {
-			const fresh = await api.setManagedServerNAT(serverId, !server.natEnabled);
+			const fresh = await api.setManagedServerNATMode(serverId, mode);
 			servers.applyMutationResponse(fresh);
 			onUpdated();
 		} catch (e) {
-			notifications.error(e instanceof Error ? e.message : 'Ошибка переключения NAT');
+			notifications.error(e instanceof Error ? e.message : 'Ошибка изменения режима NAT');
 		} finally {
 			togglingNAT = false;
 		}
+	}
+
+	let settingLAN = $state(false);
+	async function handleSetLANSegments(next: string[]) {
+		if (settingLAN) return;
+		settingLAN = true;
+		try {
+			const fresh = await api.setManagedServerLANSegments(serverId, next);
+			servers.applyMutationResponse(fresh);
+			onUpdated();
+		} catch (e) {
+			notifications.error(e instanceof Error ? e.message : 'Ошибка изменения доступа в LAN');
+		} finally { settingLAN = false; }
 	}
 
 	function openConf(peer: ManagedPeer) {
@@ -209,10 +271,32 @@
 	// Empty initial value is overwritten by the $effect on mount before
 	// the select is interactive.
 	let selectedPolicy = $state('');
+	let ascParams = $state<ASCParams | null>(null);
 
 	$effect(() => {
 		selectedPolicy = server.policy;
 	});
+
+	$effect(() => {
+		const id = server.interfaceName;
+		let cancelled = false;
+		ascParams = null;
+
+		void (async () => {
+			try {
+				const params = await api.getManagedServerASC(id);
+				if (!cancelled) ascParams = params;
+			} catch {
+				if (!cancelled) ascParams = null;
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	});
+
+	let awgVersion = $derived(classifyAwgVersionFromAsc(ascParams));
 
 	onMount(async () => {
 		try {
@@ -260,10 +344,23 @@
 	<!-- Header -->
 	<div class="card-header">
 		<div class="header-info">
-			<div class="flex items-center gap-2">
-				<span class="led" class:led-up={isUp} class:led-down={!isUp}></span>
-				<h3 class="card-title">{serverDisplayName}</h3>
-				<span class="badge-managed">Управляемый</span>
+			<div class="title-row">
+				<div class="title-main">
+					<Toggle
+						checked={isUp}
+						onchange={handleToggleEnabled}
+						disabled={togglingEnabled || restartingServer}
+						size="sm"
+						spinner="none"
+					/>
+					<h3 class="card-title">{serverDisplayName}</h3>
+				</div>
+				<div class="title-badges">
+					<span class="badge-managed">Управляемый</span>
+					{#if ascParams !== null}
+						<VersionBadge kind="awg" value={awgVersion} />
+					{/if}
+				</div>
 			</div>
 			<div class="server-meta">
 				<span class="meta mono">{server.interfaceName}</span>
@@ -277,32 +374,39 @@
 				{/if}
 			</div>
 		</div>
-		<div class="header-actions">
-			<Toggle
-				checked={isUp}
-				onchange={handleToggleEnabled}
-				disabled={togglingEnabled}
+		<div class="header-right">
+			<div class="header-actions">
+			<Button
+				variant="ghost"
 				size="sm"
-			/>
-			<IconButton
-				ariaLabel={`Открыть параметры обфускации сервера ${serverDisplayName}`}
-				title={`Параметры обфускации сервера «${serverDisplayName}»`}
+				onclick={handleRestartOrStart}
+				disabled={restartingServer || togglingEnabled || deleting}
+				loading={restartingServer}
+				iconBefore={restartIcon}
+				title={isUp
+					? `Перезапустить сервер «${serverDisplayName}»`
+					: `Запустить сервер «${serverDisplayName}»`}
+			>
+				{isUp ? 'Рестарт' : 'Запуск'}
+			</Button>
+			<Button
+				variant="ghost"
+				size="sm"
 				onclick={onOpenASC}
+				iconBefore={ascIcon}
+				title={`Параметры обфускации сервера «${serverDisplayName}»`}
 			>
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M12 20V10M18 20V4M6 20v-4"/>
-				</svg>
-			</IconButton>
-			<IconButton
-				ariaLabel={`Открыть настройки сервера ${serverDisplayName}`}
-				title={`Настройки сервера «${serverDisplayName}»`}
+				Обфускация
+			</Button>
+			<Button
+				variant="ghost"
+				size="sm"
 				onclick={() => editServerOpen = true}
+				iconBefore={settingsIcon}
+				title={`Настройки сервера «${serverDisplayName}»`}
 			>
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
-					<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
-				</svg>
-			</IconButton>
+				Настройки
+			</Button>
 			{#if confirmDelete}
 				<Button
 					variant="danger"
@@ -314,49 +418,80 @@
 					Подтвердить?
 				</Button>
 			{:else}
-				<IconButton
-					variant="danger"
-					ariaLabel={`Удалить сервер ${serverDisplayName}`}
-					title={`Удалить сервер «${serverDisplayName}»`}
+				<Button
+					variant="outline-danger"
+					size="sm"
 					onclick={handleDeleteServer}
 					disabled={deleting}
+					iconBefore={deleteIcon}
+					title={`Удалить сервер «${serverDisplayName}»`}
 				>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-					</svg>
-				</IconButton>
+					Удалить
+				</Button>
 			{/if}
+			</div>
 		</div>
 	</div>
 
-	<!-- NAT -->
-	<div class="nat-row">
-		<div class="nat-info">
-			<span class="nat-label">NAT</span>
-			<span class="nat-hint">Трансляция адресов для выхода клиентов в интернет</span>
+	<!-- Settings -->
+	<div class="server-settings">
+		<div class="setting-row">
+			<div class="setting-copy">
+				<span class="setting-title">NAT</span>
+				{#if natMode === 'internet-only'}
+					<span class="setting-description">реальный IP клиента в LAN, NAT только в интернет</span>
+				{:else}
+					<span class="setting-description">Трансляция адресов для выхода клиентов в интернет</span>
+				{/if}
+				{#if ingressEnabled && natMode === 'full'}
+					<span class="setting-description setting-description-warning">NAT для интернета не действует — интернет-трафик идёт через sing-box (туннель); режим NAT влияет только на видимость в LAN</span>
+				{/if}
+			</div>
+			<div class="setting-control">
+				<Dropdown
+					value={natMode}
+					options={natModeOptions}
+					disabled={togglingNAT}
+					onchange={handleSetNATMode}
+					fullWidth
+				/>
+			</div>
 		</div>
-		<Toggle
-			checked={server.natEnabled ?? false}
-			onchange={handleToggleNAT}
-			disabled={togglingNAT}
-			size="sm"
-		/>
-	</div>
 
-	<!-- Policy -->
-	<div class="policy-row">
-		<div class="policy-info">
-			<span class="policy-label">Политика доступа</span>
-			<span class="policy-hint">Регулирует выход в интернет для клиентов сервера. Применяется ко всем клиентам этого сервера.</span>
+		<div class="setting-row">
+			<div class="setting-copy">
+				<span class="setting-title">Доступ в LAN</span>
+				<span class="setting-description">Сегменты LAN, доступные клиентам этого сервера</span>
+			</div>
+			<div class="setting-control">
+				<ChipMultiSelect values={server.lanSegments ?? []} options={lanSegmentOptions} onchange={handleSetLANSegments} disabled={settingLAN} />
+			</div>
 		</div>
-		<div class="policy-select">
-			<Dropdown
-				value={selectedPolicy}
-				options={policyOptions}
-				disabled={policyChanging}
-				onchange={handlePolicyChange}
-				fullWidth
-			/>
+
+		<div class="setting-row setting-row-toggle">
+			<div class="setting-copy">
+				<span class="setting-title">Маршрутизация через sing-box</span>
+				<span class="setting-description">Заворачивать интернет-трафик клиентов данного сервера в sing-box</span>
+			</div>
+			<div class="setting-control setting-control-toggle">
+				<Toggle checked={ingressEnabled} onchange={handleToggleIngress} disabled={togglingIngress} spinner="after" />
+			</div>
+		</div>
+
+		<div class="setting-row">
+			<div class="setting-copy">
+				<span class="setting-title">Политика доступа</span>
+				<span class="setting-description">Регулирует выход в интернет для клиентов сервера. Применяется ко всем клиентам этого сервера.</span>
+			</div>
+			<div class="setting-control">
+				<Dropdown
+					value={selectedPolicy}
+					options={policyOptions}
+					disabled={policyChanging}
+					onchange={handlePolicyChange}
+					fullWidth
+				/>
+			</div>
 		</div>
 	</div>
 
@@ -368,6 +503,7 @@
 				<PeerSortControls
 					bind:searchQuery
 					showSearch={(server.peers ?? []).length >= 5}
+					hideSortOnDesktop
 				/>
 				<Button variant="secondary" size="sm" onclick={() => addPeerOpen = true} iconBefore={addPeerIcon}>
 					Добавить клиента
@@ -429,9 +565,23 @@
 />
 
 {#snippet addPeerIcon()}
-	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-		<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-	</svg>
+	<Plus size={14} strokeWidth={2} aria-hidden="true" />
+{/snippet}
+
+{#snippet restartIcon()}
+	<RefreshCw size={14} strokeWidth={2} aria-hidden="true" />
+{/snippet}
+
+{#snippet ascIcon()}
+	<EarthLock size={14} strokeWidth={2} aria-hidden="true" />
+{/snippet}
+
+{#snippet settingsIcon()}
+	<Settings size={14} strokeWidth={2} aria-hidden="true" />
+{/snippet}
+
+{#snippet deleteIcon()}
+	<Trash2 size={14} strokeWidth={2} aria-hidden="true" />
 {/snippet}
 
 
@@ -439,27 +589,69 @@
 	.managed-card {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		--managed-section-gap: 0.625rem;
+		gap: var(--managed-section-gap);
 		border-color: var(--accent);
 	}
 
 	.card-header {
 		display: flex;
+		flex-wrap: wrap;
 		justify-content: space-between;
 		align-items: flex-start;
 		gap: 1rem;
+		margin-bottom: 0;
+		padding-bottom: 0;
+		border-bottom: none;
 	}
 
 	.header-info {
 		display: flex;
 		flex-direction: column;
 		gap: 0.375rem;
+		flex: 1 1 265px;
+		min-width: 265px;
+		max-width: 100%;
+	}
+
+	.title-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		column-gap: 0.5rem;
+		row-gap: 0.375rem;
 		min-width: 0;
+	}
+
+	.title-main {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		min-width: 0;
+		flex: 0 1 auto;
+		max-width: 100%;
+	}
+
+	.title-main :global(.toggle-container) {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		align-self: center;
+	}
+
+	.title-badges {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.375rem;
+		flex: 1 1 auto;
+		min-width: fit-content;
 	}
 
 	.card-title {
 		font-size: 1.125rem;
 		font-weight: 600;
+		min-width: 0;
 	}
 
 	.badge-managed {
@@ -489,82 +681,137 @@
 		font-family: var(--font-mono, monospace);
 	}
 
+	.header-right {
+		display: flex;
+		flex-wrap: nowrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.5rem;
+		flex: 0 0 auto;
+		margin-left: auto;
+	}
+
 	.header-actions {
 		display: flex;
+		flex-wrap: nowrap;
+		align-items: center;
+		justify-content: flex-end;
 		gap: 0.25rem;
-		flex-shrink: 0;
+		flex: 0 0 auto;
 	}
 
-	.nat-row {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 0.625rem 0.75rem;
-		background: var(--bg-primary);
+	.server-settings {
+		background: var(--color-bg-tertiary);
 		border: 1px solid var(--border);
-		border-radius: 6px;
+		border-radius: var(--radius-sm);
+		padding: 0 0.875rem;
+		margin-top: 0.5rem;
+		min-width: 0;
 	}
 
-	.nat-info {
-		display: flex;
-		flex-direction: column;
-		gap: 0.125rem;
+	.server-settings .setting-row:first-child {
+		padding-top: 0.875rem;
 	}
 
-	.nat-label {
-		font-size: 0.8125rem;
-		font-weight: 500;
+	.server-settings .setting-row:last-child {
+		padding-bottom: 0.875rem;
 	}
 
-	.nat-hint {
-		font-size: 0.6875rem;
-		color: var(--text-muted);
-	}
-
-	.policy-row {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.625rem 0.75rem;
-		background: var(--bg-primary);
-		border: 1px solid var(--border);
-		border-radius: 6px;
-		flex-wrap: wrap;
-	}
-
-	.policy-info {
-		flex: 1 1 200px;
+	.setting-copy {
 		display: flex;
 		flex-direction: column;
 		gap: 0.125rem;
 		min-width: 0;
 	}
 
-	.policy-label {
-		font-size: 0.8125rem;
+	.setting-title {
+		font-size: 0.875rem;
 		font-weight: 500;
+		color: var(--text-primary);
 	}
 
-	.policy-hint {
-		font-size: 0.6875rem;
-		color: var(--text-muted);
+	.setting-description-warning {
+		color: var(--warning, #f59e0b);
 	}
 
-	.policy-select {
-		flex: 0 0 auto;
-		min-width: 240px;
-		max-width: 320px;
+	.setting-control {
+		width: 100%;
+		min-width: 0;
+		max-width: 280px;
+		justify-self: end;
 	}
 
-	.policy-select:disabled {
-		opacity: 0.5;
-		cursor: wait;
+	.setting-control :global(.dropdown),
+	.setting-control :global(.field),
+	.setting-control :global(.picker) {
+		width: 100%;
+		min-width: 0;
+	}
+
+	.setting-control-toggle {
+		width: auto;
+		max-width: none;
+		justify-self: end;
+		align-self: center;
+	}
+
+	.setting-row-toggle {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.setting-row-toggle .setting-copy {
+		min-width: 0;
+	}
+
+	.server-settings :global(.field .trigger) {
+		background: var(--color-settings-surface-bg);
+		border-color: var(--color-border);
+	}
+
+	.server-settings :global(.field .trigger:hover:not(:disabled)) {
+		background: var(--color-bg-hover);
+	}
+
+	.server-settings :global(.picker .chips) {
+		background: var(--color-settings-surface-bg);
+		border-color: var(--color-border);
+		border-radius: var(--radius-sm);
+	}
+
+	.server-settings :global(.toggle-container .toggle-slider) {
+		background: var(--color-settings-surface-bg);
+	}
+
+	.server-settings :global(.toggle-container:hover input:not(:checked) ~ .toggle-slider) {
+		background: var(--color-bg-hover);
+	}
+
+	@media (min-width: 641px) {
+		.server-settings .setting-row {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) minmax(12rem, 280px);
+			align-items: start;
+			gap: 0.75rem;
+		}
+
+		.server-settings .setting-row-toggle {
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: center;
+		}
+
+		.setting-control {
+			max-width: none;
+		}
 	}
 
 	.peers-section {
+		--peers-divider-gap: 1rem;
 		border-top: 1px solid var(--border);
-		padding-top: 1rem;
+		padding-top: var(--peers-divider-gap);
+		margin-top: calc(var(--peers-divider-gap) - var(--managed-section-gap));
 	}
 
 	.peers-header {
@@ -593,45 +840,7 @@
 		color: var(--text-muted);
 	}
 
-
-	/* LED indicators */
-	.led {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
-	.led-up {
-		background: var(--success, #22c55e);
-		box-shadow: 0 0 4px var(--success, #22c55e);
-	}
-
-	.led-down {
-		background: var(--text-muted);
-	}
-
-
 	@media (max-width: 640px) {
-		.policy-row {
-			flex-direction: column;
-			align-items: stretch;
-		}
-
-		.policy-info {
-			flex: 0 0 auto;
-		}
-
-		.policy-select {
-			width: 100%;
-			min-width: 0;
-			max-width: none;
-		}
-
-		.policy-select :global(.dropdown) {
-			width: 100%;
-		}
-
 		.peers-header {
 			flex-direction: column;
 			align-items: stretch;
@@ -650,9 +859,57 @@
 			flex-direction: column;
 		}
 
-		.header-actions {
-			align-self: flex-end;
+		.header-info {
+			flex: 1 1 auto;
+			min-width: 0;
 		}
 
+		.header-right {
+			width: 100%;
+			margin-left: 0;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0.5rem;
+		}
+
+		.setting-control {
+			max-width: none;
+		}
+
+		.header-actions {
+			align-self: stretch;
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 0.5rem;
+			width: 100%;
+		}
+
+		.header-actions :global(.btn) {
+			width: 100%;
+			min-width: 0;
+			justify-content: center;
+		}
+
+	}
+
+	@media (max-width: 640px) {
+		.managed-card {
+			overflow: hidden;
+		}
+
+		.peers-controls {
+			display: grid;
+			grid-template-columns: 1fr;
+			width: 100%;
+			gap: 0.4rem;
+		}
+
+		.peers-controls :global(.peer-sort-controls) {
+			width: 100%;
+		}
+
+		.peers-controls :global(.btn) {
+			width: 100%;
+		}
 	}
 </style>

@@ -500,6 +500,26 @@ func (s *InterfaceStore) List(ctx context.Context) ([]ndms.Interface, error) {
 	return out, nil
 }
 
+// LANBridge — LAN-сегмент (бридж) с подсетью, для выбора в LAN-forward.
+// Description — человекочитаемое имя сегмента (NDMS description, напр. "LAN").
+type LANBridge struct{ Name, Description, Address, Mask string }
+
+// ListLANBridges возвращает LAN-бриджи (type=Bridge) с адресом/маской.
+func (s *InterfaceStore) ListLANBridges(ctx context.Context) ([]LANBridge, error) {
+	ifaces, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := []LANBridge{}
+	for _, i := range ifaces {
+		if !strings.EqualFold(i.Type, "Bridge") || i.Address == "" {
+			continue
+		}
+		out = append(out, LANBridge{Name: i.ID, Description: i.Description, Address: i.Address, Mask: i.Mask})
+	}
+	return out, nil
+}
+
 // ListWAN returns public-facing WAN interfaces filtered for ISP use.
 // Mirrors the legacy filter logic; reads everything from the cached
 // snapshot. Uses ResolveSystemName for kernel-name lookup so the
@@ -564,6 +584,7 @@ func (s *InterfaceStore) ListAll(ctx context.Context) ([]ndms.AllInterface, erro
 			Name:  kernelName,
 			Label: allInterfaceLabel(iface.Type, kernelName, iface.Description),
 			Up:    iface.State == "up" && iface.IPv4 == "running",
+			Type:  iface.Type,
 		}
 		existing, dup := seen[kernelName]
 		if !dup {

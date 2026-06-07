@@ -7,6 +7,7 @@ export interface PortableDnsRoute {
 	excludes?: string[];
 	subnets?: string[];
 	enabled: boolean;
+	iconUrl?: string;
 }
 
 export function exportRoutes(routes: DnsRoute[]): PortableDnsRoute[] {
@@ -19,6 +20,7 @@ export function exportRoutes(routes: DnsRoute[]): PortableDnsRoute[] {
 		excludes: r.excludes?.length ? r.excludes : undefined,
 		subnets: r.subnets?.length ? r.subnets : undefined,
 		enabled: r.enabled,
+		iconUrl: r.iconUrl || undefined,
 	}));
 }
 
@@ -38,6 +40,7 @@ export function parseImportFile(json: string): PortableDnsRoute[] {
 	return data.filter(item =>
 		typeof item.name === 'string' &&
 		item.name.trim() !== '' &&
-		(Array.isArray(item.manualDomains) || Array.isArray(item.subscriptions))
+		(Array.isArray(item.manualDomains) || Array.isArray(item.subscriptions)) &&
+		(item.iconUrl === undefined || typeof item.iconUrl === 'string')
 	);
 }

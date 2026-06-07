@@ -1,10 +1,12 @@
 <script lang="ts">
 	import type { SingboxStatus, HydraRouteStatus } from '$lib/types';
 	import { Button, Modal, StatusDot } from '$lib/components/ui';
+	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
 	import { copyToClipboard } from '$lib/utils/clipboard';
 	import { singboxInstallProgress } from '$lib/stores/singboxInstall';
 	import { formatBytes } from '$lib/utils/format';
 	import { stripAnsi } from '$lib/utils/ansi';
+	import { Blocks } from 'lucide-svelte';
 
 	interface Props {
 		singboxStatus: SingboxStatus | null;
@@ -20,7 +22,6 @@
 		onupdateSingbox?: () => void;
 		showSingbox?: boolean;
 		showHydra?: boolean;
-		downloadRouteLabel?: string;
 	}
 
 	let {
@@ -37,7 +38,6 @@
 		onupdateSingbox,
 		showSingbox = true,
 		showHydra = true,
-		downloadRouteLabel = '',
 	}: Props = $props();
 
 	const singboxInstalled = $derived(singboxStatus?.installed ?? false);
@@ -117,9 +117,9 @@
 </script>
 
 {#if showSingbox || showHydra}
-	<div class="card">
-		<div class="section-label">Интеграции</div>
-
+	<div class="settings-block">
+		<div class="card">
+		<SettingsSectionLabel label="Интеграции" icon={Blocks} tone="purple" header />
 		{#if showSingbox}
 			<div class="setting-row">
 				<div class="integration-item">
@@ -171,11 +171,6 @@
 									</Button>
 								</span>
 							{/if}
-						{/if}
-						{#if downloadRouteLabel}
-							<span class="integration-route" title={downloadRouteLabel}>
-								Через {downloadRouteLabel}
-							</span>
 						{/if}
 					</div>
 				</div>
@@ -245,11 +240,6 @@
 						{#if !hydraStatusLoading && !hydraStatus && hydraStatusError}
 							<span class="setting-description warning">нет ответа: {hydraStatusError}</span>
 						{/if}
-						{#if downloadRouteLabel}
-							<span class="integration-route" title={downloadRouteLabel}>
-								geo.dat: через {downloadRouteLabel}
-							</span>
-						{/if}
 					</div>
 				</div>
 				{#if hydraInstalled}
@@ -269,6 +259,7 @@
 				{/if}
 			</div>
 		{/if}
+		</div>
 	</div>
 {/if}
 
@@ -288,6 +279,17 @@
 </Modal>
 
 <style>
+	.card {
+		container-type: inline-size;
+	}
+
+	.setting-row {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: start;
+		gap: 0.75rem;
+	}
+
 	.integration-item {
 		display: flex;
 		align-items: center;
@@ -303,20 +305,19 @@
 		min-width: 0;
 	}
 
+	.integration-meta .setting-description {
+		min-width: 0;
+	}
+
+	.integration-meta .setting-description.warning {
+		white-space: pre-wrap;
+	}
+
 	.integration-sub {
 		font-size: 0.6875rem;
 		font-family: var(--font-mono);
 		color: var(--color-text-muted);
 	}
-	.integration-route {
-		font-size: 0.6875rem;
-		font-family: var(--font-mono);
-		color: var(--color-text-muted);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
 	.warning {
 		color: var(--color-warning);
 	}
@@ -332,7 +333,7 @@
 	.error-pre {
 		margin: 0;
 		padding: 0.75rem;
-		background: var(--color-bg-tertiary);
+		background: var(--color-settings-control-bg);
 		border-radius: var(--radius-sm);
 		font-family: var(--font-mono);
 		font-size: 0.75rem;
@@ -346,7 +347,67 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.35rem;
-		min-width: 220px;
+		min-width: 0;
+		grid-column: 1 / -1;
+	}
+
+	/* Same action-button floor as settings actions-card (fits «Обновление…»). */
+	@media (min-width: 641px) {
+		.setting-row > :global(.btn) {
+			justify-self: end;
+			align-self: center;
+			min-width: 7.5rem;
+		}
+	}
+
+	@media (min-width: 901px) {
+		.setting-row {
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: start;
+			gap: 0.75rem;
+		}
+
+		.integration-item {
+			display: grid;
+			grid-template-columns: 8px minmax(0, 1fr);
+			align-items: flex-start;
+			column-gap: 0.625rem;
+		}
+
+		.integration-item :global(.dot) {
+			margin-top: 0.42rem;
+		}
+
+		.integration-meta {
+			min-width: 0;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.integration-item {
+			display: grid;
+			grid-template-columns: 8px minmax(0, 1fr);
+			align-items: start;
+			column-gap: 0.625rem;
+		}
+
+		.integration-item :global(.dot) {
+			margin-top: 0.42rem;
+		}
+
+		@container (max-width: 420px) {
+			.setting-row {
+				grid-template-columns: minmax(0, 1fr) auto;
+				align-items: center;
+				gap: 0.625rem;
+			}
+
+			.setting-row > :global(.btn) {
+				justify-self: end;
+				align-self: center;
+				min-width: 7.5rem;
+			}
+		}
 	}
 	.progress-label {
 		font-size: 0.78rem;
@@ -356,7 +417,7 @@
 	.progress-bar {
 		position: relative;
 		height: 6px;
-		background: var(--color-bg-tertiary, rgba(0, 0, 0, 0.08));
+		background: var(--color-settings-control-bg, rgba(0, 0, 0, 0.08));
 		border-radius: 3px;
 		overflow: hidden;
 	}

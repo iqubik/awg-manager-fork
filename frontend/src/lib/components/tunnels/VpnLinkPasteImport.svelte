@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Button, ConfirmModal } from '$lib/components/ui';
+	import DownloadRouteNote from '$lib/components/downloads/DownloadRouteNote.svelte';
+	import DownloadErrorNotice from '$lib/components/downloads/DownloadErrorNotice.svelte';
+	import { downloadErrorToText } from '$lib/utils/downloadError';
 	import AmneziaConfEditor from './AmneziaConfEditor.svelte';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
@@ -15,6 +18,7 @@
 		clearStoredPremiumVpnKeyFromStorage,
 		isPremiumCountryConfigStale,
 		isPremiumCountryIssued,
+		premiumActiveDevicesForCountry,
 		readStoredPremiumVpnKey,
 		savePremiumVpnKeyToStorage
 	} from '$lib/utils/amneziaPremiumVpnPaste';
@@ -180,7 +184,7 @@
 			resetPremiumCatalogState();
 			const msg = e instanceof Error ? e.message : 'Ошибка запроса к cp.amnezia.org';
 			premiumError = msg;
-			notifications.error(msg);
+			notifications.error(downloadErrorToText(e));
 		} finally {
 			endPremiumBusy();
 		}
@@ -292,7 +296,7 @@
 				});
 			}
 		} catch (e) {
-			notifications.error(e instanceof Error ? e.message : 'Не удалось скачать конфигурацию');
+			notifications.error(downloadErrorToText(e));
 		} finally {
 			premiumPickBusy = '';
 		}
@@ -319,6 +323,7 @@
 		spellcheck="false"
 	></textarea>
 	{#if showPremiumChrome}
+		<DownloadRouteNote text="Список стран и конфигурации Amnezia Premium будут получены через" />
 		<p class="premium-cp-note">
 			Если распознан ключ для получения параметров подписки, приложение может обратиться к внешнему сервису по вашей инициативе.<br>
 			AWG Manager не связан с операторами таких сервисов, не проверяет и не гарантирует ключи, доступность их API а так же стабильность работы данного функционала.<br>
@@ -353,7 +358,9 @@
 		</div>
 	{/if}
 	{#if premiumError}
-		<p class="link-error">{premiumError}</p>
+		<div class="link-error">
+			<DownloadErrorNotice error={premiumError} />
+		</div>
 	{/if}
 	{#if premiumCountries.length}
 		<p class="field-label premium-countries-label">Страны</p>
@@ -361,6 +368,7 @@
 			{#each premiumCountries as c (c.server_country_code)}
 				{@const issued = isPremiumCountryIssued(premiumIssuedConfigs, c.server_country_code)}
 				{@const stale = isPremiumCountryConfigStale(premiumIssuedConfigs, c.server_country_code)}
+				{@const activeDevices = premiumActiveDevicesForCountry(premiumIssuedConfigs, c.server_country_code)}
 				<li>
 					<button
 						type="button"
@@ -378,6 +386,14 @@
 							>ТРЕБУЕТСЯ ПЕРЕВЫПУСК</span>
 						{:else if issued}
 							<span class="premium-country-issued-badge">Выдано</span>
+						{/if}
+						{#if activeDevices.length > 0}
+							<span
+								class="premium-country-active-device-badge"
+								title="В Amnezia Premium есть активное устройство в этой стране; это не конфигурация для перевыпуска"
+							>
+								Активное устройство
+							</span>
 						{/if}
 						<span class="premium-country-code">{c.server_country_code.toUpperCase()}</span>
 						{#if premiumPickBusy === c.server_country_code}
@@ -590,5 +606,17 @@
 		font-size: 13px;
 		color: var(--accent, var(--color-accent));
 		flex-shrink: 0;
+	}
+
+	.premium-country-active-device-badge {
+		flex-shrink: 0;
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		color: var(--text-muted, var(--color-text-muted));
+		padding: 2px 8px;
+		border-radius: 4px;
+		background: var(--bg-tertiary, var(--color-bg-tertiary));
+		border: 1px solid var(--border, var(--color-border));
 	}
 </style>

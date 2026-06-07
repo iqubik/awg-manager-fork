@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/hoaxisr/awg-manager/internal/storage"
@@ -46,8 +47,12 @@ func (s *Store) Load() (*StoreData, error) {
 	if data.Lists == nil {
 		data.Lists = []DomainList{}
 	}
+	if data.HRRuleIcons == nil {
+		data.HRRuleIcons = map[string]string{}
+	}
 	normalizeLists(data.Lists)
 	migrateLegacyExcludes(&data)
+	migrateRawEditorText(&data)
 
 	s.data = &data
 	return s.data, nil
@@ -90,6 +95,38 @@ func migrateLegacyExcludes(data *StoreData) {
 	}
 }
 
+// migrateRawEditorText backfills raw editor text fields for configs created
+// before manualText/excludesText existed. In-memory only — written back to disk
+// on the next Save(), matching migrateLegacyExcludes behavior.
+func migrateRawEditorText(data *StoreData) {
+	if data == nil {
+		return
+	}
+
+	for i := range data.Lists {
+		list := &data.Lists[i]
+
+		// HR Neo rules are sourced from HR files; keep this migration scoped to
+		// NDMS/stored DNS routes only.
+		if isHydraRoute(list.Backend) {
+			continue
+		}
+
+		if list.ManualText == nil && len(list.ManualDomains) > 0 {
+			raw := strings.Join(list.ManualDomains, "\n")
+			list.ManualText = &raw
+		}
+
+		if list.ExcludesText == nil && (len(list.Excludes) > 0 || len(list.ExcludeSubnets) > 0) {
+			lines := make([]string, 0, len(list.Excludes)+len(list.ExcludeSubnets))
+			lines = append(lines, list.Excludes...)
+			lines = append(lines, list.ExcludeSubnets...)
+			raw := strings.Join(lines, "\n")
+			list.ExcludesText = &raw
+		}
+	}
+}
+
 // Save writes domain list data to disk atomically.
 func (s *Store) Save(data *StoreData) error {
 	s.mu.Lock()
@@ -118,7 +155,8 @@ func (s *Store) GetCached() *StoreData {
 // defaultStoreData returns empty store data with initialized collections.
 func defaultStoreData() *StoreData {
 	return &StoreData{
-		Lists: []DomainList{},
+		Lists:       []DomainList{},
+		HRRuleIcons: map[string]string{},
 	}
 }
 

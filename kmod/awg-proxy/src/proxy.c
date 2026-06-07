@@ -339,14 +339,18 @@ static int c2s_thread_fn(void *data)
 
 		n = kernel_recvmsg(proxy->listen_sock, &msg, &iov, 1,
 				   bufsize, 0);
-		if (n < 0) {
-			if (n == -ERESTARTSYS || kthread_should_stop())
-				break;
+		switch (awg_classify_recv(n, kthread_should_stop())) {
+		case AWG_RECV_BREAK:
+			goto out;
+		case AWG_RECV_RETRY_SLEEP:
 			msleep(10);
 			continue;
-		}
-		if (n < 4)
+		case AWG_RECV_RETRY_YIELD:
+			cond_resched();
 			continue;
+		case AWG_RECV_PROCESS:
+			break;
+		}
 
 		/* Always update client address (reference behavior) */
 		spin_lock(&proxy->client_lock);
@@ -512,6 +516,7 @@ static int c2s_thread_fn(void *data)
 		}
 	}
 
+out:
 	kfree(raw_buf);
 	return 0;
 }
@@ -544,14 +549,18 @@ static int s2c_thread_fn(void *data)
 
 		n = kernel_recvmsg(proxy->remote_sock, &msg, &iov, 1,
 				   AWG_BUF_SIZE, 0);
-		if (n < 0) {
-			if (n == -ERESTARTSYS || kthread_should_stop())
-				break;
+		switch (awg_classify_recv(n, kthread_should_stop())) {
+		case AWG_RECV_BREAK:
+			goto out;
+		case AWG_RECV_RETRY_SLEEP:
 			msleep(10);
 			continue;
-		}
-		if (n < 4)
+		case AWG_RECV_RETRY_YIELD:
+			cond_resched();
 			continue;
+		case AWG_RECV_PROCESS:
+			break;
+		}
 
 		atomic_inc(&proxy->rx_packets);
 		atomic64_add(n, &proxy->rx_bytes);
@@ -626,6 +635,7 @@ static int s2c_thread_fn(void *data)
 		}
 	}
 
+out:
 	kfree(buf);
 	return 0;
 }

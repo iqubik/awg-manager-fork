@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { SingboxTunnel } from '$lib/types';
 	import { goto } from '$app/navigation';
-	import { browser } from '$app/environment';
 	import { api } from '$lib/api/client';
 	import {
 		singboxTunnels,
@@ -9,17 +8,28 @@
 		singboxTraffic,
 		triggerDelayCheck,
 	} from '$lib/stores/singbox';
-	import { onMount, untrack } from 'svelte';
-	import { Modal, Button, TrafficChart, TrafficSparkline, PingButton } from '$lib/components/ui';
+	import { untrack } from 'svelte';
+	import { Modal, Button, TrafficSparkline, TrafficChart } from '$lib/components/ui';
+	import { TunnelListActions } from '$lib/components/ui';
+	import {
+		TunnelDelaySparkBars,
+		TunnelListEndpointLine,
+		TunnelListTrafficCell,
+		TunnelMetaText,
+		TunnelSingboxPingButton,
+		TunnelTitleRow,
+	} from '$lib/components/tunnels';
+	import { singboxDelayStatusDot } from '$lib/utils/statusDot';
+	import { formatBitRate, formatBytes } from '$lib/utils/format';
 	import { getTrafficRates, subscribeTraffic, loadHistory } from '$lib/stores/traffic';
 	import { singboxDelayFromHistory } from '$lib/utils/singboxDelay';
 	import type { SingboxLayoutMode } from '$lib/constants/singboxLayout';
 	import TunnelDiagnosticsModal from '$lib/components/testing/TunnelDiagnosticsModal.svelte';
-	import TunnelTestIcon from '$lib/components/tunnels/TunnelTestIcon.svelte';
 
 	interface Props {
 		tunnel: SingboxTunnel;
 		layout?: SingboxLayoutMode;
+		renderMode?: import('$lib/constants/singboxLayout').TunnelRenderMode;
 		autoDelayCheckNonce?: number;
 		autoDelayCheckDelayMs?: number;
 		ondetail?: (tag: string) => void;
@@ -28,6 +38,7 @@
 	let {
 		tunnel,
 		layout = 'compact',
+		renderMode = 'compact',
 		autoDelayCheckNonce = 0,
 		autoDelayCheckDelayMs = 0,
 		ondetail,
@@ -65,6 +76,7 @@
 
 	const cardState = $derived(delayPresentation.state);
 	const latText = $derived(delayPresentation.label);
+	const statusDot = $derived(singboxDelayStatusDot(cardState, tunnel.running !== false));
 
 	const protocolLabel = $derived.by(() => {
 		// Widen locally: the generated/static type is currently an exhaustive union,
@@ -130,17 +142,13 @@
 		goto(`/singbox/${encodeURIComponent(tunnel.tag)}`);
 	}
 
-	function formatBytes(n: number): string {
-		if (n < 1024) return `${n} B`;
-		if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-		if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-		return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-	}
-
 	// ─── Traffic sparkline (rate history fed by +layout SSE handler) ─
 	let rxRates = $state<number[]>([]);
 	let txRates = $state<number[]>([]);
 	let tunnelTag = $derived(tunnel.tag);
+
+	let inlineRxRate = $derived(rxRates.length > 0 ? rxRates[rxRates.length - 1] : 0);
+	let inlineTxRate = $derived(txRates.length > 0 ? txRates[txRates.length - 1] : 0);
 
 	$effect(() => {
 		const tag = tunnelTag;
@@ -161,22 +169,10 @@
 		untrack(() => loadHistory(tag));
 	});
 
-	const CHART_KEY_PREFIX = 'sbx_chart_expanded_';
-	let chartStorageKey = $derived(`${CHART_KEY_PREFIX}${tunnel.tag}`);
-	let chartExpanded = $state(true);
-	onMount(() => {
-		chartExpanded = localStorage.getItem(chartStorageKey) !== 'false';
-	});
-	function toggleCharts() {
-		chartExpanded = !chartExpanded;
-		if (browser) {
-			localStorage.setItem(chartStorageKey, String(chartExpanded));
-		}
-	}
 </script>
 
-{#if layout === 'list'}
-	<div
+{#if renderMode === 'table'}
+	<tr
 		class="sbx-tunnel-list-row"
 		class:ok={cardState === 'ok'}
 		class:slow={cardState === 'slow'}
@@ -184,23 +180,34 @@
 		class:unknown={cardState === 'unknown'}
 		class:stopped={cardState === 'stopped'}
 	>
-		<div class="list-cell list-cell-delay" data-label="Delay">
-			<span class="dot {cardState}" aria-hidden="true"></span>
-			<PingButton
+		<td class="tunnel-list-cell tunnel-list-cell--delay list-cell list-cell-delay" data-label="Delay">
+			<TunnelSingboxPingButton
+				layout="list"
 				label={latText}
 				state={cardState}
 				{checking}
 				onclick={triggerCheck}
 			/>
-		</div>
-		<div class="list-cell list-cell-name" data-label="Туннель">
-			<button type="button" class="name-btn" onclick={edit}>{tunnel.tag}</button>
-			<div class="list-sub mono">
-				{tunnel.proxyInterface || 'via sing-box'}
-				{#if tunnel.kernelInterface}<span> · {tunnel.kernelInterface}</span>{/if}
+		</td>
+		<td class="tunnel-list-cell tunnel-list-cell--name list-cell list-cell-name" data-label="Туннель">
+			<div class="tunnel-list-name-stack">
+				<TunnelTitleRow
+					title={tunnel.tag}
+					dotVariant={statusDot.variant}
+					dotPulse={statusDot.pulse}
+					dotLabel={tunnel.tag}
+					onTitleClick={edit}
+				/>
+				<TunnelMetaText mono>
+					<span>{tunnel.proxyInterface || 'via sing-box'}</span>
+					{#if tunnel.kernelInterface}
+						<span class="meta-dot" aria-hidden="true">·</span><span>{tunnel.kernelInterface}</span>
+					{/if}
+				</TunnelMetaText>
+				<TunnelListEndpointLine host={tunnel.server} port={tunnel.port} bind:show={showServer} />
 			</div>
-		</div>
-		<div class="list-cell list-cell-badges" data-label="Протокол">
+		</td>
+		<td class="list-cell list-cell-badges" data-label="Протокол">
 			<div class="badges-inline">
 				<span class="badge b-{tunnel.protocol}">{protocolLabel}</span>
 				{#if tunnel.security === 'reality'}
@@ -210,128 +217,41 @@
 				{/if}
 				<span class="badge b-transport">{tunnel.transport.toUpperCase()}</span>
 			</div>
-		</div>
-		<div class="list-cell list-cell-server" data-label="Сервер">
-			<div class="server-line">
-				{#if showServer}
-					<span class="mono">{tunnel.server}</span>
-				{:else}
-					<span class="muted">••••••••</span>
-				{/if}
-				<button
-					type="button"
-					class="eye-inline"
-					onclick={() => (showServer = !showServer)}
-					aria-label={showServer ? 'Скрыть' : 'Показать'}
-				>
-					{#if showServer}
-						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-					{:else}
-						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-					{/if}
-				</button>
-				<span class="mono">:{tunnel.port}</span>
-			</div>
-		</div>
-		<div class="list-cell list-cell-run" data-label="Процесс">
+		</td>
+		<td class="list-cell list-cell-run" data-label="Процесс">
 			<span class="run-pill" class:run-on={tunnel.running === true}>{tunnel.running === true ? 'running' : 'stopped'}</span>
-		</div>
-		<div class="list-cell list-cell-traffic" data-label="Трафик">
-			<div class="traffic-row-list">
-				<div
-					role="button"
-					tabindex="0"
-					class="traffic-mini-click"
-					onclick={() => ondetail?.(tunnel.tag)}
-					onkeydown={(e) => {
-						if (e.key === 'Enter' || e.key === ' ') {
-							e.preventDefault();
-							ondetail?.(tunnel.tag);
-						}
-					}}
-					title="Открыть детальный график"
-				>
-					<TrafficSparkline
-						rxData={trafficSparkSeries.rx}
-						txData={trafficSparkSeries.tx}
-						width={84}
-						height={22}
-					/>
-				</div>
-				<div class="traffic-mini-col mono">
-					<span class="traffic-rate rx">↓ {formatBytes(traffic?.download ?? 0)}</span>
-					<span class="traffic-rate tx">↑ {formatBytes(traffic?.upload ?? 0)}</span>
-				</div>
-			</div>
-		</div>
-		<div class="list-cell list-cell-ping-mini" data-label="Ping">
-			<div
-				class="spark-mini spark {cardState}"
-				onclick={triggerCheck}
-				onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && triggerCheck()}
-				role="button"
-				tabindex="0"
-				title="Клик — обновить delay"
-			>
-				{#if history.length === 0}
-					{#each Array(10) as _, i (i)}
-						<div class="bar empty"></div>
-					{/each}
-				{:else}
-					{@const max = Math.max(...history.map((v) => (v <= 0 ? 100 : v)), 100)}
-					{#each history.slice(-14) as d, i (i)}
-						<div class="bar" style="height: {Math.max((d <= 0 ? max : d) / max, 0.08) * 100}%;"></div>
-					{/each}
-				{/if}
-			</div>
-		</div>
-		<div class="list-cell list-cell-actions" data-label="Действия">
-			<div class="list-actions">
-				<button
-					class="action-btn"
-					type="button"
-					onclick={edit}
-					title="Изменить туннель «{tunnel.tag}»"
-					aria-label="Изменить туннель «{tunnel.tag}»"
-				>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-						<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-					</svg>
-				</button>
-				<button
-					class="action-btn action-test"
-					type="button"
-					onclick={() => (diagnosticsOpen = true)}
-					disabled={!tunnel.kernelInterface}
-					title="Тест туннеля «{tunnel.tag}»"
-					aria-label="Тест туннеля «{tunnel.tag}»"
-				>
-					<TunnelTestIcon />
-				</button>
-				<button
-					class="action-btn action-danger"
-					type="button"
-					onclick={() => (confirmDeleteOpen = true)}
-					disabled={deleting}
-					title="Удалить туннель «{tunnel.tag}»"
-					aria-label="Удалить туннель «{tunnel.tag}»"
-				>
-					{#if deleting}
-						<span class="action-spinner"></span>
-					{:else}
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<polyline points="3,6 5,6 21,6"/>
-							<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-						</svg>
-					{/if}
-				</button>
-			</div>
-		</div>
-	</div>
-{:else if layout === 'dense'}
+		</td>
+		<td class="tunnel-list-cell tunnel-list-cell--traffic list-cell list-cell-traffic" data-label="Трафик">
+			<TunnelListTrafficCell
+				rxRate={inlineRxRate}
+				txRate={inlineTxRate}
+				rxData={trafficSparkSeries.rx}
+				txData={trafficSparkSeries.tx}
+				onclick={() => ondetail?.(tunnel.tag)}
+				title="Открыть детальный график"
+			/>
+		</td>
+		<td class="tunnel-list-cell tunnel-list-cell--ping list-cell list-cell-ping-mini" data-label="Ping">
+			<TunnelDelaySparkBars history={history} state={cardState} layout="list" onclick={triggerCheck} />
+		</td>
+		<td class="tunnel-list-cell tunnel-list-cell--actions list-cell list-cell-actions col-actions" data-label="Действия">
+			<TunnelListActions
+				onEdit={edit}
+				editTitle="Изменить туннель «{tunnel.tag}»"
+				onTest={() => (diagnosticsOpen = true)}
+				testDisabled={!tunnel.kernelInterface}
+				testTitle="Тест туннеля «{tunnel.tag}»"
+				onDelete={() => (confirmDeleteOpen = true)}
+				deleteDisabled={deleting}
+				deleting={deleting}
+				deleteTitle="Удалить туннель «{tunnel.tag}»"
+			/>
+		</td>
+	</tr>
+{:else if layout === 'dense' || renderMode === 'list-card'}
 <div
 	class="card view-dense"
+	class:view-list={renderMode === 'list-card'}
 	class:ok={cardState === 'ok'}
 	class:slow={cardState === 'slow'}
 	class:fail={cardState === 'fail'}
@@ -341,8 +261,13 @@
 	<div class="header header-dense">
 		<div class="header-dense-body">
 			<div class="title-row-dense">
-				<span class="dot {cardState}" aria-hidden="true"></span>
-				<button type="button" class="title title-dense" onclick={edit}>{tunnel.tag}</button>
+				<TunnelTitleRow
+					title={tunnel.tag}
+					dotVariant={statusDot.variant}
+					dotPulse={statusDot.pulse}
+					dense
+					onTitleClick={edit}
+				/>
 			</div>
 			<div class="meta-tags-dense">
 				<span class="iface-dense" title="{tunnel.proxyInterface || 'via sing-box'}{tunnel.kernelInterface ? ` · ${tunnel.kernelInterface}` : ''}">
@@ -360,14 +285,15 @@
 		</div>
 		<div class="dense-toolbar">
 			<div class="dense-toolbar-bottom">
-				<PingButton label={latText} state={cardState} {checking} size="sm" onclick={triggerCheck} />
+				<TunnelSingboxPingButton layout="dense" label={latText} state={cardState} {checking} onclick={triggerCheck} />
 			</div>
 		</div>
 	</div>
 
+	{#if renderMode !== 'list-card'}
 	<div class="details">
 	<div class="details-dense-cols">
-		<div class="details-dense-col">
+		<div class="details-dense-col details-dense-col-lead">
 			<div class="kv-stacked-stat">
 				<span class="kv-stacked-label">Сервер</span>
 				<span class="kv-endpoint">
@@ -411,46 +337,24 @@
 		</div>
 	</div>
 	</div>
+	{/if}
 
 	<div class="actions">
-		<button class="action-btn" type="button" onclick={edit} title="Изменить туннель «{tunnel.tag}»" aria-label="Изменить туннель «{tunnel.tag}»">
-			<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-				<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-			</svg>
-			Изменить
-		</button>
-		<button
-			class="action-btn action-test"
-			type="button"
-			disabled={!tunnel.kernelInterface}
-			title="Тест туннеля «{tunnel.tag}»"
-			aria-label="Тест туннеля «{tunnel.tag}»"
-			onclick={() => (diagnosticsOpen = true)}
-		>
-			<TunnelTestIcon size={12} />
-			Тест
-		</button>
-		<button
-			class="action-btn action-danger"
-			type="button"
-			onclick={() => (confirmDeleteOpen = true)}
-			disabled={deleting}
-			title="Удалить туннель «{tunnel.tag}»"
-			aria-label="Удалить туннель «{tunnel.tag}»"
-		>
-			{#if deleting}
-				<span class="action-spinner"></span>
-			{:else}
-				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<polyline points="3,6 5,6 21,6"/>
-					<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-				</svg>
-			{/if}
-			Удалить
-		</button>
+		<TunnelListActions
+			variant="labeled"
+			onEdit={edit}
+			editTitle="Изменить туннель «{tunnel.tag}»"
+			onTest={() => (diagnosticsOpen = true)}
+			testDisabled={!tunnel.kernelInterface}
+			testTitle="Тест туннеля «{tunnel.tag}»"
+			onDelete={() => (confirmDeleteOpen = true)}
+			deleteDisabled={deleting}
+			deleting={deleting}
+			deleteTitle="Удалить туннель «{tunnel.tag}»"
+		/>
 	</div>
 
+	{#if renderMode !== 'list-card'}
 	<div class="charts-dense">
 		<button
 			type="button"
@@ -465,43 +369,23 @@
 				height={20}
 			/>
 			<div class="traffic-inline-rates">
-				<span class="traffic-inline-rate rx">↓ {formatBytes(traffic?.download ?? 0)}</span>
-				<span class="traffic-inline-rate tx">↑ {formatBytes(traffic?.upload ?? 0)}</span>
+				<span class="traffic-inline-rate rx">↓ {formatBitRate(inlineRxRate)}</span>
+				<span class="traffic-inline-rate tx">↑ {formatBitRate(inlineTxRate)}</span>
 			</div>
 		</button>
 		<div class="chart-inline delay-inline">
 			<div class="chart-inline-head">
-				<span class="chart-inline-label">Delay</span>
-				<span class="chart-inline-stats">
-					{#if cardState === 'unknown'}
-						ещё не тестировали
-					{:else if cardState === 'fail'}
-						<span class="err">не отвечает</span>
-					{:else}
-						avg {avg}ms
-					{/if}
-				</span>
+				<span class="chart-inline-label">Delay (5 мин)</span>
 			</div>
-			<button
-				type="button"
-				class="spark-mini spark {cardState}"
-				onclick={triggerCheck}
-				title="Клик — обновить delay"
-				aria-label="Обновить delay"
-			>
-				{#if history.length === 0}
-					{#each Array(10) as _, i (i)}
-						<div class="bar empty"></div>
-					{/each}
-				{:else}
-					{@const max = Math.max(...history.map((v) => (v <= 0 ? 100 : v)), 100)}
-					{#each history.slice(-14) as d, i (i)}
-						<div class="bar" style="height: {Math.max((d <= 0 ? max : d) / max, 0.08) * 100}%;"></div>
-					{/each}
-				{/if}
-			</button>
+			<TunnelDelaySparkBars
+				history={history}
+				state={cardState}
+				layout="dense"
+				onclick={() => void triggerCheck()}
+			/>
 		</div>
 	</div>
+	{/if}
 </div>
 {:else}
 <div
@@ -512,10 +396,15 @@
 	class:unknown={cardState === 'unknown'}
 	class:stopped={cardState === 'stopped'}
 >
+	<div class="tunnel-card-intro">
 	<div class="title-row">
-		<span class="dot {cardState}" aria-hidden="true"></span>
-		<h3 class="title">{tunnel.tag}</h3>
-		<PingButton label={latText} state={cardState} {checking} size="sm" onclick={triggerCheck} />
+		<TunnelTitleRow
+			title={tunnel.tag}
+			dotVariant={statusDot.variant}
+			dotPulse={statusDot.pulse}
+			onTitleClick={edit}
+		/>
+		<TunnelSingboxPingButton layout="compact" label={latText} state={cardState} {checking} onclick={triggerCheck} />
 	</div>
 	<div class="iface">
 		<span>{tunnel.proxyInterface || 'via sing-box'}</span>
@@ -533,6 +422,9 @@
 		{/if}
 		<span class="badge b-transport">{tunnel.transport.toUpperCase()}</span>
 	</div>
+	</div>
+
+	<div class="divider divider-dashed"></div>
 
 	<div class="row">
 		<span class="label">Сервер</span>
@@ -570,84 +462,32 @@
 		</div>
 	{/if}
 
-	<div class="actions">
-		<button
-			class="action-btn"
-			type="button"
-			onclick={edit}
-			title="Изменить туннель «{tunnel.tag}»"
-			aria-label="Изменить туннель «{tunnel.tag}»"
-		>
-			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-				<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-			</svg>
-			Изменить
-		</button>
-		<button
-			class="action-btn action-test"
-			type="button"
-			disabled={!tunnel.kernelInterface}
-			title="Тест туннеля «{tunnel.tag}»"
-			aria-label="Тест туннеля «{tunnel.tag}»"
-			onclick={() => (diagnosticsOpen = true)}
-		>
-			<TunnelTestIcon />
-			Тест
-		</button>
-		<button
-			class="action-btn action-danger"
-			type="button"
-			onclick={() => (confirmDeleteOpen = true)}
-			disabled={deleting}
-			title="Удалить туннель «{tunnel.tag}»"
-			aria-label="Удалить туннель «{tunnel.tag}»"
-		>
-			{#if deleting}
-				<span class="action-spinner"></span>
-			{:else}
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<polyline points="3,6 5,6 21,6"/>
-					<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-				</svg>
-			{/if}
-			Удалить
-		</button>
+	<div class="actions actions--bar">
+		<TunnelListActions
+			variant="labeled"
+			onEdit={edit}
+			editTitle="Изменить туннель «{tunnel.tag}»"
+			onTest={() => (diagnosticsOpen = true)}
+			testDisabled={!tunnel.kernelInterface}
+			testTitle="Тест туннеля «{tunnel.tag}»"
+			onDelete={() => (confirmDeleteOpen = true)}
+			deleteDisabled={deleting}
+			deleting={deleting}
+			deleteTitle="Удалить туннель «{tunnel.tag}»"
+		/>
 	</div>
 
 	<div class="chart-section">
-		<button type="button" class="chart-header" onclick={toggleCharts}>
-			<span class="chart-label">Графики</span>
-			<span class="chart-chevron" class:expanded={chartExpanded}>▾</span>
-		</button>
-		<div class="chart-body" class:expanded={chartExpanded}>
+		<div class="chart-body">
 			<div class="chart-head">
 				<span>Delay (5 мин)</span>
-				<span class="stats">
-					{#if cardState === 'unknown'}
-						ещё не тестировали
-					{:else if cardState === 'fail'}
-						<span class="err">не отвечает</span>
-					{:else}
-						avg {avg}ms
-					{/if}
-				</span>
 			</div>
-			<div
-				class="spark {cardState}"
-				title="Delay за последние проверки"
-			>
-				{#if history.length === 0}
-					{#each Array(6) as _}
-						<div class="bar empty"></div>
-					{/each}
-				{:else}
-					{@const max = Math.max(...history.map((v) => (v <= 0 ? 100 : v)), 100)}
-					{#each history as d}
-						<div class="bar" style="height: {Math.max((d <= 0 ? max : d) / max, 0.1) * 100}%;"></div>
-					{/each}
-				{/if}
-			</div>
+			<TunnelDelaySparkBars
+				history={history}
+				state={cardState}
+				layout="compact"
+				onclick={() => void triggerCheck()}
+			/>
 			<div class="chart-head traffic-head">
 				<span>Трафик</span>
 				<span class="stats">
@@ -737,12 +577,6 @@
 		align-items: center;
 		gap: 6px;
 		min-width: 0;
-	}
-
-	.card.view-dense .title-row-dense .dot {
-		width: var(--sbx-status-dot-dense);
-		height: var(--sbx-status-dot-dense);
-		flex: 0 0 auto;
 	}
 
 	.title-dense {
@@ -925,8 +759,7 @@
 		border-color: var(--color-border-hover);
 	}
 
-	.traffic-inline:focus-visible,
-	.card.view-dense .delay-inline .spark-mini:focus-visible {
+	.traffic-inline:focus-visible {
 		outline: 2px solid var(--color-accent);
 		outline-offset: 2px;
 	}
@@ -983,48 +816,18 @@
 		white-space: nowrap;
 	}
 
-	.chart-inline-stats .err {
-		color: var(--color-error);
-	}
-
 	.charts-dense .chart-inline-head {
 		gap: 4px;
 	}
 
-	.charts-dense .chart-inline-stats {
+	.card.view-dense .chart-inline.delay-inline {
+		gap: 3px;
+		padding: 5px 4px 5px 5px;
 		overflow: hidden;
-		text-overflow: ellipsis;
 	}
 
-	.card.view-dense .delay-inline .spark-mini {
-		display: flex;
-		align-items: flex-end;
-		gap: 1px;
-		width: 100%;
-		height: 18px;
+	.card.view-dense .chart-inline.delay-inline .chart-inline-head {
 		padding: 0;
-		border: none;
-		background: none;
-		cursor: pointer;
-	}
-
-	.card.view-dense .delay-inline .spark-mini .bar {
-		flex: 1;
-		min-width: 0;
-		min-height: 2px;
-		border-radius: 1px;
-		background: linear-gradient(to top, rgba(59, 130, 246, 0.6), rgba(96, 165, 250, 0.9));
-	}
-
-	.card.view-dense .delay-inline .spark-mini.fail .bar {
-		background: var(--latency-bar-fail);
-		height: 100% !important;
-	}
-
-	.card.view-dense .delay-inline .spark-mini.unknown .bar,
-	.card.view-dense .delay-inline .spark-mini .bar.empty {
-		background: var(--color-border);
-		height: 30% !important;
 	}
 
 	.title-row {
@@ -1032,10 +835,6 @@
 		align-items: center;
 		gap: 6px;
 		min-width: 0;
-	}
-
-	.title-row .dot {
-		flex-shrink: 0;
 	}
 
 	.title-row :global(.ping-btn) {
@@ -1079,7 +878,6 @@
 		display: flex;
 		gap: 5px;
 		flex-wrap: wrap;
-		margin-bottom: 12px;
 	}
 	.badge {
 		padding: 2px 8px;
@@ -1139,9 +937,13 @@
 	.port { color: var(--text); margin-left: auto; font-variant-numeric: tabular-nums; }
 
 	.divider {
-		height: 1px;
-		background: var(--border);
-		margin: 12px 0 10px;
+		height: 0;
+		border: none;
+		margin: 0;
+		background: none;
+	}
+	.divider-dashed {
+		border-top: 1px dashed var(--color-border);
 	}
 
 	.chart-block { margin-bottom: 10px; }
@@ -1160,39 +962,11 @@
 		text-transform: none;
 		letter-spacing: normal;
 	}
+	.chart-head.traffic-head .stats {
+		font-size: 0.6875rem;
+	}
 	.traffic-head { margin-top: 8px; }
-	.chart-head .err { color: #ef4444; }
 
-	.spark {
-		height: 26px;
-		display: flex;
-		align-items: flex-end;
-		gap: 2px;
-		padding: 2px 0;
-	}
-	.spark .bar {
-		flex: 1;
-		background: linear-gradient(to top, rgba(59, 130, 246, 0.6), rgba(96, 165, 250, 0.9));
-		border-radius: 1px;
-		min-height: 2px;
-	}
-	.spark.fail .bar { background: var(--latency-bar-fail); height: 100% !important; }
-	.spark.unknown .bar,
-	.spark .bar.empty {
-		background: var(--border);
-		height: 30% !important;
-	}
-
-	.spark-mini {
-		height: 22px;
-		max-width: 100%;
-		gap: 1px;
-		padding: 1px 0;
-	}
-	.spark-mini .bar {
-		min-width: 0;
-		min-height: 2px;
-	}
 	.list-cell-ping-mini {
 		justify-content: flex-start;
 		padding-right: 0.6rem;
@@ -1225,125 +999,39 @@
 		outline-offset: 1px;
 	}
 
-	.actions {
-		display: flex;
-		gap: 6px;
-		justify-content: center;
-		align-items: center;
-		margin-top: 12px;
-		padding: 10px 0;
-		border-top: 1px solid var(--color-border);
-		border-bottom: 1px solid var(--color-border);
-	}
-	.card.view-dense .actions {
-		gap: 2px;
-		justify-content: center;
-		margin-top: 0;
-		padding: 0;
-		border: none;
-	}
-	.action-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		padding: 5px 9px;
-		font-size: var(--sbx-card-action);
-		font-weight: 500;
-		border: none;
-		background: transparent;
-		color: var(--color-text-secondary);
-		cursor: pointer;
-		border-radius: var(--radius-sm);
-		text-decoration: none;
-		font-family: inherit;
-		transition: background var(--t-fast) ease, color var(--t-fast) ease;
-	}
-	.card.view-dense .action-btn {
-		padding: 3px 6px;
-		font-size: var(--sbx-card-action-dense);
-		gap: 3px;
-	}
-	.action-btn:hover:not(:disabled) {
-		background: var(--color-bg-hover);
-		color: var(--color-text-primary);
-	}
-	.action-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-	.action-btn.action-danger:hover:not(:disabled) {
-		color: var(--color-error);
-		background: var(--color-error-tint);
-	}
-	.action-btn.action-test:hover:not(:disabled) {
-		color: var(--color-success);
-		background: var(--color-success-tint);
-	}
 	.chart-section {
 		margin: 0 -14px -12px;
 		border-radius: 0 0 var(--radius) var(--radius);
 		background: var(--color-bg-secondary);
 		overflow: hidden;
 	}
-	.chart-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		width: 100%;
-		padding: 7px 12px;
-		border: none;
-		border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
-		background: color-mix(in srgb, var(--color-bg-tertiary) 78%, transparent);
-		color: var(--color-text-secondary);
-		cursor: pointer;
-		user-select: none;
-		font: inherit;
-		transition: background var(--t-fast) ease, border-color var(--t-fast) ease;
-	}
-	.chart-header:hover {
-		background: color-mix(in srgb, var(--color-bg-hover) 82%, transparent);
-		border-bottom-color: var(--color-border-hover);
-	}
-	.chart-label {
-		font-size: var(--sbx-card-note);
-		font-weight: 600;
-		color: var(--color-text-secondary);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-	}
-	.chart-chevron {
-		font-size: 14px;
-		color: var(--color-text-secondary);
-		opacity: 0.85;
-		transition: transform var(--t-fast) ease;
-		transform: rotate(-90deg);
-	}
-	.chart-chevron.expanded {
-		transform: rotate(0deg);
-	}
 	.chart-body {
-		max-height: 0;
-		overflow: hidden;
-		transition: max-height var(--t-med) ease;
-		padding: 0 12px;
-	}
-	.chart-body.expanded {
-		max-height: 300px;
 		padding: 8px 12px 8px;
+	}
+
+	.chart-body :global(.tunnel-delay-spark--compact) {
+		height: 36px;
 	}
 
 	/* List row (grid columns set on parent .singbox-tunnel-list-table) */
 	.sbx-tunnel-list-row {
-		align-items: center;
 		min-width: 0;
 	}
 	.sbx-tunnel-list-row .list-cell {
 		min-width: 0;
+		vertical-align: middle;
 	}
 	.sbx-tunnel-list-row .list-cell-delay {
 		display: flex;
 		align-items: center;
 		gap: 0.4rem;
+	}
+	.sbx-tunnel-list-row .list-title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		min-width: 0;
+		max-width: 100%;
 	}
 	.sbx-tunnel-list-row .name-btn {
 		font: inherit;
@@ -1360,35 +1048,76 @@
 		color: var(--color-accent, #58a6ff);
 	}
 	.sbx-tunnel-list-row .list-sub {
-		margin-top: 0.2rem;
+		margin-top: 0;
 		font-size: var(--sbx-card-meta);
 		color: var(--color-text-muted);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+
+	.sbx-tunnel-list-row .traffic-row-list {
+		display: flex;
+		min-width: 0;
+		width: 100%;
+	}
+
+	.sbx-tunnel-list-row .traffic-row-list--stack {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.05rem;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: var(--sbx-card-note);
+		line-height: 1.1;
+		transition: background var(--t-fast) ease;
+	}
+
+	.sbx-tunnel-list-row .traffic-row-list--stack :global(svg.responsive) {
+		width: 100%;
+		min-width: 0;
+		max-width: 100%;
+		flex: 1 1 auto;
+	}
+
+	.sbx-tunnel-list-row .traffic-row-list--stack:hover {
+		background: rgba(96, 165, 250, 0.06);
+	}
+
+	.sbx-tunnel-list-row .traffic-row-list--stack:focus-visible {
+		outline: 1px solid var(--color-accent, #58a6ff);
+		outline-offset: 1px;
+	}
 	.badges-inline {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.25rem;
 	}
-	.server-line {
+
+	.sbx-tunnel-list-row .list-cell-badges {
 		display: flex;
 		align-items: center;
-		gap: 0.35rem;
-		font-size: var(--sbx-card-value);
-		overflow: hidden;
+		justify-content: center;
+		align-self: stretch;
+	}
+
+	.sbx-tunnel-list-row .badges-inline {
+		display: inline-flex;
+		flex-direction: column;
+		flex-wrap: nowrap;
+		align-items: center;
+		justify-content: center;
+		gap: 0.25rem;
+		min-width: 0;
+	}
+
+	.sbx-tunnel-list-row .badges-inline .badge {
+		width: max-content;
+		max-width: 100%;
+		text-align: center;
 	}
 	.muted {
 		color: var(--text-muted);
-	}
-	.eye-inline {
-		display: inline-flex;
-		padding: 0.1rem;
-		border: none;
-		background: none;
-		color: var(--text-muted);
-		cursor: pointer;
 	}
 	.run-pill {
 		font-size: var(--sbx-card-badge);
@@ -1412,12 +1141,8 @@
 		display: flex;
 		flex-wrap: nowrap;
 		gap: 0.375rem;
-		justify-content: flex-end;
+		justify-content: center;
 		align-items: center;
 		white-space: nowrap;
-	}
-	.list-actions .action-btn {
-		justify-content: center;
-		padding: 0.375rem;
 	}
 </style>

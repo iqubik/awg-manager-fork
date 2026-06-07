@@ -342,6 +342,28 @@
 		color: var(--color-accent-contrast, #ffffff);
 		font-weight: 600;
 	}
+
+	@media (max-width: 640px) {
+		.segment {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			width: 100%;
+			border-radius: 0.375rem;
+		}
+
+		.segment button {
+			min-width: 0;
+			width: 100%;
+			min-height: 2.375rem;
+			padding: 0.5rem 0.625rem;
+			text-align: center;
+			white-space: nowrap;
+		}
+
+		.segment button + button {
+			border-left: 1px solid var(--border);
+		}
+	}
 	.error {
 		color: var(--danger, #dc2626);
 		font-size: 0.85rem;

@@ -1,6 +1,5 @@
 <script lang="ts">
-	import Modal from '$lib/components/ui/Modal.svelte';
-	import { Button } from '$lib/components/ui';
+	import { Button, SideDrawer } from '$lib/components/ui';
 	import type { SingboxRouterDNSRewrite } from '$lib/types';
 
 	interface Props {
@@ -34,7 +33,13 @@
 	}
 </script>
 
-<Modal open onclose={onClose} title={rewrite ? 'Редактировать перезапись' : 'Новая перезапись'} size="md">
+<SideDrawer
+	open
+	onClose={onClose}
+	title={rewrite ? 'Редактировать перезапись' : 'Новая перезапись'}
+	width={520}
+	footer={drawerFooter}
+>
 	<div class="form">
 		<label class="field">
 			<div class="lbl">Шаблон домена</div>
@@ -50,20 +55,50 @@
 		</label>
 		{#if error}<div class="error">{error}</div>{/if}
 	</div>
+</SideDrawer>
 
-	{#snippet actions()}
-		<Button variant="ghost" size="md" onclick={onClose} type="button">Отмена</Button>
-		<Button variant="primary" size="md" onclick={save} disabled={busy} loading={busy} type="button">Сохранить</Button>
-	{/snippet}
-</Modal>
+{#snippet drawerFooter()}
+	<Button variant="ghost" size="md" onclick={onClose} type="button">Отмена</Button>
+	<Button variant="primary" size="md" onclick={save} disabled={busy} loading={busy} type="button">
+		Сохранить
+	</Button>
+{/snippet}
 
 <style>
-	.form { display: flex; flex-direction: column; gap: 0.75rem; }
-	.field { display: grid; gap: 0.25rem; }
-	.lbl { font-size: 0.75rem; color: var(--muted-text); }
-	.field input { background: var(--bg); border: 1px solid var(--border); padding: 0.4rem 0.6rem; border-radius: 4px; color: var(--text); font-size: 0.85rem; box-sizing: border-box; width: 100%; }
-	.mono { font-family: ui-monospace, monospace; }
-	.hint { font-size: 0.75rem; color: var(--muted-text); line-height: 1.4; }
-	.hint code { background: var(--bg); padding: 0.05rem 0.25rem; border-radius: 2px; font-family: ui-monospace, monospace; }
-	.error { color: var(--danger, #dc2626); font-size: 0.85rem; }
+	.form {
+		display: grid;
+		gap: 0.875rem;
+		min-width: 0;
+	}
+	.field {
+		display: grid;
+		gap: 0.35rem;
+		min-width: 0;
+	}
+	.lbl {
+		font-size: 0.75rem;
+		color: var(--muted-text);
+	}
+	.mono {
+		font-family: ui-monospace, monospace;
+	}
+	.field input {
+		background: var(--bg);
+		border: 1px solid var(--border);
+		padding: 0.4rem 0.6rem;
+		border-radius: 4px;
+		color: var(--text);
+		font-size: 0.85rem;
+		box-sizing: border-box;
+		width: 100%;
+	}
+	.hint {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		line-height: 1.35;
+	}
+	.error {
+		color: var(--danger, #dc2626);
+		font-size: 0.85rem;
+	}
 </style>

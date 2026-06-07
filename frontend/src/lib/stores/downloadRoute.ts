@@ -59,7 +59,10 @@ export function resolveDownloadRouteLabel(
 	outbounds: DownloadOutbound[],
 ): string {
 	const tag = currentSettings?.download?.routeTag?.trim() || 'direct';
-	const match = outbounds.find((ob) => ob.tag === tag);
+	const kind = currentSettings?.download?.routeKind?.trim();
+	const match = outbounds.find(
+		(ob) => ob.tag === tag && (!kind || ob.kind === kind),
+	);
 	if (match) {
 		const rendered = displayRouteName(match.label, match.kind);
 		return `${rendered}${match.available ? '' : ' (недоступен)'}`;

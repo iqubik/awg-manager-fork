@@ -8,7 +8,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
@@ -40,6 +39,10 @@ type CallConfig struct {
 	// Interface binds the request to a kernel device (curl --interface).
 	// Implemented via SO_BINDTODEVICE on the dialer.
 	Interface string
+
+	// DNSServers are used for hostname resolution when Interface is set.
+	// Queries go over UDP bound to the same interface (tunnel DNS).
+	DNSServers []string
 
 	// ProxyURL routes through an HTTP/SOCKS proxy (curl -x / --proxy).
 	// Supports "http://", "socks5://", "socks5h://" schemes.
@@ -229,19 +232,34 @@ func (c *Client) buildTransport(cfg CallConfig, parsedProxy *url.URL) *http.Tran
 	if connectTimeout == 0 {
 		connectTimeout = 5 * time.Second
 	}
-	dialer := bindDialer(cfg.Interface, connectTimeout)
-	t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		return dialer.DialContext(ctx, network, addr)
-	}
+	t.DialContext = buildDialContext(cfg.Interface, cfg.DNSServers, connectTimeout)
 
-	// Set up proxy if specified.
+	// Set up proxy. Explicit URL wins; otherwise honour HTTP_PROXY/HTTPS_PROXY
+	// for direct (unbound) egress. Bind mode must not use env proxy — traffic
+	// must stay on the tunnel interface.
 	if parsedProxy != nil {
 		t.Proxy = http.ProxyURL(parsedProxy)
+	} else if cfg.Interface == "" {
+		t.Proxy = http.ProxyFromEnvironment
 	}
 
 	// Enforce ForceAttemptHTTP2 = false — some VPN endpoints behind
 	// restrictive firewalls choke on HTTP/2 ALPN negotiation.
 	t.ForceAttemptHTTP2 = false
+
+	// Pin ALPN to HTTP/1.1. ForceAttemptHTTP2=false alone is not enough:
+	// on Go 1.24+ the TLS layer still advertises "h2" in ALPN, so servers
+	// negotiate HTTP/2 while this transport only speaks HTTP/1.1. The result
+	// is a bare "EOF" on strict servers (Fastly / raw.githubusercontent.com)
+	// and a "malformed HTTP response \x00\x00\x12\x04…" (an h2 SETTINGS frame)
+	// on lenient ones (Cloudflare / cp.amnezia.org). Cloning is required so we
+	// never mutate the shared base transport's TLS config.
+	if t.TLSClientConfig == nil {
+		t.TLSClientConfig = &tls.Config{}
+	} else {
+		t.TLSClientConfig = t.TLSClientConfig.Clone()
+	}
+	t.TLSClientConfig.NextProtos = []string{"http/1.1"}
 
 	return t
 }

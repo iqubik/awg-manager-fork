@@ -4,7 +4,7 @@
 	import { api } from '$lib/api/client';
 	import type { Subscription } from '$lib/types';
 	import { PageContainer, PageHeader, LoadingSpinner } from '$lib/components/layout';
-	import { Tabs, GridListToggle } from '$lib/components/ui';
+	import { Tabs, LayoutViewToggle } from '$lib/components/ui';
 	import SubscriptionMembersTab from '$lib/components/subscriptions/SubscriptionMembersTab.svelte';
 	import SubscriptionSettingsTab from '$lib/components/subscriptions/SubscriptionSettingsTab.svelte';
 	import { usageLevel } from '$lib/stores/settings';
@@ -96,6 +96,8 @@
 				members: [],
 				memberTags: [],
 				orphanTags: [],
+				rejectedMembers: meta.rejectedMembers ?? [],
+				infoItems: meta.infoItems ?? [],
 				activeMember: '',
 			} as Subscription;
 			progressTotal = meta.total ?? 0;
@@ -114,6 +116,8 @@
 				const data = JSON.parse((e as MessageEvent).data);
 				subscription.orphanTags = data.orphanTags ?? [];
 				subscription.activeMember = data.activeMember ?? '';
+				subscription.rejectedMembers = data.rejectedMembers ?? subscription.rejectedMembers ?? [];
+				subscription.infoItems = data.infoItems ?? subscription.infoItems ?? [];
 			}
 			streamDone = true;
 			loading = false;
@@ -166,10 +170,6 @@
 		isSingboxMembersMobile = mobile;
 	}));
 
-	$effect(() => {
-		if (!isSingboxMembersMobile) return;
-		if (singboxLayoutMode === 'dense') singboxLayoutMode = 'compact';
-	});
 	onDestroy(() => {
 		evtSrc?.close();
 		evtSrc = null;
@@ -272,8 +272,8 @@
 			{#if active === 'members'}
 				{#if subscription.memberTags.length > 0 && showSingboxLayoutPicker}
 					<div class="members-toolbar">
-						<GridListToggle
-							value={singboxEffectiveLayout}
+						<LayoutViewToggle
+							value={singboxLayoutMode}
 							showListOption={showSingboxGridListToggle}
 							showDenseOption={false}
 							onchange={(v) => (singboxLayoutMode = v)}

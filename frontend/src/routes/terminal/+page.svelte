@@ -67,6 +67,10 @@
 		api.terminalStop().catch(() => {});
 	}
 
+	async function handleTerminalReconnect() {
+		await api.terminalStart();
+	}
+
 	function handleTerminalError(msg: string) {
 		notifications.error(msg);
 		pageState = 'error';
@@ -97,7 +101,11 @@
 	</PageContainer>
 {:else if pageState === 'active'}
 	<div class="terminal-page">
-		<TerminalView onclose={handleTerminalClose} onerror={handleTerminalError} />
+		<TerminalView
+			onclose={handleTerminalClose}
+			onerror={handleTerminalError}
+			onreconnect={handleTerminalReconnect}
+		/>
 	</div>
 {:else}
 	<PageContainer>
@@ -111,7 +119,7 @@
 <style>
 	.terminal-page {
 		height: calc(100vh - var(--header-height, 56px));
-		padding: 0.5rem;
+		padding: 0.75rem;
 		box-sizing: border-box;
 	}
 	.terminal-loading {

@@ -1,3 +1,6 @@
 test_cps
 test_transform
+test_tunnel
+test_proxy_recv
+test_proxy_loop
 *.dSYM

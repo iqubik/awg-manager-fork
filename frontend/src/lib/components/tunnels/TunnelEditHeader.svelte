@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Check, Download, RefreshCw, Save, X } from 'lucide-svelte';
 	import { Button, BackLink, type ButtonVariant } from '$lib/components/ui';
 
 	type ActionStatus = 'loading' | 'success' | 'error';
@@ -55,11 +56,7 @@
 			<!-- TODO Phase 1: secondary variant with accent-tinted border (was .btn-replace) -->
 			<Button variant="secondary" onclick={onReplace}>
 				{#snippet iconBefore()}
-					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<polyline points="1 4 1 10 7 10"/>
-						<polyline points="23 20 23 14 17 14"/>
-						<path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
-					</svg>
+					<RefreshCw size={16} strokeWidth={2} aria-hidden="true" />
 				{/snippet}
 				<span class="btn-label">Заменить</span>
 			</Button>
@@ -67,11 +64,7 @@
 		{#if onExport}
 			<Button variant="secondary" onclick={onExport}>
 				{#snippet iconBefore()}
-					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-						<polyline points="7 10 12 15 17 10"/>
-						<line x1="12" y1="15" x2="12" y2="3"/>
-					</svg>
+					<Download size={16} strokeWidth={2} aria-hidden="true" />
 				{/snippet}
 				<span class="btn-label">Скачать</span>
 			</Button>
@@ -82,21 +75,13 @@
 			</Button>
 		{/if}
 		{#snippet successIcon()}
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<polyline points="20 6 9 17 4 12"/>
-			</svg>
+			<Check size={16} strokeWidth={2} aria-hidden="true" />
 		{/snippet}
 		{#snippet errorIcon()}
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-			</svg>
+			<X size={16} strokeWidth={2} aria-hidden="true" />
 		{/snippet}
 		{#snippet saveIcon()}
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-				<polyline points="17 21 17 13 7 13 7 21"/>
-				<polyline points="7 3 7 8 15 8"/>
-			</svg>
+			<Save size={16} strokeWidth={2} aria-hidden="true" />
 		{/snippet}
 		<Button
 			variant={primaryVariant}

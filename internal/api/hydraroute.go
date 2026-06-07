@@ -333,7 +333,7 @@ func (h *HydraRouteHandler) AddGeoFile(w http.ResponseWriter, r *http.Request) {
 
 	routeLabel := lease.Route.DisplayName()
 
-	entry, err := gds.DownloadWithClient(r.Context(), req.Type, req.URL, lease.Client)
+	entry, err := gds.DownloadWithClientVia(r.Context(), req.Type, req.URL, lease.Client, routeLabel)
 	if err != nil {
 		response.Error(w, fmt.Sprintf("download via %s: %v", routeLabel, err), "GEO_DOWNLOAD_ERROR")
 		return
@@ -503,7 +503,7 @@ func (h *HydraRouteHandler) UpdateGeoFile(w http.ResponseWriter, r *http.Request
 
 	out := GeoFileUpdatedData{}
 	if req.Path == "" {
-		count, err := gds.UpdateAllWithClient(r.Context(), lease.Client)
+		count, err := gds.UpdateAllWithClientVia(r.Context(), lease.Client, routeLabel)
 		out.Updated = count
 		if err != nil {
 			out.Partial = count > 0
@@ -514,7 +514,7 @@ func (h *HydraRouteHandler) UpdateGeoFile(w http.ResponseWriter, r *http.Request
 			}
 		}
 	} else {
-		if _, err := gds.UpdateWithClient(r.Context(), req.Path, lease.Client); err != nil {
+		if _, err := gds.UpdateWithClientVia(r.Context(), req.Path, lease.Client, routeLabel); err != nil {
 			response.Error(w, fmt.Sprintf("update via %s: %v", routeLabel, err), "GEO_UPDATE_ERROR")
 			return
 		}

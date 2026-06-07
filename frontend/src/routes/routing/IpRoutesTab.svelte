@@ -9,6 +9,8 @@
     import { notifications } from '$lib/stores/notifications';
     import { staticRoutesStore } from '$lib/stores/routing';
     import RoutingTabBodySkeleton from './RoutingTabBodySkeleton.svelte';
+    import RoutingRuleAddMenu from '$lib/components/routing/RoutingRuleAddMenu.svelte';
+    import { ERROR_WORDS, pluralForm, pluralize, ROUTE_WORDS, RULE_WORDS } from '$lib/utils/pluralize';
 
     interface Props {
         ipRoutes: StaticRouteList[];
@@ -136,7 +138,7 @@
         const selected = ipRoutes.filter(r => ipSelected.has(r.id));
         const portable = exportStaticRoutes(selected);
         downloadJson(portable, 'awg-ip-routes.json');
-        notifications.success(`Экспортировано ${portable.length} маршрутов`);
+        notifications.success(`Экспортировано ${pluralize(portable.length, ROUTE_WORDS)}`);
     }
 
     async function bulkIpToggle(enabled: boolean) {
@@ -148,8 +150,8 @@
             }
 
             const label = enabled ? 'Включено' : 'Выключено';
-            if (fail > 0) notifications.warning(`${label} ${ok} из ${ok + fail} маршрутов (${fail} ошибок)`);
-            else notifications.success(`${label} ${ok} маршрутов`);
+            if (fail > 0) notifications.warning(`${label} ${ok} из ${ok + fail} ${pluralForm(ok + fail, ROUTE_WORDS)} (${pluralize(fail, ERROR_WORDS)})`);
+            else notifications.success(`${label} ${pluralize(ok, ROUTE_WORDS)}`);
         } finally {
             ipBulkLoading = false;
         }
@@ -164,8 +166,8 @@
             }
 
             exitIpSelection();
-            if (fail > 0) notifications.warning(`Удалено ${ok} из ${ok + fail} маршрутов (${fail} ошибок)`);
-            else notifications.success(`Удалено ${ok} маршрутов`);
+            if (fail > 0) notifications.warning(`Удалено ${ok} из ${ok + fail} ${pluralForm(ok + fail, ROUTE_WORDS)} (${pluralize(fail, ERROR_WORDS)})`);
+            else notifications.success(`Удалено ${pluralize(ok, ROUTE_WORDS)}`);
         } finally {
             ipBulkLoading = false;
             ipBulkDeleteConfirm = false;
@@ -184,8 +186,8 @@
             }
 
             ipTunnelMode = false;
-            if (fail > 0) notifications.warning(`Туннель изменён для ${ok} из ${ok + fail} маршрутов (${fail} ошибок)`);
-            else notifications.success(`Туннель изменён для ${ok} маршрутов`);
+            if (fail > 0) notifications.warning(`Туннель изменён для ${ok} из ${ok + fail} ${pluralForm(ok + fail, ROUTE_WORDS)} (${pluralize(fail, ERROR_WORDS)})`);
+            else notifications.success(`Туннель изменён для ${pluralize(ok, ROUTE_WORDS)}`);
         } finally {
             ipBulkLoading = false;
         }
@@ -199,6 +201,7 @@
                     name: route.name,
                     subnets: route.subnets,
                     enabled: route.enabled,
+                    iconUrl: route.iconUrl,
                     tunnelID: route.tunnelID,
                 });
                 count++;
@@ -208,7 +211,7 @@
         }
         ipImportOpen = false;
         if (count > 0) {
-            notifications.success(`Импортировано ${count} маршрутов`);
+            notifications.success(`Импортировано ${pluralize(count, ROUTE_WORDS)}`);
         }
     }
 </script>
@@ -219,16 +222,24 @@
             {#if bodyLoading}
                 …
             {:else}
-                {boundRoutes.length} правил, {ipActiveCount} активных{#if orphanRoutes.length > 0}, <span class="orphan-count">несвязанных: {orphanRoutes.length}</span>{/if}
+                {pluralize(boundRoutes.length, RULE_WORDS)}, {ipActiveCount} активных{#if orphanRoutes.length > 0}, <span class="orphan-count">несвязанных: {orphanRoutes.length}</span>{/if}
             {/if}
         </span>
         <div class="section-buttons">
             <StoreStatusBadge store={staticRoutesStore} />
-            <Button variant="ghost" size="sm" disabled={bodyLoading} onclick={() => ipImportOpen = true}>Загрузить набор правил</Button>
             {#if ipRoutes.length > 0}
                 <Button variant="ghost" size="sm" disabled={bodyLoading} onclick={() => { ipSelectionMode = true; ipSelected = new Set(); }}>Выбрать</Button>
             {/if}
-            <Button variant="primary" size="sm" disabled={bodyLoading} onclick={() => { editingIpRoute = null; ipCreateOpen = true; }}>+ Новое правило</Button>
+            <RoutingRuleAddMenu
+                disabled={bodyLoading}
+                onmanual={() => {
+                    editingIpRoute = null;
+                    ipCreateOpen = true;
+                }}
+                importEnabled
+                importLabel="Загрузить набор правил"
+                onimport={() => (ipImportOpen = true)}
+            />
         </div>
     {:else}
         <div class="bulk-bar">

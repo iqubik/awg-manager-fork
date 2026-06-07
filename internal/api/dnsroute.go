@@ -29,17 +29,49 @@ type DnsRouteTargetDTO struct {
 
 // DnsRouteDTO mirrors frontend DnsRoute.
 type DnsRouteDTO struct {
-	ID            string                    `json:"id" example:"dns_xyz789"`
-	Name          string                    `json:"name" example:"Work VPN"`
-	Domains       []string                  `json:"domains" example:"example.com"`
-	ManualDomains []string                  `json:"manualDomains" example:"corp.internal"`
-	Subscriptions []DnsRouteSubscriptionDTO `json:"subscriptions,omitempty"`
-	Routes        []DnsRouteTargetDTO       `json:"routes"`
-	Enabled       bool                      `json:"enabled" example:"true"`
-	CreatedAt     string                    `json:"createdAt" example:"2024-01-01T00:00:00Z"`
-	UpdatedAt     string                    `json:"updatedAt" example:"2024-01-15T12:00:00Z"`
-	Backend       string                    `json:"backend,omitempty" example:"ndms"`
-	IconURL       string                    `json:"iconUrl,omitempty" example:"https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Telegram.png"`
+	ID                 string                    `json:"id" example:"dns_xyz789"`
+	Name               string                    `json:"name" example:"Work VPN"`
+	Domains            []string                  `json:"domains" example:"example.com"`
+	Excludes           []string                  `json:"excludes,omitempty" example:"ads.example.com"`
+	ExcludesText       string                    `json:"excludesText,omitempty" example:"# local bypass\n.local\n10.0.0.0/8"`
+	ExcludeSubnets     []string                  `json:"excludeSubnets,omitempty" example:"10.0.0.0/24"`
+	Subnets            []string                  `json:"subnets,omitempty" example:"10.0.0.0/8"`
+	ManualDomains      []string                  `json:"manualDomains" example:"corp.internal"`
+	ManualText         string                    `json:"manualText,omitempty" example:"# streaming\nyoutube.com\n# backup\ngooglevideo.com"`
+	Subscriptions      []DnsRouteSubscriptionDTO `json:"subscriptions,omitempty"`
+	Routes             []DnsRouteTargetDTO       `json:"routes"`
+	Enabled            bool                      `json:"enabled" example:"true"`
+	CreatedAt          string                    `json:"createdAt" example:"2024-01-01T00:00:00Z"`
+	UpdatedAt          string                    `json:"updatedAt" example:"2024-01-15T12:00:00Z"`
+	Backend            string                    `json:"backend,omitempty" enums:"ndms,hydraroute" example:"hydraroute"`
+	IconURL            string                    `json:"iconUrl,omitempty" example:"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."`
+	HRRouteMode        string                    `json:"hrRouteMode,omitempty" enums:"interface,policy" example:"interface"`
+	HRPolicyName       string                    `json:"hrPolicyName,omitempty" example:"Streaming"`
+	HRPolicyInterfaces []string                  `json:"hrPolicyInterfaces,omitempty" example:"Wireguard0"`
+}
+
+// DnsRouteUpsertRequest is the request body for DNS/HR route list create/update.
+type DnsRouteUpsertRequest struct {
+	Name               string                    `json:"name" example:"Youtube"`
+	ManualDomains      []string                  `json:"manualDomains" example:"youtube.com,.googlevideo.com,geosite:GOOGLE"`
+	ManualText         string                    `json:"manualText,omitempty" example:"# game servers\nexample.com\n203.0.113.0/24"`
+	Subscriptions      []DnsRouteSubscriptionDTO `json:"subscriptions,omitempty"`
+	Excludes           []string                  `json:"excludes,omitempty" example:"ads.youtube.com"`
+	ExcludesText       string                    `json:"excludesText,omitempty" example:"# local bypass\n.local\n10.0.0.0/8"`
+	ExcludeSubnets     []string                  `json:"excludeSubnets,omitempty" example:"10.0.0.0/24"`
+	Subnets            []string                  `json:"subnets,omitempty" example:"142.250.0.0/15"`
+	Routes             []DnsRouteTargetDTO       `json:"routes,omitempty"`
+	Enabled            bool                      `json:"enabled" example:"true"`
+	Backend            string                    `json:"backend,omitempty" enums:"ndms,hydraroute" example:"hydraroute"`
+	IconURL            string                    `json:"iconUrl,omitempty" example:"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."`
+	HRRouteMode        string                    `json:"hrRouteMode,omitempty" enums:"interface,policy" example:"interface"`
+	HRPolicyName       string                    `json:"hrPolicyName,omitempty" example:"Streaming"`
+	HRPolicyInterfaces []string                  `json:"hrPolicyInterfaces,omitempty" example:"Wireguard0"`
+}
+
+// DnsRouteDeleteBatchRequest is the request body for batch delete.
+type DnsRouteDeleteBatchRequest struct {
+	IDs []string `json:"ids" example:"dns_a,dns_b"`
 }
 
 // DnsRoutesListResponse is the envelope for GET /dns-routes/list.
@@ -162,6 +194,7 @@ func (h *DNSRouteHandler) Get(w http.ResponseWriter, r *http.Request) {
 //	@Accept			json
 //	@Produce		json
 //	@Security		CookieAuth
+//	@Param			body	body		DnsRouteUpsertRequest	true	"DNS route list payload"
 //	@Success		200	{object}	DnsRouteResponse
 //	@Failure		400	{object}	APIErrorEnvelope
 //	@Failure		500	{object}	APIErrorEnvelope
@@ -191,6 +224,7 @@ func (h *DNSRouteHandler) Create(w http.ResponseWriter, r *http.Request) {
 //	@Produce		json
 //	@Security		CookieAuth
 //	@Param			id	query	string	true	"List id"
+//	@Param			body	body	DnsRouteUpsertRequest	true	"DNS route list payload"
 //	@Success		200	{object}	DnsRouteResponse
 //	@Failure		400	{object}	APIErrorEnvelope
 //	@Failure		500	{object}	APIErrorEnvelope
@@ -267,6 +301,7 @@ func (h *DNSRouteHandler) Delete(w http.ResponseWriter, r *http.Request) {
 //	@Accept			json
 //	@Produce		json
 //	@Security		CookieAuth
+//	@Param			body	body	DnsRouteDeleteBatchRequest	true	"IDs to delete"
 //	@Success		200	{object}	APIEnvelope
 //	@Failure		400	{object}	APIErrorEnvelope
 //	@Failure		500	{object}	APIErrorEnvelope
@@ -311,6 +346,7 @@ func (h *DNSRouteHandler) DeleteBatch(w http.ResponseWriter, r *http.Request) {
 //	@Accept			json
 //	@Produce		json
 //	@Security		CookieAuth
+//	@Param			body	body	[]DnsRouteUpsertRequest	true	"DNS route list payloads"
 //	@Success		200	{object}	APIEnvelope
 //	@Failure		400	{object}	APIErrorEnvelope
 //	@Failure		500	{object}	APIErrorEnvelope
@@ -346,6 +382,7 @@ func (h *DNSRouteHandler) CreateBatch(w http.ResponseWriter, r *http.Request) {
 //	@Produce		json
 //	@Security		CookieAuth
 //	@Param			id	query	string	true	"List id"
+//	@Param			body	body	EnabledToggleRequest	true	"Enabled flag"
 //	@Success		200	{object}	APIEnvelope
 //	@Failure		400	{object}	APIErrorEnvelope
 //	@Failure		500	{object}	APIErrorEnvelope

@@ -2,7 +2,7 @@
 	import type { AccessPolicy, PolicyDevice, PolicyGlobalInterface } from '$lib/types';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
-	import { Toggle } from '$lib/components/ui';
+	import { Toggle, Badge } from '$lib/components/ui';
 	import { InterfaceList } from '$lib/components/accesspolicy';
 	import { DeviceList } from '$lib/components/accesspolicy';
 	import { isHydraRouteAccessPolicy } from '$lib/utils/accessPolicy';
@@ -220,7 +220,7 @@
 		{#if isHrPolicy}
 			<div class="hr-side">
 				<div class="hr-policy-banner">
-					<span class="badge-hr-route">HydraRoute</span>
+					<Badge variant="warning" uppercase size="xs" pill>HydraRoute</Badge>
 					<p>
 						Это политика HydraRoute Neo. Добавлять в неё устройства не требуется — маршрутизация
 						HydraRoute распространяется только на политику по умолчанию. Интерфейсы настраиваются
@@ -390,6 +390,7 @@
 	.hr-policy-banner {
 		display: flex;
 		flex-direction: column;
+		align-items: flex-start;
 		gap: 12px;
 		width: 100%;
 		padding: 16px;
@@ -404,16 +405,6 @@
 		font-size: 0.8125rem;
 		line-height: 1.45;
 		color: var(--text-secondary);
-	}
-
-	.badge-hr-route {
-		align-self: flex-start;
-		font-size: 0.625rem;
-		padding: 2px 8px;
-		border-radius: 9999px;
-		background: rgba(245, 158, 11, 0.18);
-		color: var(--warning);
-		font-weight: 600;
 	}
 
 	.assigned-section {

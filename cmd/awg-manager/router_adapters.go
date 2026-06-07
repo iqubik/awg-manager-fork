@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hoaxisr/awg-manager/internal/accesspolicy"
 	ndmsquery "github.com/hoaxisr/awg-manager/internal/ndms/query"
@@ -117,8 +118,9 @@ func (a *routerAccessPolicyAdapter) CreatePolicy(ctx context.Context, descriptio
 	}, nil
 }
 
-// Compile-time guarantee for the WAN-interface lister.
+// Compile-time guarantees for the WAN-interface and bindable-interface listers.
 var _ router.WANInterfaceLister = (*routerWANInterfaceAdapter)(nil)
+var _ router.BindableInterfaceLister = (*routerWANInterfaceAdapter)(nil)
 
 // routerWANInterfaceAdapter bridges ndmsquery.InterfaceStore's ListWAN
 // (returns []wan.Interface) into router.WANInterfaceLister (returns
@@ -142,6 +144,44 @@ func (a *routerWANInterfaceAdapter) ListWAN(ctx context.Context) ([]router.WANIn
 			Label:    iface.Label,
 			Up:       iface.Up,
 			Priority: iface.Priority,
+		})
+	}
+	return out, nil
+}
+
+var _ router.IngressResolver = (*routerIngressResolverAdapter)(nil)
+
+// routerIngressResolverAdapter резолвит "managed:WireguardN" → kernel-имя
+// ("nwgN") через InterfaceStore.ResolveSystemName. iface:-ref'ы router
+// резолвит сам без адаптера. Живёт в main — router не может импортить
+// internal/ndms (цикл через internal/tunnel/wan), как и WAN-адаптер.
+type routerIngressResolverAdapter struct {
+	store *ndmsquery.InterfaceStore
+}
+
+func (a *routerIngressResolverAdapter) Resolve(ctx context.Context, ref string) string {
+	const prefix = "managed:"
+	if !strings.HasPrefix(ref, prefix) {
+		return ""
+	}
+	return a.store.ResolveSystemName(ctx, strings.TrimPrefix(ref, prefix))
+}
+
+func (a *routerWANInterfaceAdapter) ListBindable(ctx context.Context) ([]router.WANInterfaceInfo, error) {
+	ifaces, err := a.store.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]router.WANInterfaceInfo, 0, len(ifaces))
+	for _, iface := range ifaces {
+		if router.IsAutoManagedIface(iface.Name) {
+			continue
+		}
+		out = append(out, router.WANInterfaceInfo{
+			Name:  iface.Name,
+			Label: iface.Label,
+			Up:    iface.Up,
+			Type:  iface.Type,
 		})
 	}
 	return out, nil

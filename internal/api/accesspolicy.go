@@ -522,4 +522,6 @@ func (h *AccessPolicyHandler) SetInterfaceUp(w http.ResponseWriter, r *http.Requ
 	}
 	response.Success(w, map[string]bool{"ok": true})
 	publishInvalidated(h.bus, ResourceRoutingPolicyInterfaces, "set-interface-up")
+	publishInvalidated(h.bus, ResourceRoutingTunnels, "set-interface-up")
+	publishInvalidated(h.bus, ResourceTunnels, "set-interface-up")
 }

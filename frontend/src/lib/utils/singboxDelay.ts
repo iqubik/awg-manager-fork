@@ -27,7 +27,7 @@ export function singboxDelayLabel(state: SingboxDelayState, latest?: number): st
 	if (state === 'stopped') return 'stopped';
 	if (state === 'unknown') return '—';
 	if (state === 'fail') return 'timeout';
-	if (latest !== undefined && latest <= 0) return 'проверка...';
+	if (latest !== undefined && latest <= 0) return 'check...';
 	if (latest !== undefined && latest > 0) return `${latest}ms`;
 	return '—';
 }

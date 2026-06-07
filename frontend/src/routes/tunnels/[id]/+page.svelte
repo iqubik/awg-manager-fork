@@ -472,7 +472,6 @@
 					<AwgConfigAnalyzer
 						initialTunnelId={tunnelId}
 						embedded
-						autoAnalyze
 						lockTunnelSelection
 						onTunnelSaved={() => {
 							loadTunnel();

@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { Button, ConfirmModal } from '$lib/components/ui';
+	import { Button, ConfirmModal, Dropdown } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { tunnels as tunnelsStore } from '$lib/stores/tunnels';
 	import type { AWGTunnel, TunnelListItem } from '$lib/types';
+	import { buildManagedTunnelListDropdownOptions } from '$lib/utils/routingTunnelOptions';
 	import {
 		parseAWG,
 		detectVersion,
@@ -28,7 +29,6 @@
 	interface Props {
 		initialTunnelId?: string;
 		embedded?: boolean;
-		autoAnalyze?: boolean;
 		lockTunnelSelection?: boolean;
 		onTunnelSaved?: () => void;
 	}
@@ -36,7 +36,6 @@
 	let {
 		initialTunnelId = '',
 		embedded = false,
-		autoAnalyze = false,
 		lockTunnelSelection = false,
 		onTunnelSaved,
 	}: Props = $props();
@@ -328,9 +327,9 @@
 		}
 	}
 
-	async function analyzeSelectedTunnel() {
+	async function applyFromSelectedTunnel() {
 		if (!selectedTunnelId) {
-			tunnelLoadError = 'Выберите туннель';
+			tunnelLoadError = '';
 			return;
 		}
 
@@ -400,6 +399,7 @@
 	function onKeydown(e: KeyboardEvent) {
 		if (e.key !== 'Enter') return;
 		if (!e.ctrlKey && !e.metaKey) return;
+		if (!canAnalyze) return;
 		e.preventDefault();
 		analyze();
 	}
@@ -413,8 +413,8 @@
 			if (initialTunnelId) {
 				selectedTunnelId = initialTunnelId;
 			}
-			if (autoAnalyze && selectedTunnelId) {
-				await analyzeSelectedTunnel();
+			if (selectedTunnelId) {
+				await applyFromSelectedTunnel();
 			}
 		} catch (e) {
 			tunnelLoadError = e instanceof Error ? e.message : String(e);
@@ -423,6 +423,15 @@
 			tunnelsLoading = false;
 		}
 	});
+
+	const tunnelOptions = $derived(buildManagedTunnelListDropdownOptions(tunnels));
+	const tunnelPlaceholder = $derived(
+		tunnelsLoading
+			? 'Загрузка туннелей…'
+			: tunnelOptions.length
+				? 'Выберите туннель'
+				: 'Нет AWG-туннелей',
+	);
 
 	let parsedLines = $derived.by(() => {
 		if (!parsed) return [] as { key: string; value: string }[];
@@ -457,6 +466,7 @@
 	});
 
 	let categories = $derived([...new Set(checks.map((c) => c.cat))]);
+	let canAnalyze = $derived(raw.trim().length > 0);
 
 	const icons: Record<string, string> = {
 		pass: '✓',
@@ -467,7 +477,7 @@
 
 	let dpiL = $derived.by(() => {
 		const s = awgScores;
-		if (!s) return { text: '—', color: 'var(--text-tertiary)' };
+		if (!s) return { text: '—', color: 'var(--color-text-muted, var(--text-muted))' };
 		return dpiLabel(s.dpi);
 	});
 
@@ -484,11 +494,33 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="shell">
-	<p class="hint">
-		Анализ выполняется только в браузере: конфиг не отправляется на сервер. Оценки эвристические, не
-		гарантируют обход DPI.
-	</p>
+<div class="awg-analyzer">
+	<div class="privacy-banner" role="status">
+		<div class="privacy-banner-icon" aria-hidden="true">
+			<svg
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+			>
+				<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+				<path d="M9 12l2 2 4-4" />
+			</svg>
+		</div>
+		<div class="privacy-banner-body">
+			<p class="privacy-banner-title">Анализ только в браузере</p>
+			<p class="privacy-banner-text">
+				Конфиг обрабатывается локально и не отправляется на сервер.
+			</p>
+			<div class="privacy-banner-tags">
+				<span class="privacy-tag">Данные остаются у вас</span>
+				<span class="privacy-tag privacy-tag-warning">Оценка эвристическая и не гарантирует обход DPI</span>
+				<span class="privacy-tag privacy-tag-muted">Изменение параметров на свой страх и риск</span>
+			</div>
+		</div>
+	</div>
 
 	<div class="layout">
 		<div class="col-input">
@@ -499,27 +531,19 @@
 						<span class="existing-tunnel-note">или вставьте .conf ниже</span>
 					</div>
 					<div class="existing-tunnel-row">
-						<select
-							class="existing-tunnel-select"
-							bind:value={selectedTunnelId}
-							disabled={tunnelsLoading || tunnelLoading || tunnels.length === 0}
-						>
-							<option value="">
-								{tunnelsLoading ? 'Загрузка туннелей…' : tunnels.length ? 'Выберите туннель' : 'Нет AWG-туннелей'}
-							</option>
-							{#each tunnels as t (t.id)}
-								<option value={t.id}>
-									{t.name || t.id} · {t.endpoint || t.interfaceName || t.id}
-								</option>
-							{/each}
-						</select>
-						<Button
-							variant="secondary"
-							onclick={analyzeSelectedTunnel}
-							disabled={!selectedTunnelId || tunnelLoading}
-						>
-							{tunnelLoading ? 'Загрузка…' : 'Анализировать'}
-						</Button>
+						<div class="existing-tunnel-select">
+							<Dropdown
+								bind:value={selectedTunnelId}
+								options={tunnelOptions}
+								placeholder={tunnelPlaceholder}
+								onchange={() => void applyFromSelectedTunnel()}
+								disabled={tunnelsLoading || tunnelLoading || tunnelOptions.length === 0}
+								fullWidth
+							/>
+						</div>
+						{#if tunnelLoading}
+							<span class="existing-tunnel-loading">Загрузка…</span>
+						{/if}
 					</div>
 					{#if tunnelLoadError}
 						<div class="warn" role="alert">{tunnelLoadError}</div>
@@ -530,15 +554,6 @@
 					<div class="existing-tunnel-head">
 						<span class="existing-tunnel-title">Текущий AWG-туннель</span>
 						<span class="existing-tunnel-note">конфиг загружен из открытого редактора</span>
-					</div>
-					<div class="existing-tunnel-row">
-						<Button
-							variant="secondary"
-							onclick={analyzeSelectedTunnel}
-							disabled={!selectedTunnelId || tunnelLoading}
-						>
-							{tunnelLoading ? 'Загрузка…' : 'Повторить анализ'}
-						</Button>
 					</div>
 					{#if tunnelLoadError}
 						<div class="warn" role="alert">{tunnelLoadError}</div>
@@ -564,8 +579,8 @@
 			</label>
 
 			<div class="bar">
-				<Button variant="primary" onclick={analyze}>Анализировать</Button>
-				<Button variant="secondary" onclick={() => fileInput?.click()}>Файл…</Button>
+				<Button variant="primary" onclick={analyze} disabled={!canAnalyze}>Анализировать</Button>
+				<Button variant="secondary" onclick={() => fileInput?.click()}>Загрузить файл</Button>
 				<Button variant="ghost" onclick={clearAll}>Очистить</Button>
 				{#if canSave}
 					<Button variant="outline-primary" onclick={saveToTunnel} loading={savingTunnel}>
@@ -809,21 +824,100 @@
 />
 
 <style>
-	.shell {
+	.awg-analyzer {
 		box-sizing: border-box;
 		width: 100%;
 		max-width: 1180px;
 		margin: 0 auto;
 		padding: 12px 16px 28px;
+		color: var(--color-text-primary, var(--text-primary));
 	}
 
-	.hint {
-		margin: 0 auto 14px;
-		max-width: 52rem;
+	.privacy-banner {
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		margin: 0 0 16px;
+		padding: 12px 14px;
+		border-radius: 12px;
+		border: 1px solid
+			color-mix(in srgb, var(--color-success, #22c55e) 32%, var(--color-border));
+		background: linear-gradient(
+			135deg,
+			color-mix(in srgb, var(--color-success, #22c55e) 11%, var(--color-bg-secondary, var(--bg-secondary))),
+			color-mix(in srgb, var(--color-info, #3b82f6) 7%, var(--color-bg-secondary, var(--bg-secondary)))
+		);
+		box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
+	}
+
+	.privacy-banner-icon {
+		flex-shrink: 0;
+		display: grid;
+		place-items: center;
+		width: 36px;
+		height: 36px;
+		border-radius: 10px;
+		color: var(--color-success, #22c55e);
+		background: color-mix(in srgb, var(--color-success, #22c55e) 14%, transparent);
+		border: 1px solid color-mix(in srgb, var(--color-success, #22c55e) 24%, transparent);
+	}
+
+	.privacy-banner-icon svg {
+		width: 18px;
+		height: 18px;
+	}
+
+	.privacy-banner-body {
+		min-width: 0;
+		flex: 1;
+	}
+
+	.privacy-banner-title {
+		margin: 0 0 4px;
+		font-size: 13px;
+		font-weight: 600;
+		line-height: 1.3;
+		color: var(--color-text-primary, var(--text-primary));
+	}
+
+	.privacy-banner-text {
+		margin: 0;
 		font-size: 12px;
 		line-height: 1.45;
-		color: var(--text-secondary);
-		text-align: center;
+		color: var(--color-text-secondary, var(--text-secondary));
+	}
+
+	.privacy-banner-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 10px;
+	}
+
+	.privacy-tag {
+		display: inline-flex;
+		align-items: center;
+		padding: 3px 8px;
+		border-radius: 999px;
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		line-height: 1.35;
+		color: var(--color-success, #22c55e);
+		background: color-mix(in srgb, var(--color-success, #22c55e) 12%, transparent);
+		border: 1px solid color-mix(in srgb, var(--color-success, #22c55e) 22%, transparent);
+	}
+
+	.privacy-tag-muted {
+		color: var(--color-text-muted, var(--text-muted));
+		background: color-mix(in srgb, var(--color-text-muted, var(--text-muted)) 10%, transparent);
+		border-color: color-mix(in srgb, var(--color-border) 80%, transparent);
+	}
+
+	.privacy-tag-warning {
+		color: var(--color-warning, var(--warning));
+		background: color-mix(in srgb, var(--color-warning, var(--warning)) 12%, transparent);
+		border-color: color-mix(in srgb, var(--color-warning, var(--warning)) 22%, transparent);
 	}
 
 	.layout {
@@ -839,16 +933,33 @@
 			gap: 24px 28px;
 		}
 
-		.ta {
-			min-height: min(62vh, 520px);
+		.col-input {
+			position: sticky;
+			top: 1rem;
+			align-self: start;
+			max-height: calc(100vh - 5rem);
+			display: flex;
+			flex-direction: column;
+			min-height: 0;
 		}
 
-		.col-results {
-			position: sticky;
-			top: 12px;
-			max-height: calc(100vh - 100px);
+		.col-input > :not(.drop) {
+			flex-shrink: 0;
+		}
+
+		.drop {
+			flex: 1 1 auto;
+			min-height: 140px;
+			display: flex;
+			flex-direction: column;
+			overflow: hidden;
+		}
+
+		.ta {
+			flex: 1 1 auto;
+			min-height: 0;
 			overflow-y: auto;
-			padding-right: 4px;
+			resize: none;
 		}
 	}
 
@@ -861,7 +972,7 @@
 		padding: 20px 18px;
 		border-radius: 10px;
 		border: 1px dashed var(--color-border);
-		background: var(--bg-secondary);
+		background: var(--color-bg-secondary, var(--bg-secondary));
 		text-align: center;
 	}
 
@@ -869,20 +980,20 @@
 		margin: 0 0 8px;
 		font-size: 13px;
 		font-weight: 600;
-		color: var(--text-primary);
+		color: var(--color-text-primary, var(--text-primary));
 	}
 
 	.results-empty-text {
 		margin: 0;
 		font-size: 12px;
 		line-height: 1.5;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary, var(--text-secondary));
 	}
 
 	.drop {
 		display: block;
 		padding: 12px 14px;
-		background: var(--bg-secondary);
+		background: var(--color-bg-secondary, var(--bg-secondary));
 		border: 1px dashed var(--color-border);
 		border-radius: 10px;
 		cursor: text;
@@ -890,8 +1001,8 @@
 	}
 
 	.drop:focus-within {
-		border-color: var(--color-accent, #8b5cf6);
-		background: var(--bg-tertiary, var(--bg-secondary));
+		border-color: var(--color-accent, var(--accent));
+		background: var(--color-bg-tertiary, var(--bg-tertiary));
 	}
 
 	.drop-label {
@@ -900,7 +1011,7 @@
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		color: var(--text-tertiary);
+		color: var(--color-text-muted, var(--text-muted));
 		margin-bottom: 8px;
 	}
 
@@ -910,15 +1021,138 @@
 		resize: vertical;
 		border: none;
 		background: transparent;
-		color: var(--text-primary);
+		color: var(--color-text-primary, var(--text-primary));
 		font-family: var(--font-mono, ui-monospace, monospace);
 		font-size: 12px;
 		line-height: 1.45;
 		outline: none;
 	}
 
+	@media (max-width: 640px) {
+		.awg-analyzer {
+			padding: 0;
+			max-width: none;
+		}
+
+		.privacy-banner {
+			margin-bottom: 0.75rem;
+			padding: 10px 12px;
+			gap: 10px;
+		}
+
+		.privacy-banner-icon {
+			width: 32px;
+			height: 32px;
+			border-radius: 9px;
+		}
+
+		.privacy-banner-icon svg {
+			width: 16px;
+			height: 16px;
+		}
+
+		.privacy-banner-title {
+			font-size: 12px;
+		}
+
+		.privacy-banner-text {
+			font-size: 11px;
+		}
+
+		.privacy-banner-tags {
+			margin-top: 8px;
+			gap: 5px;
+		}
+
+		.layout {
+			gap: 0.765rem;
+		}
+
+		.drop {
+			padding: 10px 12px;
+		}
+
+		.ta {
+			min-height: 130px;
+			max-height: 40vh;
+		}
+
+		.bar {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			width: 100%;
+			gap: 0.5rem;
+			margin-top: 0.75rem;
+			margin-bottom: 0.75rem;
+		}
+
+		.bar :global(.btn) {
+			width: 100%;
+			min-width: 0;
+		}
+
+		.kbd {
+			display: none;
+		}
+
+		.card {
+			padding: 12px;
+			margin-bottom: 0.765rem;
+		}
+
+		.results-empty {
+			padding: 14px 12px;
+		}
+
+		.summary-row {
+			grid-template-columns: 1fr;
+			gap: 0.25rem;
+		}
+
+		.minis {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		.score-row {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+
+		.ring-hold {
+			width: 100px;
+			height: 100px;
+		}
+
+		.ring {
+			width: 100px;
+			height: 100px;
+		}
+
+		.existing-tunnel-box {
+			margin-bottom: 0.75rem;
+			padding: 10px 12px;
+		}
+
+		.existing-tunnel-head {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 0.25rem;
+			margin-bottom: 8px;
+		}
+
+		.existing-tunnel-row {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.existing-tunnel-select {
+			width: 100%;
+			min-width: 0;
+		}
+	}
+
 	.ta::placeholder {
-		color: var(--text-tertiary);
+		color: var(--color-text-muted, var(--text-muted));
 	}
 
 	.bar {
@@ -934,7 +1168,7 @@
 		margin-left: auto;
 		font-size: 11px;
 		padding: 4px 8px;
-		color: var(--text-tertiary);
+		color: var(--color-text-muted, var(--text-muted));
 		font-family: var(--font-mono);
 	}
 
@@ -950,14 +1184,14 @@
 		padding: 10px 12px;
 		border-radius: 8px;
 		background: var(--color-error-tint);
-		border: 1px solid var(--color-error-border, rgba(239, 68, 68, 0.35));
+		border: 1px solid var(--color-error-border);
 		color: var(--color-error);
 		font-size: 13px;
 		margin-bottom: 12px;
 	}
 
 	.card {
-		background: var(--bg-secondary);
+		background: var(--color-bg-secondary, var(--bg-secondary));
 		border: 1px solid var(--color-border);
 		border-radius: 10px;
 		padding: 14px 16px;
@@ -977,9 +1211,9 @@
 		border-radius: 999px;
 		font-weight: 700;
 		font-size: 13px;
-		background: var(--bg-tertiary, rgba(0, 0, 0, 0.2));
+		background: var(--color-bg-tertiary, var(--bg-tertiary));
 		border: 1px solid var(--color-border);
-		color: var(--text-primary);
+		color: var(--color-text-primary, var(--text-primary));
 	}
 
 	.ver-desc {
@@ -988,7 +1222,7 @@
 		min-width: 200px;
 		font-size: 13px;
 		line-height: 1.5;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary, var(--text-secondary));
 	}
 
 	.summary-dl {
@@ -1013,12 +1247,12 @@
 	.summary-row dt {
 		margin: 0;
 		font-weight: 600;
-		color: var(--text-tertiary);
+		color: var(--color-text-muted, var(--text-muted));
 	}
 
 	.summary-row dd {
 		margin: 0;
-		color: var(--text-primary);
+		color: var(--color-text-primary, var(--text-primary));
 		word-break: break-word;
 	}
 
@@ -1081,12 +1315,12 @@
 	.ring-num {
 		font-size: 22px;
 		font-weight: 800;
-		fill: var(--text-primary);
+		fill: var(--color-text-primary, var(--text-primary));
 	}
 
 	.ring-sub {
 		font-size: 9px;
-		fill: var(--text-tertiary);
+		fill: var(--color-text-muted, var(--text-muted));
 	}
 
 	.verdict {
@@ -1108,7 +1342,7 @@
 		margin: 0;
 		font-size: 13px;
 		line-height: 1.5;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary, var(--text-secondary));
 	}
 
 	.minis {
@@ -1118,7 +1352,7 @@
 	}
 
 	.mini {
-		background: var(--bg-primary, rgba(0, 0, 0, 0.15));
+		background: var(--color-settings-control-bg, var(--color-bg-tertiary, var(--bg-tertiary)));
 		border: 1px solid var(--color-border);
 		border-radius: 8px;
 		padding: 8px 10px;
@@ -1128,22 +1362,22 @@
 		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		color: var(--text-tertiary);
+		color: var(--color-text-muted, var(--text-muted));
 		margin-bottom: 4px;
 	}
 
 	.mini-v {
 		font-size: 15px;
 		font-weight: 700;
-		color: var(--text-primary);
+		color: var(--color-text-primary, var(--text-primary));
 	}
 
 	.mini-v.accent {
-		color: var(--color-accent, #a78bfa);
+		color: var(--color-accent, var(--accent));
 	}
 
 	.mini-v.soft {
-		color: var(--text-secondary);
+		color: var(--color-text-secondary, var(--text-secondary));
 	}
 
 	.block-h {
@@ -1152,17 +1386,17 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
-		color: var(--color-accent, #a78bfa);
+		color: var(--color-accent, var(--accent));
 	}
 
 	.card.fixes {
-		--awg-fix-accent: var(--color-success, #22c55e);
+		--awg-fix-accent: var(--color-success, var(--success));
 		--awg-fix-tint: var(--color-success-tint);
 		border-color: color-mix(in srgb, var(--awg-fix-accent) 28%, var(--color-border));
 		background: linear-gradient(
 			165deg,
-			color-mix(in srgb, var(--awg-fix-accent) 12%, var(--bg-secondary)) 0%,
-			var(--bg-secondary) 55%
+			color-mix(in srgb, var(--awg-fix-accent) 12%, var(--color-bg-secondary, var(--bg-secondary))) 0%,
+			var(--color-bg-secondary, var(--bg-secondary)) 55%
 		);
 	}
 
@@ -1228,14 +1462,14 @@
 		gap: 10px;
 		padding: 11px 12px;
 		border-radius: 9px;
-		background: var(--bg-primary, rgba(0, 0, 0, 0.12));
+		background: var(--color-bg-tertiary, var(--bg-tertiary));
 		border: 1px solid var(--color-border);
 		transition: border-color 0.15s ease, background 0.15s ease;
 	}
 
 	.fix-item:hover {
 		border-color: color-mix(in srgb, var(--awg-fix-accent) 35%, var(--color-border));
-		background: color-mix(in srgb, var(--awg-fix-tint) 40%, var(--bg-primary, rgba(0, 0, 0, 0.12)));
+		background: color-mix(in srgb, var(--awg-fix-tint) 40%, var(--color-bg-tertiary, var(--bg-tertiary)));
 	}
 
 	.fix-bullet {
@@ -1260,7 +1494,7 @@
 		min-width: 0;
 		font-size: 13px;
 		line-height: 1.5;
-		color: var(--text-primary);
+		color: var(--color-text-primary, var(--text-primary));
 		white-space: pre-line;
 	}
 
@@ -1269,13 +1503,13 @@
 		font-family: var(--font-mono);
 		font-size: 12px;
 		line-height: 1.5;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary, var(--text-secondary));
 		white-space: pre-wrap;
 		word-break: break-word;
 	}
 
 	.prewrap .k {
-		color: var(--color-accent, #a78bfa);
+		color: var(--color-accent, var(--accent));
 	}
 
 	.cat {
@@ -1284,7 +1518,7 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
-		color: var(--text-tertiary);
+		color: var(--color-text-muted, var(--text-muted));
 		display: flex;
 		align-items: center;
 		gap: 8px;
@@ -1307,23 +1541,23 @@
 		align-items: flex-start;
 		gap: 10px;
 		padding: 10px 12px;
-		background: var(--bg-secondary);
+		background: var(--color-bg-secondary, var(--bg-secondary));
 		border: 1px solid var(--color-border);
 		border-radius: 8px;
 		border-left-width: 3px;
 	}
 
 	.check-pass {
-		border-left-color: var(--color-success, #22c55e);
+		border-left-color: var(--color-success, var(--success));
 	}
 	.check-warn {
-		border-left-color: var(--color-warning, #f59e0b);
+		border-left-color: var(--color-warning, var(--warning));
 	}
 	.check-fail {
-		border-left-color: var(--color-error, #ef4444);
+		border-left-color: var(--color-error, var(--error));
 	}
 	.check-info {
-		border-left-color: var(--color-accent, #8b5cf6);
+		border-left-color: var(--color-accent, var(--accent));
 	}
 
 	.check-ic {
@@ -1352,8 +1586,8 @@
 		color: var(--color-error);
 	}
 	.check-info .check-ic {
-		background: color-mix(in srgb, var(--color-accent, #8b5cf6) 20%, transparent);
-		color: var(--color-accent, #8b5cf6);
+		background: var(--color-accent-tint);
+		color: var(--color-accent, var(--accent));
 	}
 
 	.check-body {
@@ -1364,7 +1598,7 @@
 	.check-t {
 		font-weight: 600;
 		font-size: 13px;
-		color: var(--text-primary);
+		color: var(--color-text-primary, var(--text-primary));
 		margin-bottom: 2px;
 	}
 
@@ -1373,10 +1607,10 @@
 		margin-top: 2px;
 		padding: 1px 6px;
 		border-radius: 4px;
-		background: var(--bg-primary, rgba(0, 0, 0, 0.2));
+		background: var(--color-bg-tertiary, var(--bg-tertiary));
 		font-family: var(--font-mono);
 		font-size: 11px;
-		color: var(--color-info, #22d3ee);
+		color: var(--color-text-secondary, var(--text-secondary));
 		word-break: break-all;
 		max-width: 100%;
 	}
@@ -1385,12 +1619,12 @@
 		margin-top: 4px;
 		font-size: 12px;
 		line-height: 1.4;
-		color: var(--text-secondary);
+		color: var(--color-text-secondary, var(--text-secondary));
 	}
 
 	.check-w {
 		font-size: 11px;
-		color: var(--text-tertiary);
+		color: var(--color-text-muted, var(--text-muted));
 		font-family: var(--font-mono);
 		flex-shrink: 0;
 		align-self: center;
@@ -1398,27 +1632,12 @@
 		text-align: right;
 	}
 
-	@media (max-width: 520px) {
-		.score-row {
-			flex-direction: column;
-			align-items: flex-start;
-		}
-		.ring-hold {
-			width: 100px;
-			height: 100px;
-		}
-		.ring {
-			width: 100px;
-			height: 100px;
-		}
-	}
-
 	/* Existing AWG tunnel selector */
 	.existing-tunnel-box {
 		margin-bottom: 12px;
 		padding: 12px 14px;
 		border-radius: 10px;
-		background: var(--bg-secondary);
+		background: var(--color-bg-secondary, var(--bg-secondary));
 		border: 1px dashed var(--color-border);
 	}
 
@@ -1434,12 +1653,12 @@
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		color: var(--text-primary);
+		color: var(--color-text-primary, var(--text-primary));
 	}
 
 	.existing-tunnel-note {
 		font-size: 11px;
-		color: var(--text-tertiary);
+		color: var(--color-text-muted, var(--text-muted));
 	}
 
 	.existing-tunnel-row {
@@ -1451,37 +1670,12 @@
 	.existing-tunnel-select {
 		flex: 1;
 		min-width: 0;
-		padding: 8px 10px;
-		border-radius: 8px;
-		border: 1px solid var(--color-border);
-		background: var(--bg-primary, rgba(0, 0, 0, 0.15));
-		color: var(--text-primary);
-		font-size: 13px;
-		line-height: 1.4;
-		outline: none;
+		width: 100%;
 	}
 
-	.existing-tunnel-select:focus {
-		border-color: var(--color-accent, #8b5cf6);
-	}
-
-	.existing-tunnel-select:disabled {
-		opacity: 0.55;
-		cursor: not-allowed;
-	}
-
-	@media (max-width: 640px) {
-		.existing-tunnel-row {
-			flex-direction: column;
-			align-items: stretch;
-		}
-
-		.existing-tunnel-select {
-			width: 100%;
-		}
-
-		.existing-tunnel-row :global(button) {
-			width: 100%;
-		}
+	.existing-tunnel-loading {
+		flex-shrink: 0;
+		font-size: 12px;
+		color: var(--color-text-muted, var(--text-muted));
 	}
 </style>

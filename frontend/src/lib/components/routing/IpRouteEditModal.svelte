@@ -218,7 +218,7 @@
 				{/if}
 			</div>
 			<Button variant="ghost" size="sm" onclick={() => (iconPickerOpen = true)}>
-				{iconUrl ? 'Сменить' : 'Выбрать'}
+				{iconUrl ? 'Сменить иконку' : 'Выбрать иконку'}
 			</Button>
 		</div>
 	</div>
@@ -347,6 +347,23 @@
 		padding: 3px 10px;
 		border-radius: var(--radius-sm);
 		transition: border-color var(--t-fast) ease, color var(--t-fast) ease;
+	}
+
+	@media (max-width: 640px) {
+		.section-header {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr);
+			align-items: stretch;
+		}
+
+		.btn-bat-import {
+			width: 50%;
+			min-height: 2.25rem;
+			margin-left: auto;
+			justify-content: flex-start;
+			padding-inline: 0.75rem;
+			gap: 0.5rem;
+		}
 	}
 
 	.btn-bat-import:hover {

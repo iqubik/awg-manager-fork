@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
+    import { get } from 'svelte/store';
     import { goto } from '$app/navigation';
     import { page } from '$app/stores';
     import {
@@ -16,6 +17,7 @@
     import { api } from '$lib/api/client';
     import { notifications } from '$lib/stores/notifications';
     import { PageContainer, PageHeader } from '$lib/components/layout';
+    import { Search } from 'lucide-svelte';
     import { Tabs, Button, Modal } from '$lib/components/ui';
     import { RoutingSearch } from '$lib/components/routing';
     import DnsRoutesTab from './DnsRoutesTab.svelte';
@@ -23,7 +25,7 @@
     import AccessPoliciesTab from './AccessPoliciesTab.svelte';
     import ClientRoutesTab from './ClientRoutesTab.svelte';
     import { HrNeoTab } from '$lib/components/hrneo';
-    import { SingboxRoutingPage } from '$lib/components/singbox-routing';
+    import { SingboxRouterRedesignPage } from '$lib/components/sb-router';
     import GeoDataTab from './GeoDataTab.svelte';
     import { isRoutingSubTabVisible, type RoutingSubTab, type UsageLevel } from '$lib/types/usageLevel';
     import { usageLevel } from '$lib/stores/settings';
@@ -57,6 +59,21 @@
     let hydrarouteInstalled = $derived($routing.hydrarouteStatus?.installed ?? false);
     let hasDnsEngine = $derived(isOS5 || hydrarouteInstalled);
     let singboxInstalled = $derived($systemInfo.data?.singbox?.installed ?? false);
+
+    let pendingTab = $state<string | null>(null);
+
+    function requestTab(id: string): void {
+        const hasDraft = get(singboxRouterStore.staging)?.hasDraft ?? false;
+        if (activeTab === 'singbox' && id !== 'singbox' && hasDraft) {
+            pendingTab = id;
+            return;
+        }
+        activeTab = id as typeof activeTab;
+    }
+    function confirmLeave(): void {
+        if (pendingTab) activeTab = pendingTab as typeof activeTab;
+        pendingTab = null;
+    }
 
     // Search → edit rule integration
     let editRuleId = $state('');
@@ -145,8 +162,8 @@
     });
     let dnsActiveCount = $derived(dnsRoutes.filter(r => r.enabled && r.backend !== 'hydraroute').length);
     let ipActiveCount = $derived(ipRoutes.filter(r => r.enabled).length);
+    let clientActiveCount = $derived(clientRoutes.filter(r => r.enabled).length);
     let policyCount = $derived(accessPolicies.length);
-    let clientRouteCount = $derived(clientRoutes.length);
 
     type TabItem = {
         id: string;
@@ -182,7 +199,7 @@
             // (hydraroute users on OS4 use the HR Neo tab instead).
             isOS5 ? { id: 'dns', label: 'NDMS', badge: dnsActiveCount } : null,
             { id: 'ip', label: 'IP-адреса', badge: ipActiveCount },
-            { id: 'clientvpn', label: 'VPN для устройств', badge: clientRouteCount },
+            { id: 'clientvpn', label: 'VPN для устройств', badge: clientActiveCount },
             isOS5 ? { id: 'policy', label: 'Политики доступа', badge: policyCount } : null,
             // Visual gap separates the NDMS-stack tabs above from the
             // sing-box / hydraroute stack below.
@@ -273,7 +290,7 @@
     <Tabs
         tabs={tabItems}
         active={activeTab}
-        onchange={(id) => (activeTab = id as typeof activeTab)}
+        onchange={(id) => requestTab(id)}
         urlParam="tab"
         defaultTab="dns"
     />
@@ -322,10 +339,23 @@
     {:else if activeTab === 'geodata'}
         <GeoDataTab />
     {:else if activeTab === 'singbox'}
-        <SingboxRoutingPage />
+        <SingboxRouterRedesignPage />
     {/if}
     </div>
 </PageContainer>
+
+<Modal
+    open={pendingTab !== null}
+    title="Несохранённые правки маршрутизации"
+    size="sm"
+    onclose={() => (pendingTab = null)}
+>
+    <p>Правки sing-box сохранены как черновик, но <strong>ещё не применены</strong>. Если уйти с вкладки — маршрутизация не изменится, пока вы не нажмёте «Применить».</p>
+    {#snippet actions()}
+        <Button variant="ghost" size="md" onclick={() => (pendingTab = null)}>Остаться</Button>
+        <Button variant="primary" size="md" onclick={confirmLeave}>Уйти всё равно</Button>
+    {/snippet}
+</Modal>
 
 <Modal
     open={searchOpen}
@@ -342,10 +372,7 @@
 </Modal>
 
 {#snippet searchIcon()}
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-        <circle cx="11" cy="11" r="8"/>
-        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-    </svg>
+    <Search size={16} strokeWidth={2} aria-hidden="true" />
 {/snippet}
 
 <style>

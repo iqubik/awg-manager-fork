@@ -12,9 +12,11 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 24
-	DefaultPort          = 2222
-	DefaultInterface     = "br0"
+	CurrentSchemaVersion        = 26
+	DefaultPort                 = 2222
+	DefaultInterface            = "br0"
+	DefaultPingCheckTarget      = "8.8.8.8"
+	DefaultConnectivityCheckURL = "http://connectivitycheck.gstatic.com/generate_204"
 )
 
 // SettingsStore manages application settings.
@@ -132,6 +134,12 @@ func (s *SettingsStore) Load() (*Settings, error) {
 		if settings.SchemaVersion < 24 {
 			s.migrateToV24(&settings)
 		}
+		if settings.SchemaVersion < 25 {
+			s.migrateToV25(&settings)
+		}
+		if settings.SchemaVersion < 26 {
+			s.migrateToV26(&settings)
+		}
 	}
 
 	// Self-heal duplicated managed servers — see dedupManagedServers comment.
@@ -164,7 +172,7 @@ func (s *SettingsStore) defaultSettings() *Settings {
 			Enabled: false,
 			Defaults: PingCheckDefaults{
 				Method:        "http",
-				Target:        "8.8.8.8",
+				Target:        DefaultPingCheckTarget,
 				Interval:      45,
 				DeadInterval:  120,
 				FailThreshold: 3,
@@ -186,6 +194,7 @@ func (s *SettingsStore) defaultSettings() *Settings {
 			RouteTag:  "direct",
 			RouteKind: "direct",
 		},
+		ConnectivityCheckURL: DefaultConnectivityCheckURL,
 		SingboxRouter: SingboxRouterSettings{
 			Enabled:         false,
 			DeviceMode:      "policy",
@@ -195,6 +204,10 @@ func (s *SettingsStore) defaultSettings() *Settings {
 			WANAutoDetect:   true, // sing-box auto_detect_interface by default
 		},
 		CreateNDMSProxyForSingbox: true,
+		// Fresh installs have no legacy peers — nothing to sweep. Only
+		// pre-existing configs (field absent → false) run the one-time
+		// peer allow-ips migration.
+		ManagedPeerAllowIPsMigrated: true,
 	}
 }
 
@@ -216,7 +229,7 @@ func (s *SettingsStore) migrateToV2(settings *Settings) error {
 		settings.PingCheck.Defaults.Method = "http"
 	}
 	if settings.PingCheck.Defaults.Target == "" {
-		settings.PingCheck.Defaults.Target = "8.8.8.8"
+		settings.PingCheck.Defaults.Target = DefaultPingCheckTarget
 	}
 	if settings.PingCheck.Defaults.Interval == 0 {
 		settings.PingCheck.Defaults.Interval = 45
@@ -419,6 +432,37 @@ func (s *SettingsStore) migrateToV24(settings *Settings) {
 	settings.SchemaVersion = 24
 }
 
+// migrateToV25 introduces ConnectivityCheckURL and self-heals empty ping targets.
+func (s *SettingsStore) migrateToV25(settings *Settings) {
+	settings.PingCheck.Defaults.Target = strings.TrimSpace(settings.PingCheck.Defaults.Target)
+	if settings.PingCheck.Defaults.Target == "" {
+		settings.PingCheck.Defaults.Target = DefaultPingCheckTarget
+	}
+	settings.ConnectivityCheckURL = strings.TrimSpace(settings.ConnectivityCheckURL)
+	if settings.ConnectivityCheckURL == "" {
+		settings.ConnectivityCheckURL = DefaultConnectivityCheckURL
+	}
+	settings.SchemaVersion = 25
+}
+
+// migrateNATModes sets NATMode from NATEnabled for servers that have no NATMode yet.
+func migrateNATModes(s *Settings) {
+	for i := range s.ManagedServers {
+		if s.ManagedServers[i].NATMode == "" {
+			if s.ManagedServers[i].NATEnabled {
+				s.ManagedServers[i].NATMode = "full"
+			} else {
+				s.ManagedServers[i].NATMode = "none"
+			}
+		}
+	}
+}
+
+func (s *SettingsStore) migrateToV26(settings *Settings) {
+	migrateNATModes(settings)
+	settings.SchemaVersion = 26
+}
+
 // dedupManagedServers returns servers with duplicate InterfaceName entries
 // removed (first occurrence wins). Second return value is how many entries
 // were dropped. Pure: caller decides whether to persist.
@@ -604,6 +648,29 @@ func (s *SettingsStore) IsSingboxNDMSProxyEnabled() bool {
 		return true
 	}
 	return settings.CreateNDMSProxyForSingbox
+}
+
+// IsManagedPeerAllowIPsMigrated reports whether the one-time peer allow-ips
+// sweep has completed. Returns true on read error (fail-safe: skip the sweep
+// rather than risk re-running RCI mutations on every boot).
+func (s *SettingsStore) IsManagedPeerAllowIPsMigrated() bool {
+	settings, err := s.Get()
+	if err != nil {
+		return true
+	}
+	return settings.ManagedPeerAllowIPsMigrated
+}
+
+// SetManagedPeerAllowIPsMigrated atomically sets the migration flag under the
+// store lock. Mirrors SetSingboxCreateNDMSProxy.
+func (s *SettingsStore) SetManagedPeerAllowIPsMigrated(v bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.settings == nil {
+		return fmt.Errorf("settings not loaded")
+	}
+	s.settings.ManagedPeerAllowIPsMigrated = v
+	return s.saveUnlocked(s.settings)
 }
 
 // MarkServerInterface adds an interface ID to the server interfaces list.

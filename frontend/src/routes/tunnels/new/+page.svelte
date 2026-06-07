@@ -4,11 +4,12 @@
 	import { tunnels } from '$lib/stores/tunnels';
 	import { notifications } from '$lib/stores/notifications';
 	import { PageContainer } from '$lib/components/layout';
-	import { Button } from '$lib/components/ui';
+	import { BackLink, Button } from '$lib/components/ui';
 	import AmneziaConfEditor from '$lib/components/tunnels/AmneziaConfEditor.svelte';
 	import VpnLinkPasteImport from '$lib/components/tunnels/VpnLinkPasteImport.svelte';
 	import { decodeVpnLink, isVpnLink, vpnLinkUnsupportedPortalReason } from '$lib/utils/vpnlink';
 	import { getVpnPastePresentation } from '$lib/utils/amneziaPremiumVpnPaste';
+	import { nativewgUnavailableHint } from '$lib/utils/backendAvailability';
 	import { api } from '$lib/api/client';
 	import type { SystemInfo } from '$lib/types';
 
@@ -37,6 +38,12 @@
 	let selectedBackend = $state<'nativewg' | 'kernel'>('nativewg');
 
 	let vpnPastePresentation = $derived(getVpnPastePresentation(vpnPasteInput));
+
+	let nativewgHint = $derived(
+		systemInfo !== null && !systemInfo.backendAvailability?.nativewg
+			? nativewgUnavailableHint(systemInfo.nativewgReason)
+			: ''
+	);
 
 	// Sync activeTab → URL (?tab=). Mirrors what canonical Tabs urlParam
 	// does — kept inline because this page uses a custom div-based tab UI.
@@ -174,13 +181,7 @@
 
 <PageContainer>
 <div class="page-header">
-	<a href="/" class="back-link">
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-			<line x1="19" y1="12" x2="5" y2="12"/>
-			<polyline points="12 19 5 12 12 5"/>
-		</svg>
-		Назад
-	</a>
+	<BackLink href="/" />
 	<h2 class="page-title">Новый туннель</h2>
 </div>
 
@@ -204,7 +205,7 @@
 				class:selected={selectedBackend === 'nativewg'}
 				class:disabled={systemInfo !== null && !systemInfo.backendAvailability?.nativewg}
 				disabled={systemInfo !== null && !systemInfo.backendAvailability?.nativewg}
-				title={systemInfo !== null && !systemInfo.backendAvailability?.nativewg ? 'Прошивка не поддерживает нативный WireGuard' : ''}
+				title={nativewgHint}
 				onclick={() => selectedBackend = 'nativewg'}
 			>
 				<span class="backend-name">NativeWG</span>
@@ -223,6 +224,9 @@
 				<span class="backend-desc">Без интеграции в роутер, для сторонних проектов</span>
 			</button>
 		</div>
+		{#if nativewgHint}
+			<p class="backend-hint">{nativewgHint}</p>
+		{/if}
 	</div>
 
 	<div class="tabs">
@@ -280,6 +284,7 @@
 			>
 				<input
 					type="file"
+					accept=".conf,text/plain,application/octet-stream"
 					bind:this={fileInput}
 					onchange={handleFileSelect}
 					style="display: none"
@@ -344,22 +349,6 @@ AllowedIPs = 0.0.0.0/0"
 </PageContainer>
 
 <style>
-	.back-link {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		color: var(--color-text-secondary);
-		font-size: 13px;
-		padding: 6px 10px;
-		border-radius: 6px;
-		transition: all 0.15s;
-	}
-
-	.back-link:hover {
-		background: var(--color-bg-tertiary);
-		color: var(--color-text-primary);
-	}
-
 	.import-container {
 		max-width: 700px;
 		margin: 0 auto;
@@ -561,6 +550,13 @@ AllowedIPs = 0.0.0.0/0"
 
 	.backend-desc {
 		font-size: 12px;
+		color: var(--color-text-muted);
+	}
+
+	.backend-hint {
+		margin: 8px 0 0;
+		font-size: 12px;
+		line-height: 1.4;
 		color: var(--color-text-muted);
 	}
 

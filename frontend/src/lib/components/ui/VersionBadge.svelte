@@ -18,7 +18,7 @@
       'awg2.0': 'AWG 2.0',
       'awg1.5': 'AWG 1.5',
       'awg1.0': 'AWG 1.0',
-      'wg': 'WG',
+      'wg': 'WireGuard',
     } as Record<string, string>)[value as string] ?? '';
   });
 

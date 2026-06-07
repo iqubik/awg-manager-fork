@@ -146,6 +146,61 @@ IPK-пакет для Entware (Keenetic):
 ./scripts/build-frontend.sh
 ```
 
+## Тестирование
+
+Команды ниже одинаково работают на macOS, Linux и Windows — нужен только Docker (Desktop или Engine) с Compose v2.
+
+### Backend (Go)
+
+Большая часть backend-тестов завязана на Linux (ndms, iptables, sing-box и т.д.). Локально их гоняют в Linux-контейнере из `Dockerfile.go-test`.
+
+**Обёртка (удобнее всего):**
+
+```bash
+./scripts/dev/go-test-docker.sh start
+./scripts/dev/go-test-docker.sh run ./internal/managed
+./scripts/dev/go-test-docker.sh run ./internal/managed -run TestService_Create
+./scripts/dev/go-test-docker.sh full
+./scripts/dev/go-test-docker.sh coverage
+./scripts/dev/go-test-docker.sh stop
+```
+
+**Или напрямую через docker compose:**
+
+```bash
+docker compose -f docker-compose.go-test.yml up -d runner
+docker compose -f docker-compose.go-test.yml exec runner go test -count=1 ./internal/managed
+docker compose -f docker-compose.go-test.yml down
+```
+
+**Одноразовый прогон** (без постоянного контейнера):
+
+```bash
+docker compose -f docker-compose.go-test.yml --profile oneshot run --rm test ./internal/managed
+```
+
+Кэши Go (`go-build`, `go-mod`) сохраняются в `.cache/docker-go-test/` между запусками.
+
+**Как прогонять во время разработки:**
+
+1. Сначала точечные тесты только по изменённым пакетам (`run ./internal/...`).
+2. Полный `./...` — один раз перед PR, когда точечные уже зелёные.
+3. Всегда с `-count=1`, чтобы не получить ложноположительный результат из test-cache (обёртка добавляет флаг сама).
+
+### Frontend
+
+```bash
+cd frontend
+npm install   # если зависимости ещё не ставили
+npm test
+```
+
+Watch-режим для отладки: `npx vitest`.
+
+### CI
+
+В GitHub Actions (ubuntu-latest) те же проверки: `go test ./...` для backend и `npm test` для frontend. Локальный `full` перед PR должен проходить так же, как CI.
+
 ## Pull Requests
 
 - Ветки от `develop`, PR — в `develop`.
@@ -158,6 +213,7 @@ git rebase origin/develop
 
 - В описании PR кратко опиши что изменилось и зачем.
 - Если добавлял/менял API — убедись, что `swagger.yaml` обновлён и закоммичен.
+- Перед PR прогони тесты: `./scripts/dev/go-test-docker.sh full` (backend) и `npm test` во `frontend/` (если менялся соответствующий код).
 - Старайся не смешивать рефакторинг и новую функциональность в одном PR.
 
 ## Conventional Commits

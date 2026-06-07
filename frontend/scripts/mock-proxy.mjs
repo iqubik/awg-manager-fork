@@ -22,6 +22,28 @@
 //   policy Policy1), /system/hydraroute-status, plus existing /routing/*, /tunnels/all,
 //   /proxy/*, /singbox/subscriptions.
 // Default upstream: http://127.0.0.1:8080 (Prism). Listen: 8081.
+/**
+ * AWGM development mock proxy.
+ *
+ * Role:
+ * - runs between Vite and Prism;
+ * - forwards unknown requests unchanged;
+ * - owns stateful fixtures for UI surfaces Prism cannot model well.
+ *
+ * Design contract:
+ * - preserve backend-like response envelopes;
+ * - keep all mutable mock state in this process only;
+ * - prefer additive mock controls over destructive fixture rewrites;
+ * - make every major UI surface smoke-testable without a router.
+ *
+ * Mock-only control plane:
+ * - GET  /__mock/capabilities — fixture map and runtime state;
+ * - GET  /__mock/tunnels — normalized tunnel catalog used by mock surfaces;
+ * - POST /__mock/reset-runtime (alias /__mock/reset) — reset volatile runtime switches;
+ * - POST /__mock/singbox-install-fail {"enabled": true|false}.
+ *
+ * Default upstream: http://127.0.0.1:8080 (Prism). Listen: 8081.
+ */
 
 import http from 'node:http';
 import crypto from 'node:crypto';
@@ -31,26 +53,134 @@ import { dirname, resolve } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PRESETS_PATH = resolve(__dirname, 'mock-data/presets-snapshot.json');
+const UNIFIED_PRESETS_PATH = resolve(__dirname, '../../internal/presets/defaults.json');
 let presetsCache = null;
+let unifiedPresetsCache = null;
 async function getPresets() {
 	if (!presetsCache) {
 		presetsCache = JSON.parse(await readFile(PRESETS_PATH, 'utf8'));
 	}
 	return presetsCache;
 }
+async function getUnifiedPresets() {
+	if (!unifiedPresetsCache) {
+		unifiedPresetsCache = JSON.parse(await readFile(UNIFIED_PRESETS_PATH, 'utf8'));
+	}
+	return unifiedPresetsCache;
+}
 
 const UPSTREAM = process.env.UPSTREAM ?? 'http://127.0.0.1:8080';
 const PORT = Number(process.env.PORT ?? 8081);
 const VALID = new Set(['basic', 'advanced', 'expert']);
 
-// In-memory state. Default 'expert' so all advanced surfaces (singbox
-// router, rule sets, device proxy, etc.) are visible by default — the
-// realistic case for development against the redesigned routing page.
-let usageLevel = 'expert';
-let singboxLogLevel = 'trace';
-let downloadRouteTag = 'direct';
-let updateChannel = 'stable';
-let updateCheckEnabled = true;
+const DEFAULT_MOCK_STATE = Object.freeze({
+	// Default expert keeps advanced surfaces visible for routing redesign work.
+	usageLevel: 'expert',
+	singboxLogLevel: 'trace',
+	downloadRouteTag: 'direct',
+	updateChannel: 'stable',
+	updateCheckEnabled: true,
+});
+
+const MOCK_CAPABILITY_GROUPS = Object.freeze([
+	{
+		id: 'core',
+		label: 'Settings, updates, downloads',
+		endpoints: ['GET /settings/get', 'POST /settings/update', 'GET /download/outbounds'],
+	},
+	{
+		id: 'observability',
+		label: 'SSE, logs, monitoring matrix, connections',
+		endpoints: ['GET /events', 'GET /logs', 'POST /logs/clear', 'GET /monitoring/matrix', 'GET /connections'],
+	},
+	{
+		id: 'routing',
+		label: 'AWG, sing-box router, DNS/rules/rulesets, policies',
+		endpoints: [
+			'GET /tunnels/all',
+			'GET /routing/dns-routes',
+			'POST /dns-routes/set-enabled',
+			'POST /dns-routes/create',
+			'POST /dns-routes/update',
+			'POST /dns-routes/delete',
+			'GET /singbox/router/status',
+			'GET /singbox/router/proxies/list',
+		],
+	},
+	{
+		id: 'subscriptions',
+		label: 'Sing-box subscriptions and stream details',
+		endpoints: ['GET /singbox/subscriptions', 'GET /singbox/subscriptions/get-stream'],
+	},
+	{
+		id: 'diagnostics',
+		label: 'DNS check, HydraRoute status, system tunnel tests',
+		endpoints: ['GET /dns-check/client', 'GET /system/hydraroute-status', 'GET /system-tunnels/test-*'],
+	},
+	{
+		id: 'mock-control',
+		label: 'Runtime controls for local dev scenarios',
+		endpoints: [
+			'GET /__mock/capabilities',
+			'GET /__mock/tunnels',
+			'POST /__mock/reset-runtime',
+			'POST /__mock/reset',
+			'POST /__mock/singbox-install-fail',
+			'POST /__mock/download-faults',
+		],
+	},
+]);
+
+// In-memory state. It intentionally survives GET/POST calls while the mock
+// proxy process is alive so the UI sees realistic settings persistence.
+let usageLevel = DEFAULT_MOCK_STATE.usageLevel;
+let singboxLogLevel = DEFAULT_MOCK_STATE.singboxLogLevel;
+let downloadRouteTag = DEFAULT_MOCK_STATE.downloadRouteTag;
+let updateChannel = DEFAULT_MOCK_STATE.updateChannel;
+let updateCheckEnabled = DEFAULT_MOCK_STATE.updateCheckEnabled;
+
+// Service-download fault injection: every "download via route" endpoint
+// (geo.dat, AWGM update, DNSRoute lists, Amnezia Premium, sing-box binary,
+// download-outbounds) randomly returns a realistic failure instead of the
+// normal/proxied success, so every UI surface can exercise all outcomes
+// (sing-box off, AWG iface down, timeout, network drop, generic). Enabled by
+// default in mock dev; disable with MOCK_DOWNLOAD_FAULTS=0 or via
+// POST /__mock/download-faults. Probability tunable with MOCK_DOWNLOAD_FAULT_PROB.
+function parseProbability(raw, fallback) {
+	const n = Number.parseFloat(raw);
+	if (Number.isFinite(n) && n >= 0 && n <= 1) return n;
+	return fallback;
+}
+let downloadFaultsEnabled = process.env.MOCK_DOWNLOAD_FAULTS !== '0';
+let downloadFaultProbability = parseProbability(process.env.MOCK_DOWNLOAD_FAULT_PROB, 0.4);
+
+function getRuntimeState() {
+	return {
+		usageLevel,
+		singboxLogLevel,
+		downloadRouteTag,
+		updateChannel,
+		updateCheckEnabled,
+		singboxInstallShouldFail,
+		downloadFaultsEnabled,
+		downloadFaultProbability,
+		logsCleared: { ...bucketCleared },
+	};
+}
+
+function resetRuntimeControls() {
+	usageLevel = DEFAULT_MOCK_STATE.usageLevel;
+	singboxLogLevel = DEFAULT_MOCK_STATE.singboxLogLevel;
+	downloadRouteTag = DEFAULT_MOCK_STATE.downloadRouteTag;
+	updateChannel = DEFAULT_MOCK_STATE.updateChannel;
+	updateCheckEnabled = DEFAULT_MOCK_STATE.updateCheckEnabled;
+	singboxInstallShouldFail = process.env.MOCK_SINGBOX_INSTALL_FAIL === '1';
+	downloadFaultsEnabled = process.env.MOCK_DOWNLOAD_FAULTS !== '0';
+	downloadFaultProbability = parseProbability(process.env.MOCK_DOWNLOAD_FAULT_PROB, 0.4);
+	bucketCleared.app = false;
+	bucketCleared.singbox = false;
+	mockManagedAscByServer = createInitialMockManagedAscByServer();
+}
 const MOCK_DOWNLOAD_OUTBOUNDS = [
 	{
 		tag: 'direct',
@@ -75,9 +205,16 @@ const MOCK_DOWNLOAD_OUTBOUNDS = [
 	},
 	{
 		tag: 'sb-vless-1',
-		kind: 'vless',
+		kind: 'singbox',
 		label: 'VLESS EU-1',
 		detail: 'eu1.vpn.example:443',
+		available: true,
+	},
+	{
+		tag: 'sb-vless-2',
+		kind: 'singbox',
+		label: 'Trojan NL-2',
+		detail: 'nl2.vpn.example:443',
 		available: true,
 	},
 	{
@@ -88,10 +225,10 @@ const MOCK_DOWNLOAD_OUTBOUNDS = [
 		available: true,
 	},
 	{
-		tag: 'sb-wg-reserve',
-		kind: 'wireguard',
-		label: 'WireGuard Reserve',
-		detail: 'wg-reserve.demo.example:51820',
+		tag: 'sb-subscription-2',
+		kind: 'subscription',
+		label: 'AleXRAY (SUB)',
+		detail: 'sub-alexray.demo.example',
 		available: false,
 	},
 ];
@@ -222,8 +359,8 @@ const MOCK_AWG_TUNNELS = [
 		id: 'awg-demo-5',
 		name: 'UK London',
 		type: 'amneziawg',
-		status: 'stopped',
-		enabled: false,
+		status: 'broken',
+		enabled: true,
 		defaultRoute: false,
 		resolvedIspInterface: 'ISP0',
 		resolvedIspInterfaceLabel: 'Резервный WAN',
@@ -231,15 +368,15 @@ const MOCK_AWG_TUNNELS = [
 		address: '10.50.0.2/32, fd00:8::2/128',
 		interfaceName: 'awg4',
 		ndmsName: 'Wireguard4',
-		rxBytes: 0,
-		txBytes: 0,
-		lastHandshake: '',
+		rxBytes: 1_204_880,
+		txBytes: 412_330,
+		lastHandshake: new Date(Date.now() - 720_000).toISOString(),
 		awgVersion: 'awg2.0',
 		mtu: 1420,
-		startedAt: '',
+		startedAt: new Date(Date.now() - 900_000).toISOString(),
 		backend: 'kernel',
 		connectivityCheck: { method: 'http' },
-		pingCheck: { status: 'failed', restartCount: 0, failCount: 3, failThreshold: 3 },
+		pingCheck: { status: 'failed', restartCount: 3, failCount: 3, failThreshold: 3 },
 	},
 	{
 		id: 'awg-demo-6',
@@ -290,8 +427,8 @@ const MOCK_AWG_TUNNELS = [
 	},
 ];
 
-/** AWG tunnels where monitoring self-check is down while status stays running. */
-const MOCK_AWG_SELF_CHECK_FAIL = new Set(['awg-demo-fin']);
+/** AWG tunnels where monitoring self-check is down while status stays running or broken. */
+const MOCK_AWG_SELF_CHECK_FAIL = new Set(['awg-demo-fin', 'awg-demo-5']);
 
 const MOCK_SYSTEM_TUNNELS = [
 	{
@@ -376,9 +513,10 @@ const MOCK_CONNECTIONS_POOL = (() => {
 	const directNames = ['DESKTOP-27QR2B7', 'ROCO-F5', 'My-Phone', 'Work-Laptop'];
 	for (let i = 0; i < 42; i++) {
 		const tunneled = i < 12;
-		const tunnelId = tunneled ? (i % 2 === 0 ? 'awg-demo-1' : 'awg-demo-2') : '';
-		const tunnelName = tunneled ? (i % 2 === 0 ? 'DE Frankfurt' : 'NL Amsterdam') : 'Direct';
-		const iface = tunneled ? 'My VPN' : 'eth3';
+		const tunnel = tunneled ? getConnectionTunnel(i) : null;
+		const tunnelId = tunnel?.id ?? '';
+		const tunnelName = tunnel?.name ?? 'Direct';
+		const iface = tunnel?.interfaceName ?? 'eth3';
 		const proto = protos[i % protos.length];
 		const srcHost = directNames[i % directNames.length];
 		const srcA = 192;
@@ -461,11 +599,7 @@ function buildMockConnectionsResponse(url) {
 		},
 	};
 
-	const tunnels = {
-		'': { name: 'Direct', interface: 'eth3', count: stats.direct },
-		'awg-demo-1': { name: 'DE Frankfurt', interface: 'My VPN', count: MOCK_CONNECTIONS_POOL.filter((c) => c.tunnelId === 'awg-demo-1').length },
-		'awg-demo-2': { name: 'NL Amsterdam', interface: 'My VPN', count: MOCK_CONNECTIONS_POOL.filter((c) => c.tunnelId === 'awg-demo-2').length },
-	};
+	const tunnels = buildConnectionsTunnelSummary(stats);
 
 	return {
 		success: true,
@@ -786,7 +920,7 @@ const AWG_BASE_LATENCY = (() => {
 	// starting: awg-demo-4 (SE Stockholm) → no latency until running
 	// bad (≥200ms): awg-demo-6
 	// self-check fail: awg-demo-fin → «Нет связи»
-	// stopped/failed: awg-demo-5 → no latency
+	// broken/failed: awg-demo-5 → «Сломан», ping failed
 	const ranges = {
 		'awg-demo-1': [15, 75],
 		'awg-demo-2': [80, 170],
@@ -803,36 +937,40 @@ const AWG_BASE_LATENCY = (() => {
 	return map;
 })();
 
-function buildConnectivityMatrixEvent() {
+function buildConnectivityMatrixEvent({ forced = false } = {}) {
 	const nowIso = new Date().toISOString();
-	const selfTarget = { id: 'self', name: 'Self-check', host: '', url: '' };
+	const targets = [
+		{ id: 'self', name: 'Self-check', host: '', url: '' },
+		{ id: 'dns-cf', name: 'Cloudflare DNS', host: '1.1.1.1', url: '' },
+		{ id: 'dns-google', name: 'Google DNS', host: '8.8.8.8', url: '' },
+		{ id: 'dns-quad9', name: 'Quad9 DNS', host: '9.9.9.9', url: '' },
+		{ id: 'cc-gstatic', name: 'connectivitycheck.gstatic.com', host: 'connectivitycheck.gstatic.com', url: '' },
+	];
 
 	const cells = [];
 	const tunnelEntries = [];
+	const profiles = new Map();
+
+	function hashNumber(...parts) {
+		let h = 0;
+		for (const part of parts) {
+			const text = String(part ?? '');
+			for (let i = 0; i < text.length; i++) h = ((h << 5) - h + text.charCodeAt(i)) | 0;
+		}
+		return Math.abs(h);
+	}
+
+	function addTunnel(row, profile) {
+		tunnelEntries.push(row);
+		profiles.set(row.id, profile);
+	}
 
 	for (const t of MOCK_AWG_TUNNELS) {
 		const base = AWG_BASE_LATENCY[t.id] ?? null;
 		const isActive = t.status === 'running' || t.status === 'broken';
 		const pingFailed = t.pingCheck?.status === 'failed';
 		const selfCheckFail = MOCK_AWG_SELF_CHECK_FAIL.has(t.id);
-
-		// Add small jitter (±12ms) so the value visibly fluctuates
-		const jitter = Math.floor(Math.random() * 25) - 12;
-		const latency = base !== null && isActive && !pingFailed && !selfCheckFail
-			? Math.max(10, Math.min(300, base + jitter))
-			: null;
-
-		cells.push({
-			targetId: selfTarget.id,
-			tunnelId: t.id,
-			latencyMs: latency,
-			ok: isActive && !pingFailed && !selfCheckFail,
-			activeForRestart: false,
-			isSelf: true,
-			ts: nowIso,
-		});
-
-		tunnelEntries.push({
+		addTunnel({
 			id: t.id,
 			name: t.name,
 			ifaceName: t.interfaceName,
@@ -843,11 +981,116 @@ function buildConnectivityMatrixEvent() {
 			backend: t.backend,
 			awgVersion: t.awgVersion,
 			defaultRoute: !!t.defaultRoute,
+		}, {
+			base,
+			up: base !== null && isActive && !pingFailed && !selfCheckFail,
+			blankTargets: new Set(),
+			failedTargets: pingFailed || selfCheckFail ? new Set(targets.map((x) => x.id)) : new Set(),
 		});
 	}
 
+	for (const t of MOCK_SYSTEM_TUNNELS) {
+		const id = `sys-${t.id}`;
+		const up = t.connected !== false && t.status === 'up';
+		addTunnel({
+			id,
+			name: t.description || t.interfaceName || t.id,
+			ifaceName: t.interfaceName,
+			pingcheckTarget: '',
+			selfTarget: '',
+			selfMethod: 'system',
+			source: 'system',
+		}, {
+			base: up ? 35 + (hashNumber(id) % 90) : null,
+			up,
+			blankTargets: new Set(),
+			failedTargets: up ? new Set(['dns-quad9']) : new Set(targets.map((x) => x.id)),
+		});
+	}
+
+	for (const t of MOCK_SINGBOX_TUNNELS) {
+		const connected = !!(t.running && t.connectivity?.connected);
+		const base = connected ? (Number(t.connectivity?.latency) || 60 + (hashNumber(t.tag) % 220)) : null;
+		addTunnel({
+			id: t.tag,
+			name: t.tag,
+			ifaceName: t.proxyInterface,
+			pingcheckTarget: '',
+			selfTarget: '',
+			selfMethod: 'disabled',
+			source: 'singbox',
+			singboxTag: t.tag,
+			clashDelay: connected ? base : undefined,
+			urltestGroup: connected ? 'auto' : '',
+			protocol: t.protocol,
+			security: t.security,
+			transport: t.transport,
+		}, {
+			base,
+			up: connected,
+			blankTargets: new Set(['self']),
+			failedTargets: connected ? new Set() : new Set(targets.map((x) => x.id)),
+		});
+	}
+
+	for (const sub of mockSubscriptions) {
+		const activeTag = String(sub?.activeMember || '');
+		if (!activeTag) continue;
+		const member = (sub.members ?? []).find((m) => m.tag === activeTag) ?? null;
+		const enabled = sub.enabled !== false && !(sub.lastError && String(sub.lastError).trim() !== '');
+		const base = enabled ? 45 + (hashNumber(activeTag) % 160) : null;
+		addTunnel({
+			id: activeTag,
+			name: sub.label || sub.selectorTag || activeTag,
+			ifaceName: sub.proxyIndex >= 0 ? `t2s${sub.proxyIndex}` : sub.inboundTag,
+			pingcheckTarget: '',
+			selfTarget: '',
+			selfMethod: 'disabled',
+			source: 'singbox',
+			singboxTag: activeTag,
+			clashDelay: enabled ? base : undefined,
+			urltestGroup: sub.mode === 'urltest' ? (sub.selectorTag || 'urltest') : '',
+			subscription: true,
+			protocol: member?.protocol,
+			security: member?.security,
+			transport: member?.transport,
+		}, {
+			base,
+			up: enabled,
+			blankTargets: new Set(['self']),
+			failedTargets: enabled ? new Set() : new Set(targets.map((x) => x.id)),
+		});
+	}
+
+	for (let ti = 0; ti < targets.length; ti++) {
+		const target = targets[ti];
+		for (let vi = 0; vi < tunnelEntries.length; vi++) {
+			const tunnel = tunnelEntries[vi];
+			const profile = profiles.get(tunnel.id) ?? {};
+			const blank = profile.blankTargets?.has(target.id);
+			const failed = !profile.up || profile.failedTargets?.has(target.id);
+			const base = Number(profile.base) || 80;
+			const hash = hashNumber(target.id, tunnel.id);
+			const drift = Math.round(Math.sin((Date.now() / 1800) + hash) * 9);
+			const forceJitter = forced ? Math.floor(Math.random() * 15) - 7 : 0;
+			const latency = blank || failed
+				? null
+				: Math.max(10, Math.min(520, base + (hash % 55) + drift + forceJitter + ti * 6));
+
+			cells.push({
+				targetId: target.id,
+				tunnelId: tunnel.id,
+				latencyMs: latency,
+				ok: latency !== null,
+				activeForRestart: tunnel.source === 'awg' && tunnel.defaultRoute && target.id === 'dns-google',
+				isSelf: target.id === 'self',
+				ts: nowIso,
+			});
+		}
+	}
+
 	return {
-		targets: [selfTarget],
+		targets,
 		tunnels: tunnelEntries,
 		cells,
 		updatedAt: nowIso,
@@ -1193,6 +1436,38 @@ let mockSubscriptions = [
 			{ tag: 'sub-demo0001-22334455', protocol: 'trojan', server: 'fi03.demo.example', port: 443, transport: 'tcp', security: 'tls' },
 		],
 		orphanTags: [],
+		infoItems: [
+			{
+				id: 'sub-demo0001-banner-days',
+				label: '📆 Осталось: 8 дней',
+				tag: 'sub-demo0001-banner-days',
+				source: 'auto',
+			},
+			{
+				id: 'sub-demo0001-banner-traffic',
+				label: '⏳ Трафик: 42.5 GB / 100 GB',
+				tag: 'sub-demo0001-banner-traffic',
+				source: 'auto',
+			},
+		],
+		rejectedMembers: [
+			{
+				tag: 'sub-demo0001-invalid-uuid',
+				label: 'service-line (bad uuid)',
+				protocol: 'vless',
+				server: 'localhost',
+				port: 80,
+				reason: 'invalid uuid format',
+			},
+			{
+				tag: 'sub-demo0001-dead-reality',
+				label: 'DE backup (reality без uTLS)',
+				protocol: 'vless',
+				server: 'de-backup.demo.example',
+				port: 443,
+				reason: 'reality requires utls block',
+			},
+		],
 		activeMember: 'sub-demo0001-aabbccdd',
 		enabled: true,
 	},
@@ -1414,6 +1689,8 @@ function toMockSubscriptionDTO(sub) {
 		memberTags: sub.memberTags ?? [],
 		members: sub.members ?? [],
 		orphanTags: sub.orphanTags ?? [],
+		rejectedMembers: sub.rejectedMembers ?? [],
+		infoItems: sub.infoItems ?? [],
 	};
 	if (mode === 'urltest' && sub.urlTest) dto.urlTest = sub.urlTest;
 	return dto;
@@ -1449,9 +1726,48 @@ function newSub(input) {
 			security: 'tls',
 		})),
 		orphanTags: [],
+		rejectedMembers: [],
+		infoItems: [],
 		activeMember: `sub-${shortID}-aaaa`,
 		enabled: input.enabled,
 	};
+}
+
+const MAX_MOCK_INFO_ITEMS = 4;
+
+function moveMockRejectedToInfo(sub, memberTag) {
+	const tag = String(memberTag || '').trim();
+	if (!tag) return { error: { status: 400, code: 'MISSING_MEMBER_TAG', message: 'memberTag required' } };
+	const rejected = sub.rejectedMembers ?? [];
+	const idx = rejected.findIndex((r) => r.tag === tag);
+	if (idx < 0) {
+		return { error: { status: 404, code: 'REJECTED_NOT_FOUND', message: 'rejected member not found' } };
+	}
+	const info = [...(sub.infoItems ?? [])];
+	if (info.length >= MAX_MOCK_INFO_ITEMS) {
+		return {
+			error: {
+				status: 409,
+				code: 'INFO_ITEMS_FULL',
+				message: 'subscription: info block is full (max 4 items)',
+			},
+		};
+	}
+	const r = rejected[idx];
+	const id = tag || `info-${(r.label || 'item').slice(0, 24)}`;
+	if (info.some((it) => it.id === id)) {
+		sub.rejectedMembers = rejected.filter((_, i) => i !== idx);
+		return { ok: true };
+	}
+	info.push({
+		id,
+		label: r.label || tag,
+		tag: r.tag || tag,
+		source: 'auto',
+	});
+	sub.infoItems = info;
+	sub.rejectedMembers = rejected.filter((_, i) => i !== idx);
+	return { ok: true };
 }
 
 // ── Wizard mock state ──────────────────────────────────────────
@@ -1466,11 +1782,25 @@ let mockSBPolicyExists = false;
 let mockSBSettings = {
 	enabled: false,
 	policyName: '',
+	deviceMode: 'policy',
+	snifferEnabled: true,
 	refreshMode: 'interval',
 	refreshIntervalHours: 24,
 	wanAutoDetect: true,
 	wanInterface: '',
 };
+
+// Interfaces a user can bind a direct outbound to (issue #245). Mirrors
+// backend ListBindable: all router interfaces minus our own and AWG/WG
+// auto-covered. Includes a couple of non-AWG VPNs to exercise the picker.
+const mockBindableInterfaces = [
+	{ name: 'ipsec0', id: 'IKE0', label: 'IKEv2 office', up: true, priority: 0 },
+	{ name: 'ipsec1', id: 'IPSec1', label: 'IPSec branch', up: false, priority: 0 },
+	{ name: 'ppp0', id: 'PPPoE0', label: 'Letai (PPPoE)', up: true, priority: 0 },
+];
+let mockOutbounds = [
+	{ type: 'selector', tag: 'manual-eu', outbounds: ['awg-de', 'awg-nl'], default: 'awg-de', source: 'router' },
+];
 
 // WAN interfaces returned by GET /singbox/router/wan-interfaces. Mix of
 // up/down + types so the dev UI shows real variety. `name` is the kernel
@@ -1514,6 +1844,10 @@ let mockDNSRules = [
 		server: 'wizard-upstream',
 	},
 ];
+let mockDNSRewrites = [
+	{ pattern: 'finland10*.discord.media', ips: ['104.25.158.178'] },
+	{ pattern: '*.steamcontent.com', ips: ['23.55.171.10'] },
+];
 /** Built-in NDMS policy names (Policy0..PolicyN), same rule as backend accesspolicy. */
 function isStandardPolicyName(name) {
 	return /^Policy\d+$/.test(name);
@@ -1533,7 +1867,7 @@ const mockAccessPolicies = [
 		description: 'home',
 		isStandard: true,
 		standalone: false,
-		interfaces: [{ name: 'My VPN', label: 'My VPN', order: 0 }],
+		interfaces: [mockPolicyInterfaceRef('awg-demo-1', 0)],
 		deviceCount: 1,
 	},
 	{
@@ -1548,7 +1882,7 @@ const mockAccessPolicies = [
 		name: 'Policy2',
 		description: 'work',
 		isStandard: true,
-		standalone: false,
+		standalone: true,
 		interfaces: [{ name: 'DE vless-tcp-reality', label: 'DE', order: 0 }],
 		deviceCount: 0,
 	},
@@ -1558,11 +1892,27 @@ const mockAccessPolicies = [
 		isStandard: false,
 		standalone: false,
 		interfaces: [
-			{ name: 'NetcrazeHy2', label: 'NetcrazeHy2', order: 0 },
-			{ name: 'amnezia_for_awg_fornex', label: 'amnezia_for_awg_fornex', order: 1 },
+			mockPolicyInterfaceRef('awg-demo-1', 0),
+			mockPolicyInterfaceRef('awg-demo-2', 1),
 		],
 		deviceCount: 2,
 	},
+	// Icon gallery — one mock per distinct icon (Policy0–2 + HydraRoute + extended set)
+	{ name: 'Policy3', description: 'guest', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy4', description: 'singbox', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy5', description: 'ProxyRU', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy6', description: 'IoT_Xyandex', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy7', description: 'nfqws', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy8', description: 'gaming', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy9', description: 'tv', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy10', description: 'beeline', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy11', description: 'backup', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy12', description: 'test', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy13', description: 'family', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy14', description: 'wifi', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy15', description: '', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy16', description: 'docker', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
+	{ name: 'Policy17', description: 'North_Korea', isStandard: true, standalone: false, interfaces: [], deviceCount: 0 },
 ];
 
 /** Диагностика → «Окружение»: LAN-клиент и политика (GET /dns-check/client). */
@@ -1665,7 +2015,7 @@ const mockRoutingDnsRoutes = [
 		name: 'Work VPN',
 		domains: ['corp.example.com'],
 		manualDomains: ['corp.example.com'],
-		routes: [{ interface: 'nwg0', tunnelId: 'awg-demo-1', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-1')],
 		enabled: true,
 		createdAt: '2026-05-01T10:00:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
@@ -1675,7 +2025,7 @@ const mockRoutingDnsRoutes = [
 		name: 'YouTube',
 		domains: ['youtube.com', 'ytimg.com', 'googlevideo.com'],
 		manualDomains: ['youtube.com'],
-		routes: [{ interface: 'nwg0', tunnelId: 'awg-demo-1', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-1')],
 		enabled: true,
 		lastDedupeReport: {
 			totalInput: 19,
@@ -1697,7 +2047,7 @@ const mockRoutingDnsRoutes = [
 		name: 'Discord',
 		domains: ['discord.com', 'discord.gg', 'discordapp.com'],
 		manualDomains: ['discord.com'],
-		routes: [{ interface: 'nwg1', tunnelId: 'awg-demo-2', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-2')],
 		enabled: true,
 		lastDedupeReport: {
 			totalInput: 52,
@@ -1718,7 +2068,7 @@ const mockRoutingDnsRoutes = [
 		name: 'Telegram',
 		domains: ['telegram.org', 't.me'],
 		manualDomains: ['telegram.org'],
-		routes: [{ interface: 'nwg0', tunnelId: 'awg-demo-1', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-1')],
 		enabled: false,
 		createdAt: '2026-05-04T10:00:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
@@ -1728,7 +2078,7 @@ const mockRoutingDnsRoutes = [
 		name: 'OpenAI',
 		domains: ['openai.com', 'chatgpt.com'],
 		manualDomains: ['openai.com'],
-		routes: [{ interface: 'nwg1', tunnelId: 'awg-demo-2', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-2')],
 		enabled: true,
 		lastDedupeReport: {
 			totalInput: 10,
@@ -1748,7 +2098,7 @@ const mockRoutingDnsRoutes = [
 		name: 'GitHub',
 		domains: ['github.com', 'githubusercontent.com'],
 		manualDomains: ['github.com'],
-		routes: [{ interface: 'nwg0', tunnelId: 'awg-demo-1', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-1')],
 		enabled: true,
 		createdAt: '2026-05-06T10:00:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
@@ -1758,7 +2108,7 @@ const mockRoutingDnsRoutes = [
 		name: 'Twitter/X',
 		domains: ['twitter.com', 'x.com', 'twimg.com'],
 		manualDomains: ['x.com'],
-		routes: [{ interface: 'nwg1', tunnelId: 'awg-demo-2', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-2')],
 		enabled: true,
 		lastDedupeReport: {
 			totalInput: 24,
@@ -1778,7 +2128,7 @@ const mockRoutingDnsRoutes = [
 		name: 'Реклама и трекеры',
 		domains: ['geosite:category-ads-all', 'doubleclick.net', 'googlesyndication.com', 'adservice.google.com'],
 		manualDomains: ['geosite:category-ads-all'],
-		routes: [{ interface: 'nwg0', tunnelId: 'awg-demo-1', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-1')],
 		enabled: true,
 		createdAt: '2026-05-06T13:00:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
@@ -1788,7 +2138,7 @@ const mockRoutingDnsRoutes = [
 		name: 'Заблокировано в РФ',
 		domains: ['geosite:rkn', 'instagram.com', 'facebook.com', 'twitter.com'],
 		manualDomains: ['geosite:rkn'],
-		routes: [{ interface: 'nwg0', tunnelId: 'awg-demo-1', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-1')],
 		enabled: true,
 		createdAt: '2026-05-06T13:30:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
@@ -1798,110 +2148,109 @@ const mockRoutingDnsRoutes = [
 		name: 'Недоступно из РФ',
 		domains: ['geosite:unavailable-in-russia', 'netflix.com', 'spotify.com', 'discord.com'],
 		manualDomains: ['geosite:unavailable-in-russia'],
-		routes: [{ interface: 'nwg1', tunnelId: 'awg-demo-2', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-2')],
 		enabled: true,
 		createdAt: '2026-05-06T14:00:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
 	},
+	// HydraRoute Neo — ids match production (`hr:RuleName`), files are SoT on device.
 	{
-		id: 'hrneo-geo-youtube',
-		name: 'HR GEO YouTube',
-		domains: ['youtube.com'],
-		manualDomains: ['youtube.com'],
+		id: 'hr:Youtube',
+		name: 'Youtube',
+		domains: ['youtube.com', 'ytimg.com'],
+		manualDomains: ['youtube.com', 'ytimg.com'],
 		hrRouteMode: 'policy',
 		hrPolicyName: 'HydraRoute',
-		routes: [{ interface: 'nwg0', tunnelId: 'awg-demo-1', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-1')],
 		enabled: true,
 		backend: 'hydraroute',
 		createdAt: '2026-05-07T10:00:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
 	},
 	{
-		id: 'hrneo-geo-discord',
-		name: 'HR GEO Discord',
-		domains: ['discord.com'],
-		manualDomains: ['discord.com'],
+		id: 'hr:Netflix',
+		name: 'Netflix',
+		domains: ['netflix.com'],
+		manualDomains: ['netflix.com'],
 		hrRouteMode: 'policy',
 		hrPolicyName: 'HydraRoute',
-		routes: [{ interface: 'nwg1', tunnelId: 'awg-demo-2', fallback: 'auto' }],
-		enabled: true,
+		routes: [mockAwgRoute('awg-demo-2')],
+		enabled: false,
 		backend: 'hydraroute',
 		createdAt: '2026-05-08T10:00:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
 	},
 	{
-		id: 'hrneo-geo-openai',
-		name: 'HR GEO OpenAI',
-		domains: ['openai.com'],
-		manualDomains: ['openai.com'],
-		hrRouteMode: 'policy',
-		hrPolicyName: 'HydraRoute',
-		routes: [{ interface: 'nwg1', tunnelId: 'awg-demo-2', fallback: 'auto' }],
+		id: 'hr:Discord',
+		name: 'Discord',
+		domains: ['discord.com', 'discord.gg'],
+		manualDomains: ['discord.com', 'discord.gg'],
+		hrRouteMode: 'interface',
+		routes: [{ interface: 'awg0', tunnelId: 'awg-demo-1', fallback: 'auto' }],
 		enabled: true,
 		backend: 'hydraroute',
 		createdAt: '2026-05-09T10:00:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
 	},
 	{
-		id: 'hrneo-geo-github',
-		name: 'HR GEO GitHub',
-		domains: ['github.com'],
-		manualDomains: ['github.com'],
+		id: 'hr:OpenAI',
+		name: 'OpenAI',
+		domains: ['openai.com', 'chatgpt.com'],
+		manualDomains: ['openai.com', 'chatgpt.com'],
 		hrRouteMode: 'policy',
 		hrPolicyName: 'HydraRoute',
-		routes: [{ interface: 'nwg0', tunnelId: 'awg-demo-1', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-2')],
 		enabled: true,
 		backend: 'hydraroute',
 		createdAt: '2026-05-10T10:00:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
 	},
 	{
-		id: 'hrneo-geo-twitch',
-		name: 'HR GEO Twitch',
-		domains: ['twitch.tv'],
-		manualDomains: ['twitch.tv'],
+		id: 'hr:Константинопольские',
+		name: 'Константинопольские сервисы',
+		domains: ['example-long-name.local'],
+		manualDomains: ['example-long-name.local'],
 		hrRouteMode: 'policy',
 		hrPolicyName: 'HydraRoute',
-		routes: [{ interface: 'nwg0', tunnelId: 'awg-demo-1', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-1')],
 		enabled: true,
 		backend: 'hydraroute',
 		createdAt: '2026-05-11T10:00:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
 	},
 	{
-		id: 'hrneo-geo-google',
-		name: 'HR GEO Google',
-		domains: ['google.com'],
-		manualDomains: ['google.com'],
-		hrRouteMode: 'policy',
-		hrPolicyName: 'HydraRoute',
-		routes: [{ interface: 'nwg0', tunnelId: 'awg-demo-1', fallback: 'auto' }],
+		id: 'hr:Telegram',
+		name: 'Telegram',
+		domains: ['telegram.org', 't.me'],
+		subnets: ['91.108.4.0/22'],
+		manualDomains: ['telegram.org', 't.me', '91.108.4.0/22'],
+		hrRouteMode: 'interface',
+		routes: [{ interface: 'OpkgTun0', tunnelId: 'awg-demo-2', fallback: 'auto' }],
 		enabled: true,
 		backend: 'hydraroute',
 		createdAt: '2026-05-12T10:00:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
 	},
 	{
-		id: 'hrneo-geo-telegram',
-		name: 'HR GEO Telegram',
-		domains: ['telegram.org'],
-		manualDomains: ['telegram.org'],
+		id: 'hr:GitHub',
+		name: 'GitHub',
+		domains: ['github.com'],
+		manualDomains: ['github.com'],
 		hrRouteMode: 'policy',
 		hrPolicyName: 'HydraRoute',
-		routes: [{ interface: 'nwg1', tunnelId: 'awg-demo-2', fallback: 'auto' }],
+		routes: [mockAwgRoute('awg-demo-1')],
 		enabled: true,
 		backend: 'hydraroute',
 		createdAt: '2026-05-13T10:00:00Z',
 		updatedAt: '2026-05-14T20:00:00Z',
 	},
 	{
-		id: 'hrneo-geo-netflix',
-		name: 'HR GEO Netflix',
-		domains: ['netflix.com'],
-		manualDomains: ['netflix.com'],
-		hrRouteMode: 'policy',
-		hrPolicyName: 'HydraRoute',
-		routes: [{ interface: 'nwg1', tunnelId: 'awg-demo-2', fallback: 'auto' }],
+		id: 'hr:Twitch',
+		name: 'Twitch',
+		domains: ['twitch.tv'],
+		manualDomains: ['twitch.tv'],
+		hrRouteMode: 'interface',
+		routes: [{ interface: 'OpkgTun0', tunnelId: 'awg-demo-2', fallback: 'auto' }],
 		enabled: true,
 		backend: 'hydraroute',
 		createdAt: '2026-05-14T10:00:00Z',
@@ -2027,18 +2376,11 @@ const mockClientRoutes = [
 	},
 ];
 
-const mockPolicyInterfaces = [
-	{ name: 'Direct', label: 'Direct', up: true },
-	{ name: 'My VPN', label: 'My VPN', up: true },
-	{ name: 'NetcrazeHy2', label: 'NetcrazeHy2', up: true },
-	{ name: 'amnezia_for_awg_fornex', label: 'amnezia_for_awg_fornex', up: true },
-	{ name: 'NL vless-grpc', label: 'NL', up: false },
-];
-
-const mockRoutingTunnels = [
-	{ id: 'awg-demo-1', name: 'tun_abc123', iface: 'nwg0', type: 'managed', status: 'up', available: true },
-	{ id: 'awg-demo-2', name: 'tun_def456', iface: 'nwg1', type: 'managed', status: 'up', available: true },
-	{ id: 'direct', name: 'Direct', iface: 'eth3', type: 'wan', status: 'up', available: true },
+// Built on demand in handlers so policy mutations and tunnel status changes
+// stay visible without restarting the mock proxy.
+const LEGACY_POLICY_INTERFACE_FIXTURES = [
+	// Preserve explicit offline legacy edge case that is not part of tunnel catalogs.
+	{ name: 'NL vless-grpc', label: 'NL', up: false, source: 'legacy-fixture' },
 ];
 
 const mockSingboxRules = [
@@ -2046,7 +2388,7 @@ const mockSingboxRules = [
 	{ action: 'hijack-dns', protocol: 'dns' },
 	// system bypass — render as BYPASS chip; long matcher summary that
 	// triggers issue #214 narrow-viewport wrap problem.
-	{ ip_is_private: true },
+	{ ip_is_private: true, outbound: 'direct' },
 	{ action: 'route', domain_suffix: ['youtube.com', 'ytimg.com'], outbound: 'sub-demo0001' },
 	{ action: 'route', rule_set: ['geosite-openai'], outbound: 'sub-demo0001' },
 	{ action: 'route', domain_suffix: ['github.com'], outbound: 'direct' },
@@ -2134,10 +2476,57 @@ function mockPubkey(i) {
 	return `MOCK${String(i).padStart(2, '0')}${'A'.repeat(37)}=`;
 }
 
+function mockZeroASC() {
+	return {
+		jc: 0,
+		jmin: 0,
+		jmax: 0,
+		s1: 0,
+		s2: 0,
+		h1: '',
+		h2: '',
+		h3: '',
+		h4: '',
+	};
+}
+
+function mockFilledASC() {
+	return {
+		jc: 3,
+		jmin: 77,
+		jmax: 266,
+		s1: 18,
+		s2: 29,
+		h1: '103994526',
+		h2: '1201929360',
+		h3: '2403636727',
+		h4: '3602647725',
+		s3: 12,
+		s4: 9,
+		i1: 'sig1',
+		i2: 'sig2',
+		i3: 'sig3',
+		i4: 'sig4',
+		i5: 'sig5',
+	};
+}
+
+/** Wireguard0 — второй managed-сервер в rail («AWGM ASC»). */
+const MOCK_ASC_SERVER_ID = 'Wireguard0';
+
+function createInitialMockManagedAscByServer() {
+	return {
+		[MOCK_ASC_SERVER_ID]: mockFilledASC(),
+		Wireguard1: mockZeroASC(),
+	};
+}
+
+let mockManagedAscByServer = createInitialMockManagedAscByServer();
+
 function mockManagedServer() {
 	return {
 		interfaceName: 'Wireguard1',
-		description: 'Mock home server',
+		description: 'Default WG',
 		address: '10.0.0.1',
 		mask: '255.255.255.0',
 		listenPort: 51821,
@@ -2161,7 +2550,7 @@ function mockManagedServer() {
 function mockManagedSystemServer() {
 	return {
 		interfaceName: 'Wireguard0',
-		description: 'Wireguard VPN Server',
+		description: 'AWGM ASC',
 		address: '10.0.1.1',
 		mask: '255.255.255.0',
 		listenPort: 51820,
@@ -2208,6 +2597,17 @@ function mockManagedSystemStats() {
 	};
 }
 
+function buildMockServersAllData() {
+	return {
+		servers: mockSystemServers(),
+		managed: [mockManagedServer(), mockManagedSystemServer()],
+		managedStats: {
+			Wireguard1: mockManagedStats(),
+			Wireguard0: mockManagedSystemStats(),
+		},
+	};
+}
+
 function mockSystemServerPeers() {
 	const now = Date.now();
 	return SYSTEM_SERVER_PEERS_FIXTURE.map((p, i) => {
@@ -2235,10 +2635,10 @@ function mockSystemServers() {
 			status: 'up',
 			connected: true,
 			mtu: 1420,
-			address: '10.0.1.1',
+			address: '10.0.14.88',
 			mask: '255.255.255.0',
 			publicKey: mockPubkey(41),
-			listenPort: 51820,
+			listenPort: 8443,
 			peers: mockSystemServerPeers(),
 		},
 		{
@@ -2285,6 +2685,364 @@ async function fetchJSON(path, init) {
 function send(res, status, body, contentType = 'application/json') {
 	res.writeHead(status, { 'Content-Type': contentType });
 	res.end(typeof body === 'string' ? body : JSON.stringify(body));
+}
+
+function sendData(res, data, status = 200) {
+	send(res, status, { success: true, data });
+}
+
+function sendInvalidRequest(res, error, status = 400) {
+	send(res, status, {
+		success: false,
+		error: { code: 'INVALID_REQUEST', message: String(error) },
+	});
+}
+
+function wait(ms) {
+	return new Promise((resolveWait) => setTimeout(resolveWait, ms));
+}
+
+// Endpoints that perform a "service download" through the configurable route.
+// `style: 'envelope'` → backend error shape {error, message, code} @ 400.
+// `style: 'updateInfo'` → /system/update/check returns 200 with data.error.
+const DOWNLOAD_FAULT_ROUTES = [
+	{ method: 'POST', path: '/hydraroute/geo-files/update', style: 'envelope', code: 'GEO_UPDATE_ERROR' },
+	{ method: 'POST', path: '/hydraroute/geo-files/add', style: 'envelope', code: 'GEO_DOWNLOAD_ERROR' },
+	{ method: 'POST', path: '/dns-routes/refresh', style: 'envelope', code: 'DNS_ROUTE_REFRESH_ERROR' },
+	{ method: 'POST', path: '/amnezia-premium/login', style: 'envelope', code: 'AMNEZIA_CP_NETWORK' },
+	{ method: 'POST', path: '/amnezia-premium/account-info', style: 'envelope', code: 'AMNEZIA_CP_NETWORK' },
+	{ method: 'POST', path: '/amnezia-premium/download-config', style: 'envelope', code: 'AMNEZIA_CP_NETWORK' },
+	{ method: 'POST', path: '/singbox/install', style: 'envelope', code: 'SINGBOX_INSTALL_ERROR' },
+	{ method: 'POST', path: '/singbox/update', style: 'envelope', code: 'SINGBOX_UPDATE_ERROR' },
+	// NB: /download/outbounds is route *discovery*, not a download — never fault
+	// it, otherwise the route dropdown randomly empties.
+	{ method: 'GET', path: '/system/update/check', style: 'updateInfo' },
+];
+
+// One realistic message per humanized failure kind (see downloadError.ts):
+// sing-box off, AWG interface down, timeout, network drop, generic.
+const DOWNLOAD_FAULT_MESSAGES = [
+	'outbound "sb-subscription-1" is unavailable: sing-box is not running',
+	'outbound "awg-de-frankfurt" interface "awg0" is not present',
+	'download via DE Frankfurt: request failed: context deadline exceeded (timed out)',
+	'download via Direct (WAN): request failed: http get: EOF',
+	'remote returned HTTP 500: internal server error',
+];
+
+// Randomly short-circuit a service-download endpoint with a failure so the UI
+// can run through all outcomes. Returns true when a fault was written (caller
+// must stop), false to continue with the normal/proxied success path.
+function maybeInjectDownloadFault(req, res, path) {
+	if (!downloadFaultsEnabled) return false;
+	const route = DOWNLOAD_FAULT_ROUTES.find((r) => r.method === req.method && r.path === path);
+	if (!route) return false;
+	if (Math.random() >= downloadFaultProbability) return false;
+
+	// Drain any request body so keep-alive sockets don't stall.
+	if (req.method !== 'GET' && req.method !== 'HEAD') req.resume();
+
+	const message = DOWNLOAD_FAULT_MESSAGES[Math.floor(Math.random() * DOWNLOAD_FAULT_MESSAGES.length)];
+	if (route.style === 'updateInfo') {
+		send(res, 200, {
+			success: true,
+			data: {
+				currentVersion: 'dev',
+				latestVersion: '',
+				available: false,
+				channel: updateChannel,
+				error: message,
+			},
+		});
+	} else {
+		send(res, 400, { error: true, message, code: route.code });
+	}
+	console.log(`[mock-proxy] injected download fault on ${req.method} ${path}: ${message}`);
+	return true;
+}
+
+function readRequestText(req) {
+	return new Promise((resolveRead, rejectRead) => {
+		let raw = '';
+		req.on('data', (chunk) => (raw += chunk));
+		req.on('end', () => resolveRead(raw));
+		req.on('error', rejectRead);
+	});
+}
+
+async function readJsonBody(req, fallback = {}) {
+	const raw = await readRequestText(req);
+	return JSON.parse(raw || JSON.stringify(fallback));
+}
+
+function buildMockCapabilities() {
+	return {
+		name: 'awg-manager mock-proxy',
+		upstream: UPSTREAM,
+		port: PORT,
+		state: getRuntimeState(),
+		capabilities: MOCK_CAPABILITY_GROUPS,
+		fixtures: {
+			tunnelCatalog: buildMockTunnelCatalog().length,
+			downloadOutbounds: buildDownloadOutbounds().length,
+			awgTunnels: MOCK_AWG_TUNNELS.length,
+			systemTunnels: MOCK_SYSTEM_TUNNELS.length,
+			singboxTunnels: MOCK_SINGBOX_TUNNELS.length,
+			subscriptions: mockSubscriptions.length,
+			proxyInstances: mockProxyInstances.length,
+		},
+	};
+}
+
+
+function awgTunnelByID(id) {
+	return MOCK_AWG_TUNNELS.find((t) => t.id === id) ?? null;
+}
+
+function awgRouteInterface(id) {
+	return awgTunnelByID(id)?.interfaceName ?? id;
+}
+
+function mockAwgRoute(id, fallback = 'auto') {
+	return { interface: awgRouteInterface(id), tunnelId: id, fallback };
+}
+
+function findMockDnsRoute(id) {
+	const idx = mockRoutingDnsRoutes.findIndex((r) => r.id === id);
+	if (idx < 0) return null;
+	return { idx, route: mockRoutingDnsRoutes[idx] };
+}
+
+function touchMockDnsRoute(route) {
+	route.updatedAt = new Date().toISOString();
+}
+
+function mergeMockDnsRoute(route, patch) {
+	if (patch.name != null) route.name = patch.name;
+	if (patch.domains != null) route.domains = patch.domains;
+	if (patch.subnets != null) route.subnets = patch.subnets;
+	if (patch.manualDomains != null) route.manualDomains = patch.manualDomains;
+	if (patch.routes != null) route.routes = patch.routes;
+	if (patch.enabled != null) route.enabled = patch.enabled !== false;
+	if (patch.backend != null) route.backend = patch.backend;
+	if (patch.hrRouteMode != null) route.hrRouteMode = patch.hrRouteMode;
+	if (patch.hrPolicyName != null) route.hrPolicyName = patch.hrPolicyName;
+	if (patch.hrPolicyInterfaces != null) route.hrPolicyInterfaces = patch.hrPolicyInterfaces;
+	if (patch.iconUrl != null) route.iconUrl = patch.iconUrl;
+	touchMockDnsRoute(route);
+	return route;
+}
+
+function mockPolicyInterfaceRef(id, order = 0) {
+	const tunnel = awgTunnelByID(id);
+	if (!tunnel) return { name: id, label: id, order };
+	return { name: tunnel.interfaceName, label: tunnel.name || tunnel.interfaceName, order };
+}
+
+function getConnectionTunnel(index) {
+	const candidates = MOCK_AWG_TUNNELS.filter((t) => t.enabled !== false && t.status === 'running');
+	if (candidates.length === 0) return MOCK_AWG_TUNNELS[0] ?? null;
+	return candidates[index % candidates.length];
+}
+
+function buildMockTunnelCatalog() {
+	const direct = {
+		id: 'direct',
+		kind: 'direct',
+		name: 'Direct',
+		label: 'Direct (WAN)',
+		iface: 'eth3',
+		status: 'up',
+		available: true,
+	};
+
+	const awg = MOCK_AWG_TUNNELS.map((t) => ({
+		id: t.id,
+		tag: t.id,
+		kind: 'awg',
+		name: t.name,
+		label: t.name,
+		iface: t.interfaceName,
+		ndmsName: t.ndmsName,
+		endpoint: t.endpoint,
+		status: t.status,
+		running: t.status === 'running',
+		available: t.enabled !== false && t.status === 'running',
+		defaultRoute: !!t.defaultRoute,
+		source: 'MOCK_AWG_TUNNELS',
+	}));
+
+	const system = MOCK_SYSTEM_TUNNELS.map((t) => ({
+		id: t.id,
+		tag: t.id,
+		kind: 'system-wg',
+		name: t.description || t.id,
+		label: t.description || t.interfaceName || t.id,
+		iface: t.interfaceName,
+		endpoint: t.peer?.endpoint ?? '',
+		status: t.status,
+		running: t.status === 'up',
+		available: t.connected !== false && t.status === 'up',
+		source: 'MOCK_SYSTEM_TUNNELS',
+	}));
+
+	const singbox = MOCK_SINGBOX_TUNNELS.map((t) => ({
+		id: t.tag,
+		tag: t.tag,
+		kind: 'singbox',
+		protocol: t.protocol,
+		name: t.tag,
+		label: t.tag,
+		iface: t.proxyInterface,
+		endpoint: `${t.server}:${t.port}`,
+		status: t.running ? 'running' : 'stopped',
+		running: !!t.running,
+		available: !!t.running && t.connectivity?.connected !== false,
+		source: 'MOCK_SINGBOX_TUNNELS',
+	}));
+
+	return [direct, ...awg, ...system, ...singbox];
+}
+
+function buildDownloadOutbounds() {
+	const out = [];
+	const seen = new Set();
+	const add = (outbound) => {
+		if (!outbound?.tag || seen.has(outbound.tag)) return;
+		seen.add(outbound.tag);
+		out.push({ ...outbound });
+	};
+
+	for (const outbound of MOCK_DOWNLOAD_OUTBOUNDS) {
+		add(outbound);
+	}
+
+	add({
+		tag: 'direct',
+		kind: 'direct',
+		label: 'Direct (WAN)',
+		detail: 'без туннеля',
+		available: true,
+	});
+
+	for (const t of MOCK_AWG_TUNNELS) {
+		add({
+			tag: t.id,
+			kind: 'awg',
+			label: t.name,
+			// detail = kernel iface (backend bind_interface), not endpoint metadata
+			detail: t.interfaceName ?? '',
+			available: t.enabled !== false && !!t.interfaceName,
+		});
+	}
+
+	for (const t of MOCK_SINGBOX_TUNNELS) {
+		add({
+			tag: t.tag,
+			kind: 'singbox',
+			label: t.tag,
+			detail: `${t.protocol?.toUpperCase() ?? 'TUNNEL'} · ${t.server}:${t.port}`,
+			available: !!t.running && t.listenPort > 0,
+		});
+	}
+
+	return out;
+}
+
+function buildConnectionsTunnelSummary(stats) {
+	const directCount = Math.max(0, Number(stats?.direct) || 0);
+	const tunnels = {
+		'': { name: 'Direct', interface: 'eth3', count: directCount },
+	};
+
+	for (const tunnel of MOCK_AWG_TUNNELS) {
+		tunnels[tunnel.id] = {
+			name: tunnel.name,
+			interface: tunnel.interfaceName ?? '—',
+			count: MOCK_CONNECTIONS_POOL.filter((c) => c.tunnelId === tunnel.id).length,
+		};
+	}
+
+	return tunnels;
+}
+
+function buildMockPolicyInterfaces() {
+	const seen = new Set();
+	const add = (items, item) => {
+		if (!item.name || seen.has(item.name)) return;
+		seen.add(item.name);
+		items.push(item);
+	};
+
+	const items = [];
+	add(items, { name: 'Direct', label: 'Direct', up: true });
+
+	for (const iface of LEGACY_POLICY_INTERFACE_FIXTURES) {
+		add(items, { ...iface });
+	}
+
+	for (const tunnel of MOCK_AWG_TUNNELS) {
+		add(items, {
+			name: tunnel.interfaceName,
+			label: tunnel.name,
+			up: tunnel.enabled !== false && tunnel.status === 'running',
+		});
+	}
+
+	for (const tunnel of MOCK_SYSTEM_TUNNELS) {
+		add(items, {
+			name: tunnel.interfaceName,
+			label: tunnel.description || tunnel.interfaceName,
+			up: tunnel.connected !== false && tunnel.status === 'up',
+		});
+	}
+
+	for (const tunnel of MOCK_SINGBOX_TUNNELS) {
+		add(items, {
+			name: tunnel.proxyInterface,
+			label: tunnel.tag,
+			up: !!tunnel.running,
+		});
+	}
+
+	for (const policy of mockAccessPolicies) {
+		for (const [index, iface] of (policy.interfaces ?? []).entries()) {
+			add(items, {
+				name: iface.name,
+				label: iface.label || iface.name,
+				up: true,
+				source: `policy:${policy.name}`,
+				order: iface.order ?? index,
+			});
+		}
+	}
+
+	return items;
+}
+
+function buildMockRoutingTunnels() {
+	const awg = MOCK_AWG_TUNNELS.map((t) => ({
+		id: t.id,
+		name: t.name,
+		iface: t.interfaceName,
+		type: 'managed',
+		status: t.status === 'running' ? 'up' : t.status,
+		available: t.enabled !== false && t.status === 'running',
+	}));
+
+	const system = MOCK_SYSTEM_TUNNELS.map((t) => ({
+		id: t.id,
+		name: t.description || t.id,
+		iface: t.interfaceName,
+		type: 'system',
+		status: t.status,
+		available: t.connected !== false && t.status === 'up',
+	}));
+
+	return [
+		...awg,
+		...system,
+		{ id: 'direct', name: 'Direct', iface: 'eth3', type: 'wan', status: 'up', available: true },
+	];
 }
 
 // ── Logs catalog (mock) ────────────────────────────────────────
@@ -2485,6 +3243,47 @@ const server = http.createServer(async (req, res) => {
 	const url = new URL(req.url, `http://${req.headers.host}`);
 	const path = url.pathname;
 
+	if (req.method === 'GET' && path === '/__mock/capabilities') {
+		sendData(res, buildMockCapabilities());
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/__mock/tunnels') {
+		sendData(res, buildMockTunnelCatalog());
+		return;
+	}
+
+	if (req.method === 'POST' && (path === '/__mock/reset-runtime' || path === '/__mock/reset')) {
+		await readRequestText(req);
+		resetRuntimeControls();
+		sendData(res, { reset: true, scope: 'runtime', state: getRuntimeState() });
+		console.log('[mock-proxy] volatile mock runtime state reset');
+		return;
+	}
+
+	// Toggle / tune the random service-download fault injector at runtime.
+	// Body (optional JSON): { enabled?: boolean, probability?: 0..1 }.
+	if (req.method === 'POST' && path === '/__mock/download-faults') {
+		const text = await readRequestText(req);
+		try {
+			const body = text ? JSON.parse(text) : {};
+			if (typeof body.enabled === 'boolean') downloadFaultsEnabled = body.enabled;
+			if (body.probability !== undefined) {
+				downloadFaultProbability = parseProbability(body.probability, downloadFaultProbability);
+			}
+		} catch {
+			/* ignore malformed body, just report current state */
+		}
+		sendData(res, {
+			downloadFaultsEnabled,
+			downloadFaultProbability,
+		});
+		console.log(`[mock-proxy] download faults: enabled=${downloadFaultsEnabled} p=${downloadFaultProbability}`);
+		return;
+	}
+
+	if (maybeInjectDownloadFault(req, res, path)) return;
+
 	if (req.method === 'GET' && path === '/system/info') {
 		fetchJSON('/system/info').then(({ status, body }) => {
 			if (body && typeof body === 'object' && body.data && typeof body.data === 'object') {
@@ -2517,6 +3316,8 @@ const server = http.createServer(async (req, res) => {
 					modelDisplay: details.modelDisplay || 'CMCC RAX3000M (KN-3812)',
 					region: details.region || 'EA',
 				};
+				data.supportsExtendedASC = true;
+				data.supportsHRanges = true;
 			}
 			send(res, status, body);
 		});
@@ -2549,7 +3350,53 @@ const server = http.createServer(async (req, res) => {
 	if (req.method === 'GET' && path === '/download/outbounds') {
 		send(res, 200, {
 			success: true,
-			data: MOCK_DOWNLOAD_OUTBOUNDS,
+			data: buildDownloadOutbounds(),
+		});
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/hydraroute/geo-files') {
+		const ago = (min) => new Date(Date.now() - min * 60_000).toISOString();
+		send(res, 200, {
+			success: true,
+			data: [
+				// Managed by AWGM (external !== true) — updatable through the route.
+				{
+					type: 'geoip',
+					path: '/opt/etc/HydraRoute/geoip_GA.dat',
+					url: 'https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geoip_GA.dat',
+					size: 1_245_184,
+					tagCount: 312,
+					updated: ago(180),
+				},
+				{
+					type: 'geosite',
+					path: '/opt/etc/HydraRoute/geosite_GA.dat',
+					url: 'https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geosite_GA.dat',
+					size: 4_980_736,
+					tagCount: 868,
+					updated: ago(180),
+				},
+				// Extra non-external geoip (managed by AWGM).
+				{
+					type: 'geoip',
+					path: '/opt/etc/HydraRoute/geoip_antifilter.dat',
+					url: 'https://cdn.example.com/geodat/geoip_antifilter.dat',
+					size: 786_432,
+					tagCount: 154,
+					updated: ago(45),
+				},
+				// External — discovered in hrneo.conf, not managed by AWGM.
+				{
+					type: 'geosite',
+					path: '/opt/etc/hrneo/geosite.db',
+					url: 'https://cdn.example.com/geosite.db',
+					size: 3_145_728,
+					tagCount: 420,
+					updated: ago(1440),
+					external: true,
+				},
+			],
 		});
 		return;
 	}
@@ -2766,7 +3613,7 @@ const server = http.createServer(async (req, res) => {
 			delayMs = Number.isFinite(n) && n >= 0 ? n : defaultMs;
 		}
 		if (delayMs > 0) {
-			await new Promise((r) => setTimeout(r, delayMs));
+			await wait(delayMs);
 		}
 		send(res, 200, buildMockConnectionsResponse(url));
 		return;
@@ -2880,91 +3727,8 @@ const server = http.createServer(async (req, res) => {
 	}
 
 	if (req.method === 'GET' && path === '/monitoring/matrix') {
-		const forced = (req.url ?? '').includes('force=1');
-		fetchJSON('/monitoring/matrix').then(({ status, body }) => {
-			if (body && typeof body === 'object' && body.data) {
-				const data = body.data;
-				enrichMonitoringMatrixAwgTunnels(data.tunnels);
-				// On force=1 jitter the synthetic delay so the user sees the badge change.
-				const veespDelay = forced ? 40 + Math.floor(Math.random() * 240) : 78;
-				data.tunnels = [
-					...(data.tunnels ?? []),
-					{
-						id: 'veesp',
-						name: 'veesp',
-						ifaceName: 't2s0',
-						pingcheckTarget: '',
-						selfTarget: '',
-						selfMethod: 'disabled',
-						source: 'singbox',
-						singboxTag: 'veesp',
-						clashDelay: veespDelay,
-						urltestGroup: 'auto',
-						subscription: true,
-						protocol: 'vless',
-						security: 'reality',
-						transport: 'tcp',
-					},
-					{
-						id: 'prague',
-						name: 'prague',
-						ifaceName: 't2s1',
-						pingcheckTarget: '',
-						selfTarget: '',
-						selfMethod: 'disabled',
-						source: 'singbox',
-						singboxTag: 'prague',
-						protocol: 'vless',
-						security: 'tls',
-						transport: 'grpc',
-						// no urltest data — UI should NOT show the badge
-					},
-				];
-				const targets = [
-					{ id: 'dns-cf', name: 'Cloudflare DNS', host: '1.1.1.1', url: '' },
-					{ id: 'dns-google', name: 'Google DNS', host: '8.8.8.8', url: '' },
-					{ id: 'dns-quad9', name: 'Quad9 DNS', host: '9.9.9.9', url: '' },
-					{ id: 'cc-gstatic', name: 'connectivitycheck.gstatic.com', host: 'connectivitycheck.gstatic.com', url: '' },
-				];
-				data.targets = targets;
-
-				const primaryTunnelId = (data.tunnels ?? [])[0]?.id ?? '';
-				const nowIso = new Date().toISOString();
-				const baseLatencies = [84, 77, 79, 118];
-				const jitter = forced ? Math.floor(Math.random() * 9) - 4 : 0;
-
-				const cells = [];
-				for (let ti = 0; ti < targets.length; ti++) {
-					const target = targets[ti];
-					for (const tun of data.tunnels ?? []) {
-						if (tun.id === primaryTunnelId) {
-							cells.push({
-								targetId: target.id,
-								tunnelId: tun.id,
-								latencyMs: Math.max(15, baseLatencies[ti] + jitter),
-								ok: true,
-								activeForRestart: ti === 1,
-								isSelf: false,
-								ts: nowIso,
-							});
-						} else {
-							cells.push({
-								targetId: target.id,
-								tunnelId: tun.id,
-								latencyMs: null,
-								ok: false,
-								activeForRestart: false,
-								isSelf: false,
-								ts: nowIso,
-							});
-						}
-					}
-				}
-				data.cells = cells;
-				if (forced) data.updatedAt = new Date().toISOString();
-			}
-			send(res, status, body);
-		});
+		const forced = url.searchParams.get('force') === '1' || url.searchParams.get('force') === 'true';
+		send(res, 200, { success: true, data: buildConnectivityMatrixEvent({ forced }) });
 		return;
 	}
 
@@ -3274,22 +4038,24 @@ const server = http.createServer(async (req, res) => {
 	}
 
 	if (req.method === 'POST' && path === '/__mock/singbox-install-fail') {
-		let raw = '';
-		req.on('data', (c) => (raw += c));
-		req.on('end', () => {
-			try {
-				const body = JSON.parse(raw);
-				singboxInstallShouldFail = !!body.enabled;
-				send(res, 200, { ok: true, singboxInstallShouldFail });
-				console.log(`[mock-proxy] singboxInstallShouldFail → ${singboxInstallShouldFail}`);
-			} catch (e) {
-				send(res, 400, { error: String(e) });
-			}
-		});
+		try {
+			const body = await readJsonBody(req);
+			singboxInstallShouldFail = !!body.enabled;
+			send(res, 200, { ok: true, singboxInstallShouldFail });
+			console.log(`[mock-proxy] singboxInstallShouldFail → ${singboxInstallShouldFail}`);
+		} catch (e) {
+			send(res, 400, { error: String(e) });
+		}
 		return;
 	}
 
 	// === Wizard mock overrides ===
+
+	if (req.method === 'GET' && path === '/presets') {
+		const presets = await getUnifiedPresets();
+		send(res, 200, { success: true, data: { presets } });
+		return;
+	}
 
 	if (req.method === 'GET' && path === '/singbox/router/presets/list') {
 		send(res, 200, { success: true, data: mockSingboxPresets });
@@ -3321,6 +4087,113 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'GET' && path === '/dns-routes/list') {
+		sendData(res, mockRoutingDnsRoutes);
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/dns-routes/set-enabled') {
+		try {
+			const id = new URL(req.url, 'http://local').searchParams.get('id');
+			const body = await readJsonBody(req);
+			const found = findMockDnsRoute(id);
+			if (!found) {
+				send(res, 400, {
+					success: false,
+					error: { code: 'DNS_ROUTE_SET_ENABLED_ERROR', message: `dns route list ${JSON.stringify(id)} not found` },
+				});
+				return;
+			}
+			found.route.enabled = body.enabled !== false;
+			touchMockDnsRoute(found.route);
+			sendData(res, mockRoutingDnsRoutes);
+		} catch (e) {
+			sendInvalidRequest(res, e);
+		}
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/dns-routes/update') {
+		try {
+			const id = new URL(req.url, 'http://local').searchParams.get('id');
+			const body = await readJsonBody(req);
+			const found = findMockDnsRoute(id);
+			if (!found) {
+				send(res, 400, {
+					success: false,
+					error: { code: 'DNS_ROUTE_UPDATE_ERROR', message: `dns route list ${JSON.stringify(id)} not found` },
+				});
+				return;
+			}
+			const updated = mergeMockDnsRoute(found.route, body);
+			sendData(res, updated);
+		} catch (e) {
+			sendInvalidRequest(res, e);
+		}
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/dns-routes/delete') {
+		try {
+			const id = new URL(req.url, 'http://local').searchParams.get('id');
+			const found = findMockDnsRoute(id);
+			if (!found) {
+				send(res, 400, {
+					success: false,
+					error: { code: 'DNS_ROUTE_DELETE_ERROR', message: `dns route list ${JSON.stringify(id)} not found` },
+				});
+				return;
+			}
+			mockRoutingDnsRoutes.splice(found.idx, 1);
+			sendData(res, mockRoutingDnsRoutes);
+		} catch (e) {
+			sendInvalidRequest(res, e);
+		}
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/dns-routes/create') {
+		try {
+			const body = await readJsonBody(req);
+			const name = String(body.name || '').trim();
+			if (!name) {
+				sendInvalidRequest(res, 'name is required');
+				return;
+			}
+			const isHR = body.backend === 'hydraroute' || body.hrRouteMode;
+			const id = isHR ? `hr:${name}` : `dns-${name.toLowerCase().replace(/\s+/g, '-')}`;
+			if (findMockDnsRoute(id)) {
+				send(res, 400, {
+					success: false,
+					error: { code: 'DNS_ROUTE_CREATE_ERROR', message: `dns route list ${JSON.stringify(id)} already exists` },
+				});
+				return;
+			}
+			const now = new Date().toISOString();
+			const created = {
+				id,
+				name,
+				domains: body.domains ?? body.manualDomains ?? [],
+				subnets: body.subnets ?? [],
+				manualDomains: body.manualDomains ?? body.domains ?? [],
+				routes: body.routes ?? [],
+				enabled: body.enabled !== false,
+				backend: isHR ? 'hydraroute' : body.backend,
+				hrRouteMode: body.hrRouteMode,
+				hrPolicyName: body.hrPolicyName,
+				hrPolicyInterfaces: body.hrPolicyInterfaces,
+				iconUrl: body.iconUrl,
+				createdAt: now,
+				updatedAt: now,
+			};
+			mockRoutingDnsRoutes.push(created);
+			sendData(res, created);
+		} catch (e) {
+			sendInvalidRequest(res, e);
+		}
+		return;
+	}
+
 	if (req.method === 'GET' && path === '/routing/static-routes') {
 		send(res, 200, { success: true, data: mockStaticRoutes });
 		return;
@@ -3344,13 +4217,37 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
+	const managedAscMatch = path.match(/^\/managed-servers\/([^/]+)\/asc$/);
+	if (managedAscMatch) {
+		const serverId = decodeURIComponent(managedAscMatch[1]);
+		if (req.method === 'GET') {
+			const params = mockManagedAscByServer[serverId] ?? mockZeroASC();
+			send(res, 200, { success: true, data: { ...params } });
+			return;
+		}
+		if (req.method === 'PUT') {
+			let raw = '';
+			req.on('data', (c) => (raw += c));
+			req.on('end', () => {
+				try {
+					const body = JSON.parse(raw || '{}');
+					mockManagedAscByServer[serverId] = { ...mockZeroASC(), ...body };
+					send(res, 200, { success: true, data: buildMockServersAllData() });
+				} catch (e) {
+					send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+				}
+			});
+			return;
+		}
+	}
+
 	if (req.method === 'GET' && path === '/routing/policy-interfaces') {
-		send(res, 200, { success: true, data: mockPolicyInterfaces });
+		send(res, 200, { success: true, data: buildMockPolicyInterfaces() });
 		return;
 	}
 
 	if (req.method === 'GET' && path === '/routing/tunnels') {
-		send(res, 200, { success: true, data: mockRoutingTunnels });
+		send(res, 200, { success: true, data: buildMockRoutingTunnels() });
 		return;
 	}
 
@@ -3378,6 +4275,11 @@ const server = http.createServer(async (req, res) => {
 
 	if (req.method === 'GET' && path === '/singbox/router/wan-interfaces') {
 		send(res, 200, { success: true, data: mockWANInterfaces });
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/singbox/router/bindable-interfaces') {
+		send(res, 200, { success: true, data: mockBindableInterfaces });
 		return;
 	}
 
@@ -3516,7 +4418,7 @@ const server = http.createServer(async (req, res) => {
 
 	if (req.method === 'POST' && path === '/singbox/router/presets/apply') {
 		// simulate latency for visible "Применяем" log
-		await new Promise((r) => setTimeout(r, 200));
+		await wait(200);
 		send(res, 200, { success: true, data: {} });
 		return;
 	}
@@ -3541,6 +4443,84 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'GET' && path === '/singbox/router/dns/rewrites/list') {
+		send(res, 200, { success: true, data: mockDNSRewrites });
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/dns/rewrites/add') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const payload = JSON.parse(raw || '{}');
+				mockDNSRewrites.push(payload);
+				send(res, 200, { success: true, data: payload });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/dns/rewrites/update') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const { index, rewrite } = JSON.parse(raw || '{}');
+				if (index < 0 || index >= mockDNSRewrites.length) {
+					send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'rewrite not found' } });
+					return;
+				}
+				mockDNSRewrites[index] = rewrite;
+				send(res, 200, { success: true, data: rewrite });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/dns/rewrites/delete') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const { index } = JSON.parse(raw || '{}');
+				if (index < 0 || index >= mockDNSRewrites.length) {
+					send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'rewrite not found' } });
+					return;
+				}
+				mockDNSRewrites.splice(index, 1);
+				send(res, 200, { success: true, data: { ok: true } });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/dns/rewrites/move') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const { from, to } = JSON.parse(raw || '{}');
+				if (from < 0 || from >= mockDNSRewrites.length || to < 0 || to >= mockDNSRewrites.length) {
+					send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'rewrite not found' } });
+					return;
+				}
+				const [moved] = mockDNSRewrites.splice(from, 1);
+				mockDNSRewrites.splice(to, 0, moved);
+				send(res, 200, { success: true, data: { ok: true } });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
 	if (req.method === 'POST' && path === '/singbox/router/enable') {
 		mockEngineRunning = true;
 		send(res, 200, { success: true, data: {} });
@@ -3558,6 +4538,9 @@ const server = http.createServer(async (req, res) => {
 				configValid: true,
 				netfilterAvailable: true,
 				policyName: mockSBPolicyExists ? 'SBRouter' : '',
+				deviceMode: mockSBSettings.deviceMode || 'policy',
+				ruleCount: mockSingboxRules.length,
+				ruleSetCount: mockSingboxRuleSets.length,
 			},
 		});
 		return;
@@ -3571,6 +4554,65 @@ const server = http.createServer(async (req, res) => {
 				{ tag: 'awg-sys-Wireguard0',   label: 'NL Amsterdam', kind: 'system',  iface: 'nwg0' },
 				{ tag: 'awg-sys-Wireguard1',   label: 'FI Helsinki',  kind: 'system',  iface: 'nwg1' },
 			],
+		});
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/singbox/router/outbounds/list') {
+		send(res, 200, { success: true, data: mockOutbounds });
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/outbounds/add') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const o = JSON.parse(raw || '{}');
+				if (mockOutbounds.some((x) => x.tag === o.tag)) {
+					send(res, 400, { success: false, error: { code: 'CONFLICT', message: `tag ${o.tag} exists` } });
+					return;
+				}
+				mockOutbounds.push({ ...o, source: 'router' });
+				send(res, 200, { success: true, data: { ok: true } });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/outbounds/update') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const { tag, outbound } = JSON.parse(raw || '{}');
+				const idx = mockOutbounds.findIndex((x) => x.tag === tag);
+				if (idx < 0) {
+					send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: `tag ${tag} not found` } });
+					return;
+				}
+				mockOutbounds[idx] = { ...outbound, source: 'router' };
+				send(res, 200, { success: true, data: { ok: true } });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/outbounds/delete') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const { tag } = JSON.parse(raw || '{}');
+				mockOutbounds = mockOutbounds.filter((x) => x.tag !== tag);
+				send(res, 200, { success: true, data: { ok: true } });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
 		});
 		return;
 	}
@@ -3695,6 +4737,8 @@ const server = http.createServer(async (req, res) => {
 			mode: sub.mode ?? 'selector',
 			urlTest: sub.urlTest,
 			total: (sub.members ?? []).length,
+			rejectedMembers: sub.rejectedMembers ?? [],
+			infoItems: sub.infoItems ?? [],
 		};
 		res.write(`event: meta\ndata: ${JSON.stringify(meta)}\n\n`);
 
@@ -3704,6 +4748,8 @@ const server = http.createServer(async (req, res) => {
 			if (i >= members.length) {
 				const done = {
 					orphanTags: sub.orphanTags ?? [],
+					rejectedMembers: sub.rejectedMembers ?? [],
+					infoItems: sub.infoItems ?? [],
 					activeMember: sub.activeMember ?? '',
 				};
 				res.write(`event: done\ndata: ${JSON.stringify(done)}\n\n`);
@@ -3783,6 +4829,81 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'POST' && path === '/singbox/subscriptions/rejected/to-info') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const body = JSON.parse(raw || '{}');
+				const id = new URL(req.url, 'http://x').searchParams.get('id');
+				const sub = mockSubscriptions.find((s) => s.id === id);
+				if (!sub) {
+					send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'no such id' } });
+					return;
+				}
+				const result = moveMockRejectedToInfo(sub, body.memberTag);
+				if (result.error) {
+					send(res, result.error.status, {
+						success: false,
+						error: { code: result.error.code, message: result.error.message },
+					});
+					return;
+				}
+				send(res, 200, { success: true, data: toMockSubscriptionDTO(sub) });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/subscriptions/info/remove') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const body = JSON.parse(raw || '{}');
+				const id = new URL(req.url, 'http://x').searchParams.get('id');
+				const sub = mockSubscriptions.find((s) => s.id === id);
+				if (!sub) {
+					send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'no such id' } });
+					return;
+				}
+				const itemId = String(body.itemId || '').trim();
+				const items = sub.infoItems ?? [];
+				const idx = items.findIndex((it) => it.id === itemId);
+				if (idx < 0) {
+					send(res, 404, {
+						success: false,
+						error: { code: 'INFO_ITEM_NOT_FOUND', message: 'info item not found' },
+					});
+					return;
+				}
+				const removed = items[idx];
+				const removedId = removed.id;
+				sub.infoItems = items.filter((_, i) => i !== idx);
+				const dismissed = new Set(sub.dismissedInfoIds ?? []);
+				if (removedId) dismissed.add(removedId);
+				sub.dismissedInfoIds = [...dismissed];
+				const rejected = sub.rejectedMembers ?? [];
+				const r = {
+					tag: removed.tag || '',
+					label: removed.label || removedId,
+					reason: 'убрано из информации провайдера',
+				};
+				const key = r.tag ? `tag:${r.tag}` : `label:${r.label}`;
+				if (!rejected.some((x) => (x.tag ? `tag:${x.tag}` : `label:${x.label}`) === key)) {
+					rejected.push(r);
+				}
+				sub.rejectedMembers = rejected;
+				send(res, 200, { success: true, data: toMockSubscriptionDTO(sub) });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
 	if (req.method === 'POST' && path === '/singbox/subscriptions/active-member') {
 		let raw = '';
 		req.on('data', (c) => (raw += c));
@@ -3807,12 +4928,7 @@ const server = http.createServer(async (req, res) => {
 	if (req.method === 'GET' && path === '/servers/all') {
 		fetchJSON('/servers/all').then(({ status, body }) => {
 			if (body && typeof body === 'object' && body.data && typeof body.data === 'object') {
-				body.data.servers = mockSystemServers();
-				body.data.managed = [mockManagedServer(), mockManagedSystemServer()];
-				body.data.managedStats = {
-					Wireguard1: mockManagedStats(),
-					Wireguard0: mockManagedSystemStats(),
-				};
+				Object.assign(body.data, buildMockServersAllData());
 			}
 			send(res, status, body);
 		});
@@ -3973,6 +5089,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => {
 	console.log(`mock-proxy on http://127.0.0.1:${PORT} → ${UPSTREAM} (usageLevel=${usageLevel})`);
+	console.log('[mock-proxy] controls: GET /__mock/capabilities, GET /__mock/tunnels, POST /__mock/reset-runtime, POST /__mock/singbox-install-fail, POST /__mock/download-faults');
+	console.log(`[mock-proxy] download faults: enabled=${downloadFaultsEnabled} p=${downloadFaultProbability} (disable: MOCK_DOWNLOAD_FAULTS=0)`);
 });
 
 function wsAccept(key) {

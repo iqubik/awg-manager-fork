@@ -1,0 +1,54 @@
+#!/bin/sh
+# Minimal init for awg_proxy watchdog repro under QEMU malta-mipsel
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mount -t tmpfs tmpfs /tmp 2>/dev/null
+
+# Ensure devtmpfs is up (CONFIG_DEVTMPFS_MOUNT=y should auto-mount it)
+[ -e /dev/null ] || mount -t devtmpfs devtmpfs /dev 2>/dev/null
+
+echo "[init] booted, kernel=$(uname -r)"
+
+if [ ! -f /lib/modules/4.9.337/awg_proxy.ko ]; then
+    echo "[init] FATAL: /lib/modules/4.9.337/awg_proxy.ko missing"
+    echo "NO_MODULE"
+    sleep 2
+    poweroff -f
+fi
+
+echo "[init] inserting awg_proxy.ko"
+insmod /lib/modules/4.9.337/awg_proxy.ko
+if [ $? -ne 0 ]; then
+    echo "[init] FATAL: insmod failed"
+    dmesg | tail -20
+    echo "INSMOD_FAILED"
+    sleep 2
+    poweroff -f
+fi
+
+echo "[init] /proc/awg_proxy contents:"
+ls -la /proc/awg_proxy 2>/dev/null
+echo "---version---"
+cat /proc/awg_proxy/version 2>/dev/null
+echo "---/version---"
+
+# Start a UDP listener on 127.0.0.1:5060 (the slot upstream target).
+# busybox nc -lu binds UDP. -p sets listen port.
+( nc -lu -p 5060 > /dev/null 2>&1 & )
+sleep 1
+
+# Hand control to repro
+sh /opt/repro.sh
+RC=$?
+echo "[init] repro exit=$RC"
+
+# Drain dmesg post-repro
+echo "===DMESG_TAIL_BEGIN==="
+dmesg | tail -80
+echo "===DMESG_TAIL_END==="
+
+echo "NO_STALL_DETECTED"
+sleep 1
+poweroff -f

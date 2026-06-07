@@ -5,6 +5,7 @@
 	import { notifications } from '$lib/stores/notifications';
 	import type { SystemTunnel, ASCParams, ASCParamsExtended } from '$lib/types';
 	import { PageContainer } from '$lib/components/layout';
+	import { ArrowLeft } from 'lucide-svelte';
 	import { Button, Dropdown, type DropdownOption } from '$lib/components/ui';
 	import { formatBytes } from '$lib/utils/format';
 	import { protocols, getSignaturePackets, calcByteSize, calcTotalSize, type ProtocolKey } from '$lib/utils/protocols';
@@ -311,9 +312,7 @@
 </PageContainer>
 
 {#snippet backIcon()}
-	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-		<path d="M19 12H5M12 19l-7-7 7-7"/>
-	</svg>
+	<ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />
 {/snippet}
 
 <style>

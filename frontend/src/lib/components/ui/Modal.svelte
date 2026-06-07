@@ -5,7 +5,9 @@
     interface Props {
         open: boolean;
         title: string;
-        size?: 'sm' | 'md' | 'lg' | 'xl';
+        size?: 'sm' | 'md' | 'lg' | 'xl' | 'wide';
+        /** When `fill`, body does not scroll — children manage their own scroll regions. */
+        bodyLayout?: 'default' | 'fill';
         onclose: () => void;
         children: Snippet;
         actions?: Snippet;
@@ -30,6 +32,7 @@
         open = $bindable(false),
         title,
         size = 'md',
+        bodyLayout = 'default',
         onclose,
         children,
         actions,
@@ -41,7 +44,8 @@
         sm: 'max-w-sm',
         md: 'max-w-md',
         lg: 'max-w-lg',
-        xl: 'max-w-xl'
+        xl: 'max-w-xl',
+        wide: 'max-w-wide',
     };
 
     function attemptClose() {
@@ -150,7 +154,7 @@
                 </button>
             </header>
 
-            <section class="modal-body">
+            <section class="modal-body" class:modal-body-fill={bodyLayout === 'fill'}>
                 {@render children()}
             </section>
 
@@ -216,6 +220,15 @@
     .max-w-md { max-width: min(32rem, calc(100vw - 2rem)); }
     .max-w-lg { max-width: min(40rem, calc(100vw - 2rem)); }
     .max-w-xl { max-width: min(48rem, calc(100vw - 2rem)); }
+    .max-w-wide { max-width: min(960px, calc(100vw - 2rem)); }
+
+    .modal-body-fill {
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        padding: 0 8px;
+        min-height: 0;
+    }
 
     .modal-header {
         display: flex;

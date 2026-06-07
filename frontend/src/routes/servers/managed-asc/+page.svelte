@@ -6,6 +6,7 @@
 	import { servers } from '$lib/stores/servers';
 	import type { ASCParams, ASCParamsExtended, SystemInfo } from '$lib/types';
 	import { PageContainer } from '$lib/components/layout';
+	import { ArrowLeft } from 'lucide-svelte';
 	import { Button } from '$lib/components/ui';
 	import { calcByteSize, calcTotalSize } from '$lib/utils/protocols';
 	import { generateASCParams } from '$lib/utils/asc-generator';
@@ -323,9 +324,7 @@
 </PageContainer>
 
 {#snippet backIcon()}
-	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-		<path d="M19 12H5M12 19l-7-7 7-7"/>
-	</svg>
+	<ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />
 {/snippet}
 
 <style>

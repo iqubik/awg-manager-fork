@@ -63,6 +63,11 @@
 		background: var(--color-bg-secondary);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius);
+		min-height: 4.25rem;
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+		min-width: 0;
 	}
 
 	.tile-button {
@@ -97,6 +102,9 @@
 		letter-spacing: 0.05em;
 		color: var(--color-text-muted);
 		margin-bottom: 0.25rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.tile-value {
@@ -112,6 +120,11 @@
 	@media (max-width: 720px) {
 		.stat-row {
 			grid-template-columns: repeat(2, minmax(0, 1fr));
+			align-items: stretch;
+		}
+
+		.tile {
+			min-height: 4.25rem;
 		}
 	}
 </style>

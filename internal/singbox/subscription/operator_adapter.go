@@ -68,9 +68,10 @@ type OperatorAdapter struct {
 	pm    ProxyRegistrar
 	clash ClashSelector
 
-	mu          sync.Mutex
-	cfg         slotConfig
-	lastDropped []DropReason // outbounds filtered out of the most recent flush
+	mu              sync.Mutex
+	cfg             slotConfig
+	lastDropped     []DropReason // outbounds filtered out of the most recent flush
+	preFlushDropped []DropReason // Pass-1 rejects from Add/Update before the next flush
 }
 
 // NewOperatorAdapter constructs the adapter. In production the subscription
@@ -168,6 +169,10 @@ func (a *OperatorAdapter) AddOutbound(tag string, jsonBody []byte) error {
 		return fmt.Errorf("subscription adapter: AddOutbound %q: bad json: %w", tag, err)
 	}
 	ob["tag"] = tag
+	if reason := classifyOutbound(ob); reason != "" {
+		a.preFlushDropped = append(a.preFlushDropped, DropReason{Tag: tag, Reason: reason})
+		return nil
+	}
 	a.upsertOutbound(tag, ob)
 	return a.flush()
 }
@@ -182,6 +187,10 @@ func (a *OperatorAdapter) UpdateOutbound(tag string, jsonBody []byte) error {
 		return fmt.Errorf("subscription adapter: UpdateOutbound %q: bad json: %w", tag, err)
 	}
 	ob["tag"] = tag
+	if reason := classifyOutbound(ob); reason != "" {
+		a.preFlushDropped = append(a.preFlushDropped, DropReason{Tag: tag, Reason: reason})
+		return nil
+	}
 	a.upsertOutbound(tag, ob)
 	return a.flush()
 }
@@ -233,20 +242,32 @@ func (a *OperatorAdapter) AddInbound(tag string, jsonBody []byte) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	for _, v := range a.cfg.Inbounds {
-		ib, ok := v.(map[string]any)
-		if !ok {
-			continue
-		}
-		if t, _ := ib["tag"].(string); t == tag {
-			return nil // already present
-		}
-	}
 	var ib map[string]any
 	if err := json.Unmarshal(jsonBody, &ib); err != nil {
 		return fmt.Errorf("subscription adapter: AddInbound %q: bad json: %w", tag, err)
 	}
 	ib["tag"] = tag
+	newPort, hasPort := toAnyInt(ib["listen_port"])
+
+	for _, v := range a.cfg.Inbounds {
+		existing, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, _ := existing["tag"].(string); t == tag {
+			return nil // already present (same tag) — idempotent
+		}
+		// Defense-in-depth (issue #287): reject a second inbound on a
+		// listen_port already taken by a different tag. Two subscription
+		// inbounds on one port make the merged config structurally invalid,
+		// which the flush's index-based outbound-drop cannot repair.
+		if hasPort {
+			if p, ok := toAnyInt(existing["listen_port"]); ok && p == newPort {
+				et, _ := existing["tag"].(string)
+				return fmt.Errorf("subscription adapter: AddInbound %q: listen_port %d already used by inbound %q", tag, newPort, et)
+			}
+		}
+	}
 	a.cfg.Inbounds = append(a.cfg.Inbounds, ib)
 	return a.flush()
 }
@@ -400,7 +421,8 @@ func (a *OperatorAdapter) upsertOutbound(tag string, ob map[string]any) {
 // which servers were skipped and why; the subscription is not rejected
 // wholesale unless every outbound failed.
 func (a *OperatorAdapter) flush() error {
-	dropped := []DropReason{}
+	dropped := append([]DropReason(nil), a.preFlushDropped...)
+	a.preFlushDropped = nil
 
 	// Pass 1 — structural pre-filter.
 	kept, p1Dropped := preFilterOutbounds(a.cfg.Outbounds)
@@ -417,6 +439,7 @@ func (a *OperatorAdapter) flush() error {
 	// Pass 2 — sing-box check with iterative drop. Cap iterations to
 	// initial outbound count so a parser bug cannot loop forever.
 	maxIter := len(a.cfg.Outbounds) + 1
+	xSlotCleaned := map[string]bool{} // cross-slot tags already cleaned — guards against re-reporting a ref we can't actually remove
 	for iter := 0; iter < maxIter; iter++ {
 		data, err := json.MarshalIndent(a.cfg, "", "  ")
 		if err != nil {
@@ -431,6 +454,28 @@ func (a *OperatorAdapter) flush() error {
 		}
 		idx, ok := parseSingboxOutboundIndex(res.Error())
 		if !ok {
+			// Not a sing-box index error. It may be a cross-slot
+			// unknown-outbound: a selector/urltest in our slot referencing a
+			// member tag that no slot declares (dangling group member, e.g.
+			// after a subscription update changed server tags). The
+			// index-based loop can't reach these; self-heal by dropping the
+			// dangling member refs, then retry. Only give up if nothing was
+			// cleanable.
+			// Only retry on genuinely-new progress: a tag we already cleaned
+			// reappearing means cleanReferencesToTag couldn't actually remove
+			// the ref (e.g. a reference path it doesn't walk) — looping would
+			// spin to the cap and then save a still-broken config. Bail instead.
+			progress := false
+			for _, t := range cleanCrossSlotUnknownRefs(&a.cfg, res) {
+				if !xSlotCleaned[t] {
+					xSlotCleaned[t] = true
+					progress = true
+					dropped = append(dropped, DropReason{Tag: t, Reason: "висячая ссылка в группе: ни один слот не объявляет этот outbound"})
+				}
+			}
+			if progress {
+				continue
+			}
 			// Unknown error class — cannot isolate, give up.
 			return fmt.Errorf("%w: could not isolate outbound: %s", ErrValidation, res.Error())
 		}
@@ -458,6 +503,48 @@ func (a *OperatorAdapter) flush() error {
 
 	a.lastDropped = dropped
 	return nil
+}
+
+// DeclaredOutboundTags returns the outbound tags present in the committed
+// subscriptions slot (after the last flush). The Service uses it to prune
+// stored MemberTags down to servers that actually materialized, so
+// flush-dropped servers don't linger as dangling group members.
+func (a *OperatorAdapter) DeclaredOutboundTags() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	tags := make([]string, 0, len(a.cfg.Outbounds))
+	for _, raw := range a.cfg.Outbounds {
+		ob, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t := outboundTag(ob); t != "" {
+			tags = append(tags, t)
+		}
+	}
+	return tags
+}
+
+// cleanCrossSlotUnknownRefs removes member references (selector/urltest
+// "outbounds") to outbound tags that the cross-slot validator reported as
+// unknown-outbound for the subscriptions slot. This self-heals dangling
+// group members that the sing-box index-based isolation loop in flush()
+// cannot reach (it only understands sing-box "initialize outbound[N]"
+// errors, not our own cross-slot validation result). Only the
+// subscriptions slot is touched — unknown-outbounds reported for other
+// slots aren't ours to fix here. Returns the distinct tags cleaned.
+func cleanCrossSlotUnknownRefs(cfg *slotConfig, res orchestrator.ValidationResult) []string {
+	seen := map[string]bool{}
+	var cleaned []string
+	for _, e := range res.Errors {
+		if e.Slot != orchestrator.SlotSubscriptions || e.Kind != "unknown-outbound" || e.Tag == "" || seen[e.Tag] {
+			continue
+		}
+		seen[e.Tag] = true
+		cleanReferencesToTag(cfg, e.Tag)
+		cleaned = append(cleaned, e.Tag)
+	}
+	return cleaned
 }
 
 // LastFilterDrops returns the outbounds filtered out of the most recent

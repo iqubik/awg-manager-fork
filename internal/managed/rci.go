@@ -222,6 +222,49 @@ func (s *Service) rciSetNAT(ctx context.Context, ifaceName string, enabled bool)
 	})
 }
 
+// rciSetStaticNAT добавляет/снимает Static NAT (`ip static <iface> <wan>`)
+// для интерфейса. wanIface — NDMS-имя WAN (to-interface, трекает динамический адрес).
+func (s *Service) rciSetStaticNAT(ctx context.Context, ifaceName, wanIface string, enabled bool) error {
+	if enabled {
+		return s.rciPost(ctx, map[string]interface{}{
+			"ip": map[string]interface{}{
+				"static": map[string]interface{}{
+					"interface":    ifaceName,
+					"to-interface": wanIface,
+				},
+			},
+		})
+	}
+	return s.rciPost(ctx, map[string]interface{}{
+		"ip": map[string]interface{}{
+			"static": []map[string]interface{}{
+				{"no": true, "interface": ifaceName, "to-interface": wanIface},
+			},
+		},
+	})
+}
+
+// rciAclPermit adds a permit rule to an access-list via RCI parse command.
+func (s *Service) rciAclPermit(ctx context.Context, acl, srcSub, srcMask, dstSub, dstMask string) error {
+	return s.rciPost(ctx, map[string]interface{}{
+		"parse": fmt.Sprintf("access-list %s permit ip %s %s %s %s", acl, srcSub, srcMask, dstSub, dstMask),
+	})
+}
+
+// rciAclRemove removes an access-list via RCI parse command.
+func (s *Service) rciAclRemove(ctx context.Context, acl string) error {
+	return s.rciPost(ctx, map[string]interface{}{"parse": "no access-list " + acl})
+}
+
+// rciAccessGroup binds or unbinds an access-group to an interface via RCI parse command.
+func (s *Service) rciAccessGroup(ctx context.Context, iface, acl string, bind bool) error {
+	cmd := fmt.Sprintf("interface %s ip access-group %s in", iface, acl)
+	if !bind {
+		cmd = "no " + cmd
+	}
+	return s.rciPost(ctx, map[string]interface{}{"parse": cmd})
+}
+
 // rciSetPrivateKey installs an explicit WireGuard private key on the
 // interface via RCI. Verified against NDMS 4.x: POST returns "set private
 // key." status and the next /show/interface/<name>.wireguard.public-key
@@ -275,21 +318,22 @@ func (s *Service) rciClearASCParams(ctx context.Context, ifaceName string) error
 }
 
 // rciSetHotspotPolicy applies an ip hotspot policy to the interface.
-// policy is "permit", "deny", or an IP Policy profile name. For "none"
-// use rciClearHotspotPolicy.
+// policy is an IP Policy profile name. For "none" use
+// rciClearHotspotPolicy.
 //
-// JSON shape verified against /show/rc/ip/hotspot on a live router:
+// Write form verified on a live router. NB: the /show/rc/ip/hotspot read
+// form is an array keyed by "access"; the write command is a single
+// object keyed by "policy" (router replies "policy ... applied to
+// interface ..."):
 //
-//	"policy": [{"interface":"Bridge0","access":"permit"}, ...]
-//
-// access carries the literal value, including a profile name when the
-// chosen policy is a named IP Policy profile.
+//	{"ip":{"hotspot":{"policy":{"interface":"Wireguard0","policy":"Policy0"}}}}
 func (s *Service) rciSetHotspotPolicy(ctx context.Context, ifaceName, policy string) error {
 	return s.rciPost(ctx, map[string]interface{}{
 		"ip": map[string]interface{}{
 			"hotspot": map[string]interface{}{
-				"policy": []map[string]interface{}{
-					{"interface": ifaceName, "access": policy},
+				"policy": map[string]interface{}{
+					"interface": ifaceName,
+					"policy":    policy,
 				},
 			},
 		},
@@ -298,12 +342,18 @@ func (s *Service) rciSetHotspotPolicy(ctx context.Context, ifaceName, policy str
 
 // rciClearHotspotPolicy removes the ip hotspot policy from the interface
 // (default-permit). Mirrors `no policy <iface>` in (config-hotspot) mode.
+//
+// Write form verified on a live router (router replies "interface ...
+// policy cleared."):
+//
+//	{"ip":{"hotspot":{"policy":{"interface":"Wireguard0","no":true}}}}
 func (s *Service) rciClearHotspotPolicy(ctx context.Context, ifaceName string) error {
 	return s.rciPost(ctx, map[string]interface{}{
 		"ip": map[string]interface{}{
 			"hotspot": map[string]interface{}{
-				"policy": []map[string]interface{}{
-					{"no": true, "interface": ifaceName},
+				"policy": map[string]interface{}{
+					"interface": ifaceName,
+					"no":        true,
 				},
 			},
 		},
@@ -340,7 +390,6 @@ func (s *Service) rciAddPeer(ctx context.Context, ifaceName, pubKey, psk, commen
 		"connect":       enabled,
 		"allow-ips": []map[string]interface{}{
 			{"address": peerIP, "mask": "255.255.255.255"},
-			{"address": "0.0.0.0", "mask": "0.0.0.0"},
 		},
 	}
 	if comment != "" {
@@ -402,6 +451,28 @@ func (s *Service) rciSetPeerComment(ctx context.Context, ifaceName, pubKey, comm
 	})
 }
 
+// rciRemovePeerDefaultRoute strips the legacy 0.0.0.0/0 entry from a peer's
+// allow-ips, leaving its /32 intact. Used by the one-time MigratePeerAllowIPs
+// sweep over peers created by older builds.
+func (s *Service) rciRemovePeerDefaultRoute(ctx context.Context, ifaceName, pubKey string) error {
+	return s.rciPost(ctx, map[string]interface{}{
+		"interface": map[string]interface{}{
+			ifaceName: map[string]interface{}{
+				"wireguard": map[string]interface{}{
+					"peer": []map[string]interface{}{
+						{
+							"key": pubKey,
+							"allow-ips": []map[string]interface{}{
+								{"no": true, "address": "0.0.0.0", "mask": "0.0.0.0"},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+}
+
 // rciUpdatePeerAllowIPs removes old allow-ips and sets new ones.
 func (s *Service) rciUpdatePeerAllowIPs(ctx context.Context, ifaceName, pubKey, oldIP, newIP string) error {
 	// Remove old
@@ -415,7 +486,6 @@ func (s *Service) rciUpdatePeerAllowIPs(ctx context.Context, ifaceName, pubKey, 
 								"key": pubKey,
 								"allow-ips": []map[string]interface{}{
 									{"no": true, "address": oldIP, "mask": "255.255.255.255"},
-									{"no": true, "address": "0.0.0.0", "mask": "0.0.0.0"},
 								},
 							},
 						},
@@ -437,7 +507,6 @@ func (s *Service) rciUpdatePeerAllowIPs(ctx context.Context, ifaceName, pubKey, 
 							"key": pubKey,
 							"allow-ips": []map[string]interface{}{
 								{"address": newIP, "mask": "255.255.255.255"},
-								{"address": "0.0.0.0", "mask": "0.0.0.0"},
 							},
 						},
 					},

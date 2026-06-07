@@ -1,6 +1,5 @@
 <script lang="ts">
-	import Modal from '$lib/components/ui/Modal.svelte';
-	import { Button, Dropdown, ChipMultiSelect, type DropdownOption, type ChipOption } from '$lib/components/ui';
+	import { Button, Dropdown, ChipMultiSelect, SideDrawer, type DropdownOption, type ChipOption } from '$lib/components/ui';
 	import type { SingboxRouterDNSRule, SingboxRouterDNSServer, SingboxRouterRuleSet } from '$lib/types';
 
 	interface Props {
@@ -184,7 +183,13 @@
 	}
 </script>
 
-<Modal open onclose={onClose} title={rule ? 'Редактировать DNS правило' : 'Новое DNS правило'} hasUnsavedChanges={() => isDirty}>
+<SideDrawer
+	open
+	onClose={onClose}
+	title={rule ? 'Редактировать DNS правило' : 'Новое DNS правило'}
+	width={620}
+	footer={drawerFooter}
+>
 	<div class="form">
 		<div class="section-label">Matchers (минимум один)</div>
 
@@ -246,14 +251,14 @@
 
 		{#if error}<div class="error">{error}</div>{/if}
 	</div>
+</SideDrawer>
 
-	{#snippet actions()}
-		<Button variant="ghost" size="md" onclick={onClose} type="button">Отмена</Button>
-		<Button variant="primary" size="md" onclick={save} disabled={busy} loading={busy} type="button">
-			Сохранить
-		</Button>
-	{/snippet}
-</Modal>
+{#snippet drawerFooter()}
+	<Button variant="ghost" size="md" onclick={onClose} type="button">Отмена</Button>
+	<Button variant="primary" size="md" onclick={save} disabled={busy} loading={busy} type="button">
+		Сохранить
+	</Button>
+{/snippet}
 
 <style>
 	.form {
@@ -318,6 +323,28 @@
 		background: var(--accent, #3b82f6);
 		color: var(--color-accent-contrast, #ffffff);
 		font-weight: 600;
+	}
+	@media (max-width: 640px) {
+		.action-section .segment {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			width: 100%;
+			border-radius: 0.375rem;
+			overflow: hidden;
+		}
+
+		.action-section .segment button {
+			width: 100%;
+			min-width: 0;
+			min-height: 2.25rem;
+			padding: 0.5rem 0.625rem;
+			text-align: center;
+			white-space: nowrap;
+		}
+
+		.action-section .segment button + button {
+			border-left: 1px solid var(--border);
+		}
 	}
 	.error {
 		color: var(--danger, #dc2626);

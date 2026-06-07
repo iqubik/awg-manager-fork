@@ -42,14 +42,42 @@ export function clearStoredPremiumVpnKeyFromStorage(storageKey: string): void {
 	localStorage.removeItem(storageKey);
 }
 
+export function premiumIssuedConfigSourceType(ic: AmneziaPremiumIssuedConfig): string {
+	return String(ic.source_type ?? '').trim().toLowerCase();
+}
+
+export function isPremiumIssuedConfigActiveDevice(ic: AmneziaPremiumIssuedConfig): boolean {
+	return premiumIssuedConfigSourceType(ic) === 'gateway_account';
+}
+
+export function isPremiumIssuedConfigReissuable(ic: AmneziaPremiumIssuedConfig): boolean {
+	return !isPremiumIssuedConfigActiveDevice(ic);
+}
+
+function premiumCountryCode(value: unknown): string {
+	return String(value ?? '').trim().toLowerCase();
+}
+
 export function premiumIssuedConfigsForCountry(
 	issued: AmneziaPremiumIssuedConfig[],
 	code: string
 ): AmneziaPremiumIssuedConfig[] {
-	const cc = code.trim().toLowerCase();
-	return issued.filter(
-		(ic) => String(ic.server_country_code ?? '').trim().toLowerCase() === cc
-	);
+	const cc = premiumCountryCode(code);
+	return issued.filter((ic) => {
+		if (!isPremiumIssuedConfigReissuable(ic)) return false;
+		return premiumCountryCode(ic.server_country_code) === cc;
+	});
+}
+
+export function premiumActiveDevicesForCountry(
+	issued: AmneziaPremiumIssuedConfig[],
+	code: string
+): AmneziaPremiumIssuedConfig[] {
+	const cc = premiumCountryCode(code);
+	return issued.filter((ic) => {
+		if (!isPremiumIssuedConfigActiveDevice(ic)) return false;
+		return premiumCountryCode(ic.server_country_code) === cc;
+	});
 }
 
 export function isPremiumCountryIssued(issued: AmneziaPremiumIssuedConfig[], code: string): boolean {

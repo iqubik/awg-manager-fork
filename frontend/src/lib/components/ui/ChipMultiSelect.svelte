@@ -37,7 +37,9 @@
     let panelEl = $state<HTMLDivElement | null>(null);
     let searchInputEl = $state<HTMLInputElement | null>(null);
     let panelTop = $state(0);
-    let panelLeft = $state(0);
+    let panelBottom = $state(0);
+    let flipUp = $state(false);
+    let panelRight = $state(0);
     let panelWidth = $state(0);
     let panelMaxHeight = $state(0);
     let searchQuery = $state('');
@@ -104,15 +106,26 @@
         const wantedHeight = 400;
         // Flip up only when below is genuinely too cramped AND above offers
         // meaningfully more room. Avoids flicker when both sides are ~equal.
+        // When flipping up, anchor by `bottom` (just above the trigger) so the
+        // panel grows upward to its *content* height — anchoring by `top` at
+        // (trigger - panelMaxHeight) detaches a short panel to the viewport
+        // top, leaving a large gap below it.
         if (spaceBelow < wantedHeight && spaceAbove > spaceBelow) {
+            flipUp = true;
             panelMaxHeight = Math.max(180, spaceAbove);
-            panelTop = Math.max(margin, r.top - 4 - panelMaxHeight);
+            panelBottom = window.innerHeight - r.top + 4;
         } else {
+            flipUp = false;
             panelMaxHeight = Math.max(180, spaceBelow);
             panelTop = r.bottom + 4;
         }
-        panelLeft = r.left;
         panelWidth = r.width;
+        // Right-align the panel to the trigger's right edge so it grows
+        // leftward and its right edge stays flush with the chip container
+        // (never spilling past the parent card). `right` is the distance from
+        // the viewport's right edge; max-width (CSS) caps leftward growth so a
+        // very wide panel can't run off the left side.
+        panelRight = Math.max(margin, window.innerWidth - r.right);
     }
 
     async function toggleOpen() {
@@ -223,7 +236,7 @@
         use:portal
         class="panel"
         bind:this={panelEl}
-        style="top: {panelTop}px; left: {panelLeft}px; min-width: {panelWidth}px; max-height: {panelMaxHeight}px;"
+        style="{flipUp ? `bottom: ${panelBottom}px` : `top: ${panelTop}px`}; right: {panelRight}px; min-width: {panelWidth}px; max-height: {panelMaxHeight}px;"
         role="listbox"
     >
         <div class="search-row">
@@ -355,6 +368,7 @@
     }
     .panel {
         position: fixed;
+        max-width: calc(100vw - 32px);
         z-index: var(--z-floating);
         background: var(--bg-tertiary, var(--surface-bg));
         border: 1px solid var(--border-bright, var(--border));

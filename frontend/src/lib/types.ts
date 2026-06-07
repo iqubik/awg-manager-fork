@@ -243,9 +243,13 @@ export interface DnsRoute {
 	name: string;
 	domains: string[];
 	excludes?: string[];
+	/** Raw excludes editor text. Preserves comments and blank lines; active excludes are derived from it. */
+	excludesText?: string;
 	excludeSubnets?: string[];
 	subnets?: string[];
 	manualDomains: string[];
+	/** Raw manual editor text. Preserves comments and blank lines; active entries are derived from it. */
+	manualText?: string;
 	subscriptions?: DnsRouteSubscription[];
 	routes: DnsRouteTarget[];
 	enabled: boolean;
@@ -351,6 +355,8 @@ export interface ManagedServer {
 	dns?: string;
 	mtu?: number;
 	natEnabled?: boolean;
+	natMode?: 'full' | 'internet-only' | 'none';
+	lanSegments?: string[];
 	policy: string;
 	peers: ManagedPeer[];
 }
@@ -580,6 +586,8 @@ export interface SystemInfo {
 	/** >0 when started with -slow-request-ms (init script); drives Profiling log filter chip */
 	slowRequestThresholdMs?: number;
 	backendAvailability: { nativewg: boolean; kernel: boolean };
+	/** Why NativeWG is unavailable (empty when available): 'no-component' | 'no-obfuscation'. */
+	nativewgReason?: string;
 	singbox?: {
 		installed: boolean;
 		version: string;
@@ -702,6 +710,7 @@ export interface Settings {
 	updates: UpdateSettings;
 	download: DownloadSettings;
 	dnsRoute: DNSRouteSettings;
+	connectivityCheckUrl: string;
 	usageLevel: UsageLevel;
 	hiddenSystemTunnels?: string[];
 	monitoringExcludedTunnels?: string[];
@@ -882,6 +891,8 @@ export interface LogEntry {
 	action: string;
 	target: string;
 	message: string;
+	/** true when target/message were sanitized by backend before delivery. */
+	sanitized?: boolean;
 }
 
 export interface LogsResponse {
@@ -891,6 +902,8 @@ export interface LogsResponse {
 	bucket: 'app' | 'singbox';
 	bufferSize: number;
 	bufferCapacity: number;
+	/** true when every returned entry was sanitized by backend. */
+	sanitized?: boolean;
 	oldestTimestamp?: string;
 }
 
@@ -1278,6 +1291,7 @@ export interface SingboxRouterSettings {
 	wanInterface?: string; // kernel system-name (e.g. "ppp0"); empty when wanAutoDetect=true
 	bypassPresets?: string[];
 	bypassExtraPorts?: string;
+	ingressInterfaces?: string[];
 }
 
 // WAN interface for the sing-box router WAN-binding picker. `name` is
@@ -1303,6 +1317,13 @@ export interface SingboxRouterIssue {
 export interface SingboxRouterStatus {
 	enabled: boolean;
 	installed: boolean;
+	/**
+	 * Interception path is actually live: chains exist AND PREROUTING jumps
+	 * into them. `installed` alone only proves the chains exist — the jumps
+	 * can be wiped while chains survive, so the engine looks installed but
+	 * routes nothing. Drive the "working" badge on `active`, not `enabled`.
+	 */
+	active: boolean;
 	netfilterAvailable: boolean;
 	netfilterComponentName?: string;
 	tproxyTargetAvailable: boolean;
@@ -1484,6 +1505,7 @@ export interface SingboxRouterPreset {
 	ruleSets: Array<{ tag: string; url: string }>;
 	rules: SingboxRouterPresetLink[];
 	notice?: string;
+	covers?: string[];
 	featured?: boolean;
 	sensitive?: boolean;
 }
@@ -1565,8 +1587,9 @@ export interface AWGTagInfo {
 export interface TunnelReferencedError {
 	tunnelId: string;
 	deviceProxy: boolean;
-	routerRules: number[];
-	routerOther: string[];
+	// Go marshals empty (nil) slices as null, so these arrive null when empty.
+	routerRules: number[] | null;
+	routerOther: string[] | null;
 }
 
 // #endregion
@@ -1633,6 +1656,22 @@ export const DEFAULT_SUBSCRIPTION_URLTEST: SubscriptionURLTest = {
 	toleranceMs: 50,
 };
 
+export interface SubscriptionInfoItem {
+	id: string;
+	label: string;
+	tag?: string;
+	source?: 'auto' | 'user' | string;
+}
+
+export interface SubscriptionRejectedMember {
+	tag?: string;
+	label?: string;
+	protocol?: string;
+	server?: string;
+	port?: number;
+	reason: string;
+}
+
 export interface Subscription {
 	id: string;
 	label: string;
@@ -1649,6 +1688,8 @@ export interface Subscription {
 	memberTags: string[];
 	members: SubscriptionMember[];
 	orphanTags: string[];
+	rejectedMembers?: SubscriptionRejectedMember[];
+	infoItems?: SubscriptionInfoItem[];
 	activeMember: string;
 	enabled: boolean;
 	mode: SubscriptionMode;
@@ -1831,6 +1872,46 @@ export interface DnsProxy {
 
 export interface DnsProxyInfo {
 	proxies: DnsProxy[];
+}
+
+// #endregion
+
+// ─────────────────────────────────────────────
+// #region Preset Catalog
+// ─────────────────────────────────────────────
+
+export interface PresetRuleRef {
+	tag: string;
+	url: string;
+}
+export interface PresetDNSEngine {
+	domains?: string[];
+	subnets?: string[];
+	subscriptionUrl?: string;
+}
+export interface PresetSingboxEngine {
+	ruleSets?: PresetRuleRef[];
+	action: string;
+}
+export interface PresetHydraRouteEngine {
+	geoTags?: string[];
+}
+export interface PresetEngines {
+	dns?: PresetDNSEngine;
+	singbox?: PresetSingboxEngine;
+	hydraroute?: PresetHydraRouteEngine;
+}
+export interface CatalogPreset {
+	id: string;
+	name: string;
+	iconSlug: string;
+	category: string;
+	notice?: string;
+	covers?: string[];
+	featured?: boolean;
+	sensitive?: boolean;
+	origin: 'builtin' | 'user';
+	engines: PresetEngines;
 }
 
 // #endregion

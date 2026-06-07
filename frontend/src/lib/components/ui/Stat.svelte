@@ -44,8 +44,27 @@
 	.sub {
 		font: 400 0.6875rem/1.3 var(--font-mono);
 		color: var(--color-text-muted);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		overflow-wrap: anywhere;
+	}
+
+	@media (max-width: 760px) {
+		.stat {
+			padding: 0.5rem 0.625rem;
+			gap: 0.125rem;
+		}
+
+		.value {
+			font-size: 0.9375rem;
+		}
+
+		.label {
+			font-size: 0.625rem;
+			letter-spacing: 0.04em;
+		}
+
+		.sub {
+			font-size: 0.625rem;
+			line-height: 1.25;
+		}
 	}
 </style>

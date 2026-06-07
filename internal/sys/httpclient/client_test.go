@@ -24,7 +24,7 @@ func newTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 
 func handler204(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
 func handler200(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "ok") }
-func handlerIP(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "203.0.113.1") }
+func handlerIP(w http.ResponseWriter, _ *http.Request)  { fmt.Fprint(w, "203.0.113.1") }
 
 // stubDoer implements HTTPDoer for tests that exercise the call site wrappers.
 type stubDoer struct {
@@ -284,6 +284,53 @@ func TestDo_URL_Missing(t *testing.T) {
 	_, err := c.Do(context.Background(), CallConfig{})
 	if err == nil {
 		t.Fatal("expected error for missing URL, got nil")
+	}
+}
+
+// TestBuildTransport_PinsHTTP1 guards against HTTP/2 ALPN regressions: the
+// transport must advertise only "http/1.1" and never enable h2. Without this,
+// servers negotiate HTTP/2 while the client speaks HTTP/1.1, producing EOF /
+// "malformed HTTP response" on real downloads (geo files, Amnezia Premium).
+func TestBuildTransport_DirectUsesEnvProxy(t *testing.T) {
+	tr, err := NewTransport(TransportConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Proxy == nil {
+		t.Fatal("direct transport must use ProxyFromEnvironment")
+	}
+}
+
+func TestBuildTransport_BindSkipsEnvProxy(t *testing.T) {
+	tr, err := NewTransport(TransportConfig{Interface: "wg0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Proxy != nil {
+		t.Fatal("bind transport must not set Proxy")
+	}
+}
+
+func TestBuildTransport_PinsHTTP1(t *testing.T) {
+	tr, err := NewTransport(TransportConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.ForceAttemptHTTP2 {
+		t.Error("ForceAttemptHTTP2 must be false")
+	}
+	if tr.TLSClientConfig == nil {
+		t.Fatal("TLSClientConfig must be set so ALPN is pinned")
+	}
+	got := tr.TLSClientConfig.NextProtos
+	if len(got) != 1 || got[0] != "http/1.1" {
+		t.Fatalf("NextProtos = %v, want [http/1.1]", got)
+	}
+
+	// The shared base transport must not be mutated by per-call cloning.
+	c := New()
+	if c.baseTransport.TLSClientConfig != nil && len(c.baseTransport.TLSClientConfig.NextProtos) != 0 {
+		t.Errorf("base transport NextProtos leaked: %v", c.baseTransport.TLSClientConfig.NextProtos)
 	}
 }
 

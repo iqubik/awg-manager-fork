@@ -10,7 +10,10 @@
 	import { createClashWS, type WSStatus } from '$lib/utils/clashWebSocket';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
+	import { singboxRouter as singboxRouterStore } from '$lib/stores/singboxRouter';
 	import { formatBytes } from '$lib/utils/format';
+	import { subscriptionsStore } from '$lib/stores/subscriptions';
+	import { resolveMemberLabel } from '$lib/utils/memberLabel';
 	import ConnectionsBreakdown from './ConnectionsBreakdown.svelte';
 	import ConnectionsFilters from './ConnectionsFilters.svelte';
 	import ConnectionsTable from './ConnectionsTable.svelte';
@@ -28,26 +31,46 @@
 	let sortDir = $state<'asc' | 'desc'>('desc');
 	let page = $state(0);
 	const pageSize = 50;
+	const routerOutboundOptions = singboxRouterStore.options;
 
 	let wsClose: (() => void) | null = null;
 	let clientsTimer: ReturnType<typeof setInterval> | null = null;
 	let staleTimer: ReturnType<typeof setInterval> | null = null;
 
-	const filteredConns = $derived(snapshot.connections.filter((c) => matchFilters(c, filters)));
+	function displayOutbound(tag: string): string {
+		return resolveMemberLabel(tag, $subscriptionsStore.data, $routerOutboundOptions);
+	}
 
-	const byOutbound = $derived(aggregateBy(filteredConns, (c) => c.outboundLabel));
+	const displayConns = $derived(
+		snapshot.connections.map((c) => ({
+			...c,
+			outboundLabel: displayOutbound(c.chains[0] ?? c.outboundLabel),
+		})),
+	);
+
+	const filteredConns = $derived(displayConns.filter((c) => matchFilters(c, filters)));
+
+	const byOutbound = $derived(
+		aggregateBy(filteredConns, (c) => c.chains[0] ?? '', (c) => c.outboundLabel),
+	);
 	const byHost = $derived(aggregateBy(filteredConns, (c) => c.metadata.host || c.metadata.destinationIP));
 	const byClient = $derived(aggregateBy(filteredConns, (c) => c.clientName || c.metadata.sourceIP));
 
 	const outboundOptions = $derived(
-		Array.from(new Set(snapshot.connections.map((c) => c.chains[0] ?? '').filter(Boolean))).sort()
+		Array.from(new Set(snapshot.connections.map((c) => c.chains[0] ?? '').filter(Boolean)))
+			.sort()
+			.map((tag) => ({ value: tag, label: displayOutbound(tag) }))
 	);
 	const ruleOptions = $derived(
 		Array.from(new Set(snapshot.connections.map((c) => c.rule).filter(Boolean))).sort()
 	);
 
-	const totalUp = $derived(filteredConns.reduce((s, c) => s + c.upload, 0));
-	const totalDown = $derived(filteredConns.reduce((s, c) => s + c.download, 0));
+const totalUp = $derived(filteredConns.reduce((s, c) => s + c.upload, 0));
+const totalDown = $derived(filteredConns.reduce((s, c) => s + c.download, 0));
+const showEmptyState = $derived(snapshot.connections.length === 0);
+const emptyStateText = $derived(
+	wsStatus === 'open' ? 'Активных соединений сейчас нет' : 'Ожидаем поток Clash API…'
+);
 
 	const statusLabel = $derived.by(() => {
 		void tick; // re-evaluate every tick
@@ -168,13 +191,17 @@
 
 <ConnectionsBulkBar visible={filteredConns} total={snapshot.connectionsTotal} onConfirmKill={killVisible} />
 
-<ConnectionsTable
-	connections={filteredConns}
-	{sortBy} {sortDir} {onSortChange}
-	onKill={killOne}
-	{page} {pageSize}
-	onPageChange={(p) => (page = p)}
-/>
+{#if showEmptyState}
+	<div class="empty-state">{emptyStateText}</div>
+{:else}
+	<ConnectionsTable
+		connections={filteredConns}
+		{sortBy} {sortDir} {onSortChange}
+		onKill={killOne}
+		{page} {pageSize}
+		onPageChange={(p) => (page = p)}
+	/>
+{/if}
 
 <style>
 	.totals {
@@ -216,6 +243,15 @@
 	.status-ok .dot-icon { color: #3d9970; }
 	.status-warn .dot-icon { color: #dab856; }
 	.status-err .dot-icon { color: #ff6b6b; }
+	.empty-state {
+		margin-top: 10px;
+		padding: 12px;
+		border: 1px dashed var(--color-border);
+		border-radius: 8px;
+		background: var(--color-bg-secondary);
+		color: var(--color-text-muted);
+		font-size: 13px;
+	}
 
 	@media (max-width: 768px) {
 		.totals {

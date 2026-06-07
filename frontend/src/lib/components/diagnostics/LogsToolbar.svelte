@@ -97,6 +97,10 @@
     onClear: () => void;
     showFullTimestamp: boolean;
     onToggleFullTimestamp: () => void;
+    sanitizeLogs?: boolean;
+    onToggleSanitizeLogs?: () => void;
+    sanitizeToggleAvailable?: boolean;
+    sanitizeToggleHint?: string;
     totalEntries: number;
     visibleEntries: number;
     bufferStats: BufferBadge;
@@ -120,6 +124,10 @@
     onClear,
     showFullTimestamp,
     onToggleFullTimestamp,
+    sanitizeLogs = true,
+    onToggleSanitizeLogs = () => {},
+    sanitizeToggleAvailable = true,
+    sanitizeToggleHint = '',
     totalEntries,
     visibleEntries,
     bufferStats,
@@ -393,6 +401,33 @@
         </svg>
         Дата
       </button>
+      <button
+        type="button"
+        class="chip chip-privacy"
+        class:chip-privacy-open={sanitizeToggleAvailable && !sanitizeLogs}
+        aria-pressed={sanitizeToggleAvailable && !sanitizeLogs}
+        aria-label={sanitizeToggleAvailable
+          ? (sanitizeLogs ? 'Показать реальные адреса в журнале' : 'Скрыть адреса в журнале')
+          : (sanitizeToggleHint || 'Журнал уже маскируется')}
+        disabled={!sanitizeToggleAvailable}
+        title={!sanitizeToggleAvailable ? sanitizeToggleHint : undefined}
+        onclick={() => {
+          if (!sanitizeToggleAvailable) return;
+          onToggleSanitizeLogs();
+        }}
+      >
+        <svg class="chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false">
+          {#if sanitizeLogs || !sanitizeToggleAvailable}
+            <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20C7 20 2.73 16.89 1 12a12.26 12.26 0 0 1 3.06-4.94"></path>
+            <path d="M9.9 4.24A10.87 10.87 0 0 1 12 4c5 0 9.27 3.11 11 8a12.31 12.31 0 0 1-1.73 3.07"></path>
+            <line x1="1" y1="1" x2="23" y2="23"></line>
+          {:else}
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          {/if}
+        </svg>
+        {sanitizeToggleAvailable ? (sanitizeLogs ? 'Скрыты' : 'Видны') : 'Уже скрыто'}
+      </button>
       <button type="button" class="chip" onclick={onTogglePause}>
         <svg class="chip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false">
           {#if paused}
@@ -605,6 +640,44 @@
   .chip-timestamp.chip-active,
   .chip-timestamp.chip-active:hover {
     color: var(--color-accent-contrast, #111);
+  }
+
+  .chip-privacy {
+    color: var(--color-text-secondary);
+    border-color: var(--color-border);
+    background: transparent;
+    transition:
+      background var(--t-fast) ease,
+      border-color var(--t-fast) ease,
+      color var(--t-fast) ease;
+  }
+  .chip-privacy:hover {
+    color: var(--color-text-primary);
+    border-color: var(--color-border-hover);
+    background: var(--color-bg-hover);
+  }
+  .chip-privacy-open {
+    color: var(--color-warning);
+    border-color: var(--color-warning-border);
+    background: var(--color-warning-tint);
+  }
+  .chip-privacy-open:hover {
+    color: var(--color-warning);
+    border-color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 24%, transparent);
+  }
+  .chip-privacy:disabled,
+  .chip-privacy:disabled:hover {
+    opacity: 0.65;
+    cursor: not-allowed;
+    color: var(--color-text-muted);
+    border-color: var(--color-border);
+    background: transparent;
+    filter: none;
+  }
+  .chip-privacy:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
   }
 
   .chip-icon {

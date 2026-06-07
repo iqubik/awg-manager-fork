@@ -37,7 +37,11 @@ func GenerateDomainConf(lists []ManagedEntry) string {
 			continue
 		}
 		fmt.Fprintf(&sb, "## %s\n", e.ListName)
-		fmt.Fprintf(&sb, "%s/%s\n", strings.Join(e.Domains, ","), e.Iface)
+		line := fmt.Sprintf("%s/%s", strings.Join(e.Domains, ","), e.Iface)
+		if e.Disabled {
+			line = "#" + line
+		}
+		fmt.Fprintf(&sb, "%s\n", line)
 	}
 	return sb.String()
 }
@@ -56,10 +60,18 @@ func GenerateIPList(lists []ManagedEntry) string {
 			continue
 		}
 		fmt.Fprintf(&sb, "## %s\n", e.ListName)
-		fmt.Fprintf(&sb, "/%s\n", e.Iface)
+		target := fmt.Sprintf("/%s", e.Iface)
+		if e.Disabled {
+			target = "#" + target
+		}
+		fmt.Fprintf(&sb, "%s\n", target)
 		for _, s := range e.Subnets {
-			sb.WriteString(s)
-			sb.WriteByte('\n')
+			if e.Disabled {
+				fmt.Fprintf(&sb, "#%s\n", s)
+			} else {
+				sb.WriteString(s)
+				sb.WriteByte('\n')
+			}
 		}
 		sb.WriteByte('\n') // HR Neo block terminator
 	}

@@ -38,6 +38,7 @@ if /I "%~1"=="status" goto :status
 if /I "%~1"=="shell" goto :shell
 if /I "%~1"=="run" goto :run
 if /I "%~1"=="full" goto :full
+if /I "%~1"=="coverage" goto :coverage
 
 echo Unknown command: %~1
 echo.
@@ -129,6 +130,20 @@ call :timer_report "docker-exec-total" __FULL_EXEC_START
 call :timer_report "full" __FULL_TOTAL_START
 exit /b %__FULL_RC%
 
+:coverage
+call :timer_mark __COV_TOTAL_START
+call :timer_mark __COV_PREP_START
+call :ensure_runner
+if errorlevel 1 exit /b 1
+call :timer_report "prepare" __COV_PREP_START
+echo Running backend coverage with -count=1...
+call :timer_mark __COV_EXEC_START
+docker exec %CONTAINER_NAME% bash -c "start=$(date +%%s%%3N); go test -count=1 -covermode=atomic -coverpkg=./internal/...,./cmd/... -coverprofile=coverage.out ./internal/... ./cmd/...; code=$?; if [ $code -eq 0 ]; then go tool cover -func=coverage.out | tee coverage.txt; go tool cover -html=coverage.out -o coverage.html; fi; end=$(date +%%s%%3N); echo [inner-go-coverage] elapsed: $((end-start)) ms; exit $code"
+set "__COV_RC=%ERRORLEVEL%"
+call :timer_report "docker-exec-total" __COV_EXEC_START
+call :timer_report "coverage" __COV_TOTAL_START
+exit /b %__COV_RC%
+
 :ensure_runner
 docker inspect -f "{{.State.Running}}" %CONTAINER_NAME% 2>nul | findstr /i "true" >nul
 if errorlevel 1 (
@@ -157,13 +172,15 @@ echo   stop    - stop/remove persistent runner
 echo   status  - show runner container state
 echo   shell   - open bash shell inside runner
 echo   run     - run targeted tests: go test -count=1 ^<args^>
-echo   full    - run full suite: go test -count=1 ./...
+echo   full     - run full suite: go test -count=1 ./...
+echo   coverage - run backend coverage and write coverage.out/txt/html
 echo.
 echo Examples:
 echo   %~nx0 start
 echo   %~nx0 run ./internal/managed ./internal/api
 echo   %~nx0 run ./internal/managed -run TestService_Create_CapturesPrivateKey
 echo   %~nx0 full
+echo   %~nx0 coverage
 echo   %~nx0 stop
 exit /b 0
 

@@ -1,0 +1,20 @@
+# QEMU env build artefacts — large, regenerable.
+# See README.md for setup instructions.
+build/
+downloads/
+logs/
+kernel/vmlinux
+*.cpio.gz
+
+# initramfs is populated by build scripts (busybox + symlinks + module).
+# We track only the hand-authored bits: /init and /opt/repro.sh.
+# Everything else is generated and lives in .gitignored busybox download.
+initramfs/bin/
+initramfs/sbin/
+initramfs/usr/
+initramfs/dev/
+initramfs/proc/
+initramfs/sys/
+initramfs/tmp/
+initramfs/lib/
+initramfs/etc/

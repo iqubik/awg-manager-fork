@@ -1,5 +1,5 @@
 import type { DropdownOption } from '$lib/components/ui';
-import type { PolicyGlobalInterface, RoutingTunnel } from '$lib/types';
+import type { PolicyGlobalInterface, RoutingTunnel, TunnelListItem } from '$lib/types';
 
 /** Display order for grouped tunnel dropdowns (aligned with sing-box router groups). */
 const GROUP_ORDER = [
@@ -205,4 +205,40 @@ export function buildRoutingTunnelDropdownOptions(
 export function findRoutingTunnelLabel(tunnels: RoutingTunnel[], tunnelId: string): string {
 	const t = tunnels.find((x) => x.id === tunnelId);
 	return t ? routingTunnelLabel(t) : tunnelId;
+}
+
+function managedTunnelListLabel(t: TunnelListItem): string {
+	const name = t.name || t.id;
+	const suffix = t.endpoint || t.interfaceName || t.id;
+	return `${name} · ${suffix}`;
+}
+
+/**
+ * Dropdown options for AWG config editor — all managed tunnels from /tunnels/all.
+ * Unlike the routing catalog, includes stopped tunnels that are not yet routable.
+ */
+export function buildManagedTunnelListDropdownOptions(
+	tunnels: TunnelListItem[] | undefined | null,
+): DropdownOption[] {
+	return (tunnels ?? [])
+		.filter((t) => t.id && t.type !== 'singbox')
+		.map((t) => ({
+			value: t.id,
+			label: managedTunnelListLabel(t),
+			group: 'AWG туннели',
+		}));
+}
+
+/** Dropdown options for AWG (managed) tunnels only. */
+export function buildAwgTunnelDropdownOptions(
+	tunnels: RoutingTunnel[] | undefined | null,
+): DropdownOption[] {
+	return buildRoutingTunnelDropdownOptions(tunnels, {
+		includeWan: false,
+		filter: (t) => t.type === 'managed',
+	}).map((opt) => {
+		const t = (tunnels ?? []).find((x) => x.id === opt.value);
+		if (!t) return opt;
+		return { ...opt, disabled: !t.available };
+	});
 }

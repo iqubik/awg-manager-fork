@@ -9,10 +9,11 @@ import (
 // HRRule is the HR-file-backed rule model. The rule name is its identity;
 // renaming = delete + create at the service layer.
 type HRRule struct {
-	Name    string
-	Domains []string
-	Subnets []string
-	Target  string
+	Name     string
+	Domains  []string
+	Subnets  []string
+	Target   string
+	Disabled bool
 }
 
 // ListRules returns all rules currently present in domain.conf and ip.list,
@@ -72,7 +73,8 @@ func (s *Service) UpdateRule(originalName string, rule HRRule) (*HRRule, error) 
 	if err != nil {
 		return nil, err
 	}
-	if _, exists := entries[originalName]; !exists {
+	prev, exists := entries[originalName]
+	if !exists {
 		return nil, fmt.Errorf("rule %q not found", originalName)
 	}
 	if rule.Name != originalName {
@@ -81,7 +83,9 @@ func (s *Service) UpdateRule(originalName string, rule HRRule) (*HRRule, error) 
 		}
 		delete(entries, originalName)
 	}
-	entries[rule.Name] = ruleToEntry(rule)
+	newEntry := ruleToEntry(rule)
+	newEntry.Disabled = prev.Disabled
+	entries[rule.Name] = newEntry
 	if err := s.saveEntries(entries); err != nil {
 		return nil, err
 	}
@@ -106,6 +110,30 @@ func (s *Service) DeleteRule(name string) error {
 		return err
 	}
 	s.appLog.Info("delete-rule", name, "rule deleted")
+	return nil
+}
+
+// SetRuleEnabled toggles whether a rule is active in HR Neo config files.
+// Disabled rules are written with a leading '#' on their content lines;
+// saveEntries schedules a debounced neo restart.
+func (s *Service) SetRuleEnabled(name string, enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, _, err := s.loadEntries()
+	if err != nil {
+		return err
+	}
+	e, ok := entries[name]
+	if !ok {
+		return fmt.Errorf("rule %q not found", name)
+	}
+	e.Disabled = !enabled
+	entries[name] = e
+	if err := s.saveEntries(entries); err != nil {
+		return err
+	}
+	s.appLog.Info("set-rule-enabled", name, fmt.Sprintf("enabled=%v", enabled))
 	return nil
 }
 
@@ -134,6 +162,9 @@ func (s *Service) loadEntries() (map[string]ManagedEntry, []string, error) {
 			existing.Subnets = e.Subnets
 			if existing.Iface == "" {
 				existing.Iface = e.Iface
+			}
+			if e.Disabled {
+				existing.Disabled = true
 			}
 			merged[e.ListName] = existing
 		} else {
@@ -172,15 +203,17 @@ func ruleToEntry(r HRRule) ManagedEntry {
 		Domains:  r.Domains,
 		Subnets:  r.Subnets,
 		Iface:    r.Target,
+		Disabled: r.Disabled,
 	}
 }
 
 func entryToRule(e ManagedEntry) HRRule {
 	return HRRule{
-		Name:    e.ListName,
-		Domains: e.Domains,
-		Subnets: e.Subnets,
-		Target:  e.Iface,
+		Name:     e.ListName,
+		Domains:  e.Domains,
+		Subnets:  e.Subnets,
+		Target:   e.Iface,
+		Disabled: e.Disabled,
 	}
 }
 

@@ -1,6 +1,12 @@
 <script lang="ts">
-	import { Button, Toggle } from '$lib/components/ui';
+	import { Button, SegmentedControl, Toggle } from '$lib/components/ui';
+	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
 	import { compactLayout } from '$lib/stores/compactLayout';
+	import {
+		settingsSectionIconMode,
+		SETTINGS_SECTION_ICON_MODE_LABELS,
+		type SettingsSectionIconMode,
+	} from '$lib/stores/settingsSectionIconMode';
 	import { serviceLetterIcons } from '$lib/stores/serviceLetterIcons';
 	import { usageLevel } from '$lib/stores/settings';
 	import {
@@ -11,6 +17,7 @@
 		type ThemeModePreference,
 		type ThemePreset,
 	} from '$lib/stores/theme';
+	import { Palette } from 'lucide-svelte';
 
 	const PRESET_ORDER: ThemePreset[] = ['legacy', 'neo', 'mint', 'custom'];
 	const LEGACY_MODE_OPTIONS: Array<{ value: ThemeModePreference; label: string }> = [
@@ -22,6 +29,12 @@
 		{ key: 'accent', label: 'Акцент', hint: 'Кнопки, активные состояния и ссылки' },
 		{ key: 'background', label: 'Фон', hint: 'Базовый цвет приложения' },
 		{ key: 'text', label: 'Текст', hint: 'Основной цвет текста и контраста' },
+	];
+
+	const ICON_MODE_OPTIONS: Array<{ value: SettingsSectionIconMode; label: string }> = [
+		{ value: 'strict', label: SETTINGS_SECTION_ICON_MODE_LABELS.strict },
+		{ value: 'harmonious', label: SETTINGS_SECTION_ICON_MODE_LABELS.harmonious },
+		{ value: 'vivid', label: SETTINGS_SECTION_ICON_MODE_LABELS.vivid },
 	];
 
 	let expanded = $state(false);
@@ -51,8 +64,9 @@
 	}
 </script>
 
-<div class="card">
-	<div class="section-label">Внешний вид</div>
+<div class="settings-block">
+	<div class="card">
+	<SettingsSectionLabel label="Внешний вид" icon={Palette} tone="pink" header />
 	<div class="setting-row">
 		<button
 			type="button"
@@ -138,20 +152,12 @@
 			{#if $theme.supportsModeToggle}
 				<div class="detail-block">
 					<div class="detail-title">Режим {THEME_PRESETS[$theme.preset].label}</div>
-					<div class="mode-switch" role="radiogroup" aria-label={`Режим темы ${THEME_PRESETS[$theme.preset].label}`}>
-						{#each LEGACY_MODE_OPTIONS as option (option.value)}
-							<button
-								type="button"
-								role="radio"
-								aria-checked={$theme.modePreference === option.value}
-								class="mode-pill"
-								class:active={$theme.modePreference === option.value}
-								onclick={() => theme.setMode(option.value)}
-							>
-								{option.label}
-							</button>
-						{/each}
-					</div>
+					<SegmentedControl
+						value={$theme.modePreference}
+						options={LEGACY_MODE_OPTIONS}
+						ariaLabel={`Режим темы ${THEME_PRESETS[$theme.preset].label}`}
+						onchange={(mode) => theme.setMode(mode)}
+					/>
 				</div>
 			{/if}
 
@@ -201,6 +207,20 @@
 		</div>
 	{/if}
 
+	<div class="setting-row icon-mode-row">
+		<div class="flex flex-col gap-1">
+			<span class="font-medium">Окраска иконок</span>
+			<span class="setting-description">
+				Заголовки настроек, политики доступа, VPN для устройств и глобус-заглушка в списках маршрутизации.
+			</span>
+		</div>
+		<SegmentedControl
+			value={$settingsSectionIconMode}
+			options={ICON_MODE_OPTIONS}
+			ariaLabel="Окраска иконок"
+			onchange={(mode) => settingsSectionIconMode.setMode(mode)}
+		/>
+	</div>
 	<div class="setting-row compact-layout-row">
 		<div class="flex flex-col gap-1">
 			<span class="font-medium">Компактный режим</span>
@@ -229,6 +249,7 @@
 			checked={$serviceLetterIcons}
 			onchange={(enabled) => serviceLetterIcons.setEnabled(enabled)}
 		/>
+	</div>
 	</div>
 </div>
 
@@ -318,7 +339,10 @@
 	}
 
 	.collapsible-body {
-		margin-top: 0.75rem;
+		border-top: 1px solid var(--color-border);
+		padding-top: 0.875rem;
+		padding-bottom: 0.875rem;
+		border-bottom: 1px solid var(--color-border);
 	}
 
 	.theme-grid {
@@ -340,7 +364,7 @@
 		padding: 0.75rem;
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius);
-		background: var(--color-bg-tertiary);
+		background: var(--color-settings-control-bg);
 		color: inherit;
 		font: inherit;
 		text-align: left;
@@ -502,8 +526,6 @@
 
 	.detail-block {
 		margin-top: 0.9rem;
-		padding-top: 0.9rem;
-		border-top: 1px solid var(--color-border);
 	}
 
 	.detail-title {
@@ -513,54 +535,13 @@
 		margin-bottom: 0.6rem;
 	}
 
-	.mode-switch {
-		display: inline-flex;
-		background: var(--color-bg-primary);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-pill);
-		padding: 0.25rem;
-		gap: 0.25rem;
+	.detail-block :global(.segmented-control) {
+		width: 100%;
 	}
 
-	.mode-pill {
-		border: 0;
-		border-radius: var(--radius-pill);
-		background: transparent;
-		color: var(--color-text-muted);
-		font: inherit;
-		font-size: 0.75rem;
-		font-weight: 600;
-		padding: 0.35rem 0.8rem;
-		cursor: pointer;
-		transition:
-			background var(--t-fast) ease,
-			color var(--t-fast) ease;
-	}
-
-	.mode-pill.active {
-		background: var(--color-accent);
-		color: var(--color-accent-contrast, var(--color-bg-primary));
-	}
-
-	.mode-pill:focus-visible {
-		outline: 2px solid var(--color-accent);
-		outline-offset: 2px;
-	}
-
-	@media (max-width: 640px) {
-		.mode-switch {
-			display: grid;
-			grid-template-columns: repeat(3, minmax(0, 1fr));
-			width: 100%;
-			border-radius: var(--radius-md);
-		}
-
-		.mode-pill {
-			width: 100%;
-			min-width: 0;
-			padding-inline: 0.25rem;
-			text-align: center;
-		}
+	.detail-block :global(.segmented-control-btn) {
+		flex: 1;
+		min-width: 0;
 	}
 
 	.custom-block {
@@ -601,7 +582,7 @@
 		padding: 0.75rem;
 		border-radius: var(--radius);
 		border: 1px solid var(--color-border);
-		background: var(--color-bg-primary);
+		background: var(--color-settings-control-bg);
 	}
 
 	.color-label {
@@ -704,7 +685,7 @@
 			padding: 0.45rem 0.625rem;
 			border: 1px solid var(--color-border);
 			border-radius: var(--radius-sm);
-			background: var(--color-bg-tertiary);
+			background: var(--color-settings-control-bg);
 		}
 
 		.current-theme {
@@ -733,7 +714,7 @@
 			padding: 0.45rem 0.625rem;
 			border: 1px solid var(--color-border);
 			border-radius: var(--radius-sm);
-			background: var(--color-bg-tertiary);
+			background: var(--color-settings-control-bg);
 		}
 
 		.current-theme {

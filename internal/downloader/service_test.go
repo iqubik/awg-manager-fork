@@ -2,7 +2,6 @@ package downloader
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -14,8 +13,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	singboxorch "github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 )
 
 type fakeOutboundsProvider struct {
@@ -40,85 +37,25 @@ func (f *fakeRouteProvider) GetDownloadRoute(context.Context) (*Route, error) {
 	return f.route, nil
 }
 
-type fakeSingbox struct {
-	running bool
-
-	selectorCalls          []string
-	selectorErrs           []error
-	selectorCtxHasDeadline []bool
-
-	activeNow  string
-	activeErrs []error
+type fakeTransportResolver struct {
+	spec    TransportSpec
+	err     error
+	avail   bool
+	resolve func(ctx context.Context, ob Outbound) (TransportSpec, error)
 }
 
-func (f *fakeSingbox) IsRunning() (bool, int) {
-	if f.running {
-		return true, 123
+func (f *fakeTransportResolver) Resolve(ctx context.Context, ob Outbound) (TransportSpec, error) {
+	if f.resolve != nil {
+		return f.resolve(ctx, ob)
 	}
-	return false, 0
-}
-
-func (f *fakeSingbox) SetSelectorDefault(ctx context.Context, selectorTag, memberTag string) error {
-	_, hasDeadline := ctx.Deadline()
-	f.selectorCtxHasDeadline = append(f.selectorCtxHasDeadline, hasDeadline)
-	f.selectorCalls = append(f.selectorCalls, selectorTag+"="+memberTag)
-	f.activeNow = memberTag
-	if len(f.selectorErrs) == 0 {
-		return nil
+	if f.err != nil {
+		return TransportSpec{}, f.err
 	}
-	err := f.selectorErrs[0]
-	f.selectorErrs = f.selectorErrs[1:]
-	return err
+	return f.spec, nil
 }
 
-func (f *fakeSingbox) GetSelectorActive(_ context.Context, _ string) (string, error) {
-	if len(f.activeErrs) > 0 {
-		err := f.activeErrs[0]
-		f.activeErrs = f.activeErrs[1:]
-		if err != nil {
-			return "", err
-		}
-	}
-	return f.activeNow, nil
-}
-
-type fakeSlot struct {
-	saveCalls   int
-	enableCalls []bool
-	reloadCalls int
-
-	saveErr        error
-	enableErr      error
-	enableTrueErr  error
-	enableFalseErr error
-	reloadErr      error
-
-	lastSlot singboxorch.Slot
-	lastJSON string
-}
-
-func (f *fakeSlot) SaveSilent(slot singboxorch.Slot, b []byte) error {
-	f.saveCalls++
-	f.lastSlot = slot
-	f.lastJSON = string(b)
-	return f.saveErr
-}
-
-func (f *fakeSlot) SetEnabledSilent(slot singboxorch.Slot, enabled bool) error {
-	f.lastSlot = slot
-	f.enableCalls = append(f.enableCalls, enabled)
-	if enabled && f.enableTrueErr != nil {
-		return f.enableTrueErr
-	}
-	if !enabled && f.enableFalseErr != nil {
-		return f.enableFalseErr
-	}
-	return f.enableErr
-}
-
-func (f *fakeSlot) Reload() error {
-	f.reloadCalls++
-	return f.reloadErr
+func (f *fakeTransportResolver) IsAvailable(context.Context, Outbound) bool {
+	return f.avail
 }
 
 func TestListOutbounds_NoProvider(t *testing.T) {
@@ -147,32 +84,15 @@ func TestResolveClient_Direct(t *testing.T) {
 	lease.Close()
 }
 
-func TestResolveClient_NonDirectWithoutSingbox(t *testing.T) {
-	svc := NewService(Deps{})
-	_, err := svc.ResolveClient(context.Background(), &Route{Tag: "awg-a"})
-	if err == nil || !strings.Contains(err.Error(), "operator is not configured") {
-		t.Fatalf("expected operator not configured error, got %v", err)
-	}
-}
-
-func TestResolveClient_NonDirectWithoutSlot(t *testing.T) {
+func TestResolveClient_NonDirectWithoutResolver(t *testing.T) {
 	svc := NewService(Deps{
-		Singbox: &fakeSingbox{running: true},
+		Outbounds: &fakeOutboundsProvider{
+			items: []Outbound{{Tag: "awg-a", Kind: "awg", Detail: "opkgtun1"}},
+		},
 	})
 	_, err := svc.ResolveClient(context.Background(), &Route{Tag: "awg-a"})
-	if err == nil || !strings.Contains(err.Error(), "orchestrator is not configured") {
-		t.Fatalf("expected orchestrator not configured error, got %v", err)
-	}
-}
-
-func TestResolveClient_NonDirectSingboxNotRunning(t *testing.T) {
-	svc := NewService(Deps{
-		Singbox: &fakeSingbox{running: false},
-		Slot:    &fakeSlot{},
-	})
-	_, err := svc.ResolveClient(context.Background(), &Route{Tag: "awg-a"})
-	if err == nil || !strings.Contains(err.Error(), "not running") {
-		t.Fatalf("expected not running error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "transport resolver is not configured") {
+		t.Fatalf("expected resolver not configured error, got %v", err)
 	}
 }
 
@@ -214,106 +134,58 @@ func TestResolveClient_RouteProviderError(t *testing.T) {
 	}
 }
 
-func TestResolveClient_UsesRouteProviderForRoutedDownload(t *testing.T) {
-	sb := &fakeSingbox{running: true}
-	slot := &fakeSlot{}
+func TestResolveClient_AWGBind(t *testing.T) {
+	sysNet := t.TempDir()
+	if err := os.Mkdir(filepath.Join(sysNet, "opkgtun2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewTransportResolver(TransportResolverDeps{SysClassNet: sysNet})
 	svc := NewService(Deps{
 		Outbounds: &fakeOutboundsProvider{
 			items: []Outbound{
 				{Tag: "direct", Kind: "direct", Label: "Direct (WAN)"},
-				{Tag: "awg-test", Kind: "awg", Label: "AWG test"},
+				{Tag: "awg-test", Kind: "awg", Label: "AWG test", Detail: "opkgtun2"},
 			},
 		},
-		Singbox:       sb,
-		Slot:          slot,
-		RouteProvider: &fakeRouteProvider{route: &Route{Tag: "awg-test"}},
-	})
-
-	lease, err := svc.ResolveClient(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("resolve with routed provider: %v", err)
-	}
-	if lease == nil || lease.Client == nil {
-		t.Fatal("expected non-nil lease and client")
-	}
-	if lease.Route.Tag != "awg-test" {
-		t.Fatalf("route tag = %q, want awg-test", lease.Route.Tag)
-	}
-	if slot.saveCalls != 1 {
-		t.Fatalf("SaveSilent calls: got %d want 1", slot.saveCalls)
-	}
-	if len(sb.selectorCalls) == 0 || !strings.Contains(sb.selectorCalls[0], "=awg-test") {
-		t.Fatalf("expected selector set to awg-test, got %v", sb.selectorCalls)
-	}
-
-	lease.Close()
-	if len(slot.enableCalls) < 2 || slot.enableCalls[len(slot.enableCalls)-1] != false {
-		t.Fatalf("expected slot disable on close, got %v", slot.enableCalls)
-	}
-}
-
-func TestResolveClient_HappyPath(t *testing.T) {
-	sb := &fakeSingbox{running: true}
-	slot := &fakeSlot{}
-	svc := NewService(Deps{
-		Outbounds: &fakeOutboundsProvider{
-			items: []Outbound{
-				{Tag: "direct", Kind: "direct", Label: "Direct (WAN)"},
-				{Tag: "awg-test", Kind: "awg", Label: "AWG test"},
-				{Tag: "direct", Kind: "direct", Label: "Direct duplicate"},
-				{Tag: " ", Kind: "bad", Label: "bad"},
-			},
-		},
-		Singbox: sb,
-		Slot:    slot,
+		TransportResolver: resolver,
 	})
 
 	lease, err := svc.ResolveClient(context.Background(), &Route{Tag: "awg-test"})
 	if err != nil {
 		t.Fatalf("resolve routed lease: %v", err)
 	}
-	if lease == nil || lease.Client == nil {
-		t.Fatal("expected non-nil lease and client")
-	}
 	if lease.Route.Tag != "awg-test" {
 		t.Fatalf("route tag = %q, want awg-test", lease.Route.Tag)
 	}
-	if slot.saveCalls != 1 {
-		t.Fatalf("SaveSilent calls: got %d want 1", slot.saveCalls)
-	}
-	if slot.lastSlot != singboxorch.SlotDownloadProxy {
-		t.Fatalf("last slot: got %q want %q", slot.lastSlot, singboxorch.SlotDownloadProxy)
-	}
-	assertSlotJSON(t, slot.lastJSON)
-	if len(slot.enableCalls) < 1 || !slot.enableCalls[0] {
-		t.Fatalf("expected first enable call true, got %v", slot.enableCalls)
-	}
-	if slot.reloadCalls < 1 {
-		t.Fatalf("expected reload on enable, got %d", slot.reloadCalls)
-	}
-
+	assertBoundTransport(t, lease.Client, "opkgtun2")
 	lease.Close()
-	lease.Close()
-
-	if len(sb.selectorCalls) < 2 || sb.selectorCalls[len(sb.selectorCalls)-1] != "awgm-download-selector=direct" {
-		t.Fatalf("expected selector restore to direct, got %v", sb.selectorCalls)
-	}
-	if len(sb.selectorCtxHasDeadline) == 0 || !sb.selectorCtxHasDeadline[len(sb.selectorCtxHasDeadline)-1] {
-		t.Fatalf("expected cleanup selector restore to use bounded context, deadlines=%v", sb.selectorCtxHasDeadline)
-	}
-	if len(slot.enableCalls) < 2 || slot.enableCalls[len(slot.enableCalls)-1] != false {
-		t.Fatalf("expected disable call on cleanup, got %v", slot.enableCalls)
-	}
-	if slot.reloadCalls < 2 {
-		t.Fatalf("expected second reload on cleanup, got %d", slot.reloadCalls)
-	}
 
 	lease2, err := svc.ResolveClient(context.Background(), &Route{Tag: "awg-test"})
 	if err != nil {
-		t.Fatalf("second resolve should not deadlock: %v", err)
+		t.Fatalf("second resolve should not block: %v", err)
 	}
-	assertRoutedTransportProxy(t, lease2.Client)
 	lease2.Close()
+}
+
+func TestResolveClient_SingboxProxy(t *testing.T) {
+	resolver := NewTransportResolver(TransportResolverDeps{
+		Tunnels: &fakeTunnelPorts{ports: map[string]int{"DE": 1081}},
+		Singbox: &fakeSingboxRuntime{running: true},
+	})
+	svc := NewService(Deps{
+		Outbounds: &fakeOutboundsProvider{
+			items: []Outbound{
+				{Tag: "DE", Kind: "singbox", Label: "DE"},
+			},
+		},
+		TransportResolver: resolver,
+	})
+	lease, err := svc.ResolveClient(context.Background(), &Route{Tag: "DE", Kind: "singbox"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	assertProxyTransport(t, lease.Client, "127.0.0.1:1081")
+	lease.Close()
 }
 
 func TestLeaseClose_Idempotent(t *testing.T) {
@@ -334,116 +206,19 @@ func TestLeaseClose_Idempotent(t *testing.T) {
 	}
 }
 
-func TestResolveClient_ReloadFailureDisablesSlotAndUnlocks(t *testing.T) {
-	sb := &fakeSingbox{running: true}
-	slot := &fakeSlot{reloadErr: errors.New("reload failed")}
+func TestListOutbounds_AWGAvailableWithoutSingbox(t *testing.T) {
+	sysNet := t.TempDir()
+	if err := os.Mkdir(filepath.Join(sysNet, "opkgtun1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	svc := NewService(Deps{
 		Outbounds: &fakeOutboundsProvider{
 			items: []Outbound{
 				{Tag: "direct", Kind: "direct", Label: "Direct (WAN)"},
-				{Tag: "awg-test", Kind: "awg", Label: "AWG test"},
+				{Tag: "awg-test", Kind: "awg", Label: "AWG test", Detail: "opkgtun1"},
 			},
 		},
-		Singbox: sb,
-		Slot:    slot,
-	})
-
-	_, err := svc.ResolveClient(context.Background(), &Route{Tag: "awg-test"})
-	if err == nil || !strings.Contains(err.Error(), "reload sing-box with download transport slot") {
-		t.Fatalf("expected reload error, got %v", err)
-	}
-	if len(slot.enableCalls) < 2 || slot.enableCalls[len(slot.enableCalls)-1] != false {
-		t.Fatalf("expected disable call after reload failure, got %v", slot.enableCalls)
-	}
-
-	slot.reloadErr = nil
-	lease2, err := svc.ResolveClient(context.Background(), &Route{Tag: "awg-test"})
-	if err != nil {
-		t.Fatalf("second resolve should not deadlock: %v", err)
-	}
-	lease2.Close()
-}
-
-func TestResolveClient_EnableFailureCleansUpAndUnlocks(t *testing.T) {
-	sb := &fakeSingbox{running: true}
-	slot := &fakeSlot{enableTrueErr: errors.New("enable failed")}
-	svc := NewService(Deps{
-		Outbounds: &fakeOutboundsProvider{
-			items: []Outbound{
-				{Tag: "direct", Kind: "direct", Label: "Direct (WAN)"},
-				{Tag: "awg-test", Kind: "awg", Label: "AWG test"},
-			},
-		},
-		Singbox: sb,
-		Slot:    slot,
-	})
-
-	_, err := svc.ResolveClient(context.Background(), &Route{Tag: "awg-test"})
-	if err == nil || !strings.Contains(err.Error(), "enable download transport slot") {
-		t.Fatalf("expected enable error, got %v", err)
-	}
-	if len(slot.enableCalls) < 2 || !slot.enableCalls[0] || slot.enableCalls[1] {
-		t.Fatalf("expected enable=true then enable=false, got %v", slot.enableCalls)
-	}
-	if slot.reloadCalls < 1 {
-		t.Fatalf("expected cleanup reload call, got %d", slot.reloadCalls)
-	}
-
-	slot.enableTrueErr = nil
-	lease2, err := svc.ResolveClient(context.Background(), &Route{Tag: "awg-test"})
-	if err != nil {
-		t.Fatalf("second resolve should not deadlock: %v", err)
-	}
-	lease2.Close()
-}
-
-func TestResolveClient_SelectFailureCleansUpAndUnlocks(t *testing.T) {
-	sb := &fakeSingbox{
-		running: true,
-		selectorErrs: []error{
-			errors.New("not ready"),
-		},
-	}
-	slot := &fakeSlot{}
-	svc := NewService(Deps{
-		Outbounds: &fakeOutboundsProvider{
-			items: []Outbound{
-				{Tag: "direct", Kind: "direct", Label: "Direct (WAN)"},
-				{Tag: "awg-test", Kind: "awg", Label: "AWG test"},
-			},
-		},
-		Singbox: sb,
-		Slot:    slot,
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
-	_, err := svc.ResolveClient(ctx, &Route{Tag: "awg-test"})
-	if err == nil || !strings.Contains(err.Error(), "select download outbound") {
-		t.Fatalf("expected select error, got %v", err)
-	}
-	if len(slot.enableCalls) < 2 || !slot.enableCalls[0] || slot.enableCalls[len(slot.enableCalls)-1] {
-		t.Fatalf("expected slot enable then disable, got %v", slot.enableCalls)
-	}
-
-	sb.selectorErrs = nil
-	lease2, err := svc.ResolveClient(context.Background(), &Route{Tag: "awg-test"})
-	if err != nil {
-		t.Fatalf("second resolve should not deadlock: %v", err)
-	}
-	lease2.Close()
-}
-
-func TestListOutbounds_WithProviderNotRunning(t *testing.T) {
-	svc := NewService(Deps{
-		Outbounds: &fakeOutboundsProvider{
-			items: []Outbound{
-				{Tag: "direct", Kind: "direct", Label: "Direct (WAN)"},
-				{Tag: "awg-test", Kind: "awg", Label: "AWG test"},
-			},
-		},
-		Singbox: &fakeSingbox{running: false},
-		Slot:    &fakeSlot{},
+		TransportResolver: NewTransportResolver(TransportResolverDeps{SysClassNet: sysNet}),
 	})
 
 	got := svc.ListOutbounds(context.Background())
@@ -453,102 +228,30 @@ func TestListOutbounds_WithProviderNotRunning(t *testing.T) {
 	if !got[0].Available {
 		t.Fatalf("direct must be available: %+v", got[0])
 	}
-	if got[1].Available {
-		t.Fatalf("non-direct must be unavailable when sing-box not running: %+v", got[1])
+	if !got[1].Available {
+		t.Fatalf("AWG must be available without sing-box: %+v", got[1])
 	}
 }
 
-func TestListOutbounds_WithProviderRunningAndSlot(t *testing.T) {
+func TestListOutbounds_SingboxUnavailableWhenDown(t *testing.T) {
 	svc := NewService(Deps{
 		Outbounds: &fakeOutboundsProvider{
 			items: []Outbound{
-				{Tag: "direct", Kind: "direct", Label: "Direct (WAN)"},
-				{Tag: "awg-test", Kind: "awg", Label: "AWG test"},
+				{Tag: "DE", Kind: "singbox", Label: "DE"},
 			},
 		},
-		Singbox: &fakeSingbox{running: true},
-		Slot:    &fakeSlot{},
+		TransportResolver: NewTransportResolver(TransportResolverDeps{
+			Tunnels: &fakeTunnelPorts{ports: map[string]int{"DE": 1080}},
+			Singbox: &fakeSingboxRuntime{running: false},
+		}),
 	})
-
 	got := svc.ListOutbounds(context.Background())
-	if len(got) != 2 {
-		t.Fatalf("len = %d, want 2", len(got))
-	}
-	if !got[0].Available || !got[1].Available {
-		t.Fatalf("both direct and non-direct must be available: %+v", got)
+	if len(got) != 1 || got[0].Available {
+		t.Fatalf("singbox outbound must be unavailable when down: %+v", got)
 	}
 }
 
-func assertSlotJSON(t *testing.T, raw string) {
-	t.Helper()
-
-	var parsed map[string]interface{}
-	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-		t.Fatalf("unmarshal slot json: %v", err)
-	}
-
-	inboundsAny, ok := parsed["inbounds"].([]interface{})
-	if !ok || len(inboundsAny) != 1 {
-		t.Fatalf("inbounds: got %T %v", parsed["inbounds"], parsed["inbounds"])
-	}
-	inbound, ok := inboundsAny[0].(map[string]interface{})
-	if !ok {
-		t.Fatalf("inbound type: %T", inboundsAny[0])
-	}
-	if inbound["type"] != "mixed" || inbound["tag"] != "awgm-download-in" || inbound["listen"] != "127.0.0.1" {
-		t.Fatalf("unexpected inbound: %+v", inbound)
-	}
-	if int(inbound["listen_port"].(float64)) != 11998 {
-		t.Fatalf("inbound listen_port = %v, want 11998", inbound["listen_port"])
-	}
-
-	outboundsAny, ok := parsed["outbounds"].([]interface{})
-	if !ok || len(outboundsAny) != 1 {
-		t.Fatalf("outbounds: got %T %v", parsed["outbounds"], parsed["outbounds"])
-	}
-	selector, ok := outboundsAny[0].(map[string]interface{})
-	if !ok {
-		t.Fatalf("selector type: %T", outboundsAny[0])
-	}
-	if selector["type"] != "selector" || selector["tag"] != "awgm-download-selector" {
-		t.Fatalf("unexpected selector: %+v", selector)
-	}
-	if selector["default"] != "awg-test" {
-		t.Fatalf("selector default = %v, want awg-test", selector["default"])
-	}
-	if selector["interrupt_exist_connections"] != false {
-		t.Fatalf("interrupt_exist_connections = %v, want false", selector["interrupt_exist_connections"])
-	}
-	membersAny, ok := selector["outbounds"].([]interface{})
-	if !ok {
-		t.Fatalf("selector outbounds type: %T", selector["outbounds"])
-	}
-	members := make([]string, 0, len(membersAny))
-	for _, m := range membersAny {
-		members = append(members, m.(string))
-	}
-	if len(members) != 2 || members[0] != "direct" || members[1] != "awg-test" {
-		t.Fatalf("selector members = %v, want [direct awg-test]", members)
-	}
-
-	routeAny, ok := parsed["route"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("route type: %T", parsed["route"])
-	}
-	rulesAny, ok := routeAny["rules"].([]interface{})
-	if !ok || len(rulesAny) != 1 {
-		t.Fatalf("route.rules: got %T %v", routeAny["rules"], routeAny["rules"])
-	}
-	rule, ok := rulesAny[0].(map[string]interface{})
-	if !ok {
-		t.Fatalf("route rule type: %T", rulesAny[0])
-	}
-	if rule["inbound"] != "awgm-download-in" || rule["outbound"] != "awgm-download-selector" {
-		t.Fatalf("unexpected route rule: %+v", rule)
-	}
-}
-
-func assertRoutedTransportProxy(t *testing.T, client *http.Client) {
+func assertProxyTransport(t *testing.T, client *http.Client, wantHost string) {
 	t.Helper()
 	if client == nil {
 		t.Fatal("client is nil")
@@ -568,9 +271,37 @@ func assertRoutedTransportProxy(t *testing.T, client *http.Client) {
 	if proxyURL == nil {
 		t.Fatal("expected non-nil proxy URL for routed transport")
 	}
-	if proxyURL.Host != "127.0.0.1:11998" {
-		t.Fatalf("proxy host = %q, want 127.0.0.1:11998", proxyURL.Host)
+	if proxyURL.Host != wantHost {
+		t.Fatalf("proxy host = %q, want %q", proxyURL.Host, wantHost)
 	}
+}
+
+func assertBoundTransport(t *testing.T, client *http.Client, wantIface string) {
+	t.Helper()
+	if client == nil {
+		t.Fatal("client is nil")
+	}
+	tr, ok := client.Transport.(*http.Transport)
+	if !ok || tr == nil {
+		t.Fatalf("expected *http.Transport, got %T", client.Transport)
+	}
+	reqURL, err := url.Parse("https://example.org/file.dat")
+	if err != nil {
+		t.Fatalf("parse request url: %v", err)
+	}
+	if tr.Proxy != nil {
+		proxyURL, err := tr.Proxy(&http.Request{URL: reqURL})
+		if err != nil {
+			t.Fatalf("proxy func: %v", err)
+		}
+		if proxyURL != nil {
+			t.Fatalf("bind transport must not use proxy, got %v", proxyURL)
+		}
+	}
+	if tr.DialContext == nil {
+		t.Fatal("bind transport must set DialContext")
+	}
+	_ = wantIface
 }
 
 func TestReadAll_Direct(t *testing.T) {
@@ -656,8 +387,7 @@ func TestDownloadFile_Atomic(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tmp := t.TempDir()
-	dest := filepath.Join(tmp, "pkg.ipk")
+	dest := filepath.Join(t.TempDir(), "pkg.ipk")
 	res, err := svc.DownloadFile(context.Background(), FileRequest{
 		Request: Request{
 			Purpose: "test-download",
@@ -722,8 +452,7 @@ func TestDownloadFile_ReportsProgress(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	tmp := t.TempDir()
-	dest := filepath.Join(tmp, "progress.bin")
+	dest := filepath.Join(t.TempDir(), "progress.bin")
 	var lastDownloaded int64
 	var lastTotal int64
 
@@ -829,8 +558,10 @@ func TestDescribeRoute_RespectsKind(t *testing.T) {
 }
 
 func TestResolveClient_RespectsKind(t *testing.T) {
-	sb := &fakeSingbox{running: true}
-	slot := &fakeSlot{}
+	resolver := NewTransportResolver(TransportResolverDeps{
+		Subs:    &fakeSubPorts{ports: map[string]int{"same-tag": 11002}},
+		Singbox: &fakeSingboxRuntime{running: true},
+	})
 	svc := NewService(Deps{
 		Outbounds: &fakeOutboundsProvider{
 			items: []Outbound{
@@ -838,8 +569,7 @@ func TestResolveClient_RespectsKind(t *testing.T) {
 				{Tag: "same-tag", Kind: "subscription", Label: "Sub same"},
 			},
 		},
-		Singbox: sb,
-		Slot:    slot,
+		TransportResolver: resolver,
 	})
 
 	lease, err := svc.ResolveClient(context.Background(), &Route{Tag: "same-tag", Kind: "subscription"})
@@ -849,6 +579,7 @@ func TestResolveClient_RespectsKind(t *testing.T) {
 	if lease.Route.Tag != "same-tag" || lease.Route.Kind != "subscription" {
 		t.Fatalf("unexpected lease route: %+v", lease.Route)
 	}
+	assertProxyTransport(t, lease.Client, "127.0.0.1:11002")
 	lease.Close()
 }
 
@@ -899,61 +630,12 @@ func TestResolveClient_RejectsAmbiguousRuntimeTag(t *testing.T) {
 				{Tag: "same-tag", Kind: "subscription", Label: "B"},
 			},
 		},
-		Singbox: &fakeSingbox{running: true},
-		Slot:    &fakeSlot{},
+		TransportResolver: &fakeTransportResolver{avail: true},
 	})
 
 	_, err := svc.ResolveClient(context.Background(), &Route{Tag: "same-tag", Kind: "subscription"})
 	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("expected ambiguous runtime tag error, got: %v", err)
-	}
-}
-
-func TestResolveClient_DedupesSelectorMembers(t *testing.T) {
-	sb := &fakeSingbox{running: true}
-	slot := &fakeSlot{}
-	svc := NewService(Deps{
-		Outbounds: &fakeOutboundsProvider{
-			items: []Outbound{
-				{Tag: "direct", Kind: "direct", Label: "Direct (WAN)"},
-				{Tag: "route-a", Kind: "awg", Label: "Route A"},
-				{Tag: "route-b", Kind: "subscription", Label: "Route B1"},
-				{Tag: "route-b", Kind: "subscription", Label: "Route B2"},
-			},
-		},
-		Singbox: sb,
-		Slot:    slot,
-	})
-
-	lease, err := svc.ResolveClient(context.Background(), &Route{Tag: "route-a", Kind: "awg"})
-	if err != nil {
-		t.Fatalf("resolve routed lease: %v", err)
-	}
-	lease.Close()
-
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(slot.lastJSON), &parsed); err != nil {
-		t.Fatalf("parse slot json: %v", err)
-	}
-	outbounds, ok := parsed["outbounds"].([]any)
-	if !ok || len(outbounds) == 0 {
-		t.Fatalf("slot outbounds shape: %#v", parsed["outbounds"])
-	}
-	selector, ok := outbounds[0].(map[string]any)
-	if !ok {
-		t.Fatalf("selector shape: %#v", outbounds[0])
-	}
-	membersAny, ok := selector["outbounds"].([]any)
-	if !ok {
-		t.Fatalf("selector members shape: %#v", selector["outbounds"])
-	}
-	seen := map[string]int{}
-	for _, m := range membersAny {
-		s, _ := m.(string)
-		seen[s]++
-	}
-	if seen["route-b"] != 1 {
-		t.Fatalf("expected route-b deduped once, members=%v", membersAny)
 	}
 }
 
@@ -971,5 +653,52 @@ func TestValidateRoute_AllowsKnownUnavailableOutbound(t *testing.T) {
 	}
 	if info.Tag != "route-a" || info.Kind != "subscription" {
 		t.Fatalf("unexpected route info: %+v", info)
+	}
+}
+
+func TestResolveClient_TransportResolverError(t *testing.T) {
+	svc := NewService(Deps{
+		Outbounds: &fakeOutboundsProvider{
+			items: []Outbound{{Tag: "DE", Kind: "singbox"}},
+		},
+		TransportResolver: &fakeTransportResolver{
+			err: errors.New("sing-box is not running"),
+		},
+	})
+	_, err := svc.ResolveClient(context.Background(), &Route{Tag: "DE", Kind: "singbox"})
+	if err == nil || !strings.Contains(err.Error(), "not running") {
+		t.Fatalf("expected transport error, got %v", err)
+	}
+}
+
+func TestResolveClient_ConcurrentNoDeadlock(t *testing.T) {
+	sysNet := t.TempDir()
+	if err := os.Mkdir(filepath.Join(sysNet, "opkgtun9"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(Deps{
+		Outbounds: &fakeOutboundsProvider{
+			items: []Outbound{{Tag: "awg-x", Kind: "awg", Detail: "opkgtun9"}},
+		},
+		TransportResolver: NewTransportResolver(TransportResolverDeps{SysClassNet: sysNet}),
+	})
+
+	done := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			lease, err := svc.ResolveClient(context.Background(), &Route{Tag: "awg-x"})
+			if err != nil {
+				done <- err
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+			lease.Close()
+			done <- nil
+		}()
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-done; err != nil {
+			t.Fatalf("concurrent resolve: %v", err)
+		}
 	}
 }

@@ -119,8 +119,10 @@ type SubscriptionDTO struct {
 	ProxyIndex   int                     `json:"proxyIndex" example:"1" description:"NDMS ProxyN index for this subscription. -1 when no proxy is allocated yet OR when global 'Create NDMS Proxy for sing-box' is disabled (the composite interface does not exist in that mode — UI should hide t2sN/ProxyN labels and disable per-subscription speedtest)."`
 	MemberTags   []string                `json:"memberTags" example:"sub-demo-001,sub-demo-002,sub-demo-003"`
 	Members      []SubscriptionMemberDTO `json:"members"`
-	OrphanTags   []string                `json:"orphanTags" example:""`
-	ActiveMember string                  `json:"activeMember" example:"sub-demo-001"`
+	OrphanTags        []string                      `json:"orphanTags" example:""`
+	RejectedMembers   []SubscriptionRejectedDTO   `json:"rejectedMembers"`
+	InfoItems         []SubscriptionInfoItemDTO   `json:"infoItems"`
+	ActiveMember      string                      `json:"activeMember" example:"sub-demo-001"`
 	Enabled      bool                    `json:"enabled" example:"true"`
 	Mode         string                  `json:"mode" example:"selector"`
 	URLTest      *SubscriptionURLTestDTO `json:"urlTest,omitempty"`
@@ -187,6 +189,34 @@ type AddMemberRequest struct {
 	ShareLink string `json:"shareLink" example:"vless://...@h.example:443?security=tls&sni=h"`
 }
 
+// SubscriptionRejectedDTO is a parsed share-link that was not added to sing-box.
+type SubscriptionRejectedDTO struct {
+	Tag      string `json:"tag,omitempty"`
+	Label    string `json:"label,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	Server   string `json:"server,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	Reason   string `json:"reason"`
+}
+
+// SubscriptionInfoItemDTO is a provider info banner (not a proxy).
+type SubscriptionInfoItemDTO struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Tag    string `json:"tag,omitempty"`
+	Source string `json:"source,omitempty"`
+}
+
+// MoveRejectedToInfoRequest is the body for POST .../rejected/to-info.
+type MoveRejectedToInfoRequest struct {
+	MemberTag string `json:"memberTag"`
+}
+
+// RemoveInfoItemRequest is the body for POST .../info/remove.
+type RemoveInfoItemRequest struct {
+	ItemID string `json:"itemId"`
+}
+
 // RemoveMemberRequest is the body for POST /api/singbox/subscriptions/members/remove.
 // Removing the last member tears the whole subscription down (no
 // meaningful empty subscription); the response carries deleted=true in
@@ -224,6 +254,8 @@ func toSubscriptionDTO(s subscription.Subscription, ndmsProxyEnabled bool) Subsc
 	if orphans == nil {
 		orphans = []string{}
 	}
+	rejected := rejectedMembersToDTO(s.RejectedMembers)
+	info := infoItemsToDTO(s.InfoItems)
 	memberDTOs := make([]SubscriptionMemberDTO, len(s.Members))
 	for i, m := range s.Members {
 		memberDTOs[i] = subscriptionMemberToDTO(m)
@@ -257,8 +289,10 @@ func toSubscriptionDTO(s subscription.Subscription, ndmsProxyEnabled bool) Subsc
 		ProxyIndex:   proxyIdx,
 		MemberTags:   memberTags,
 		Members:      memberDTOs,
-		OrphanTags:   orphans,
-		ActiveMember: s.ActiveMember,
+		OrphanTags:        orphans,
+		RejectedMembers:   rejected,
+		InfoItems:         info,
+		ActiveMember:      s.ActiveMember,
 		Enabled:      s.Enabled,
 		Mode:         mode,
 		URLTest:      urltest,
@@ -284,8 +318,10 @@ type SubscriptionMetaDTO struct {
 	ProxyIndex   int                     `json:"proxyIndex" description:"See SubscriptionDTO.ProxyIndex — gated identically (-1 when NDMS Proxy disabled)."`
 	Enabled      bool                    `json:"enabled"`
 	Mode         string                  `json:"mode"`
-	URLTest      *SubscriptionURLTestDTO `json:"urlTest,omitempty"`
-	Total        int                     `json:"total"`
+	URLTest           *SubscriptionURLTestDTO     `json:"urlTest,omitempty"`
+	Total             int                         `json:"total"`
+	RejectedMembers   []SubscriptionRejectedDTO   `json:"rejectedMembers"`
+	InfoItems         []SubscriptionInfoItemDTO   `json:"infoItems"`
 }
 
 // SubscriptionStreamMemberDTO wraps a single member with its index for
@@ -300,8 +336,10 @@ type SubscriptionStreamMemberDTO struct {
 // fields that don't fit the meta header but the frontend needs to
 // complete the rendering.
 type SubscriptionStreamDoneDTO struct {
-	OrphanTags   []string `json:"orphanTags"`
-	ActiveMember string   `json:"activeMember"`
+	OrphanTags      []string                    `json:"orphanTags"`
+	ActiveMember    string                      `json:"activeMember"`
+	RejectedMembers []SubscriptionRejectedDTO   `json:"rejectedMembers"`
+	InfoItems       []SubscriptionInfoItemDTO   `json:"infoItems"`
 }
 
 // buildSubscriptionMetaDTO extracts the meta-event payload from a
@@ -332,27 +370,63 @@ func buildSubscriptionMetaDTO(s subscription.Subscription, ndmsProxyEnabled bool
 		proxyIdx = -1
 	}
 	return SubscriptionMetaDTO{
-		ID:           s.ID,
-		Label:        s.Label,
-		URL:          s.URL,
-		IsInline:     s.IsInline(),
-		Headers:      hh,
-		RefreshHours: s.RefreshHours,
-		LastFetched:  last,
-		LastError:    s.LastError,
-		SelectorTag:  s.SelectorTag,
-		InboundTag:   s.InboundTag,
-		ListenPort:   int(s.ListenPort),
-		ProxyIndex:   proxyIdx,
-		Enabled:      s.Enabled,
-		Mode:         mode,
-		URLTest:      urltest,
-		Total:        len(s.Members),
+		ID:              s.ID,
+		Label:           s.Label,
+		URL:             s.URL,
+		IsInline:        s.IsInline(),
+		Headers:         hh,
+		RefreshHours:    s.RefreshHours,
+		LastFetched:     last,
+		LastError:       s.LastError,
+		SelectorTag:     s.SelectorTag,
+		InboundTag:      s.InboundTag,
+		ListenPort:      int(s.ListenPort),
+		ProxyIndex:      proxyIdx,
+		Enabled:         s.Enabled,
+		Mode:            mode,
+		URLTest:         urltest,
+		Total:           len(s.Members),
+		RejectedMembers: rejectedMembersToDTO(s.RejectedMembers),
+		InfoItems:       infoItemsToDTO(s.InfoItems),
 	}
 }
 
 // subscriptionMemberToDTO extracts the per-member DTO. Same shape as
 // the Members slice element in toSubscriptionDTO.
+func rejectedMembersToDTO(in []subscription.RejectedMember) []SubscriptionRejectedDTO {
+	if len(in) == 0 {
+		return []SubscriptionRejectedDTO{}
+	}
+	out := make([]SubscriptionRejectedDTO, len(in))
+	for i, r := range in {
+		out[i] = SubscriptionRejectedDTO{
+			Tag:      r.Tag,
+			Label:    r.Label,
+			Protocol: r.Protocol,
+			Server:   r.Server,
+			Port:     int(r.Port),
+			Reason:   r.Reason,
+		}
+	}
+	return out
+}
+
+func infoItemsToDTO(in []subscription.SubscriptionInfoItem) []SubscriptionInfoItemDTO {
+	if len(in) == 0 {
+		return []SubscriptionInfoItemDTO{}
+	}
+	out := make([]SubscriptionInfoItemDTO, len(in))
+	for i, it := range in {
+		out[i] = SubscriptionInfoItemDTO{
+			ID:     it.ID,
+			Label:  it.Label,
+			Tag:    it.Tag,
+			Source: it.Source,
+		}
+	}
+	return out
+}
+
 func subscriptionMemberToDTO(m subscription.MemberInfo) SubscriptionMemberDTO {
 	return SubscriptionMemberDTO{
 		Tag:       m.Tag,
@@ -778,8 +852,10 @@ func (h *SubscriptionHandler) GetStream(w http.ResponseWriter, r *http.Request) 
 		orphans = []string{}
 	}
 	doneJSON, _ := json.Marshal(SubscriptionStreamDoneDTO{
-		OrphanTags:   orphans,
-		ActiveMember: sub.ActiveMember,
+		OrphanTags:      orphans,
+		ActiveMember:    sub.ActiveMember,
+		RejectedMembers: rejectedMembersToDTO(sub.RejectedMembers),
+		InfoItems:       infoItemsToDTO(sub.InfoItems),
 	})
 	fmt.Fprintf(w, "event: done\ndata: %s\n\n", doneJSON)
 	flusher.Flush()
@@ -808,6 +884,74 @@ func (h *SubscriptionHandler) OrphansDelete(w http.ResponseWriter, r *http.Reque
 	response.Success(w, struct {
 		OK bool `json:"ok"`
 	}{true})
+}
+
+// RejectedToInfo handles POST /api/singbox/subscriptions/rejected/to-info?id=
+func (h *SubscriptionHandler) RejectedToInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.MethodNotAllowed(w)
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		response.ErrorWithStatus(w, http.StatusBadRequest, "id required", "MISSING_ID")
+		return
+	}
+	var req MoveRejectedToInfoRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.ErrorWithStatus(w, http.StatusBadRequest, "bad request body", "INVALID_JSON")
+		return
+	}
+	if strings.TrimSpace(req.MemberTag) == "" {
+		response.ErrorWithStatus(w, http.StatusBadRequest, "memberTag required", "MISSING_MEMBER_TAG")
+		return
+	}
+	sub, err := h.svc.MoveRejectedToInfo(r.Context(), id, req.MemberTag)
+	if err != nil {
+		switch {
+		case errors.Is(err, subscription.ErrRejectedMemberNotFound):
+			response.ErrorWithStatus(w, http.StatusNotFound, err.Error(), "REJECTED_NOT_FOUND")
+		case errors.Is(err, subscription.ErrInfoItemsFull):
+			response.ErrorWithStatus(w, http.StatusConflict, err.Error(), "INFO_ITEMS_FULL")
+		default:
+			h.respondServiceError(w, err)
+		}
+		return
+	}
+	response.Success(w, toSubscriptionDTO(*sub, h.ndmsProxyEnabled()))
+}
+
+// InfoRemove handles POST /api/singbox/subscriptions/info/remove?id=
+func (h *SubscriptionHandler) InfoRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.MethodNotAllowed(w)
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		response.ErrorWithStatus(w, http.StatusBadRequest, "id required", "MISSING_ID")
+		return
+	}
+	var req RemoveInfoItemRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.ErrorWithStatus(w, http.StatusBadRequest, "bad request body", "INVALID_JSON")
+		return
+	}
+	if strings.TrimSpace(req.ItemID) == "" {
+		response.ErrorWithStatus(w, http.StatusBadRequest, "itemId required", "MISSING_ITEM_ID")
+		return
+	}
+	sub, err := h.svc.RemoveInfoItem(r.Context(), id, req.ItemID)
+	if err != nil {
+		switch {
+		case errors.Is(err, subscription.ErrInfoItemNotFound):
+			response.ErrorWithStatus(w, http.StatusNotFound, err.Error(), "INFO_ITEM_NOT_FOUND")
+		default:
+			h.respondServiceError(w, err)
+		}
+		return
+	}
+	response.Success(w, toSubscriptionDTO(*sub, h.ndmsProxyEnabled()))
 }
 
 // AddMember handles POST /api/singbox/subscriptions/members/add?id=

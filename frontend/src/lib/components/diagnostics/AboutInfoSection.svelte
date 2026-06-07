@@ -160,4 +160,25 @@
 		font-size: 0.6875rem;
 		color: var(--color-text-secondary, var(--text-secondary));
 	}
+
+	@media (max-width: 640px) {
+		.about-rows :global(.about-row) {
+			flex-direction: column;
+			align-items: stretch;
+			gap: 0.25rem;
+		}
+
+		.about-key,
+		.about-val {
+			flex: initial;
+			width: 100%;
+		}
+
+		.about-val {
+			text-align: left;
+			overflow-wrap: anywhere;
+			word-break: normal;
+			line-height: 1.45;
+		}
+	}
 </style>

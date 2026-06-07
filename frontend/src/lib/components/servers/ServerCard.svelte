@@ -2,11 +2,12 @@
 	import type { WireguardServer, WireguardServerConfig, ASCParams, WireguardServerPeer } from '$lib/types';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
+	import { servers } from '$lib/stores/servers';
 	import { formatBytes } from '$lib/utils/format';
 	import { comparePeerFieldsDirected } from '$lib/utils/peerSort';
 	import { peerSort } from '$lib/stores/peerSort';
 	import { PeerTable, ConfGeneratorModal, PeerSortControls } from '$lib/components/servers';
-	import { Button } from '$lib/components/ui';
+	import { Button, IconButton } from '$lib/components/ui';
 
 	function peerIP(p: WireguardServerPeer): string {
 		return p.allowedIPs?.find(ip => ip.includes('/32'))
@@ -36,6 +37,10 @@
 	let totalPeers = $derived((server.peers ?? []).length);
 	let totalRx = $derived((server.peers ?? []).reduce((sum, p) => sum + p.rxBytes, 0));
 	let totalTx = $derived((server.peers ?? []).reduce((sum, p) => sum + p.txBytes, 0));
+	let serverName = $derived(server.description || server.id);
+	let isUp = $derived(server.status === 'up' || server.connected);
+
+	let restartingServer = $state(false);
 
 	let sortedPeers = $derived.by(() => {
 		let peers: WireguardServerPeer[] = server.peers ?? [];
@@ -48,11 +53,15 @@
 			);
 		}
 
+		const sortBy = $peerSort.sortBy;
+		if (sortBy === null) return peers;
+
 		const sorted = [...peers].sort((a, b) => {
 			return comparePeerFieldsDirected(
 				{
 					name: a.description || a.publicKey,
 					ip: peerIP(a),
+					endpoint: a.endpoint || '-',
 					rxBytes: a.rxBytes,
 					txBytes: a.txBytes,
 					online: a.online,
@@ -61,18 +70,34 @@
 				{
 					name: b.description || b.publicKey,
 					ip: peerIP(b),
+					endpoint: b.endpoint || '-',
 					rxBytes: b.rxBytes,
 					txBytes: b.txBytes,
 					online: b.online,
 					lastHandshake: b.lastHandshake || null,
 				},
-				$peerSort.sortBy,
+				sortBy,
 				$peerSort.sortAsc,
 			);
 		});
 
 		return sorted;
 	});
+
+	async function handleRestartOrStart() {
+		if (restartingServer) return;
+		restartingServer = true;
+
+		try {
+			await api.restartWireguardServer(server.id);
+			notifications.success(isUp ? 'Команда рестарта отправлена' : 'Команда запуска отправлена');
+			servers.invalidate();
+		} catch {
+			notifications.warning('Команда могла быть отправлена, соединение могло временно прерваться');
+		} finally {
+			restartingServer = false;
+		}
+	}
 
 	async function openConfModal(publicKey: string) {
 		confPeerKey = publicKey;
@@ -99,7 +124,7 @@
 	);
 </script>
 
-<div class="card server-card" class:status-up={server.status === 'up'} class:status-down={server.status !== 'up'}>
+<div class="card server-card" class:status-up={isUp} class:status-down={!isUp}>
 	<!-- Header -->
 	<div class="server-header">
 		<div class="server-info">
@@ -115,9 +140,29 @@
 				<span class="meta-item mono">:{server.listenPort}</span>
 			</div>
 		</div>
-		<div class="server-status">
-			<span class="led" class:led-up={server.status === 'up'} class:led-down={server.status !== 'up'}></span>
-			<span class="peer-count">{onlineCount}/{totalPeers}</span>
+		<div class="server-header-right">
+			<div class="server-status">
+				<span class="led" class:led-up={isUp} class:led-down={!isUp}></span>
+				<span class="peer-count">{onlineCount}/{totalPeers}</span>
+			</div>
+
+			<div class="server-header-actions">
+				<IconButton
+					ariaLabel={isUp
+						? `Перезапустить сервер ${serverName}`
+						: `Запустить сервер ${serverName}`}
+					title={isUp
+						? `Перезапустить сервер «${serverName}»`
+						: `Запустить сервер «${serverName}»`}
+					onclick={handleRestartOrStart}
+					disabled={restartingServer}
+				>
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M21 12a9 9 0 1 1-2.64-6.36" />
+						<path d="M21 3v6h-6" />
+					</svg>
+				</IconButton>
+			</div>
 		</div>
 	</div>
 
@@ -145,6 +190,7 @@
 				<PeerSortControls
 					bind:searchQuery
 					showSearch={(server.peers ?? []).length >= 5}
+					hideSortOnDesktop
 				/>
 			</div>
 			<PeerTable
@@ -189,7 +235,7 @@
 	.server-card {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.625rem;
 		transition: border-color 0.2s;
 	}
 
@@ -253,6 +299,19 @@
 		color: var(--accent);
 	}
 
+	.server-header-right {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex-shrink: 0;
+	}
+
+	.server-header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
 	.server-status {
 		display: flex;
 		align-items: center;
@@ -284,17 +343,23 @@
 	}
 
 	.server-stats {
-		display: flex;
-		gap: 1.5rem;
-		padding: 0.5rem 0;
-		border-top: 1px solid var(--border);
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 0.5rem;
+		padding: 0.625rem 0;
+		border-top: 1px dashed var(--border);
 		border-bottom: 1px solid var(--border);
 	}
 
 	.stat {
+		min-width: 0;
 		display: flex;
 		flex-direction: column;
 		gap: 0.125rem;
+		padding: 0.5rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--bg-primary);
 	}
 
 	.stat-label {
@@ -333,6 +398,26 @@
 		font-size: 0.875rem;
 		font-weight: 600;
 		color: var(--text-secondary);
+	}
+
+	@media (max-width: 640px) {
+		.server-header {
+			flex-direction: column;
+		}
+
+		.server-header-right {
+			width: 100%;
+			justify-content: space-between;
+		}
+
+		.peers-header {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.peers-header :global(.peer-sort-controls) {
+			width: 100%;
+		}
 	}
 
 </style>

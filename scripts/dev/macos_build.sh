@@ -4,14 +4,15 @@
 #
 # Переменные окружения (все опциональны):
 #   DEV_HOST, DEV_SSH_PORT, DEV_USER, DEV_REMOTE_BIN, DEV_ARCH
-#   DEV_SKIP_RESTART, DEV_SKIP_FRONTEND, DEV_FORCE_NPM_INSTALL
+#   DEV_SKIP_RESTART, DEV_SKIP_FRONTEND, DEV_BACKEND_ONLY, DEV_FORCE_NPM_INSTALL
 #   DEV_PASSWORD      пароль SSH (лучше ключи; иначе --password / sshpass)
 #   DEV_SSH_OPTS, DEV_SSH_STDIN, DEV_USE_SFTP_SCP
 #
 # Примеры:
 #   ./scripts/dev/macos_build.sh arm64 --version 2.11.2+r71
 #   ./scripts/dev/macos_build.sh --password 'secret' arm64
-#   ./scripts/dev/macos_build.sh --skip-frontend
+#   ./scripts/dev/macos_build.sh --backend-only   # только Go + деплой (как раньше)
+#   ./scripts/dev/macos_build.sh --skip-frontend  # то же (нужен frontend/build)
 #   DEV_SKIP_RESTART=1 ./scripts/dev/macos_build.sh
 
 set -euo pipefail
@@ -38,12 +39,13 @@ BUILD_VERSION=""
 
 usage() {
 	cat <<EOF
-Usage: $(basename "$0") [ARCH] [--version VER] [--password PASS] [--skip-frontend]
+Usage: $(basename "$0") [ARCH] [--version VER] [--password PASS] [--backend-only]
 
   ARCH              mipsle | mips | arm64 (default: \$DEV_ARCH or arm64)
   --version VER     ldflags main.version (default: VERSION in repo root)
   --password PASS   SSH/scp password (needs sshpass: brew install hudochenkov/sshpass/sshpass)
-  --skip-frontend   не пересобирать frontend (нужен frontend/build)
+  --backend-only    только cross-build Go и деплой, без npm frontend (нужен frontend/build)
+  --skip-frontend   синоним --backend-only
 
 Environment: DEV_HOST, DEV_PASSWORD, DEV_ARCH, DEV_SKIP_RESTART, ...
 EOF
@@ -67,7 +69,7 @@ while [[ $# -gt 0 ]]; do
 			DEV_PASSWORD="$2"
 			shift 2
 			;;
-		--skip-frontend)
+		--backend-only | --skip-frontend)
 			SKIP_FRONTEND=1
 			shift
 			;;
@@ -281,12 +283,12 @@ if [[ -n "$DEV_PASSWORD" ]]; then
 	export SSHPASS="$DEV_PASSWORD"
 fi
 
-if [[ "$SKIP_FRONTEND" -eq 1 || -n "${DEV_SKIP_FRONTEND:-}" ]]; then
+if [[ "$SKIP_FRONTEND" -eq 1 || -n "${DEV_SKIP_FRONTEND:-}" || -n "${DEV_BACKEND_ONLY:-}" ]]; then
 	if [[ ! -f "$FRONTEND_INDEX" ]]; then
-		echo "error: missing $FRONTEND_INDEX (drop --skip-frontend or build frontend)" >&2
+		echo "error: missing $FRONTEND_INDEX (собери frontend или запусти без --backend-only)" >&2
 		exit 1
 	fi
-	echo "==> frontend skipped (--skip-frontend)"
+	echo "==> frontend skipped (--backend-only: только Go + деплой)"
 else
 	dev_build_frontend
 fi

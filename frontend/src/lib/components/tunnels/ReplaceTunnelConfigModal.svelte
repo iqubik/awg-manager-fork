@@ -195,7 +195,7 @@
                 onclick={() => fileInput?.click()}
                 onkeydown={(e) => e.key === 'Enter' && fileInput?.click()}
             >
-                <input type="file" bind:this={fileInput} onchange={handleFileSelect} style="display: none">
+                <input type="file" accept=".conf,text/plain,application/octet-stream" bind:this={fileInput} onchange={handleFileSelect} style="display: none">
                 {#if importContent.trim()}
                     <div class="drop-content">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="36" height="36">

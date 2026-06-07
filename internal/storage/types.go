@@ -10,17 +10,18 @@ type Settings struct {
 	// `Authorization: Bearer <key>` header. Empty disables key-based access
 	// (session is still required when AuthEnabled). Generated client-side
 	// via crypto.randomUUID(); the server treats it as opaque.
-	ApiKey              string            `json:"apiKey,omitempty"`
-	Server              ServerSettings    `json:"server"`
-	PingCheck           PingCheckSettings `json:"pingCheck"`
-	Logging             LoggingSettings   `json:"logging"`
-	DisableMemorySaving bool              `json:"disableMemorySaving"` // false = auto, true = soft mode
-	Updates             UpdateSettings    `json:"updates"`
-	Download            DownloadSettings  `json:"download"`
-	DNSRoute            DNSRouteSettings  `json:"dnsRoute"`
-	UsageLevel          string            `json:"usageLevel"`
-	ServerInterfaces    []string          `json:"serverInterfaces,omitempty"`
-	ManagedServers      []ManagedServer   `json:"managedServers,omitempty"`
+	ApiKey               string            `json:"apiKey,omitempty"`
+	Server               ServerSettings    `json:"server"`
+	PingCheck            PingCheckSettings `json:"pingCheck"`
+	Logging              LoggingSettings   `json:"logging"`
+	DisableMemorySaving  bool              `json:"disableMemorySaving"` // false = auto, true = soft mode
+	Updates              UpdateSettings    `json:"updates"`
+	Download             DownloadSettings  `json:"download"`
+	DNSRoute             DNSRouteSettings  `json:"dnsRoute"`
+	ConnectivityCheckURL string            `json:"connectivityCheckUrl"`
+	UsageLevel           string            `json:"usageLevel"`
+	ServerInterfaces     []string          `json:"serverInterfaces,omitempty"`
+	ManagedServers       []ManagedServer   `json:"managedServers,omitempty"`
 	// ManagedServer is retained for one release as the migration source.
 	// migrateManagedServers() moves it into ManagedServers[0] on first read
 	// and clears it on the next save.
@@ -40,6 +41,12 @@ type Settings struct {
 	// Default true (back-compat). See docs/superpowers/specs/
 	// 2026-05-22-singbox-ndms-proxy-toggle-design.md.
 	CreateNDMSProxyForSingbox bool `json:"createNDMSProxyForSingbox"`
+	// ManagedPeerAllowIPsMigrated marks the one-time NDMS sweep that strips
+	// the legacy default 0.0.0.0/0 from managed-server peers' allow-ips
+	// (per-peer /32 only). New firmware rejects multiple peers sharing
+	// 0.0.0.0/0 with "subnet overlaps with the other peer". Set after a
+	// successful sweep; the sweep runs at startup while false.
+	ManagedPeerAllowIPsMigrated bool `json:"managedPeerAllowIPsMigrated,omitempty"`
 }
 
 type DownloadSettings struct {
@@ -83,19 +90,26 @@ type SingboxRouterSettings struct {
 	// exclusions in "PORT UDP|TCP" format (e.g. "51820 UDP, 1194 TCP").
 	// Parsed at iptables generation time. Empty = no extras.
 	BypassExtraPorts string `json:"bypassExtraPorts,omitempty"`
+	// IngressInterfaces — ref'ы интерфейсов, чей ingress-трафик заворачивается
+	// в sing-box. Формат: "managed:Wireguard3" (резолвится в kernel-имя на
+	// сборке спека) или "iface:nwg5" (kernel-имя как есть). Пусто = выключено.
+	IngressInterfaces []string `json:"ingressInterfaces,omitempty"`
 }
 
 // ManagedServer represents the user-created WireGuard server interface.
 type ManagedServer struct {
-	InterfaceName string `json:"interfaceName"`         // e.g. "Wireguard3"
-	Description   string `json:"description,omitempty"` // user-facing display name, synced to NDMS interface description
-	Address       string `json:"address"`               // e.g. "10.0.0.1"
-	Mask          string `json:"mask"`                  // e.g. "255.255.255.0"
-	ListenPort    int    `json:"listenPort"`
-	Endpoint      string `json:"endpoint,omitempty"` // custom endpoint (IP or domain); empty = WAN IP
-	DNS           string `json:"dns,omitempty"`      // custom DNS for client configs; empty = "1.1.1.1, 8.8.8.8"
-	MTU           int    `json:"mtu,omitempty"`      // custom MTU for client configs; 0 = 1376
-	NATEnabled    bool   `json:"natEnabled,omitempty"`
+	InterfaceName string   `json:"interfaceName"`         // e.g. "Wireguard3"
+	Description   string   `json:"description,omitempty"` // user-facing display name, synced to NDMS interface description
+	Address       string   `json:"address"`               // e.g. "10.0.0.1"
+	Mask          string   `json:"mask"`                  // e.g. "255.255.255.0"
+	ListenPort    int      `json:"listenPort"`
+	Endpoint      string   `json:"endpoint,omitempty"` // custom endpoint (IP or domain); empty = WAN IP
+	DNS           string   `json:"dns,omitempty"`      // custom DNS for client configs; empty = "1.1.1.1, 8.8.8.8"
+	MTU           int      `json:"mtu,omitempty"`      // custom MTU for client configs; 0 = 1376
+	NATEnabled    bool     `json:"natEnabled,omitempty"`
+	NATMode       string   `json:"natMode,omitempty"`      // "full" | "internet-only" | "none"; source of truth, NATEnabled — производное
+	NATStaticWAN  string   `json:"natStaticWan,omitempty"` // WAN-iface (to-interface), на котором создан static NAT для internet-only; для детерминированного снятия
+	LANSegments   []string `json:"lanSegments,omitempty"`  // NDMS interface-name LAN-бриджей ("Home","Guest"), доступных peers
 	// PrivateKey is the server's WireGuard private key. Populated by
 	// Service.Create immediately after NDMS auto-generates the keypair,
 	// or by Service.MigratePrivateKeys on first boot after upgrade for

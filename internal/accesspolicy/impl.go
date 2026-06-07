@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/hoaxisr/awg-manager/internal/logging"
@@ -162,7 +161,7 @@ func (s *ServiceImpl) List(ctx context.Context) ([]Policy, error) {
 
 	// Stable sort: PolicyN by number first, then custom policies alphabetically
 	sort.Slice(policies, func(i, j int) bool {
-		pi, pj := policyIndex(policies[i].Name), policyIndex(policies[j].Name)
+		pi, pj := query.PolicyIndex(policies[i].Name), query.PolicyIndex(policies[j].Name)
 		if pi != pj {
 			return pi < pj
 		}
@@ -491,6 +490,7 @@ func (s *ServiceImpl) SetInterfaceUp(ctx context.Context, ndmsName string, up bo
 				s.appLog.Warn("set-interface", ndmsName, fmt.Sprintf("Failed to %s managed tunnel %s: %v", action, id, lerr))
 				return lerr
 			}
+			s.refreshInterfaceAfterLifecycle(ndmsName)
 			s.appLog.Full("set-interface", ndmsName, fmt.Sprintf("Managed tunnel %s set %s via lifecycle", id, action))
 			return nil
 		}
@@ -508,6 +508,21 @@ func (s *ServiceImpl) SetInterfaceUp(ctx context.Context, ndmsName string, up bo
 	}
 	s.appLog.Full("set-interface", ndmsName, fmt.Sprintf("Interface %s set %s", ndmsName, action))
 	return nil
+}
+
+func (s *ServiceImpl) refreshInterfaceAfterLifecycle(ndmsName string) {
+	if s.queries == nil {
+		return
+	}
+	if s.queries.Interfaces != nil {
+		s.queries.Interfaces.Invalidate(ndmsName)
+	}
+	if s.queries.Peers != nil {
+		s.queries.Peers.Invalidate(ndmsName)
+	}
+	if s.queries.RunningConfig != nil {
+		s.queries.RunningConfig.InvalidateAll()
+	}
 }
 
 // interfaceLabel builds a human-readable label from NDMS interface data.
@@ -623,18 +638,6 @@ func (s *ServiceImpl) parseHotspotPolicies(ctx context.Context) (map[string]stri
 // Accepts both standard PolicyN names and custom names (e.g. from HR Neo).
 func isValidPolicyName(name string) bool {
 	return name != ""
-}
-
-// policyIndex extracts a sort key from a policy name.
-// Standard PolicyN names sort by number (0-63), custom names sort after them (1000+).
-func policyIndex(name string) int {
-	if strings.HasPrefix(name, "Policy") {
-		numStr := strings.TrimPrefix(name, "Policy")
-		if n, err := strconv.Atoi(numStr); err == nil {
-			return n
-		}
-	}
-	return 1000 // custom policies sort after standard PolicyN
 }
 
 // IsStandardPolicyName reports whether name is a built-in NDMS access

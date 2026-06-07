@@ -4,6 +4,7 @@ export interface PortableStaticRoute {
 	name: string;
 	subnets: string[];
 	enabled: boolean;
+	iconUrl?: string;
 }
 
 export function exportStaticRoutes(routes: StaticRouteList[]): PortableStaticRoute[] {
@@ -11,6 +12,7 @@ export function exportStaticRoutes(routes: StaticRouteList[]): PortableStaticRou
 		name: r.name,
 		subnets: r.subnets ?? [],
 		enabled: r.enabled,
+		iconUrl: r.iconUrl || undefined,
 	}));
 }
 
@@ -21,6 +23,7 @@ export function parseStaticRouteImport(json: string): PortableStaticRoute[] {
 		typeof item.name === 'string' &&
 		item.name.trim() !== '' &&
 		Array.isArray(item.subnets) &&
-		item.subnets.length > 0
+		item.subnets.length > 0 &&
+		(item.iconUrl === undefined || typeof item.iconUrl === 'string')
 	);
 }

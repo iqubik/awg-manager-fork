@@ -520,7 +520,7 @@
 					type="text"
 					bind:value={inputValue}
 					onkeydown={handleKeydown}
-					placeholder="например, google.com или 8.8.8.8"
+					placeholder="google.com или 8.8.8.8"
 					class="text-input"
 					autocomplete="off"
 				/>

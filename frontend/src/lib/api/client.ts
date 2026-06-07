@@ -97,10 +97,22 @@ import type {
 	ManagedServerRestoreResponse,
 	RestoreOptions,
 	DnsProxyInfo,
+	CatalogPreset,
 } from '$lib/types';
 import { isMockDevMode } from '$lib/env';
 
-export type TrafficPeriod = '5m' | '10m' | '30m' | '1h' | '3h' | '6h' | '12h' | '24h' | '48h';
+export type TrafficPeriod = '5m' | '10m' | '30m' | '1h' | '3h' | '6h' | '12h' | '24h';
+
+const DIAGNOSTICS_SANITIZE_STORAGE_KEY = 'awgm.diagnostics.sanitizeLogs';
+
+function readDiagnosticsSanitizedPreference(): boolean {
+	if (typeof localStorage === 'undefined') {
+		return true;
+	}
+	// Missing key means safe default. The diagnostics privacy store persists
+	// enabled as "1" and disabled/raw reveal as "0".
+	return localStorage.getItem(DIAGNOSTICS_SANITIZE_STORAGE_KEY) !== '0';
+}
 
 interface ApiResponse<T> {
 	success?: boolean;
@@ -692,6 +704,7 @@ class ApiClient {
 		level?: string;
 		since?: number;
 		limit?: number;
+		sanitize?: boolean;
 		offset?: number;
 	}): Promise<LogsResponse> {
 		const query = new URLSearchParams();
@@ -707,6 +720,8 @@ class ApiClient {
 		if (params?.level) query.set('level', params.level);
 		if (params?.since != null && params.since > 0) query.set('since', String(params.since));
 		if (params?.limit) query.set('limit', String(params.limit));
+		const sanitize = params?.sanitize ?? readDiagnosticsSanitizedPreference();
+		query.set('sanitize', String(sanitize));
 		if (params?.offset != null && params.offset >= 0) query.set('offset', String(params.offset));
 		const qs = query.toString();
 		return this.request(`/logs${qs ? '?' + qs : ''}`);
@@ -822,6 +837,28 @@ class ApiClient {
 	async getWANIP(): Promise<string> {
 		const res = await this.request<{ ip: string }>('/servers/wan-ip');
 		return res.ip;
+	}
+
+	async restartManagedServer(serverId: string): Promise<{ id: string; accepted: boolean }> {
+		return this.request(`/managed-servers/${encodeURIComponent(serverId)}/restart`, {
+			method: 'POST'
+		});
+	}
+
+	async restartWireguardServer(name: string): Promise<{ id: string; accepted: boolean }> {
+		return this.request(`/servers/restart?name=${encodeURIComponent(name)}`, {
+			method: 'POST'
+		});
+	}
+
+	async setWireguardServerEnabled(
+		name: string,
+		enabled: boolean
+	): Promise<import('$lib/stores/servers').ServersSnapshot> {
+		return this.request(`/servers/enabled?name=${encodeURIComponent(name)}`, {
+			method: 'POST',
+			body: JSON.stringify({ enabled })
+		});
 	}
 
 	// #endregion
@@ -1070,11 +1107,22 @@ class ApiClient {
 		});
 	}
 
-	async setManagedServerNAT(serverId: string, enabled: boolean): Promise<import('$lib/stores/servers').ServersSnapshot> {
+	async setManagedServerNATMode(serverId: string, mode: 'full' | 'internet-only' | 'none'): Promise<import('$lib/stores/servers').ServersSnapshot> {
 		return this.request(`/managed-servers/${encodeURIComponent(serverId)}/nat`, {
 			method: 'POST',
-			body: JSON.stringify({ enabled })
+			body: JSON.stringify({ mode })
 		});
+	}
+
+	async setManagedServerLANSegments(serverId: string, segments: string[]): Promise<import('$lib/stores/servers').ServersSnapshot> {
+		return this.request(`/managed-servers/${encodeURIComponent(serverId)}/lan-segments`, {
+			method: 'POST',
+			body: JSON.stringify({ segments })
+		});
+	}
+
+	async listManagedLANSegments(): Promise<{ name: string; label: string; subnet: string }[]> {
+		return this.request('/managed-servers/lan-segments');
 	}
 
 	async deleteManagedServer(serverId: string): Promise<import('$lib/stores/servers').ServersSnapshot> {
@@ -1764,6 +1812,14 @@ class ApiClient {
 		return this.request('/singbox/router/rulesets/list');
 	}
 
+	async singboxRouterDatRuleSetURL(kind: 'geosite' | 'geoip', tags: string[]): Promise<{ url: string }> {
+		const q = new URLSearchParams({ kind });
+		for (const t of tags) {
+			q.append('tag', t);
+		}
+		return this.request(`/singbox/router/rulesets/dat-url?${q.toString()}`);
+	}
+
 	async singboxRouterAddRuleSet(rs: SingboxRouterRuleSet): Promise<void> {
 		await this.request('/singbox/router/rulesets/add', {
 			method: 'POST',
@@ -1832,6 +1888,13 @@ class ApiClient {
 		return this.request('/singbox/router/presets/list');
 	}
 
+	async listPresets(): Promise<{ presets: CatalogPreset[] }> {
+		const payload = await this.request<{ presets?: CatalogPreset[] } | undefined>('/presets');
+		return {
+			presets: Array.isArray(payload?.presets) ? payload.presets : [],
+		};
+	}
+
 	async singboxRouterApplyPreset(id: string, outbound: string): Promise<void> {
 		await this.request('/singbox/router/presets/apply', {
 			method: 'POST',
@@ -1852,6 +1915,10 @@ class ApiClient {
 
 	async singboxRouterListWANInterfaces(): Promise<SingboxRouterWANInterface[]> {
 		return this.request<SingboxRouterWANInterface[]>('/singbox/router/wan-interfaces');
+	}
+
+	async singboxRouterListBindableInterfaces(): Promise<SingboxRouterWANInterface[]> {
+		return this.request<SingboxRouterWANInterface[]>('/singbox/router/bindable-interfaces');
 	}
 
 	async singboxRouterListDNSServers(): Promise<SingboxRouterDNSServer[]> {
@@ -2092,6 +2159,20 @@ class ApiClient {
 				method: 'POST',
 				body: JSON.stringify({ memberTag }),
 			},
+		);
+	}
+
+	async moveSubscriptionRejectedToInfo(id: string, memberTag: string): Promise<Subscription> {
+		return this.request<Subscription>(
+			`/singbox/subscriptions/rejected/to-info?id=${encodeURIComponent(id)}`,
+			{ method: 'POST', body: JSON.stringify({ memberTag }) },
+		);
+	}
+
+	async removeSubscriptionInfoItem(id: string, itemId: string): Promise<Subscription> {
+		return this.request<Subscription>(
+			`/singbox/subscriptions/info/remove?id=${encodeURIComponent(id)}`,
+			{ method: 'POST', body: JSON.stringify({ itemId }) },
 		);
 	}
 

@@ -45,6 +45,7 @@ import (
 	ndmstransport "github.com/hoaxisr/awg-manager/internal/ndms/transport"
 	"github.com/hoaxisr/awg-manager/internal/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/pingcheck"
+	"github.com/hoaxisr/awg-manager/internal/presets"
 	"github.com/hoaxisr/awg-manager/internal/routing"
 	"github.com/hoaxisr/awg-manager/internal/server"
 	"github.com/hoaxisr/awg-manager/internal/singbox"
@@ -435,6 +436,10 @@ func main() {
 	// (constructed later, after ndmsCommands is available).
 	staticRouteStore := storage.NewStaticRouteStore(*dataDir)
 
+	// Unified preset catalog (U0: read-only, no CRUD yet)
+	presetStore := presets.NewStore(*dataDir)
+	presetCatalog := presets.NewCatalog(presetStore)
+
 	// Create external tunnel service
 	externalService := external.NewService(awgStore, settingsStore, tunnelService, loggingService)
 
@@ -443,6 +448,7 @@ func main() {
 	var systemTunnelSvc *systemtunnel.ServiceImpl
 
 	testService := testing.NewService(awgStore, loggingService)
+	testService.SetSettingsStore(settingsStore)
 
 	// Ping check service
 	pingCheckService := pingcheck.NewService(settingsStore, awgStore, wgClient, loggingService)
@@ -741,9 +747,9 @@ func main() {
 	if err := sbOrch.Bootstrap(); err != nil {
 		bootLog.Error("singbox-orchestrator", "bootstrap", err.Error())
 	}
-	// Download proxy is an ephemeral per-operation slot. If a previous awgm
-	// process crashed during geo download, Bootstrap may discover an active
-	// 35-download-proxy.json. Always disable it on boot.
+	// Legacy download-proxy slot (35-download-proxy.json) is no longer used
+	// by the downloader, but disable it on boot in case a previous awgm
+	// process crashed with the slot still enabled.
 	if err := sbOrch.SetEnabledSilent(singboxorch.SlotDownloadProxy, false); err != nil {
 		bootLog.Warn("singbox-orchestrator", "downloadproxy-disable", err.Error())
 	}
@@ -903,6 +909,7 @@ func main() {
 			KmodLoader:          kmodLoader,
 			UpdaterService:      updaterService,
 			NdmsQueries:         ndmsQueries,
+			NdmsCommands:        ndmsCommands,
 			TrafficHistory:      trafficHistory,
 			DnsRouteService:     dnsRouteService,
 			StaticRouteService:  staticRouteService,
@@ -1020,8 +1027,9 @@ func main() {
 	sharedDownloadSvc := downloader.NewSettingsBackedService(
 		deviceProxySvc,
 		singboxOp,
-		sbOrch,
+		subSvc,
 		settingsStore,
+		awgStore,
 	)
 	dnsRouteService.SetDownloader(&dnsRouteDownloaderAdapter{svc: sharedDownloadSvc})
 	dnsRefreshScheduler.Start()
@@ -1054,6 +1062,7 @@ func main() {
 		}()
 	}
 
+	srv.SetPresetCatalog(presetCatalog)
 	srv.SetDeviceProxyService(deviceProxySvc)
 	srv.SetDownloadService(sharedDownloadSvc)
 	// Note: legacy awg-* outbound cleanup happens lazily on first
@@ -1082,6 +1091,10 @@ func main() {
 		SubscriptionComposites: router.NewSubscriptionCompositesAdapter(subAdapter),
 		Orch:                   sbOrch,
 		WANInterfaces:          &routerWANInterfaceAdapter{store: ndmsQueries.Interfaces},
+		BindableInterfaces:     &routerWANInterfaceAdapter{store: ndmsQueries.Interfaces},
+		IngressResolver:        &routerIngressResolverAdapter{store: ndmsQueries.Interfaces},
+		PresetCatalog:          presetCatalog,
+		GeoData:                geoDataStore,
 	})
 	singboxOp.SetOutboundReferenceRenamer(routerSvc)
 	tunnelService.SetAWGSyncer(awgoutboundsSvc)
@@ -1207,11 +1220,15 @@ func main() {
 
 	// Register shutdown hooks for graceful cleanup before syscall.Exec restart.
 	srv.AddShutdownHook(shutdownCancel)
-	if !ndmsinfo.SupportsWireguardASC() {
-		srv.AddShutdownHook(func() {
-			nwgOp.KmodManager().RemoveAllTunnels()
-		})
-	}
+	// Intentionally NOT removing kmod proxy slots on restart: the
+	// reconnect path (EventReconnect → ActionRestoreKmod →
+	// KmodManager.RestoreTunnel) adopts each existing slot without
+	// touching /proc/awg_proxy/del, so kernel WG keeps forwarding
+	// through the live slot across syscall.Exec. This is what makes
+	// "Перезапуск AWGM, туннели продолжат работать" actually true on
+	// proxy-firmware. Touching /proc/del here also opened a kernel-side
+	// race on awg_proxy < 1.1.10 (issue #234) — slots are now left
+	// to the reconnect path.
 	srv.AddShutdownHook(pingCheckService.Stop)
 	srv.AddShutdownHook(monitoringService.Stop)
 	srv.AddShutdownHook(dnsRefreshScheduler.Stop)
@@ -1266,6 +1283,12 @@ func main() {
 			// cache is ready so kernel-name resolution works.
 			managedService.MigratePrivateKeys(shutdownCtx)
 
+			// One-time sweep: strip the legacy default 0.0.0.0/0 from
+			// managed-server peers' allow-ips (per-peer /32 only). New
+			// firmware rejects multiple peers sharing 0.0.0.0/0. Gated by a
+			// persisted flag; best-effort, retries next boot if NDMS is down.
+			managedService.MigratePeerAllowIPs(shutdownCtx)
+
 			// Migrate legacy NDMS ID values to kernel names (one-time after model is populated).
 			tunnelService.MigrateISPInterfaceToKernel()
 			// Clear stored.ActiveWAN entries that don't name a real kernel iface
@@ -1297,6 +1320,12 @@ func main() {
 		// Clear stored.ActiveWAN entries that don't name a real kernel iface
 		// (legacy garbage from the pre-hardened resolver, e.g. "ISP").
 		tunnelService.HealStaleActiveWAN()
+
+		// One-time sweep on daemon restart/upgrade too (NDMS already up):
+		// strip the legacy default 0.0.0.0/0 from managed-server peers'
+		// allow-ips. Flag-gated, best-effort. Without this the migration
+		// would only fire on a cold router boot (isBoot branch above).
+		managedService.MigratePeerAllowIPs(context.Background())
 
 		bootLog.Info("startup", "",
 			"Daemon restart detected — reconnecting to running tunnels")

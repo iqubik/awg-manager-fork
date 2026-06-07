@@ -8,6 +8,7 @@
 	import { goto } from '$app/navigation';
 	import HeadersTextarea from './HeadersTextarea.svelte';
 	import { parseHeadersText, serializeHeaders } from './headersParser';
+	import { Save, Trash2 } from 'lucide-svelte';
 	import { Button, Dropdown, Modal, Toggle } from '$lib/components/ui';
 	import { untrack } from 'svelte';
 
@@ -101,37 +102,11 @@
 </script>
 
 {#snippet saveIcon()}
-	<svg
-		width="14"
-		height="14"
-		viewBox="0 0 24 24"
-		fill="none"
-		stroke="currentColor"
-		stroke-width="2"
-		stroke-linecap="round"
-		stroke-linejoin="round"
-		aria-hidden="true"
-	>
-		<path d="M5 12.5l4.2 4.2L19 6.8" />
-	</svg>
+	<Save size={14} strokeWidth={2} aria-hidden="true" />
 {/snippet}
 
 {#snippet deleteIcon()}
-	<svg
-		width="14"
-		height="14"
-		viewBox="0 0 24 24"
-		fill="none"
-		stroke="currentColor"
-		stroke-width="2"
-		stroke-linecap="round"
-		stroke-linejoin="round"
-		aria-hidden="true"
-	>
-		<path d="M4 7h16" />
-		<path d="M9 7V5h6v2" />
-		<path d="M7 7l1 13h8l1-13" />
-	</svg>
+	<Trash2 size={14} strokeWidth={2} aria-hidden="true" />
 {/snippet}
 
 <div class="settings-toolbar">

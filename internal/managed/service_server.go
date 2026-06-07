@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hoaxisr/awg-manager/internal/ndms/query"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 )
 
@@ -93,6 +94,7 @@ func (s *Service) Create(ctx context.Context, req CreateServerRequest) (*storage
 		DNS:           req.DNS,
 		MTU:           req.MTU,
 		NATEnabled:    true,
+		NATMode:       "full",
 		PrivateKey:    privateKey,
 		Peers:         []storage.ManagedPeer{},
 	}
@@ -167,6 +169,22 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateServerRequest
 		return fmt.Errorf("update server: %w", err)
 	}
 
+	// Сменилась подсеть → пересобрать LAN ACL под новую peer-подсеть, иначе
+	// AWGM_<iface> продолжит permit'ить старый src-диапазон. Preflight в
+	// applyLANSegmentsRaw гарантирует, что невалидный запрос (неизвестный
+	// сегмент, недоступный каталог) не начнёт разрушать рабочий ACL.
+	if changes.addressChanged && len(server.LANSegments) > 0 {
+		if err := s.applyLANSegmentsRaw(ctx, server.InterfaceName, req.Address, mask, server.LANSegments); err != nil {
+			// Роутер уже сменил подсеть (rciUpdateServer выше), но storage ещё
+			// хранит старую — рассинхрон до следующего успешного Update. Это
+			// fail-closed по доступу (ACL не пересобран → сегмент недоступен),
+			// восстановимо повтором Update; явно логируем, чтобы не было тихо.
+			s.log.Warn("LAN ACL rebuild failed after subnet change; router/storage out of sync until next Update",
+				"error", err, "interface", server.InterfaceName, "newAddress", req.Address)
+			return fmt.Errorf("rebuild LAN ACL after subnet change: %w", err)
+		}
+	}
+
 	// Update storage. Required fields (Address, Mask, ListenPort) were
 	// validated above. Optional fields (Description, Endpoint, DNS, MTU)
 	// use pointer semantics: nil = preserve existing, non-nil = set
@@ -202,26 +220,96 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateServerRequest
 	return nil
 }
 
-// SetNAT enables or disables NAT on the managed server interface.
-func (s *Service) SetNAT(ctx context.Context, id string, enabled bool) error {
+// applyNATModeRaw applies a NAT mode via RCI (no storage write). Returns the
+// WAN interface a static-NAT rule was created on (empty for full/none) so the
+// caller can persist it for deterministic teardown. prevWAN — previously
+// persisted static WAN to remove in full/none; empty means the server was
+// never in internet-only, so there is no static rule to remove and we skip
+// it (no speculative live-WAN lookup). Ignored in internet-only, which always
+// re-queries the live WAN. Reused by restore.
+func (s *Service) applyNATModeRaw(ctx context.Context, ifaceName, mode, prevWAN string) (string, error) {
+	switch mode {
+	case "full":
+		if err := s.rciSetNAT(ctx, ifaceName, true); err != nil {
+			return "", fmt.Errorf("set NAT: %w", err)
+		}
+		if prevWAN != "" { // только если ранее реально ставили static (internet-only)
+			s.removeStaticNAT(ctx, ifaceName, prevWAN)
+		}
+		return "", nil
+	case "internet-only":
+		if s.queries == nil || s.queries.Routes == nil {
+			return "", fmt.Errorf("internet-only требует Routes-провайдер")
+		}
+		wan, err := s.queries.Routes.GetDefaultGatewayInterface(ctx)
+		if err != nil {
+			return "", fmt.Errorf("internet-only требует WAN (нет дефолт-маршрута): %w", err)
+		}
+		// Static NAT ПЕРВЫМ: обычный NAT держится включённым до подтверждения
+		// static, поэтому сбой static никогда не оставляет iface вовсе без NAT.
+		if err := s.rciSetStaticNAT(ctx, ifaceName, wan, true); err != nil {
+			return "", fmt.Errorf("set static NAT: %w", err)
+		}
+		if err := s.rciSetNAT(ctx, ifaceName, false); err != nil {
+			if rbErr := s.rciSetStaticNAT(ctx, ifaceName, wan, false); rbErr != nil { // откат только что добавленного static
+				s.log.Warn("internet-only rollback: remove static NAT failed", "error", rbErr, "interface", ifaceName)
+			}
+			return "", fmt.Errorf("disable NAT: %w", err)
+		}
+		return wan, nil
+	case "none":
+		if err := s.rciSetNAT(ctx, ifaceName, false); err != nil {
+			return "", fmt.Errorf("disable NAT: %w", err)
+		}
+		if prevWAN != "" { // только если ранее реально ставили static (internet-only)
+			s.removeStaticNAT(ctx, ifaceName, prevWAN)
+		}
+		return "", nil
+	default:
+		return "", fmt.Errorf("неизвестный NAT-режим: %q", mode)
+	}
+}
+
+// SetNATMode sets the NAT mode (full/internet-only/none) on the managed server.
+func (s *Service) SetNATMode(ctx context.Context, id, mode string) error {
 	server, ok := s.settings.GetManagedServerByID(id)
 	if !ok {
 		return fmt.Errorf("managed server not found: %s", id)
 	}
-
-	if err := s.rciSetNAT(ctx, server.InterfaceName, enabled); err != nil {
-		return fmt.Errorf("set NAT: %w", err)
+	wan, err := s.applyNATModeRaw(ctx, server.InterfaceName, mode, server.NATStaticWAN)
+	if err != nil {
+		return err
 	}
-
 	if err := s.settings.UpdateManagedServer(id, func(sv *storage.ManagedServer) error {
-		sv.NATEnabled = enabled
+		sv.NATMode = mode
+		sv.NATEnabled = mode == "full"
+		sv.NATStaticWAN = wan
 		return nil
 	}); err != nil {
 		return fmt.Errorf("save to storage: %w", err)
 	}
-
-	s.log.Info("managed server NAT changed", "interface", server.InterfaceName, "enabled", enabled)
+	s.log.Info("managed server NAT mode changed", "interface", server.InterfaceName, "mode", mode)
 	return nil
+}
+
+// removeStaticNAT снимает ip static для интерфейса. Использует storedWAN
+// (созданный при включении internet-only); если пуст — fallback на текущий
+// дефолт-WAN (back-compat для серверов без сохранённого WAN). Best-effort.
+func (s *Service) removeStaticNAT(ctx context.Context, ifaceName, storedWAN string) {
+	wan := storedWAN
+	if wan == "" {
+		if s.queries == nil || s.queries.Routes == nil {
+			return
+		}
+		var err error
+		wan, err = s.queries.Routes.GetDefaultGatewayInterface(ctx)
+		if err != nil || wan == "" {
+			return
+		}
+	}
+	if err := s.rciSetStaticNAT(ctx, ifaceName, wan, false); err != nil {
+		s.log.Warn("remove static NAT failed", "error", err, "interface", ifaceName)
+	}
 }
 
 // SetEnabled brings the managed server interface up or down.
@@ -245,6 +333,35 @@ func (s *Service) SetEnabled(ctx context.Context, id string, enabled bool) error
 	return nil
 }
 
+// RestartOrStart restarts a running managed server or starts a stopped one.
+// The desired/persisted state is not changed: this only flips the NDMS
+// interface state so clients connected through the server can recover without
+// requiring a second frontend request.
+func (s *Service) RestartOrStart(ctx context.Context, id string) error {
+	server, ok := s.settings.GetManagedServerByID(id)
+	if !ok {
+		return fmt.Errorf("managed server not found: %s", id)
+	}
+
+	stats, err := s.GetStats(ctx, id)
+	wasUp := err == nil && stats != nil && stats.Status == "up"
+
+	if wasUp {
+		if err := s.rciInterfaceDown(ctx, server.InterfaceName); err != nil {
+			return fmt.Errorf("interface down: %w", err)
+		}
+		time.Sleep(1200 * time.Millisecond)
+	}
+
+	if err := s.rciInterfaceUp(ctx, server.InterfaceName); err != nil {
+		return fmt.Errorf("interface up: %w", err)
+	}
+
+	s.log.Info("managed server restart-or-start", "interface", server.InterfaceName, "wasUp", wasUp)
+	s.appLog.Info("restart", server.InterfaceName, "Managed server restart/start command completed")
+	return nil
+}
+
 // Delete removes the managed server and all its peers.
 //
 // Order matters: NDMS interface deletion happens FIRST. If it fails, storage
@@ -265,11 +382,18 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	// Disable NAT if enabled — best-effort. NAT cleanup is opportunistic;
 	// rciDeleteInterface below removes the interface (and thus its NAT rule)
 	// regardless.
-	if server.NATEnabled {
+	if server.NATMode == "full" {
 		if err := s.rciSetNAT(ctx, server.InterfaceName, false); err != nil {
 			s.log.Warn("failed to disable NAT during delete", "error", err, "interface", server.InterfaceName)
 			s.appLog.Warn("delete", server.InterfaceName, fmt.Sprintf("Failed to disable NAT before delete: %v (continuing)", err))
 		}
+	}
+	if server.NATMode == "internet-only" {
+		s.removeStaticNAT(ctx, server.InterfaceName, server.NATStaticWAN)
+	}
+	if len(server.LANSegments) > 0 {
+		// Teardown-only ветка applyLANSegmentsRaw: unbind + remove ACL (best-effort).
+		_ = s.applyLANSegmentsRaw(ctx, server.InterfaceName, "", "", nil)
 	}
 
 	// Bring down — best-effort. rciDeleteInterface implies down.
@@ -446,4 +570,135 @@ func (s *Service) readCreatedServerPrivateKey(ctx context.Context, ifaceName str
 		}
 	}
 	return "", fmt.Errorf("cannot read private key after %d attempts: %w", createPrivateKeyReadAttempts, lastErr)
+}
+
+// permitRule — одно правило permit (src→dst) для ACL.
+type permitRule struct {
+	srcSub, srcMask, dstSub, dstMask string
+}
+
+// resolveLANSegmentsPlan валидирует peer-подсеть и каждый запрошенный сегмент
+// против каталога бриджей БЕЗ обращения к роутеру. Возвращает правила permit
+// или ошибку, если сегмент неизвестен/подсеть не парсится. Вызывать ДО
+// удаления существующего ACL — тогда плохой запрос не ломает рабочий доступ.
+func resolveLANSegmentsPlan(addr, mask string, segments []string, bridges []query.LANBridge) ([]permitRule, error) {
+	cidr, err := parseManagedSubnet(addr, mask)
+	if err != nil {
+		return nil, fmt.Errorf("peer subnet: %w", err)
+	}
+	peerSub, peerMask := cidr.IP.String(), net.IP(cidr.Mask).String()
+	byName := make(map[string]query.LANBridge, len(bridges))
+	for _, b := range bridges {
+		byName[b.Name] = b
+	}
+	rules := make([]permitRule, 0, len(segments))
+	for _, seg := range segments {
+		b, ok := byName[seg]
+		if !ok {
+			return nil, fmt.Errorf("LAN-сегмент %q не найден", seg)
+		}
+		segCidr, err := parseManagedSubnet(b.Address, b.Mask)
+		if err != nil {
+			return nil, fmt.Errorf("segment %q subnet: %w", seg, err)
+		}
+		rules = append(rules, permitRule{
+			srcSub:  peerSub,
+			srcMask: peerMask,
+			dstSub:  segCidr.IP.String(),
+			dstMask: net.IP(segCidr.Mask).String(),
+		})
+	}
+	return rules, nil
+}
+
+// applyLANSegmentsRaw applies LAN-forward ACL rules to an interface without
+// touching storage. Builds the full plan FIRST (no RCI); only after a valid
+// plan does it destroy and rebuild, so a bad request never tears down working
+// access. Empty segments = teardown (unbind+remove best-effort, errors logged only).
+func (s *Service) applyLANSegmentsRaw(ctx context.Context, iface, addr, mask string, segments []string) error {
+	acl := "AWGM_" + iface
+
+	if len(segments) == 0 {
+		if err := s.rciAccessGroup(ctx, iface, acl, false); err != nil {
+			s.log.Debug("unbind ACL (teardown)", "error", err, "iface", iface)
+		}
+		if err := s.rciAclRemove(ctx, acl); err != nil {
+			s.log.Debug("remove ACL (teardown)", "error", err, "iface", iface)
+		}
+		return nil
+	}
+
+	// Preflight — собрать план до единой мутации на роутере.
+	if s.queries == nil || s.queries.Interfaces == nil {
+		return fmt.Errorf("interface store not wired")
+	}
+	bridges, err := s.queries.Interfaces.ListLANBridges(ctx)
+	if err != nil {
+		return fmt.Errorf("list LAN bridges: %w", err)
+	}
+	plan, err := resolveLANSegmentsPlan(addr, mask, segments, bridges)
+	if err != nil {
+		return err // старый ACL не тронут
+	}
+
+	// Apply — destroy → rebuild. unbind/remove best-effort (ACL может ещё не
+	// существовать), но больше не глушим молча.
+	if err := s.rciAccessGroup(ctx, iface, acl, false); err != nil {
+		s.log.Debug("unbind ACL before rebuild", "error", err, "iface", iface)
+	}
+	if err := s.rciAclRemove(ctx, acl); err != nil {
+		s.log.Debug("remove ACL before rebuild", "error", err, "iface", iface)
+	}
+	for i, r := range plan {
+		if err := s.rciAclPermit(ctx, acl, r.srcSub, r.srcMask, r.dstSub, r.dstMask); err != nil {
+			return fmt.Errorf("permit %s: %w", segments[i], err)
+		}
+	}
+	return s.rciAccessGroup(ctx, iface, acl, true)
+}
+
+// ListLANSegments returns the router's LAN bridge catalog for the UI picker.
+func (s *Service) ListLANSegments(ctx context.Context) ([]LANSegmentDTO, error) {
+	if s.queries == nil || s.queries.Interfaces == nil {
+		return nil, fmt.Errorf("interface store not wired")
+	}
+	bridges, err := s.queries.Interfaces.ListLANBridges(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LANSegmentDTO, 0, len(bridges))
+	for _, b := range bridges {
+		subnet := b.Address
+		if cidr, err := parseManagedSubnet(b.Address, b.Mask); err == nil {
+			subnet = cidr.String() // network CIDR, e.g. 10.10.10.0/24
+		}
+		// Human-readable name = NDMS description (e.g. "LAN"); fall back to
+		// the NDMS id (e.g. "Bridge0") when the bridge has no description.
+		label := b.Description
+		if label == "" {
+			label = b.Name
+		}
+		out = append(out, LANSegmentDTO{Name: b.Name, Label: label, Subnet: subnet})
+	}
+	return out, nil
+}
+
+// SetLANSegments sets the LAN segments (by NDMS bridge name) that peers of
+// the managed server are allowed to reach via ACL-based forwarding.
+func (s *Service) SetLANSegments(ctx context.Context, id string, segments []string) error {
+	server, ok := s.settings.GetManagedServerByID(id)
+	if !ok {
+		return fmt.Errorf("managed server not found: %s", id)
+	}
+	if err := s.applyLANSegmentsRaw(ctx, server.InterfaceName, server.Address, server.Mask, segments); err != nil {
+		return err
+	}
+	if err := s.settings.UpdateManagedServer(id, func(sv *storage.ManagedServer) error {
+		sv.LANSegments = segments
+		return nil
+	}); err != nil {
+		return fmt.Errorf("save to storage: %w", err)
+	}
+	s.log.Info("managed server LAN segments changed", "interface", server.InterfaceName, "segments", segments)
+	return nil
 }

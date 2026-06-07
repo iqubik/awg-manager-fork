@@ -2,6 +2,7 @@
 	import { SideDrawer, Button } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { copyToClipboard } from '$lib/utils/clipboard';
+	import { downloadSingboxConfigText } from '$lib/utils/singboxConfigExport';
 	import { notifications } from '$lib/stores/notifications';
 
 	interface Props {
@@ -45,6 +46,16 @@
 		}
 	}
 
+	function onExport() {
+		if (!json) return;
+		try {
+			downloadSingboxConfigText(json);
+			notifications.success('Конфиг скачан');
+		} catch (e) {
+			notifications.error(e instanceof Error ? e.message : String(e));
+		}
+	}
+
 	$effect(() => {
 		if (open && !lastLoadedFor) {
 			lastLoadedFor = true;
@@ -68,6 +79,14 @@
 				disabled={loading || !json}
 			>
 				{copied ? 'Скопировано' : 'Копировать'}
+			</Button>
+			<Button
+				variant="secondary"
+				size="sm"
+				onclick={onExport}
+				disabled={loading || !json}
+			>
+				Экспорт
 			</Button>
 		</div>
 
@@ -100,6 +119,19 @@
 		display: flex;
 		gap: 0.5rem;
 		align-items: center;
+	}
+
+	@media (max-width: 640px) {
+		.toolbar {
+			display: grid;
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+			align-items: stretch;
+		}
+
+		.toolbar :global(.btn) {
+			width: 100%;
+			min-width: 0;
+		}
 	}
 
 	.state {

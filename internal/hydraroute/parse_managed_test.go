@@ -14,8 +14,8 @@ func TestParseDomainConf_Basic(t *testing.T) {
 	got := parseDomainConf(content)
 
 	want := []ManagedEntry{
-		{ListName: "Youtube", Domains: []string{"youtube.com", "ytimg.com"}, Iface: "nwg0"},
-		{ListName: "Google", Domains: []string{"google.com"}, Iface: "HydraRoute"},
+		{ListName: "Youtube", Domains: []string{"youtube.com", "ytimg.com"}, Iface: "nwg0", Disabled: false},
+		{ListName: "Google", Domains: []string{"google.com"}, Iface: "HydraRoute", Disabled: false},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v\nwant %+v", got, want)
@@ -44,8 +44,8 @@ func TestParseIPList_Basic(t *testing.T) {
 	got, _ := parseIPList(content)
 
 	want := []ManagedEntry{
-		{ListName: "Russia", Subnets: []string{"5.8.0.0/21", "geoip:RU"}, Iface: "nwg0"},
-		{ListName: "Telegram", Subnets: []string{"91.108.4.0/22"}, Iface: "nwg0"},
+		{ListName: "Russia", Subnets: []string{"5.8.0.0/21", "geoip:RU"}, Iface: "nwg0", Disabled: false},
+		{ListName: "Telegram", Subnets: []string{"91.108.4.0/22"}, Iface: "nwg0", Disabled: false},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v\nwant %+v", got, want)
@@ -142,5 +142,50 @@ func TestParseDomainConf_RulesAnywhereInFile(t *testing.T) {
 
 	if len(got) != 2 {
 		t.Fatalf("want both rules visible, got %+v", got)
+	}
+}
+
+func TestParseDomainConf_DisabledLine(t *testing.T) {
+	content := "## Off\n#youtube.com/nwg0\n"
+	got := parseDomainConf(content)
+	if len(got) != 1 || !got[0].Disabled || got[0].ListName != "Off" {
+		t.Fatalf("got %+v", got)
+	}
+	if !reflect.DeepEqual(got[0].Domains, []string{"youtube.com"}) || got[0].Iface != "nwg0" {
+		t.Errorf("parsed fields: %+v", got[0])
+	}
+}
+
+func TestParseIPList_DisabledRule(t *testing.T) {
+	content := "## Telegram\n#/nwg0\n#91.108.4.0/22\n\n"
+	got, oversized := parseIPList(content)
+	if len(oversized) != 0 {
+		t.Fatalf("oversized = %v", oversized)
+	}
+	if len(got) != 1 || !got[0].Disabled {
+		t.Fatalf("got %+v", got)
+	}
+	if got[0].Iface != "nwg0" || !reflect.DeepEqual(got[0].Subnets, []string{"91.108.4.0/22"}) {
+		t.Errorf("parsed: %+v", got[0])
+	}
+}
+
+func TestRoundtrip_DisabledDomain(t *testing.T) {
+	original := []ManagedEntry{
+		{ListName: "Off", Domains: []string{"youtube.com"}, Iface: "nwg0", Disabled: true},
+	}
+	parsed := parseDomainConf(GenerateDomainConf(original))
+	if !reflect.DeepEqual(parsed, original) {
+		t.Errorf("roundtrip mismatch:\noriginal: %+v\nparsed:   %+v", original, parsed)
+	}
+}
+
+func TestRoundtrip_DisabledIPList(t *testing.T) {
+	original := []ManagedEntry{
+		{ListName: "Off", Subnets: []string{"10.0.0.0/8"}, Iface: "nwg0", Disabled: true},
+	}
+	parsed, _ := parseIPList(GenerateIPList(original))
+	if !reflect.DeepEqual(parsed, original) {
+		t.Errorf("roundtrip mismatch:\noriginal: %+v\nparsed:   %+v", original, parsed)
 	}
 }

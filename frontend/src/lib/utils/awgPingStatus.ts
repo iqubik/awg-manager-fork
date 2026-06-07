@@ -2,8 +2,9 @@ import type { TunnelListItem } from '$lib/types';
 
 export type AwgPingStatusNote = { text: string; tone: 'recovering' | 'transitional' };
 export type AwgPingLabelVariant = 'short' | 'full';
+export type AwgToggleTint = 'recovering' | 'starting' | 'unreachable';
 
-/** Label for the ping row during start / stop / ping-check recovery. */
+/** Label for the ping row during start / stop / ping-check recovery / broken. */
 export function awgPingStatusNote(
 	tunnel: Pick<TunnelListItem, 'status' | 'pingCheck'>,
 	variant: AwgPingLabelVariant = 'short',
@@ -13,6 +14,8 @@ export function awgPingStatusNote(
 			return { text: 'Запускается', tone: 'transitional' };
 		case 'needs_stop':
 			return { text: 'Остановка...', tone: 'transitional' };
+		case 'broken':
+			return { text: 'Сломан', tone: 'recovering' };
 	}
 
 	if (tunnel.status === 'running' && tunnel.pingCheck.status === 'recovering') {
@@ -30,6 +33,25 @@ export function awgPingStatusNote(
 	}
 
 	return null;
+}
+
+/** Orange recovering visuals — active ping recovery or broken tunnel. */
+export function awgRecoveringVisual(
+	tunnel: Pick<TunnelListItem, 'status' | 'pingCheck'>,
+): boolean {
+	if (tunnel.status === 'broken') return true;
+	return tunnel.status === 'running' && tunnel.pingCheck.status === 'recovering';
+}
+
+/** Flip toggle tint — mirrors card borderState priority. */
+export function awgToggleTint(
+	tunnel: Pick<TunnelListItem, 'status' | 'pingCheck' | 'connectivityCheck'>,
+	conn?: { connected: boolean; latency?: number | null },
+): AwgToggleTint | undefined {
+	if (awgRecoveringVisual(tunnel)) return 'recovering';
+	if (tunnel.status === 'starting') return 'starting';
+	if (awgConnectivityDown(tunnel, conn)) return 'unreachable';
+	return undefined;
 }
 
 export function awgConnectivityCheckEnabled(

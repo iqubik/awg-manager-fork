@@ -264,11 +264,8 @@ func (s *Service) preflight(ctx context.Context, sv ManagedServerExport, exclude
 			reasons = append(reasons, fmt.Sprintf("peer %s tunnel IP %q: %v", pub, peer.TunnelIP, err))
 			continue
 		}
-		if !subnet.Contains(ip) {
-			reasons = append(reasons, fmt.Sprintf("peer %s tunnel IP %s is outside server subnet %s", pub, ip.String(), subnet.String()))
-		}
-		if serverIP != nil && ip.Equal(serverIP) {
-			reasons = append(reasons, fmt.Sprintf("peer %s tunnel IP %s equals server address", pub, ip.String()))
+		if err := validatePeerTunnelIP(subnet, serverIP, ip); err != nil {
+			reasons = append(reasons, fmt.Sprintf("peer %s %v", pub, err))
 		}
 		ipKey := ip.String()
 		if _, ok := seenIP[ipKey]; ok {
@@ -355,8 +352,23 @@ func (s *Service) applyOne(ctx context.Context, target string, sv ManagedServerE
 	if err := s.rciSetPrivateKey(ctx, target, sv.PrivateKey); err != nil {
 		return true, fmt.Errorf("set private key: %w", err)
 	}
-	if err := s.rciSetNAT(ctx, target, sv.NATEnabled); err != nil {
-		return true, fmt.Errorf("set NAT: %w", err)
+	mode := sv.NATMode
+	if mode == "" { // старый бэкап без natMode
+		if sv.NATEnabled {
+			mode = "full"
+		} else {
+			mode = "none"
+		}
+	}
+	sv.NATMode = mode // персист (saved := sv ниже)
+	sv.NATEnabled = mode == "full"
+	wan, err := s.applyNATModeRaw(ctx, target, mode, sv.NATStaticWAN)
+	if err != nil {
+		return true, fmt.Errorf("set NAT mode: %w", err)
+	}
+	sv.NATStaticWAN = wan
+	if err := s.applyLANSegmentsRaw(ctx, target, sv.Address, sv.Mask, sv.LANSegments); err != nil {
+		return true, fmt.Errorf("set LAN segments: %w", err)
 	}
 	if err := s.applyPolicy(ctx, target, sv.Policy); err != nil {
 		return true, fmt.Errorf("set policy: %w", err)
@@ -469,11 +481,8 @@ func (s *Service) preflightMergePeers(existing storage.ManagedServer, sv Managed
 			conflicts = append(conflicts, fmt.Sprintf("duplicate peer tunnel IP in import: %s", ipStr))
 		}
 		incomingIP[ipStr] = struct{}{}
-		if !serverSubnet.Contains(ip) {
-			conflicts = append(conflicts, fmt.Sprintf("peer %s tunnel IP %s is outside server subnet %s", pub, ipStr, serverSubnet.String()))
-		}
-		if serverIP != nil && ip.Equal(serverIP) {
-			conflicts = append(conflicts, fmt.Sprintf("peer %s tunnel IP %s equals server address", pub, ipStr))
+		if err := validatePeerTunnelIP(serverSubnet, serverIP, ip); err != nil {
+			conflicts = append(conflicts, fmt.Sprintf("peer %s %v", pub, err))
 		}
 		if _, exists := have[pub]; exists {
 			continue

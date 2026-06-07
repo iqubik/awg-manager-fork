@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { QURE_ICON_INNER_SCALE } from '$lib/utils/icon-tile-background';
+	import {
+		NDMS_ICON_TILE_RADIUS,
+		NDMS_ICON_TILE_SIZE,
+		ndmsIconTileInnerSize,
+	} from '$lib/utils/ndms-icon-tile';
 
 	interface Props {
 		src: string;
@@ -13,13 +18,14 @@
 	let {
 		src,
 		background,
-		size = 36,
-		innerScale = QURE_ICON_INNER_SCALE,
+		size = NDMS_ICON_TILE_SIZE,
+		innerScale,
 		alt = '',
 		onerror,
 	}: Props = $props();
 
-	let innerSize = $derived(Math.round(size * innerScale));
+	const resolvedInnerScale = $derived(innerScale ?? QURE_ICON_INNER_SCALE);
+	let innerSize = $derived(ndmsIconTileInnerSize(size, resolvedInnerScale));
 </script>
 
 <div
@@ -27,6 +33,7 @@
 	style:width="{size}px"
 	style:height="{size}px"
 	style:background={background}
+	style:border-radius="{NDMS_ICON_TILE_RADIUS}px"
 >
 	<img
 		{src}
@@ -43,7 +50,6 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 8px;
 		flex-shrink: 0;
 		overflow: hidden;
 	}

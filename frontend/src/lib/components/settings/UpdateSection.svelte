@@ -3,14 +3,15 @@
 	import { notifications } from '$lib/stores/notifications';
 	import { Modal, Button } from '$lib/components/ui';
 	import ChangelogModal from './ChangelogModal.svelte';
+	import DownloadErrorNotice from '$lib/components/downloads/DownloadErrorNotice.svelte';
+	import { downloadErrorToText } from '$lib/utils/downloadError';
 	import type { UpdateInfo } from '$lib/types';
 
 	interface Props {
 		updateInfo: UpdateInfo | null;
-		downloadRouteLabel?: string;
 	}
 
-	let { updateInfo = $bindable(), downloadRouteLabel = '' }: Props = $props();
+	let { updateInfo = $bindable() }: Props = $props();
 
 	let checking = $state(false);
 	let upgrading = $state(false);
@@ -29,21 +30,18 @@
 		checking = true;
 		try {
 			updateInfo = await api.checkUpdate(true);
-			const viaInline = downloadRouteLabel ? ` через ${downloadRouteLabel}` : '';
-			const viaLine = downloadRouteLabel ? `\n(получено через ${downloadRouteLabel})` : '';
 			if (updateInfo.error) {
-				notifications.error(`Ошибка проверки${viaInline}: ${updateInfo.error}`);
+				notifications.error(`Проверка обновлений: ${downloadErrorToText(updateInfo.error)}`);
 			} else if (updateInfo.available) {
-				notifications.success(`Доступна версия ${updateInfo.latestVersion}${viaLine}`);
+				notifications.success(`Доступна версия ${updateInfo.latestVersion}`);
 			} else {
-				notifications.info(`Обновлений нет${viaLine}`);
+				notifications.info('Обновлений нет');
 			}
 			if (updateInfo.warning) {
 				notifications.info(updateInfo.warning);
 			}
 		} catch (e) {
-			const via = downloadRouteLabel ? ` через ${downloadRouteLabel}` : '';
-			notifications.error(`Ошибка проверки обновлений${via}`);
+			notifications.error(`Проверка обновлений: ${downloadErrorToText(e)}`);
 		} finally {
 			checking = false;
 		}
@@ -69,7 +67,7 @@
 		try {
 			await api.applyUpdate();
 		} catch (e) {
-			notifications.error('Ошибка запуска обновления');
+			notifications.error(`Запуск обновления: ${downloadErrorToText(e)}`);
 			upgrading = false;
 			return;
 		}
@@ -107,9 +105,9 @@
 				Доступна версия {updateInfo.latestVersion}
 			</span>
 		{:else if updateInfo?.error}
-			<span class="setting-description update-error">
-				{updateInfo.error}
-			</span>
+			<div class="update-error-notice">
+				<DownloadErrorNotice error={updateInfo.error} hideSettingsLink />
+			</div>
 		{:else}
 			<span class="setting-description">
 				Установлена последняя версия
@@ -180,7 +178,6 @@
 		pendingUpdate={Boolean(updateInfo.available && updateInfo.latestVersion)}
 		fromVersion={updateInfo.available && updateInfo.latestVersion ? updateInfo.currentVersion : ''}
 		toVersion={updateInfo.available && updateInfo.latestVersion ? updateInfo.latestVersion : updateInfo.currentVersion}
-		sourceLabel={downloadRouteLabel}
 		oncheckUpdates={() => {
 			showChangelog = false;
 			void checkForUpdates();
@@ -271,8 +268,8 @@
 		font-weight: 500;
 	}
 
-	.update-error {
-		color: var(--error, #ef4444) !important;
+	.update-error-notice {
+		min-width: 0;
 	}
 
 	.update-warning {

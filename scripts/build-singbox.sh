@@ -69,15 +69,6 @@ require_command python3
 require_command gofmt
 require_command "$SINGBOX_GO"
 
-sha256_file() {
-    local path="$1"
-    if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$path" | awk '{print $1}'
-    else
-        shasum -a 256 "$path" | awk '{print $1}'
-    fi
-}
-
 cd "$PROJECT_ROOT"
 mkdir -p dist build
 
@@ -214,53 +205,7 @@ chmod +x "$OUTPUT"
 file "$OUTPUT"
 ls -lh "$OUTPUT"
 
-OUTPUT_SHA256="$(sha256_file "$OUTPUT")"
-OUTPUT_SIZE="$(stat -c '%s' "$OUTPUT")"
-# Sidecar для независимой проверки целостности при зеркалировании на repo.
-printf '%s\n' "$OUTPUT_SHA256" > "${OUTPUT}.sha256"
-OUTPUT_URL="$RELEASE_BASE_URL/$(basename "$OUTPUT")"
-
-EMBEDDED_GO="$REQUIRED_VERSION_FILE" \
-SINGBOX_VERSION="$SINGBOX_VERSION" \
-ENTWARE_ARCH="$ENTWARE_ARCH" \
-OUTPUT_URL="$OUTPUT_URL" \
-OUTPUT_SHA256="$OUTPUT_SHA256" \
-OUTPUT_SIZE="$OUTPUT_SIZE" \
-python3 <<'PY'
-import os
-import pathlib
-import re
-import sys
-
-path = pathlib.Path(os.environ["EMBEDDED_GO"])
-version = os.environ["SINGBOX_VERSION"]
-arch = os.environ["ENTWARE_ARCH"]
-url = os.environ["OUTPUT_URL"]
-sha256 = os.environ["OUTPUT_SHA256"]
-size = os.environ["OUTPUT_SIZE"]
-
-text = path.read_text()
-text = re.sub(
-    r'const RequiredVersion = "([^"]*)"',
-    f'const RequiredVersion = "{version}"',
-    text,
-    count=1,
-)
-
-entry_pattern = re.compile(
-    rf'(\t"{re.escape(arch)}":\s*)'
-    r'\{Version: RequiredVersion, URL: "[^"]*", SHA256: "[^"]*"(?:, Size: \d+)?\},'
-)
-replacement = (
-    rf'\1{{Version: RequiredVersion, URL: "{url}", SHA256: "{sha256}", Size: {size}}},'
-)
-text, count = entry_pattern.subn(replacement, text, count=1)
-if count != 1:
-    sys.stderr.write(f"ERROR: unable to update EmbeddedBinaries entry for {arch}\n")
-    sys.exit(1)
-
-path.write_text(text)
-PY
-
-gofmt -w "$REQUIRED_VERSION_FILE"
-echo "Updated $REQUIRED_VERSION_FILE for $ENTWARE_ARCH"
+# Sidecar (.sha256) + embedded.go (URL/SHA256/Size) are written by a dedicated
+# script so the same logic is reusable from CI on a sing-box cache hit, where
+# this build is skipped. Mirrors upstream's build / embed separation.
+RELEASE_BASE_URL="$RELEASE_BASE_URL" "$SCRIPT_DIR/update-singbox-embedded.sh" "$ENTWARE_ARCH" "$SINGBOX_VERSION"

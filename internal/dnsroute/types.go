@@ -10,6 +10,9 @@ type DomainList struct {
 	Name     string   `json:"name"`
 	Domains  []string `json:"domains"`
 	Excludes []string `json:"excludes,omitempty"`
+	// ExcludesText preserves the raw excludes editor text, including comments and blank lines.
+	// Active Excludes/ExcludeSubnets are derived from it when the field is present in a request.
+	ExcludesText *string `json:"excludesText,omitempty"`
 	// ExcludeSubnets carves holes inside this list's Subnets — used by the
 	// dedup layer only. NDMS object-group network has no exclude semantics,
 	// so these CIDRs are NEVER rendered to NDMS. They exist purely to allow
@@ -17,6 +20,9 @@ type DomainList struct {
 	ExcludeSubnets   []string       `json:"excludeSubnets,omitempty"`
 	Subnets          []string       `json:"subnets,omitempty"`
 	ManualDomains    []string       `json:"manualDomains"`
+	// ManualText preserves the raw manual editor text, including comments and blank lines.
+	// Active ManualDomains are derived from it when the field is present in a request.
+	ManualText       *string        `json:"manualText,omitempty"`
 	Subscriptions    []Subscription `json:"subscriptions,omitempty"`
 	Routes           []RouteTarget  `json:"routes"`
 	Enabled          bool           `json:"enabled"`
@@ -72,6 +78,9 @@ type DedupeItem struct {
 // StoreData is the top-level dns-routes.json structure.
 type StoreData struct {
 	Lists []DomainList `json:"lists"`
+	// HRRuleIcons keeps UI-only custom icons for HydraRoute Neo rules.
+	// HR rules themselves live in domain.conf/ip.list and have no icon field.
+	HRRuleIcons map[string]string `json:"hrRuleIcons,omitempty"`
 }
 
 func isHydraRoute(backend string) bool {

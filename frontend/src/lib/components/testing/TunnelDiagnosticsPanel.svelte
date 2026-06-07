@@ -9,7 +9,7 @@
 		SpeedTestInfo,
 		SpeedTestResult,
 	} from '$lib/types';
-	import { FormToggle, Button, Dropdown, SpeedGauge, type DropdownOption } from '$lib/components/ui';
+	import { BackLink, FormToggle, Button, Dropdown, SpeedGauge, type DropdownOption } from '$lib/components/ui';
 	import { PageContainer } from '$lib/components/layout';
 	import TunnelTestIcon from '$lib/components/tunnels/TunnelTestIcon.svelte';
 
@@ -844,13 +844,7 @@
 {#if mode === 'page'}
 	<PageContainer>
 		<div class="page-header test-page-header">
-			<a href={backHref} class="back-link">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-					<line x1="19" y1="12" x2="5" y2="12"/>
-					<polyline points="12 19 5 12 12 5"/>
-				</svg>
-				{backLabel}
-			</a>
+			<BackLink href={backHref} label={backLabel} />
 
 			<h1 class="page-title">{diagnosticsTitlePrefix} тестирование: {displayName}</h1>
 		</div>
@@ -868,18 +862,6 @@
 	.test-page-header {
 		justify-content: flex-start;
 		gap: 1rem;
-	}
-
-	.back-link {
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
-		color: var(--text-secondary);
-		font-size: 0.875rem;
-	}
-
-	.back-link:hover {
-		color: var(--text-primary);
 	}
 
 	.tests-grid {

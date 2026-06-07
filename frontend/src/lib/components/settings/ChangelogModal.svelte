@@ -11,7 +11,6 @@
 		toVersion: string;
 		/** true — диапазон до pending-релиза; false — уже установленная ветка (minor line). */
 		pendingUpdate?: boolean;
-		sourceLabel?: string;
 		oncheckUpdates?: () => void;
 		onclose: () => void;
 	}
@@ -21,7 +20,6 @@
 		fromVersion,
 		toVersion,
 		pendingUpdate = false,
-		sourceLabel = '',
 		oncheckUpdates,
 		onclose
 	}: Props = $props();
@@ -65,9 +63,6 @@
 				{/if}
 			</div>
 		{/if}
-		{#if sourceLabel}
-			<p class="source-msg">(получено через {sourceLabel})</p>
-		{/if}
 		{#if loading}
 			<LoadingSpinner />
 		{:else if error}
@@ -92,11 +87,6 @@
 		margin: 0;
 		padding: 12px 0;
 		color: var(--text-muted);
-	}
-	.source-msg {
-		margin: 0 0 8px 0;
-		color: var(--text-muted);
-		font-size: 0.95rem;
 	}
 	.state-error {
 		color: var(--error);

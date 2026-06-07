@@ -6,6 +6,8 @@
         findRoutingTunnelLabel,
     } from '$lib/utils/routingTunnelOptions';
     import type { RoutingTunnel } from '$lib/types';
+    import { pluralize, RULE_WORDS } from '$lib/utils/pluralize';
+    import RoutingImportDropZone from '$lib/components/routing/RoutingImportDropZone.svelte';
 
     interface Props {
         open: boolean;
@@ -28,8 +30,6 @@
     let parseError = $state('');
     let importing = $state(false);
     let wasOpen = $state(false);
-    let dragging = $state(false);
-    let fileInput = $state<HTMLInputElement>(null!);
     let defaultTunnelId = $state('');
     let tunnelOverrides = $state<Record<number, string>>({});
     let editingTunnelIdx = $state<number | null>(null);
@@ -85,28 +85,6 @@
         }
     }
 
-    function handleFile(e: Event) {
-        const input = e.target as HTMLInputElement;
-        const file = input.files?.[0];
-        if (file) processFile(file);
-    }
-
-    function handleDrop(e: DragEvent) {
-        e.preventDefault();
-        dragging = false;
-        const file = e.dataTransfer?.files?.[0];
-        if (file) processFile(file);
-    }
-
-    function handleDragOver(e: DragEvent) {
-        e.preventDefault();
-        dragging = true;
-    }
-
-    function handleDragLeave() {
-        dragging = false;
-    }
-
     function handleImport() {
         if (!parsed) return;
         const selected = parsed
@@ -120,36 +98,13 @@
 
 <Modal {open} title="Загрузить набор правил" size="lg" {onclose}>
     {#if !parsed}
-        <div class="import-upload">
-            <p class="import-description">
-                Загрузка конфигурации правил DNS-маршрутизации, <span class="import-accent">ранее сохранённых в AWG Manager</span>.
-            </p>
-            <div
-                class="drop-zone"
-                class:dragging
-                role="button"
-                tabindex="0"
-                onclick={() => fileInput.click()}
-                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); }}
-                ondrop={handleDrop}
-                ondragover={handleDragOver}
-                ondragleave={handleDragLeave}
-            >
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                    <polyline points="17 8 12 3 7 8"/>
-                    <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-                <p class="drop-text">Перетащите .json файл сюда</p>
-                <p class="drop-hint">или нажмите для выбора</p>
-            </div>
-            <input type="file" accept=".json" onchange={handleFile} bind:this={fileInput} class="hidden-input" />
-            {#if parseError}
-                <p class="import-error">{parseError}</p>
-            {/if}
-        </div>
+        <RoutingImportDropZone
+            subject="правилами DNS-маршрутизации"
+            parseError={parseError}
+            onfile={processFile}
+        />
     {:else}
-        <!-- Default tunnel selector -->
+        <div class="import-preview">
         <div class="tunnel-default-bar">
             <span class="tunnel-default-label">Туннель для всех:</span>
             <div class="tunnel-select">
@@ -166,8 +121,7 @@
             <p class="import-error">Создайте хотя бы один туннель перед импортом</p>
         {/if}
 
-        <!-- Preview list -->
-        <p class="import-hint">Найдено {parsed.length} правил:</p>
+        <p class="import-hint">Найдено {pluralize(parsed.length, RULE_WORDS)}</p>
         <div class="import-list">
             {#each parsed as route, i}
                 <label class="import-item" class:duplicate={isDuplicate(route.name)} class:overridden={tunnelOverrides[i] != null}>
@@ -182,7 +136,7 @@
                         </span>
                     </div>
                     {#if isDuplicate(route.name)}
-                        <span class="import-dup">(дубликат)</span>
+                        <span class="import-dup">Дубликат</span>
                     {/if}
                     {#if editingTunnelIdx === i}
                         <div class="tunnel-select-inline">
@@ -214,6 +168,7 @@
                     {/if}
                 </label>
             {/each}
+        </div>
         </div>
     {/if}
 

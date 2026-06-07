@@ -303,6 +303,60 @@ func TestServiceImpl_CreateValidation(t *testing.T) {
 	})
 }
 
+func TestServiceImpl_UpdatePartialPreservesExcludesTextSubnets(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	if _, err := store.Load(); err != nil {
+		t.Fatal(err)
+	}
+
+	q, c, _, _ := newTestNDMS()
+	svc := &ServiceImpl{store: store, queries: q, commands: c}
+	ctx := context.Background()
+
+	manualText := "example.com\n.local\n10.0.0.0/8"
+	excludesText := `
+# local bypass
+.local
+10.0.0.0/8
+`
+
+	created, err := svc.Create(ctx, DomainList{
+		Name:         "with excludes text",
+		ManualText:   &manualText,
+		ExcludesText: &excludesText,
+		Routes:       []RouteTarget{{Interface: "OpkgTun0", TunnelID: "t1"}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if len(created.Excludes) != 1 || created.Excludes[0] != "local" {
+		t.Fatalf("created Excludes = %#v, want [local]", created.Excludes)
+	}
+	if len(created.ExcludeSubnets) != 1 || created.ExcludeSubnets[0] != "10.0.0.0/8" {
+		t.Fatalf("created ExcludeSubnets = %#v, want [10.0.0.0/8]", created.ExcludeSubnets)
+	}
+
+	updated, err := svc.Update(ctx, DomainList{
+		ID:     created.ID,
+		Routes: []RouteTarget{{Interface: "OpkgTun1", TunnelID: "t2"}},
+	})
+	if err != nil {
+		t.Fatalf("Update partial: %v", err)
+	}
+
+	if updated.ExcludesText == nil || *updated.ExcludesText != excludesText {
+		t.Fatalf("ExcludesText was not preserved: %#v", updated.ExcludesText)
+	}
+	if len(updated.Excludes) != 1 || updated.Excludes[0] != "local" {
+		t.Fatalf("updated Excludes = %#v, want [local]", updated.Excludes)
+	}
+	if len(updated.ExcludeSubnets) != 1 || updated.ExcludeSubnets[0] != "10.0.0.0/8" {
+		t.Fatalf("updated ExcludeSubnets = %#v, want [10.0.0.0/8]", updated.ExcludeSubnets)
+	}
+}
+
 func TestServiceImpl_NotFound(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)

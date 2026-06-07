@@ -36,9 +36,15 @@ func TestDownloadDeviceProxyAdapter(t *testing.T) {
 	}
 }
 
-func TestDownloadSingboxInterfaceAssertion(t *testing.T) {
-	if got := downloader.NewSingboxOperatorAdapter(nil); got != nil {
-		t.Fatalf("nil singbox op should produce nil adapter")
+func TestDownloadTransportAdaptersNilSafe(t *testing.T) {
+	if got := downloader.NewSingboxTunnelPortAdapter(nil); got != nil {
+		t.Fatalf("nil singbox op should produce nil tunnel port adapter")
+	}
+	if got := downloader.NewSubscriptionPortAdapter(nil); got != nil {
+		t.Fatalf("nil subscription svc should produce nil port adapter")
+	}
+	if got := downloader.NewSingboxRuntimeAdapter(nil); got != nil {
+		t.Fatalf("nil singbox op should produce nil runtime adapter")
 	}
 }
 

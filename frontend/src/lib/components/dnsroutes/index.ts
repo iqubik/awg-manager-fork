@@ -3,6 +3,7 @@ export { default as DnsRouteEditModal } from './DnsRouteEditModal.svelte';
 export { default as DnsRouteImportModal } from './DnsRouteImportModal.svelte';
 export { default as DnsRouteDomainEditor } from './DnsRouteDomainEditor.svelte';
 export { default as DnsRoutePresetModal } from './DnsRoutePresetModal.svelte';
+export { default as ServiceCatalogModal } from './ServiceCatalogModal.svelte';
 export { default as ServiceIcon } from './ServiceIcon.svelte';
 export { default as LetterIconTile } from './LetterIconTile.svelte';
 export { default as CatalogPresetRow } from './CatalogPresetRow.svelte';

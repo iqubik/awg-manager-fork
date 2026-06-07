@@ -1,8 +1,8 @@
-<!-- frontend/src/lib/components/ExternalTunnelCard.svelte -->
 <script lang="ts">
 	import type { ExternalTunnel } from '$lib/types';
 	import { formatBytes } from '$lib/utils/format';
 	import { Button } from '$lib/components/ui';
+	import TunnelTitleRow from '$lib/components/tunnels/TunnelTitleRow.svelte';
 
 	interface Props {
 		tunnel: ExternalTunnel;
@@ -12,63 +12,51 @@
 
 	let { tunnel, view = 'cards', onadopt }: Props = $props();
 
+	let isListCard = $derived(view === 'list');
+	let statusDot = $derived(
+		tunnel.lastHandshake
+			? { variant: 'success' as const, pulse: false, label: 'Подключён' }
+			: { variant: 'muted' as const, pulse: false, label: 'Неактивен' },
+	);
+
 	function handleAdopt(): void {
 		onadopt?.(tunnel.interfaceName);
 	}
 </script>
 
-{#if view === 'list'}
-	<div class="card ext-card list-card">
-		<div class="list-cell list-cell-primary">
-			<h3 class="tunnel-name">{tunnel.interfaceName}</h3>
-			<div class="flex items-center gap-2 flex-wrap">
-				<span class="iface-name">WG туннель</span>
-				<span class="version-badge badge-external">Внешний</span>
+<div
+	class="card ext-card flex flex-col gap-4"
+	class:view-compact={view === 'compact'}
+	class:view-list={isListCard}
+>
+	{#if isListCard}
+		<div class="header header-dense">
+			<div class="header-dense-body">
+				<TunnelTitleRow
+					title={tunnel.interfaceName}
+					dotVariant={statusDot.variant}
+					dotPulse={statusDot.pulse}
+					dotLabel={statusDot.label}
+					dense
+				/>
+				<div class="meta-tags-dense">
+					<span class="iface-chip-dense">WG туннель</span>
+					<span class="version-badge badge-external">Внешний</span>
+				</div>
 			</div>
-			<div class="list-note">Наружный интерфейс WireGuard</div>
 		</div>
-
-		<div class="list-cell list-cell-status">
-			<span class="list-label">Статус</span>
-			{#if tunnel.lastHandshake}
-				<span class="status-badge status-active">
-					<span class="led-dot"></span>
-					Подключён
-				</span>
-			{:else}
-				<span class="status-badge status-inactive">
-					<span class="led-dot"></span>
-					Неактивен
-				</span>
-			{/if}
-		</div>
-
-		<div class="list-cell list-cell-endpoint">
-			<span class="list-label">Endpoint</span>
-			<span class="detail-value truncate">{tunnel.endpoint || '—'}</span>
-		</div>
-
-		<div class="list-cell list-cell-traffic">
-			<span class="list-label">Трафик</span>
-			<div class="list-note">↓ {formatBytes(tunnel.rxBytes)} · ↑ {formatBytes(tunnel.txBytes)}</div>
-		</div>
-
-		<div class="list-cell list-cell-stats">
-			<span class="list-label">Handshake</span>
-			<div class="list-note">{tunnel.lastHandshake || '—'}</div>
-		</div>
-
-		<div class="list-cell list-cell-actions">
-			<Button variant="primary" size="sm" onclick={handleAdopt}>
+		<div class="actions">
+			<Button variant="primary" onclick={handleAdopt}>
+				{#snippet iconBefore()}
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+						<polyline points="9 12 12 15 16 10"/>
+					</svg>
+				{/snippet}
 				Взять под управление
 			</Button>
 		</div>
-	</div>
-{:else}
-	<div
-		class="card ext-card flex flex-col gap-4"
-		class:view-compact={view === 'compact'}
-	>
+	{:else}
 		<div class="header flex justify-between items-start gap-3">
 			<div class="flex flex-col gap-1 min-w-0">
 				<h3 class="tunnel-name">{tunnel.interfaceName}</h3>
@@ -128,47 +116,64 @@
 				Взять под управление
 			</Button>
 		</div>
-	</div>
-{/if}
+	{/if}
+</div>
 
 <style>
 	.ext-card {
 		border: 1px dashed color-mix(in srgb, var(--warning, #f59e0b) 40%, transparent);
 	}
 
-	.list-card {
-		display: grid;
-		grid-template-columns: minmax(220px, 1.35fr) minmax(160px, 0.8fr) minmax(220px, 1.2fr) minmax(160px, 0.9fr) minmax(140px, 0.85fr) auto;
-		gap: 14px;
-		align-items: center;
-		padding: 12px 14px;
+	.ext-card.view-compact {
+		gap: 8px;
+		padding: 10px 12px;
 	}
 
-	.list-cell {
-		min-width: 0;
+	.ext-card.view-list .actions {
 		display: flex;
-		flex-direction: column;
+		width: 100%;
+	}
+
+	.ext-card.view-list .actions :global(.btn) {
+		width: 100%;
+		justify-content: center;
+	}
+
+	.header.header-dense {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: flex-start;
 		gap: 6px;
 	}
 
-	.list-label {
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--text-muted);
+	.header-dense-body {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		min-width: 0;
 	}
 
-	.list-note {
-		font-size: 11px;
-		color: var(--text-muted);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
+	.meta-tags-dense {
+		display: flex;
+		flex-wrap: wrap;
+		margin-top: 4px;
+		align-items: center;
+		gap: 3px;
+		min-width: 0;
 	}
 
-	.ext-card.view-compact {
-		gap: 12px;
-		padding: 12px 14px;
+	.iface-chip-dense {
+		display: inline-block;
+		min-width: 0;
+		font-size: 9px;
+		font-weight: 500;
+		font-family: var(--font-mono, monospace);
+		line-height: 1.3;
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--color-border);
+		background: var(--color-bg-tertiary);
+		color: var(--text-muted);
 	}
 
 	.tunnel-name {
@@ -262,24 +267,8 @@
 		border-top: 1px solid var(--border);
 	}
 
-	@media (max-width: 1080px) {
-		.list-card {
-			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		}
-
-		.list-cell-actions {
-			grid-column: 1 / -1;
-		}
-
-	}
-
 	@media (max-width: 720px) {
-		.list-card {
-			grid-template-columns: minmax(0, 1fr);
-		}
-
-		.actions-wrapper :global(.btn),
-		.list-cell-actions :global(.btn) {
+		.actions-wrapper :global(.btn) {
 			width: 100%;
 		}
 	}

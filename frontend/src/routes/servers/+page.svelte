@@ -22,7 +22,11 @@
 	import { dedupBy } from '$lib/utils/dedupBy';
 
 	let unsub: (() => void) | undefined;
-	onMount(() => { unsub = servers.subscribe(() => {}); });
+	onMount(() => {
+		unsub = servers.subscribe(() => {});
+		loadIngressRefs();
+		loadLANSegmentOptions();
+	});
 	onDestroy(() => unsub?.());
 
 	let snap = $derived($servers);
@@ -33,6 +37,36 @@
 	let routerIP = $derived($systemInfo.data?.routerIP ?? '');
 
 	let createManagedOpen = $state(false);
+
+	let ingressRefs = $state<string[]>([]);
+	let lanSegmentOptions = $state<{ value: string; label: string }[]>([]);
+
+	async function loadLANSegmentOptions() {
+		try {
+			const segs = await api.listManagedLANSegments();
+			lanSegmentOptions = segs.map((s) => ({ value: s.name, label: s.label || s.name }));
+		} catch { lanSegmentOptions = []; }
+	}
+
+	async function loadIngressRefs() {
+		try {
+			const s = await api.singboxRouterGetSettings();
+			ingressRefs = s.ingressInterfaces ?? [];
+		} catch (e) {
+			ingressRefs = [];
+			notifications.error(e instanceof Error ? e.message : 'Не удалось загрузить настройки egress');
+		}
+	}
+
+	async function handleToggleIngress(interfaceName: string, enabled: boolean) {
+		const s = await api.singboxRouterGetSettings();
+		const set = new Set(s.ingressInterfaces ?? []);
+		const ref = `managed:${interfaceName}`;
+		if (enabled) set.add(ref); else set.delete(ref);
+		const next = [...set];
+		await api.singboxRouterPutSettings({ ...s, ingressInterfaces: next });
+		ingressRefs = next;
+	}
 
 	// ─── Rail item ids for managed servers ─────────────────────────
 	// Format: '__managed__:Wireguard5'. Prefix lets us distinguish managed
@@ -237,6 +271,9 @@
 						stats={activeManagedStats}
 						{routerIP}
 						onOpenASC={() => openManagedASC(activeManaged!.interfaceName)}
+						ingressEnabled={ingressRefs.includes(`managed:${activeManaged.interfaceName}`)}
+						onToggleIngress={handleToggleIngress}
+						{lanSegmentOptions}
 					/>
 				{:else if activeItem?.kind === 'system' && activeServer}
 				<ServerCard

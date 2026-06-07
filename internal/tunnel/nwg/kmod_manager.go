@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/sys/exec"
@@ -20,7 +22,7 @@ import (
 const (
 	awgProxyDir         = "/opt/etc/awg-manager/modules"
 	defaultKoPath       = awgProxyDir + "/awg_proxy.ko"
-	expectedKmodVersion = "1.1.9" // minimum required awg_proxy.ko version
+	expectedKmodVersion = "1.1.10" // minimum required awg_proxy.ko version (issue #234)
 )
 
 // KmodManager manages the awg_proxy.ko kernel module for NativeWG tunnels.
@@ -29,6 +31,12 @@ type KmodManager struct {
 	tunnels map[string]kmodEntry // tunnelID → endpoint for del
 	koPath  string
 	appLog  *logging.ScopedLogger
+
+	// procWriteFn / procReadFn isolate /proc/awg_proxy/* I/O so unit
+	// tests can stub them without touching a real procfs. Default:
+	// os.WriteFile / os.ReadFile.
+	procWriteFn func(path string, data []byte) error
+	procReadFn  func(path string) ([]byte, error)
 }
 
 // kmodEntry tracks a loaded tunnel's endpoint and proxy listen port.
@@ -60,8 +68,10 @@ type KmodResult struct {
 // NewKmodManager creates a new KmodManager.
 func NewKmodManager(appLogger logging.AppLogger) *KmodManager {
 	return &KmodManager{
-		tunnels: make(map[string]kmodEntry),
-		appLog:  logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubKmod),
+		tunnels:     make(map[string]kmodEntry),
+		appLog:      logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubKmod),
+		procWriteFn: func(path string, data []byte) error { return os.WriteFile(path, data, 0) },
+		procReadFn:  os.ReadFile,
 	}
 }
 
@@ -127,7 +137,8 @@ func (km *KmodManager) EnsureLoaded() error {
 		} else {
 			// Do not purge unknown slots here. After daemon restart km.tunnels
 			// is empty while /proc/awg_proxy/list may still contain live slots
-			// used by NDMS. AddTunnel adopts the matching slot instead.
+			// used by NDMS. RestoreTunnel adopts the matching slot on the
+			// reconnect path; AddTunnel always installs fresh.
 			return nil
 		}
 	}
@@ -145,7 +156,7 @@ func (km *KmodManager) EnsureLoaded() error {
 }
 
 func (km *KmodManager) loadedSlotCountLocked() int {
-	data, err := os.ReadFile("/proc/awg_proxy/list")
+	data, err := km.procReadFn("/proc/awg_proxy/list")
 	if err != nil {
 		return 0
 	}
@@ -154,48 +165,97 @@ func (km *KmodManager) loadedSlotCountLocked() int {
 
 // readVersionLocked reads the loaded module version from /proc/awg_proxy/version.
 func (km *KmodManager) readVersionLocked() string {
-	data, err := os.ReadFile("/proc/awg_proxy/version")
+	data, err := km.procReadFn("/proc/awg_proxy/version")
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
 }
 
-// AddTunnel writes a tunnel config to /proc/awg_proxy/add and reads back the
-// assigned proxy listen port from /proc/awg_proxy/list.
-// After daemon restart, the in-memory map is empty while a live kernel slot can
-// still exist; in that case we adopt it instead of deleting a running proxy.
+// AddTunnel installs a fresh kmod proxy slot for tunnelID with cfg.
+// Always writes a new slot — NEVER adopts an existing one. If kmod reports
+// the endpoint already exists (-EEXIST), the stale slot is del'd and the
+// add retried so the freshly-supplied keys/obfuscation are what end up
+// running. Use this on user-initiated Start (startProxy), Update with
+// runtime restart, and any path where the caller produced cfg from
+// current storage.
+//
+// Issue #234 / Critical-1 (silent key/obfuscation mismatch on
+// Delete→Create-same-endpoint): the pre-fix code adopted ANY slot whose
+// (IP, port) matched. A new tunnel with the same endpoint but different
+// keys silently took over an orphan slot configured with the OLD keys,
+// and the handshake failed forever with no log line. Adopt is now a
+// separate code path — RestoreTunnel — used only at daemon-restart
+// reconnect, where the caller has independent reason to trust the slot's
+// existing config.
 func (km *KmodManager) AddTunnel(tunnelID string, cfg KmodConfig) (KmodResult, error) {
 	km.mu.Lock()
 	defer km.mu.Unlock()
+	return km.addFreshLocked(tunnelID, cfg)
+}
 
-	delLine := fmt.Sprintf("%s:%d", cfg.EndpointIP, cfg.EndpointPort)
-	if _, tracked := km.tunnels[tunnelID]; !tracked {
-		if listenPort, err := km.readListenPortLocked(cfg.EndpointIP, cfg.EndpointPort); err == nil {
-			km.tunnels[tunnelID] = kmodEntry{
-				endpointIP:   cfg.EndpointIP,
-				endpointPort: cfg.EndpointPort,
-				listenPort:   listenPort,
-			}
-			km.appLog.Info("adopt-tunnel", tunnelID, fmt.Sprintf("%s -> 127.0.0.1:%d", delLine, listenPort))
-			return KmodResult{ListenPort: listenPort, Adopted: true}, nil
-		}
+// RestoreTunnel reattaches an existing kmod proxy slot to tunnelID after
+// the daemon restarted (syscall.Exec) — the userspace tracking map is
+// empty but a slot for (IP, port) lives on in the kernel. If found, the
+// slot is adopted as-is (no /proc/del, no re-add). If no matching slot
+// exists, falls back to a fresh add — the caller-supplied cfg becomes
+// the running config.
+//
+// CALLER GUARANTEE: cfg must match the configuration the slot was
+// originally created with (i.e. the persisted storage record is the same
+// one used at the last Start). Reconnect path satisfies this; user-
+// initiated Start paths do NOT and MUST use AddTunnel instead.
+func (km *KmodManager) RestoreTunnel(tunnelID string, cfg KmodConfig) (KmodResult, error) {
+	km.mu.Lock()
+	defer km.mu.Unlock()
+
+	// Idempotency guard: if the caller already tracked this tunnel —
+	// this is a redundant restore (e.g. flapping reconnect) — short-
+	// circuit instead of falling through to addFreshLocked, which would
+	// del the slot we already adopted, change the listen port, and
+	// leave NDMS peer endpoint pointing at the old port.
+	if entry, tracked := km.tunnels[tunnelID]; tracked {
+		km.appLog.Info("restore-tunnel", tunnelID, fmt.Sprintf("already tracked → 127.0.0.1:%d (no-op)", entry.listenPort))
+		return KmodResult{ListenPort: entry.listenPort, Adopted: true}, nil
 	}
 
-	// Replace stale or already-tracked entry before adding a fresh slot.
-	_ = os.WriteFile("/proc/awg_proxy/del", []byte(delLine), 0)
+	if listenPort, err := km.readListenPortLocked(cfg.EndpointIP, cfg.EndpointPort); err == nil {
+		km.tunnels[tunnelID] = kmodEntry{
+			endpointIP:   cfg.EndpointIP,
+			endpointPort: cfg.EndpointPort,
+			listenPort:   listenPort,
+		}
+		km.appLog.Info("adopt-tunnel", tunnelID, fmt.Sprintf("%s:%d -> 127.0.0.1:%d", cfg.EndpointIP, cfg.EndpointPort, listenPort))
+		return KmodResult{ListenPort: listenPort, Adopted: true}, nil
+	}
 
+	km.appLog.Info("restore-tunnel", tunnelID, fmt.Sprintf("no live slot for %s:%d, adding fresh", cfg.EndpointIP, cfg.EndpointPort))
+	return km.addFreshLocked(tunnelID, cfg)
+}
+
+// addFreshLocked writes a new slot to /proc/awg_proxy/add. Must be called
+// with km.mu held. On -EEXIST (duplicate endpoint per awg_proxy_add in
+// proxy.c) the stale slot is del'd and add is retried — without this
+// retry an orphan slot from a prior Delete would block a fresh install.
+func (km *KmodManager) addFreshLocked(tunnelID string, cfg KmodConfig) (KmodResult, error) {
+	delLine := fmt.Sprintf("%s:%d", cfg.EndpointIP, cfg.EndpointPort)
 	line := buildProcLine(cfg)
 
-	if err := os.WriteFile("/proc/awg_proxy/add", []byte(line), 0); err != nil {
+	err := km.procWriteFn("/proc/awg_proxy/add", []byte(line))
+	if err != nil && errors.Is(err, syscall.EEXIST) {
+		km.appLog.Info("add-tunnel", tunnelID, fmt.Sprintf("%s exists, replacing", delLine))
+		if delErr := km.procWriteFn("/proc/awg_proxy/del", []byte(delLine)); delErr != nil {
+			km.appLog.Warn("add-tunnel", tunnelID, fmt.Sprintf("EEXIST fallback del failed (retry add will likely also fail): %s", delErr.Error()))
+		}
+		err = km.procWriteFn("/proc/awg_proxy/add", []byte(line))
+	}
+	if err != nil {
 		return KmodResult{}, fmt.Errorf("kmod add tunnel %s: %w", tunnelID, err)
 	}
 
-	// Read listen port from /proc/awg_proxy/list
 	listenPort, err := km.readListenPortLocked(cfg.EndpointIP, cfg.EndpointPort)
 	if err != nil {
-		// Dump list contents for debugging
-		if raw, rerr := os.ReadFile("/proc/awg_proxy/list"); rerr == nil {
+		if raw, rerr := km.procReadFn("/proc/awg_proxy/list"); rerr == nil {
 			km.appLog.Warn("read-listen-port", "", "/proc/awg_proxy/list contents:\n"+string(raw))
 		}
 		km.appLog.Warn("add-tunnel", tunnelID, fmt.Sprintf("failed to read listen port (endpoint=%s:%d): %s", cfg.EndpointIP, cfg.EndpointPort, err.Error()))
@@ -207,7 +267,6 @@ func (km *KmodManager) AddTunnel(tunnelID string, cfg KmodConfig) (KmodResult, e
 		endpointPort: cfg.EndpointPort,
 		listenPort:   listenPort,
 	}
-
 	km.appLog.Info("add-tunnel", tunnelID, fmt.Sprintf("%s:%d -> 127.0.0.1:%d", cfg.EndpointIP, cfg.EndpointPort, listenPort))
 	return KmodResult{ListenPort: listenPort}, nil
 }
@@ -246,7 +305,7 @@ func hasSlotListeningInList(data string, listenPort int) bool {
 // readListenPortLocked reads /proc/awg_proxy/list and finds the listen port
 // for the given endpoint. Must be called with km.mu held.
 func (km *KmodManager) readListenPortLocked(endpointIP string, endpointPort int) (int, error) {
-	data, err := os.ReadFile("/proc/awg_proxy/list")
+	data, err := km.procReadFn("/proc/awg_proxy/list")
 	if err != nil {
 		return 0, fmt.Errorf("read /proc/awg_proxy/list: %w", err)
 	}
@@ -293,7 +352,7 @@ func (km *KmodManager) RemoveTunnel(tunnelID string) error {
 	}
 
 	line := fmt.Sprintf("%s:%d", entry.endpointIP, entry.endpointPort)
-	if err := os.WriteFile("/proc/awg_proxy/del", []byte(line), 0); err != nil {
+	if err := km.procWriteFn("/proc/awg_proxy/del", []byte(line)); err != nil {
 		return fmt.Errorf("kmod del tunnel %s: %w", tunnelID, err)
 	}
 
@@ -305,7 +364,7 @@ func (km *KmodManager) RemoveTunnel(tunnelID string) error {
 // HasSlotListening reports whether a live kmod proxy slot is listening on
 // 127.0.0.1:listenPort (read from /proc/awg_proxy/list).
 func (km *KmodManager) HasSlotListening(listenPort int) bool {
-	data, err := os.ReadFile("/proc/awg_proxy/list")
+	data, err := km.procReadFn("/proc/awg_proxy/list")
 	if err != nil {
 		return false
 	}
@@ -330,23 +389,6 @@ func (km *KmodManager) HasTunnel(tunnelID string) bool {
 	defer km.mu.Unlock()
 	_, ok := km.tunnels[tunnelID]
 	return ok
-}
-
-// RemoveAllTunnels removes all tracked tunnels from the kernel module.
-// The module itself stays loaded (safe for daemon restart).
-func (km *KmodManager) RemoveAllTunnels() {
-	km.mu.Lock()
-	ids := make([]string, 0, len(km.tunnels))
-	for id := range km.tunnels {
-		ids = append(ids, id)
-	}
-	km.mu.Unlock()
-
-	for _, id := range ids {
-		if err := km.RemoveTunnel(id); err != nil {
-			km.appLog.Warn("remove-tunnel", id, "on shutdown: "+err.Error())
-		}
-	}
 }
 
 // buildProcLine builds the config line for /proc/awg_proxy/add.

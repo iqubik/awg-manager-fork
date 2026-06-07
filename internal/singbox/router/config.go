@@ -426,7 +426,7 @@ func (c *RouterConfig) SetRouteFinal(tag string) error {
 }
 
 func (c *RouterConfig) AddCompositeOutbound(o Outbound) error {
-	if err := validateCompositeOutbound(o); err != nil {
+	if err := validateOutbound(o); err != nil {
 		return err
 	}
 	for _, existing := range c.Outbounds {
@@ -439,7 +439,7 @@ func (c *RouterConfig) AddCompositeOutbound(o Outbound) error {
 }
 
 func (c *RouterConfig) UpdateCompositeOutbound(tag string, o Outbound) error {
-	if err := validateCompositeOutbound(o); err != nil {
+	if err := validateOutbound(o); err != nil {
 		return err
 	}
 	idx := -1
@@ -481,6 +481,32 @@ func validateCompositeOutbound(o Outbound) error {
 	}
 	if strings.EqualFold(strings.TrimSpace(o.Default), "direct") {
 		return fmt.Errorf("outbound %q: default %q is not allowed in composite groups", o.Tag, o.Default)
+	}
+	return nil
+}
+
+// validateOutbound dispatches by Type: "direct" outbounds carry a
+// bind_interface and no composite fields; selector/urltest go through the
+// composite validator.
+func validateOutbound(o Outbound) error {
+	if strings.EqualFold(o.Type, "direct") {
+		return validateInterfaceOutbound(o)
+	}
+	return validateCompositeOutbound(o)
+}
+
+// validateInterfaceOutbound checks a user-created direct outbound bound to
+// a network interface. Interface existence is verified in the service
+// layer (needs the NDMS interface list); here we only check shape.
+func validateInterfaceOutbound(o Outbound) error {
+	if strings.TrimSpace(o.Tag) == "" {
+		return fmt.Errorf("outbound tag is required")
+	}
+	if strings.TrimSpace(o.BindInterface) == "" {
+		return fmt.Errorf("outbound %q: bind_interface is required for a direct outbound", o.Tag)
+	}
+	if len(o.Outbounds) > 0 || o.URL != "" || o.Interval != "" || o.Tolerance != 0 || o.Default != "" || o.Strategy != "" {
+		return fmt.Errorf("outbound %q: direct outbound must not set composite fields (members/url/interval/tolerance/default/strategy)", o.Tag)
 	}
 	return nil
 }
@@ -651,23 +677,12 @@ func removeOutboundRefsInNestedRules(r *Rule, tag string) {
 }
 
 func rewriteTagSlice(tags []string, from, to string) []string {
-	if len(tags) == 0 || from == "" || to == "" || from == to {
+	if from == "" || to == "" || from == to {
 		return tags
 	}
-	out := make([]string, len(tags))
-	changed := false
-	for i, tag := range tags {
-		if tag == from {
-			out[i] = to
-			changed = true
-		} else {
-			out[i] = tag
-		}
-	}
-	if !changed {
-		return tags
-	}
-	return out
+	return mapTagSlice(tags, func(tag string) (string, bool) {
+		return to, tag == from
+	})
 }
 
 func removeTagRefs(tags []string, tag string) []string {
@@ -697,13 +712,31 @@ func (c *RouterConfig) CompositeOutbounds() []Outbound {
 	return out
 }
 
-// stripLegacyAWGDirect filters out direct outbounds with bind_interface
-// set — these used to be written here pre-refactor; now they live in
-// 15-awg.json owned by awgoutbounds. Composite outbounds are kept.
-func stripLegacyAWGDirect(in []Outbound) []Outbound {
+// IsAutoManagedIface reports whether a kernel interface name is one that
+// awgoutbounds auto-generates a direct outbound for (managed AWG tunnels,
+// NativeWG, third-party WireGuard, our own tunnels, Keenetic sing-box
+// proxies). Direct outbounds bound to these live in 15-awg.json and must
+// not be duplicated in the user composite store. User VPNs (ipsec/ike/
+// sstp/openvpn/l2tp/pptp/ppp/eth/...) are NOT auto-managed.
+func IsAutoManagedIface(name string) bool {
+	n := strings.ToLower(name)
+	for _, p := range []string{"opkgtun", "awgm", "awg", "wg", "wireguard", "nwg", "t2s", "proxy"} {
+		if strings.HasPrefix(n, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// stripAutoManagedDirect filters out direct outbounds whose bind_interface
+// belongs to the awgoutbounds auto-managed set (these live in 15-awg.json,
+// owned by awgoutbounds). User-created direct outbounds bound to other VPN
+// interfaces (IPSec/IKEv2/etc.) are kept — they live here in 20-router.json.
+// Composite outbounds and bind_interface-less direct are always kept.
+func stripAutoManagedDirect(in []Outbound) []Outbound {
 	out := make([]Outbound, 0, len(in))
 	for _, o := range in {
-		if o.Type == "direct" && o.BindInterface != "" {
+		if o.Type == "direct" && o.BindInterface != "" && IsAutoManagedIface(o.BindInterface) {
 			continue
 		}
 		out = append(out, o)

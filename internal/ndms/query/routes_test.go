@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -99,5 +100,19 @@ func TestRouteStore_InvalidateAllForcesRefetch(t *testing.T) {
 	_, _ = s.List(context.Background())
 	if fg.Calls(routesPath) != 2 {
 		t.Errorf("calls: want 2, got %d", fg.Calls(routesPath))
+	}
+}
+
+func TestRouteStore_FetchErrorWrapped(t *testing.T) {
+	fg := newFakeGetter()
+	fg.SetError(routesPath, errors.New("boom"))
+	s := NewRouteStore(fg, NopLogger())
+
+	_, err := s.List(context.Background())
+	if err == nil {
+		t.Fatal("List() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "fetch routes") {
+		t.Fatalf("error = %q, want wrapped fetch routes", err)
 	}
 }

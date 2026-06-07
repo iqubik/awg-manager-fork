@@ -306,6 +306,80 @@ func TestAWGParamsEqual_IgnoresNonAWGFields(t *testing.T) {
 	}
 }
 
+// === kmodShapingChanged (#234 C-1 Option B) ===
+//
+// applyDiffNWG calls SyncKmodSlot exactly when one of the kmod-shaping
+// fields changes. If a future edit forgets to include a new field that
+// reaches /proc/awg_proxy/add, the kmod slot survives Update with stale
+// params silently — these tests pin the four current shaping inputs.
+
+func storedWith(privateKey, peerPubKey, endpoint string, obf storage.AWGObfuscation) *storage.AWGTunnel {
+	return &storage.AWGTunnel{
+		Interface: storage.AWGInterface{
+			PrivateKey:     privateKey,
+			AWGObfuscation: obf,
+		},
+		Peer: storage.AWGPeer{
+			PublicKey: peerPubKey,
+			Endpoint:  endpoint,
+		},
+	}
+}
+
+func TestKmodShapingChanged_PrivateKey(t *testing.T) {
+	obf := storage.AWGObfuscation{Jc: 5}
+	a := storedWith("priv-A", "pub-1", "1.2.3.4:5060", obf)
+	b := storedWith("priv-B", "pub-1", "1.2.3.4:5060", obf)
+	if !kmodShapingChanged(a, b) {
+		t.Fatal("PrivateKey change must rebuild kmod slot")
+	}
+}
+
+func TestKmodShapingChanged_PeerPublicKey(t *testing.T) {
+	obf := storage.AWGObfuscation{Jc: 5}
+	a := storedWith("priv-A", "pub-1", "1.2.3.4:5060", obf)
+	b := storedWith("priv-A", "pub-2", "1.2.3.4:5060", obf)
+	if !kmodShapingChanged(a, b) {
+		t.Fatal("Peer.PublicKey change must rebuild kmod slot")
+	}
+}
+
+func TestKmodShapingChanged_PeerEndpoint(t *testing.T) {
+	obf := storage.AWGObfuscation{Jc: 5}
+	a := storedWith("priv-A", "pub-1", "1.2.3.4:5060", obf)
+	b := storedWith("priv-A", "pub-1", "9.8.7.6:5060", obf)
+	if !kmodShapingChanged(a, b) {
+		t.Fatal("Peer.Endpoint change must rebuild kmod slot")
+	}
+}
+
+func TestKmodShapingChanged_Obfuscation(t *testing.T) {
+	a := storedWith("priv-A", "pub-1", "1.2.3.4:5060", storage.AWGObfuscation{Jc: 5})
+	b := storedWith("priv-A", "pub-1", "1.2.3.4:5060", storage.AWGObfuscation{Jc: 7})
+	if !kmodShapingChanged(a, b) {
+		t.Fatal("AWG obfuscation change must rebuild kmod slot")
+	}
+}
+
+func TestKmodShapingChanged_IgnoresNonShapingFields(t *testing.T) {
+	// Address/MTU/DNS and PresharedKey don't reach /proc/awg_proxy/add
+	// — they should NOT trigger a slot rebuild.
+	obf := storage.AWGObfuscation{Jc: 5}
+	a := storedWith("priv-A", "pub-1", "1.2.3.4:5060", obf)
+	a.Interface.Address = "10.0.0.1"
+	a.Interface.MTU = 1420
+	a.Interface.DNS = "1.1.1.1"
+	a.Peer.PresharedKey = "psk-A"
+	b := storedWith("priv-A", "pub-1", "1.2.3.4:5060", obf)
+	b.Interface.Address = "10.0.0.2"
+	b.Interface.MTU = 1280
+	b.Interface.DNS = "8.8.8.8"
+	b.Peer.PresharedKey = "psk-B"
+	if kmodShapingChanged(a, b) {
+		t.Fatal("Address/MTU/DNS/PSK don't shape the kmod slot; expected no rebuild trigger")
+	}
+}
+
 // === applyDiffKernel integration tests (Bug A/B/C/D/E coverage) ===
 //
 // These tests call applyDiffKernel directly with a MockOperator to verify
