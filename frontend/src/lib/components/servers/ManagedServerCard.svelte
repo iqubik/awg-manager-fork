@@ -175,6 +175,29 @@
 		return String(bits);
 	}
 
+	/** Подсеть вида 10.0.0.X/24 — host-октеты заменены на X по маске. */
+	function formatSubnetPlaceholder(address: string, mask: string): string {
+		const prefix = Number(maskToPrefix(mask));
+		const octets = address.split('.').map((p) => parseInt(p, 10));
+		if (octets.length !== 4 || octets.some((n) => Number.isNaN(n)) || Number.isNaN(prefix)) {
+			return `${address}/${maskToPrefix(mask)}`;
+		}
+		const parts = octets.map((value, i) => {
+			const bitsBefore = i * 8;
+			if (prefix <= bitsBefore) return 'X';
+			if (prefix >= bitsBefore + 8) return String(value);
+			return 'X';
+		});
+		return `${parts.join('.')}/${prefix}`;
+	}
+
+	const WAN_IP_MASKED = 'показать';
+
+	let wanIP = $state('');
+	let showWanIP = $state(false);
+	let lanRouterLabel = $derived(routerIP ? ` (${routerIP})` : '');
+	let vpnSubnetLabel = $derived(formatSubnetPlaceholder(server.address, server.mask));
+
 	let togglingEnabled = $state(false);
 	let restartingServer = $state(false);
 
@@ -272,6 +295,7 @@
 	// the select is interactive.
 	let selectedPolicy = $state('');
 	let ascParams = $state<ASCParams | null>(null);
+	let ascLoadedFor = $state('');
 
 	$effect(() => {
 		selectedPolicy = server.policy;
@@ -279,15 +303,27 @@
 
 	$effect(() => {
 		const id = server.interfaceName;
+		if (ascLoadedFor === id) return;
+
+		if (ascLoadedFor && ascLoadedFor !== id) {
+			ascParams = null;
+			ascLoadedFor = '';
+		}
+
 		let cancelled = false;
-		ascParams = null;
 
 		void (async () => {
 			try {
 				const params = await api.getManagedServerASC(id);
-				if (!cancelled) ascParams = params;
+				if (!cancelled) {
+					ascParams = params;
+					ascLoadedFor = id;
+				}
 			} catch {
-				if (!cancelled) ascParams = null;
+				if (!cancelled) {
+					ascParams = null;
+					ascLoadedFor = '';
+				}
 			}
 		})();
 
@@ -299,6 +335,7 @@
 	let awgVersion = $derived(classifyAwgVersionFromAsc(ascParams));
 
 	onMount(async () => {
+		void api.getWANIP().then((ip) => { wanIP = ip; }).catch(() => {});
 		try {
 			policies = await api.getManagedServerPolicies();
 		} catch {
@@ -438,10 +475,16 @@
 		<div class="setting-row">
 			<div class="setting-copy">
 				<span class="setting-title">NAT</span>
-				{#if natMode === 'internet-only'}
-					<span class="setting-description">реальный IP клиента в LAN, NAT только в интернет</span>
+				{#if natMode === 'full'}
+					<span class="setting-description">
+						Клиент выходит в интернет с внешним IP {@render wanIpButton()}. В LAN виден не как отдельное устройство, а как роутер{lanRouterLabel}.
+					</span>
+				{:else if natMode === 'internet-only'}
+					<span class="setting-description">
+						Клиент выходит в интернет с внешним IP {@render wanIpButton()}, в LAN виден со своим VPN-адресом ({vpnSubnetLabel}).
+					</span>
 				{:else}
-					<span class="setting-description">Трансляция адресов для выхода клиентов в интернет</span>
+					<span class="setting-description">Выхода в интернет для клиента нет (без дополнительной подмены адреса), в LAN виден со своим VPN-адресом ({vpnSubnetLabel}).</span>
 				{/if}
 				{#if ingressEnabled && natMode === 'full'}
 					<span class="setting-description setting-description-warning">NAT для интернета не действует — интернет-трафик идёт через sing-box (туннель); режим NAT влияет только на видимость в LAN</span>
@@ -526,6 +569,19 @@
 		{/if}
 	</div>
 </div>
+
+{#snippet wanIpButton()}
+	<button
+		type="button"
+		class="wan-ip-reveal mono"
+		onclick={() => (showWanIP = !showWanIP)}
+		title={showWanIP && wanIP ? wanIP : 'Показать внешний IP'}
+		aria-label={showWanIP ? 'Скрыть внешний IP' : 'Показать внешний IP'}
+		aria-pressed={showWanIP}
+	>
+		({showWanIP && wanIP ? wanIP : WAN_IP_MASKED})
+	</button>
+{/snippet}
 
 <!-- Modals -->
 <EditManagedServerModal
@@ -732,6 +788,32 @@
 
 	.setting-description-warning {
 		color: var(--warning, #f59e0b);
+	}
+
+	.wan-ip-reveal {
+		display: inline;
+		padding: 0;
+		margin: 0;
+		border: none;
+		background: none;
+		font: inherit;
+		font-size: inherit;
+		line-height: inherit;
+		color: var(--text-secondary);
+		cursor: pointer;
+		text-decoration: none;
+		vertical-align: baseline;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.wan-ip-reveal:hover {
+		color: var(--text-primary);
+	}
+
+	.wan-ip-reveal:focus,
+	.wan-ip-reveal:focus-visible {
+		outline: none;
+		box-shadow: none;
 	}
 
 	.setting-control {

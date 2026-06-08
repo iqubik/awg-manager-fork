@@ -1078,6 +1078,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/api/singbox/tunnels/test/ip", guarded(s.singboxHandler.CheckIP))
 		mux.HandleFunc("/api/singbox/tunnels/test/speed/stream", guarded(s.singboxHandler.SpeedTestStream))
 		mux.HandleFunc("/api/singbox/tunnels/rename", guarded(s.singboxHandler.RenameTunnel))
+		mux.HandleFunc("/api/singbox/tunnels/share-link", guarded(s.singboxHandler.ExportShareLink))
 		mux.HandleFunc("/api/singbox/tunnels", guarded(func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case http.MethodGet:

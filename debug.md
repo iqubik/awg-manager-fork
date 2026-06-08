@@ -395,6 +395,48 @@ go generate ./cmd/awg-manager
 - Mock-server/UI docs опираются на актуальную OpenAPI-спеку.
 - Если аннотации не обновлены и `go generate` не прогнан, новые поля/эндпоинты (например, данные роутера в Настройках) не мокируются корректно.
 
+### Mock KeeneticOS и extended ASC (frontend mock-proxy)
+
+Локальный `frontend/scripts/mock-proxy.mjs` (порт **8081**) подменяет часть ответов поверх Prism. Для ASC важно, какую версию KeeneticOS «видит» UI:
+
+| Профиль | `supportsExtendedASC` | Поля ASC в mock |
+|---------|----------------------|-----------------|
+| **5.1** (дефолт) | `true` | Jc–H4, S1–S4, I1–I5 |
+| **5.0** | `false` | только Jc–H4, S1–S2 |
+
+По умолчанию mock стартует с **KeeneticOS 5.1** (extended ASC включён).
+
+**Зафиксировать версию при запуске** (до старта mock-proxy / `yarn dev`):
+
+```bash
+MOCK_KEENETIC_OS=5.0 yarn dev   # базовый ASC (9 полей)
+MOCK_KEENETIC_OS=5.1 yarn dev   # extended ASC (16 полей), то же что дефолт
+```
+
+**Переключить в runtime** (mock-proxy уже запущен):
+
+```bash
+# Явно 5.0 или 5.1
+curl -X POST http://127.0.0.1:8081/__mock/keenetic-os \
+  -H 'Content-Type: application/json' -d '{"version":"5.0"}'
+
+curl -X POST http://127.0.0.1:8081/__mock/keenetic-os \
+  -H 'Content-Type: application/json' -d '{"version":"5.1"}'
+
+# Сброс к дефолту (5.1 или значение из MOCK_KEENETIC_OS, если было задано при старте)
+curl -X POST http://127.0.0.1:8081/__mock/keenetic-os
+```
+
+Текущее состояние также видно в `GET /__mock/capabilities` → `state.keeneticOS`, `state.supportsExtendedASC`.
+
+`POST /__mock/reset-runtime` сбрасывает runtime-фикстуры и возвращает KeeneticOS к дефолту.
+
+Затронутые mock-endpoint'ы ASC:
+
+- `GET/PUT /managed-servers/{id}/asc`
+- `GET/PUT /system-tunnels/asc?name=...`
+- `GET /system/info` (`supportsExtendedASC`, `supportsHRanges`, `firmwareVersion`)
+
 ---
 
 ## 13. Git safety (RO по умолчанию)

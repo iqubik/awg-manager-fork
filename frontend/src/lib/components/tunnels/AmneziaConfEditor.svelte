@@ -131,8 +131,7 @@
 		font-size: 13px;
 		background: var(--color-bg-secondary);
 		border: 1px solid var(--color-border);
-		border-top: none;
-		border-radius: 0 0 8px 8px;
+		border-radius: 8px;
 	}
 
 	.ace-modal {
@@ -142,8 +141,7 @@
 		color: var(--text-primary);
 		background: var(--bg-primary);
 		border: 1px solid var(--border);
-		border-top: none;
-		border-radius: 0 0 8px 8px;
+		border-radius: 8px;
 	}
 
 	.ace-preview {

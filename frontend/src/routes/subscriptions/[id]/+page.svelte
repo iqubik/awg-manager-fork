@@ -57,6 +57,12 @@
 
 	let evtSrc: EventSource | null = null;
 
+	function patchSubscriptionEnabled(nextEnabled: boolean): void {
+		if (subscription) {
+			subscription = { ...subscription, enabled: nextEnabled };
+		}
+	}
+
 	function loadStream(): void {
 		if (!id) return;
 		const isMockDev = isMockDevMode();
@@ -254,6 +260,8 @@
 			]}
 			active={active}
 			onchange={(tabId) => (active = tabId as 'members' | 'settings')}
+			urlParam="tab"
+			defaultTab="members"
 		/>
 		{#if loading && progressTotal > PROGRESS_BAR_THRESHOLD}
 			<div class="loading-progress">
@@ -289,7 +297,11 @@
 				/>
 			{:else}
 				<div class="edit-wrapper">
-					<SubscriptionSettingsTab {subscription} onUpdated={loadStream} />
+					<SubscriptionSettingsTab
+						{subscription}
+						onUpdated={loadStream}
+						onEnabledChanged={patchSubscriptionEnabled}
+					/>
 				</div>
 			{/if}
 		</section>

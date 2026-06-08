@@ -9,3 +9,5 @@ export { default as ThemeSchemeCard } from './ThemeSchemeCard.svelte';
 export { default as UsageLevelCard } from './UsageLevelCard.svelte';
 export { default as SettingsFooter } from './SettingsFooter.svelte';
 export { default as DevelopChannelGateModal } from './DevelopChannelGateModal.svelte';
+export { default as ExperimentalSettingsCard } from './ExperimentalSettingsCard.svelte';
+export { default as PukhososPatrol } from './PukhososPatrol.svelte';

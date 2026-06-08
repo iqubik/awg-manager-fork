@@ -76,6 +76,12 @@ func clashFieldsToValues(p map[string]any) url.Values {
 		if host := asString(hdrs["Host"]); host != "" {
 			v.Set("host", host)
 		}
+		// mihomo encodes httpupgrade as network: ws + ws-opts.v2ray-http-upgrade.
+		// sing-box has a distinct httpupgrade transport, so remap to it (path/
+		// host above are shared) instead of emitting a plain ws outbound.
+		if asBool(ws["v2ray-http-upgrade"]) {
+			v.Set("type", "httpupgrade")
+		}
 	case "grpc":
 		gp := nestedMap(p, "grpc-opts")
 		if name := asString(gp["grpc-service-name"]); name != "" {

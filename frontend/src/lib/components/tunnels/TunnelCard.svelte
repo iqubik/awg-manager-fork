@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import type { TunnelListItem } from '$lib/types';
-	import { Toggle, TrafficSparkline, TrafficChart, VersionBadge, Badge, StatusDot } from '$lib/components/ui';
+	import { Toggle, TrafficSparkline, TrafficChart, VersionBadge, StatusDot } from '$lib/components/ui';
+	import DefaultRouteBadge from './DefaultRouteBadge.svelte';
 	import { TunnelListActions } from '$lib/components/ui';
 	import TunnelPingButton from '$lib/components/tunnels/TunnelPingButton.svelte';
 	import TunnelTitleRow from '$lib/components/tunnels/TunnelTitleRow.svelte';
@@ -281,9 +282,7 @@
 						onTitleClick={() => ondetail?.(tunnel.id)}
 					>
 						{#snippet badges()}
-							{#if tunnel.defaultRoute}
-								<Badge variant="accent" size="sm">default</Badge>
-							{/if}
+							<DefaultRouteBadge defaultRoute={tunnel.defaultRoute} />
 						{/snippet}
 					</TunnelTitleRow>
 				</div>
@@ -350,9 +349,7 @@
 						onTitleClick={() => ondetail?.(tunnel.id)}
 					>
 						{#snippet badges()}
-							{#if tunnel.defaultRoute}
-								<Badge variant="accent" size="sm">default</Badge>
-							{/if}
+							<DefaultRouteBadge defaultRoute={tunnel.defaultRoute} />
 						{/snippet}
 					</TunnelTitleRow>
 					<div class="meta-line">

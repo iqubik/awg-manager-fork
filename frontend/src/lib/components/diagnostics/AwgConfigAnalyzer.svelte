@@ -590,14 +590,10 @@
 				<span class="kbd">⌘/Ctrl+Enter</span>
 			</div>
 			{#if selectedTunnelId && rawChangedSinceAnalyze}
-				<div class="warn" role="status">
-					Конфиг изменён после анализа. Нажмите «Анализировать» перед записью в туннель.
-				</div>
-			{/if}
-			{#if selectedTunnelId && parsed !== null && !rawChangedSinceAnalyze && !rawDiffersFromLoadedTunnel}
-				<div class="warn" role="status">
-					Изменений относительно выбранного туннеля нет — записывать нечего.
-				</div>
+				<p class="bar-hint" role="status">
+					Конфиг был изменён вручную, если вы хотите применить изменения к туннелю, сначала нажмите «Анализировать».				
+					Учтите, что это может привести к нарушению работы туннеля, если вы не уверены в том, что делаете.
+				</p>
 			{/if}
 
 			<input
@@ -831,6 +827,7 @@
 		margin: 0 auto;
 		padding: 12px 16px 28px;
 		color: var(--color-text-primary, var(--text-primary));
+		overflow-x: clip;
 	}
 
 	.privacy-banner {
@@ -968,6 +965,10 @@
 		min-width: 0;
 	}
 
+	.col-input {
+		position: relative;
+	}
+
 	.results-empty {
 		padding: 20px 18px;
 		border-radius: 10px;
@@ -1030,8 +1031,13 @@
 
 	@media (max-width: 640px) {
 		.awg-analyzer {
-			padding: 0;
+			padding: 0 0 0.75rem;
 			max-width: none;
+		}
+
+		.col-input,
+		.col-results {
+			overflow-x: clip;
 		}
 
 		.privacy-banner {
@@ -1074,7 +1080,10 @@
 
 		.ta {
 			min-height: 130px;
-			max-height: 40vh;
+			max-height: none;
+			resize: none;
+			overflow-y: visible;
+			overscroll-behavior: contain;
 		}
 
 		.bar {
@@ -1172,10 +1181,38 @@
 		font-family: var(--font-mono);
 	}
 
+	.bar-hint {
+		margin: -2px 0 10px;
+		padding: 6px 10px;
+		border-radius: 6px;
+		border-left: 3px solid var(--color-warning, var(--warning));
+		background: color-mix(in srgb, var(--color-warning, var(--warning)) 9%, transparent);
+		font-size: 12px;
+		line-height: 1.45;
+		color: var(--color-text-secondary, var(--text-secondary));
+	}
+
+	.warn {
+		padding: 10px 12px;
+		border-radius: 8px;
+		background: var(--color-warning-tint);
+		border: 1px solid color-mix(in srgb, var(--color-warning, var(--warning)) 35%, var(--color-border));
+		color: var(--color-warning, var(--warning));
+		font-size: 13px;
+		margin-bottom: 12px;
+	}
+
 	.sr {
 		position: absolute;
 		width: 1px;
 		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		clip-path: inset(50%);
+		white-space: nowrap;
+		border: 0;
 		opacity: 0;
 		pointer-events: none;
 	}

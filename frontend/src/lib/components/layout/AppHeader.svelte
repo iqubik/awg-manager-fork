@@ -6,6 +6,7 @@
 	import { usageLevel } from '$lib/stores/settings';
 	import type { ThemeState } from '$lib/stores/theme';
 	import { isAppearanceSettingsVisible, isSectionVisible, type Section } from '$lib/types/usageLevel';
+	import { handleVersionBadgeClick } from '$lib/utils/versionBadgeEasterEgg';
 
 	type NavItem = {
 		section: Section;
@@ -139,6 +140,21 @@
 	/** Для Neo вторая ветка визуально тёмная, но `mode` остаётся dark ради color-scheme — в шапке показываем legacyMode */
 	const themeDisplayMode = $derived(theme.preset === 'neo' ? theme.legacyMode : theme.mode);
 
+	const onSettingsPage = $derived($page.url.pathname.startsWith('/settings'));
+	const versionClickableOnSettings = $derived(
+		onSettingsPage && ($usageLevel === 'expert' || hasUpdate),
+	);
+
+	function onVersionBadgeClick(event: MouseEvent) {
+		if (!onSettingsPage) return;
+		event.preventDefault();
+		handleVersionBadgeClick({
+			usageLevel: $usageLevel,
+			hasUpdate,
+			onSettingsPage: true,
+		});
+	}
+
 	const themeButtonLabel = $derived.by(() => {
 		const currentModeLabel = themeDisplayMode === 'light' ? 'светлая' : 'тёмная';
 		const nextModeLabel = themeDisplayMode === 'light' ? 'тёмную' : 'светлую';
@@ -160,7 +176,7 @@
 			{#if currentVersion || (versionPending && authenticated)}
 				<span class="version-slot">
 					{#if currentVersion}
-						{#if hasUpdate && authenticated}
+						{#if hasUpdate && authenticated && !onSettingsPage}
 							<a
 								href="/settings"
 								class="version-badge version-clickable"
@@ -169,6 +185,19 @@
 							>
 								v{currentVersion} ↑
 							</a>
+						{:else if authenticated && versionClickableOnSettings}
+							<button
+								type="button"
+								class="version-badge version-clickable"
+								class:version-update-stable={hasUpdate && !isPreRelease}
+								class:version-update-prerelease={hasUpdate && isPreRelease}
+								class:version-stable={!hasUpdate && !isPreRelease}
+								class:version-prerelease={!hasUpdate && isPreRelease}
+								aria-label={hasUpdate ? 'Показать блок обновления AWGM' : 'Версия AWGM'}
+								onclick={onVersionBadgeClick}
+							>
+								v{currentVersion}{hasUpdate ? ' ↑' : ''}
+							</button>
 						{:else}
 							<span
 								class="version-badge"
@@ -471,6 +500,11 @@
 		box-sizing: border-box;
 		font-family: var(--font-mono, monospace);
 		font-variant-numeric: tabular-nums;
+	}
+
+	button.version-badge {
+		border: none;
+		appearance: none;
 	}
 
 	.version-pending {

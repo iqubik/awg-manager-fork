@@ -121,6 +121,10 @@
 		goto(`/subscriptions/${subscription.id}`);
 	}
 
+	function openSettings(): void {
+		goto(`/subscriptions/${subscription.id}?tab=settings`);
+	}
+
 	let diagnosticsOpen = $state(false);
 
 	let selectorTag = $derived(subscription.selectorTag ?? '');
@@ -285,9 +289,9 @@
 				onclick={(e) => e.stopPropagation()}
 			>
 				<TunnelListActions
-					onEdit={() => open()}
-					editLabel="Открыть"
-					editTitle="Открыть подписку «{subscription.label || subscription.url}»"
+					onEdit={openSettings}
+					editLabel="Изменить"
+					editTitle="Настройки подписки «{subscription.label || subscription.url}»"
 					onTest={() => (diagnosticsOpen = true)}
 					testTitle="Открыть диагностику подписки «{subscription.label || subscription.url}»"
 					onDelete={ondelete ? () => ondelete(subscription.id) : undefined}
@@ -296,26 +300,24 @@
 			</td>
 	</tr>
 {:else if layout === 'dense' || renderMode === 'list-card'}
-{@const denseCardClickProps = renderMode === 'list-card'
-	? {}
-	: {
-			role: 'button' as const,
-			tabindex: 0,
-			onclick: (e: MouseEvent) => open(e),
-			onkeydown: (e: KeyboardEvent) => {
-				if (e.key === 'Enter' || e.key === ' ') {
-					e.preventDefault();
-					open(e);
-				}
-			},
-		}}
+{@const cardClickProps = {
+		role: 'button' as const,
+		tabindex: 0,
+		onclick: (e: MouseEvent) => open(e),
+		onkeydown: (e: KeyboardEvent) => {
+			if (e.key === 'Enter' || e.key === ' ') {
+				e.preventDefault();
+				open(e);
+			}
+		},
+	}}
 <div
 	class="card inactive-panel"
 	class:view-dense={renderMode !== 'list-card'}
 	class:view-list={renderMode === 'list-card'}
 	class:err={status === 'error'}
 	class:off={!subscription.enabled}
-	{...denseCardClickProps}
+	{...cardClickProps}
 >
 	<div class="inactive-header-dense">
 		<div class="inactive-header-main">
@@ -370,12 +372,12 @@
 	{/if}
 	{/if}
 	{#if renderMode === 'list-card'}
-	<div class="actions">
+	<div class="actions" onclick={(e) => e.stopPropagation()}>
 		<TunnelListActions
 			variant="labeled"
-			onEdit={() => open()}
-			editLabel="Открыть"
-			editTitle="Открыть подписку «{subscription.label || subscription.url}»"
+			onEdit={openSettings}
+			editLabel="Изменить"
+			editTitle="Настройки подписки «{subscription.label || subscription.url}»"
 			onTest={() => (diagnosticsOpen = true)}
 			testTitle="Открыть диагностику подписки «{subscription.label || subscription.url}»"
 			onDelete={ondelete ? () => ondelete(subscription.id) : undefined}
@@ -389,6 +391,15 @@
 	class="card panel inactive-panel view-compact"
 	class:err={status === 'error'}
 	class:off={!subscription.enabled}
+	role="button"
+	tabindex="0"
+	onclick={(e) => open(e)}
+	onkeydown={(e) => {
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			open(e);
+		}
+	}}
 >
 	<div class="inactive-header">
 		<div class="inactive-header-main">
@@ -448,12 +459,12 @@
 		{/if}
 	</div>
 
-	<div class="actions actions--bar-top">
+	<div class="actions actions--bar-top" onclick={(e) => e.stopPropagation()}>
 		<TunnelListActions
 			variant="labeled"
-			onEdit={() => open()}
-			editLabel="Открыть"
-			editTitle="Открыть подписку «{subscription.label || subscription.url}»"
+			onEdit={openSettings}
+			editLabel="Изменить"
+			editTitle="Настройки подписки «{subscription.label || subscription.url}»"
 			onTest={() => (diagnosticsOpen = true)}
 			testTitle="Открыть диагностику подписки «{subscription.label || subscription.url}»"
 			onDelete={ondelete ? () => ondelete(subscription.id) : undefined}
@@ -494,7 +505,9 @@
 	.card.panel {
 		gap: 0;
 		padding: 12px 14px;
-		cursor: default;
+	}
+	.card.panel.inactive-panel.view-compact {
+		cursor: pointer;
 	}
 	.card.panel.inactive-panel {
 		border: 1px dashed color-mix(in srgb, var(--color-text-muted) 38%, transparent);
@@ -517,7 +530,7 @@
 		color: inherit;
 	}
 	.card.view-list.inactive-panel {
-		cursor: default;
+		cursor: pointer;
 	}
 	.inactive-header-dense {
 		display: flex;

@@ -5,6 +5,7 @@
 		type SubscriptionMode,
 	} from '$lib/types';
 	import { api } from '$lib/api/client';
+	import { notifications } from '$lib/stores/notifications';
 	import { goto } from '$app/navigation';
 	import HeadersTextarea from './HeadersTextarea.svelte';
 	import { parseHeadersText, serializeHeaders } from './headersParser';
@@ -15,8 +16,10 @@
 	interface Props {
 		subscription: Subscription;
 		onUpdated: () => void;
+		/** Только поле enabled — без полной перезагрузки подписки. */
+		onEnabledChanged?: (enabled: boolean) => void;
 	}
-	let { subscription, onUpdated }: Props = $props();
+	let { subscription, onUpdated, onEnabledChanged }: Props = $props();
 
 	let label = $state(untrack(() => subscription.label));
 	let url = $state(untrack(() => subscription.url));
@@ -35,6 +38,7 @@
 		untrack(() => subscription.urlTest?.toleranceMs ?? DEFAULT_SUBSCRIPTION_URLTEST.toleranceMs),
 	);
 	let saving = $state(false);
+	let togglingEnabled = $state(false);
 	let confirmDelete = $state(false);
 	let deleting = $state(false);
 
@@ -65,6 +69,21 @@
 		{ value: '24', label: 'Раз в сутки' },
 		{ value: '168', label: 'Раз в неделю' },
 	];
+
+	async function toggleEnabled(next: boolean): Promise<void> {
+		if (togglingEnabled) return;
+		togglingEnabled = true;
+		try {
+			const saved = await api.updateSubscription(subscription.id, { enabled: next });
+			enabled = saved.enabled;
+			onEnabledChanged?.(saved.enabled);
+			notifications.success(saved.enabled ? 'Подписка включена' : 'Подписка выключена');
+		} catch (e) {
+			notifications.error(e instanceof Error ? e.message : 'Не удалось изменить состояние');
+		} finally {
+			togglingEnabled = false;
+		}
+	}
 
 	async function save(): Promise<void> {
 		saving = true;
@@ -128,7 +147,13 @@
 	<section class="col control-col">
 		<div class="enabled-card" class:off={!enabled}>
 			<div class="enabled-row">
-				<Toggle bind:checked={enabled} variant="flip" onchange={() => {}} />
+				<Toggle
+					checked={enabled}
+					controlled
+					variant="flip"
+					loading={togglingEnabled}
+					onchange={toggleEnabled}
+				/>
 				<div class="enabled-text">
 					<span class="enabled-title">Включена</span>
 					<span class="enabled-hint">

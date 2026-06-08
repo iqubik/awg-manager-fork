@@ -127,6 +127,7 @@ const MOCK_CAPABILITY_GROUPS = Object.freeze([
 			'POST /__mock/reset',
 			'POST /__mock/singbox-install-fail',
 			'POST /__mock/download-faults',
+			'POST /__mock/keenetic-os',
 		],
 	},
 ]);
@@ -165,6 +166,8 @@ function getRuntimeState() {
 		downloadFaultsEnabled,
 		downloadFaultProbability,
 		logsCleared: { ...bucketCleared },
+		keeneticOS: mockKeeneticProfile.key,
+		supportsExtendedASC: mockKeeneticProfile.extended,
 	};
 }
 
@@ -180,6 +183,8 @@ function resetRuntimeControls() {
 	bucketCleared.app = false;
 	bucketCleared.singbox = false;
 	mockManagedAscByServer = createInitialMockManagedAscByServer();
+	mockSystemAscByTunnel = createInitialMockSystemAscByTunnel();
+	applyDefaultMockKeeneticProfile();
 }
 const MOCK_DOWNLOAD_OUTBOUNDS = [
 	{
@@ -292,7 +297,7 @@ const MOCK_AWG_TUNNELS = [
 		type: 'amneziawg',
 		status: 'running',
 		enabled: true,
-		defaultRoute: false,
+		defaultRoute: true,
 		resolvedIspInterface: 'ISP0',
 		resolvedIspInterfaceLabel: 'Резервный WAN',
 		endpoint: 'nl-ams.demo.example:51820',
@@ -315,7 +320,7 @@ const MOCK_AWG_TUNNELS = [
 		type: 'amneziawg',
 		status: 'running',
 		enabled: true,
-		defaultRoute: false,
+		defaultRoute: true,
 		resolvedIspInterface: 'ISP1',
 		resolvedIspInterfaceLabel: 'Мобильный WAN',
 		endpoint: 'pl-waw.demo.example:51820',
@@ -338,7 +343,7 @@ const MOCK_AWG_TUNNELS = [
 		type: 'amneziawg',
 		status: 'starting',
 		enabled: true,
-		defaultRoute: false,
+		defaultRoute: true,
 		resolvedIspInterface: 'ISP2',
 		resolvedIspInterfaceLabel: 'Резерв LTE',
 		endpoint: 'se-sto.demo.example:51820',
@@ -710,6 +715,33 @@ const MOCK_SINGBOX_TUNNELS = [
 		connectivity: { connected: false, latency: null },
 		running: false,
 	},
+	{
+		tag: 'ss-backup-demo',
+		protocol: 'shadowsocks',
+		server: 'backup.demo.example',
+		port: 8388,
+		security: '',
+		transport: 'tcp',
+		listenPort: 11016,
+		proxyInterface: 't2s5',
+		kernelInterface: 'sb5',
+		connectivity: { connected: true, latency: 94 },
+		running: true,
+	},
+	{
+		tag: 'mieru-cn-demo',
+		protocol: 'mieru',
+		server: 'cn01.demo.example',
+		port: 443,
+		security: 'none',
+		transport: 'tcp',
+		listenPort: 11017,
+		proxyInterface: 't2s6',
+		kernelInterface: 'sb6',
+		username: 'demo-user',
+		connectivity: { connected: true, latency: 108 },
+		running: true,
+	},
 ];
 
 const TRAFFIC_PROFILES = {
@@ -890,6 +922,22 @@ const singboxTrafficCounters = new Map(
 function isSingboxTunnelTrafficActive(tag) {
 	const t = MOCK_SINGBOX_TUNNELS.find((x) => x.tag === tag);
 	return !!(t && t.running && t.connectivity?.connected);
+}
+
+const MOCK_SHARE_LINK_TYPES = new Set([
+	'vless',
+	'trojan',
+	'shadowsocks',
+	'hysteria2',
+	'naive',
+	'mieru',
+]);
+
+/** Share-link scheme for mock encode stub (outbound type → URI scheme). */
+function mockShareLinkScheme(type) {
+	if (type === 'shadowsocks') return 'ss';
+	if (type === 'mieru') return 'mierus';
+	return type;
 }
 
 function buildAwgSnapshot() {
@@ -2523,6 +2571,86 @@ function createInitialMockManagedAscByServer() {
 
 let mockManagedAscByServer = createInitialMockManagedAscByServer();
 
+const MOCK_KEENETIC_PROFILES = {
+	'5.0': {
+		key: '5.0',
+		extended: false,
+		keeneticOS: '5.0',
+		firmwareVersion: '5.0.11 (5.00.C.11.0-0)',
+		firmwareRelease: '5.0.11 (5.00.C.11.0-0)',
+		isOS5: true,
+	},
+	'5.1': {
+		key: '5.1',
+		extended: true,
+		keeneticOS: '5.1',
+		firmwareVersion: '5.1.0 (5.01.A.0-0)',
+		firmwareRelease: '5.1.0 (5.01.A.0-0)',
+		isOS5: true,
+	},
+};
+
+const DEFAULT_MOCK_KEENETIC_OS = '5.1';
+
+function resolveMockKeeneticProfileKey() {
+	const forced = process.env.MOCK_KEENETIC_OS?.trim();
+	if (forced === '5.0' || forced === '5.1') return forced;
+	return DEFAULT_MOCK_KEENETIC_OS;
+}
+
+function setMockKeeneticProfileKey(key) {
+	mockKeeneticProfile = { ...MOCK_KEENETIC_PROFILES[key] };
+	return mockKeeneticProfile;
+}
+
+function applyDefaultMockKeeneticProfile() {
+	const profile = setMockKeeneticProfileKey(resolveMockKeeneticProfileKey());
+	console.log(
+		`[mock-proxy] KeeneticOS ${profile.key} — supportsExtendedASC=${profile.extended}`,
+	);
+	return profile;
+}
+
+/** Current mock firmware profile; switch via POST /__mock/keenetic-os or mock reset. */
+let mockKeeneticProfile = { ...MOCK_KEENETIC_PROFILES[DEFAULT_MOCK_KEENETIC_OS] };
+applyDefaultMockKeeneticProfile();
+
+function applyMockKeeneticProfile(data) {
+	data.keeneticOS = mockKeeneticProfile.keeneticOS;
+	data.firmwareVersion = mockKeeneticProfile.firmwareVersion;
+	data.isOS5 = mockKeeneticProfile.isOS5;
+	data.supportsExtendedASC = mockKeeneticProfile.extended;
+	data.supportsHRanges = mockKeeneticProfile.extended;
+	if (data.routerDetails && typeof data.routerDetails === 'object') {
+		data.routerDetails.firmwareRelease = mockKeeneticProfile.firmwareRelease;
+	}
+}
+
+function shapeASCForMockProfile(params) {
+	if (!params || typeof params !== 'object') return mockZeroASC();
+	if (mockKeeneticProfile.extended) return { ...params };
+	return {
+		jc: params.jc ?? 0,
+		jmin: params.jmin ?? 0,
+		jmax: params.jmax ?? 0,
+		s1: params.s1 ?? 0,
+		s2: params.s2 ?? 0,
+		h1: params.h1 ?? '',
+		h2: params.h2 ?? '',
+		h3: params.h3 ?? '',
+		h4: params.h4 ?? '',
+	};
+}
+
+function createInitialMockSystemAscByTunnel() {
+	return {
+		Wireguard6: mockFilledASC(),
+		Wireguard7: mockZeroASC(),
+	};
+}
+
+let mockSystemAscByTunnel = createInitialMockSystemAscByTunnel();
+
 function mockManagedServer() {
 	return {
 		interfaceName: 'Wireguard1',
@@ -3282,6 +3410,29 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'POST' && path === '/__mock/keenetic-os') {
+		const text = await readRequestText(req);
+		try {
+			const body = text ? JSON.parse(text) : {};
+			if (body.version === '5.0' || body.version === '5.1') {
+				setMockKeeneticProfileKey(body.version);
+			} else {
+				applyDefaultMockKeeneticProfile();
+			}
+		} catch {
+			applyDefaultMockKeeneticProfile();
+		}
+		sendData(res, {
+			keeneticOS: mockKeeneticProfile.key,
+			supportsExtendedASC: mockKeeneticProfile.extended,
+			firmwareVersion: mockKeeneticProfile.firmwareVersion,
+		});
+		console.log(
+			`[mock-proxy] keenetic-os: ${mockKeeneticProfile.key} (supportsExtendedASC=${mockKeeneticProfile.extended})`,
+		);
+		return;
+	}
+
 	if (maybeInjectDownloadFault(req, res, path)) return;
 
 	if (req.method === 'GET' && path === '/system/info') {
@@ -3293,8 +3444,6 @@ const server = http.createServer(async (req, res) => {
 					: {};
 
 				const titleRaw = String(details.firmwareTitle ?? '');
-				const releaseRaw = String(details.firmwareRelease ?? '');
-				const versionRaw = String(data.firmwareVersion ?? data.keeneticOS ?? '');
 
 				// Keep router title as model only; [Port] is rendered separately in UI
 				// from details.portedBuild and must not be duplicated in the string.
@@ -3303,21 +3452,15 @@ const server = http.createServer(async (req, res) => {
 					firmwareTitle = 'CMCC RAX3000M (KN-3812)';
 				}
 
-				// Extract a clean Keenetic release string if upstream example is polluted
-				// with model/title fragments.
-				const releaseMatch = `${releaseRaw} ${versionRaw}`.match(/\d+\.\d+\.\d+\s*\([^)]+\)/);
-				const firmwareRelease = releaseMatch ? releaseMatch[0].trim() : '5.0.11 (5.00.C.11.0-0)';
-
 				data.routerDetails = {
 					...details,
 					firmwareTitle,
-					firmwareRelease,
+					firmwareRelease: mockKeeneticProfile.firmwareRelease,
 					portedBuild: details.portedBuild ?? true,
 					modelDisplay: details.modelDisplay || 'CMCC RAX3000M (KN-3812)',
 					region: details.region || 'EA',
 				};
-				data.supportsExtendedASC = true;
-				data.supportsHRanges = true;
+				applyMockKeeneticProfile(data);
 			}
 			send(res, status, body);
 		});
@@ -4029,6 +4172,28 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'POST' && path === '/singbox/tunnels/share-link') {
+		const body = await readJsonBody(req);
+		if (!body?.outbound || typeof body.outbound !== 'object') {
+			send(res, 400, { error: true, message: 'outbound required', code: 'BAD_REQUEST' });
+			return;
+		}
+		const type = body.outbound.type;
+		if (!MOCK_SHARE_LINK_TYPES.has(type)) {
+			send(res, 400, {
+				error: true,
+				message: `unsupported outbound type: ${type ?? 'unknown'}`,
+				code: 'ENCODE_UNSUPPORTED',
+			});
+			return;
+		}
+		send(res, 200, {
+			success: true,
+			data: { link: `${mockShareLinkScheme(type)}://EXAMPLE_ENCODE` },
+		});
+		return;
+	}
+
 	if (req.method === 'GET' && path === '/singbox/tunnels') {
 		send(res, 200, {
 			success: true,
@@ -4222,7 +4387,7 @@ const server = http.createServer(async (req, res) => {
 		const serverId = decodeURIComponent(managedAscMatch[1]);
 		if (req.method === 'GET') {
 			const params = mockManagedAscByServer[serverId] ?? mockZeroASC();
-			send(res, 200, { success: true, data: { ...params } });
+			send(res, 200, { success: true, data: shapeASCForMockProfile(params) });
 			return;
 		}
 		if (req.method === 'PUT') {
@@ -4948,6 +5113,33 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
+	if (path === '/system-tunnels/asc') {
+		const name = url.searchParams.get('name');
+		if (!name) {
+			send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: 'name is required' } });
+			return;
+		}
+		if (req.method === 'GET') {
+			const params = mockSystemAscByTunnel[name] ?? mockZeroASC();
+			send(res, 200, { success: true, data: shapeASCForMockProfile(params) });
+			return;
+		}
+		if (req.method === 'PUT') {
+			let raw = '';
+			req.on('data', (c) => (raw += c));
+			req.on('end', () => {
+				try {
+					const body = JSON.parse(raw || '{}');
+					mockSystemAscByTunnel[name] = { ...mockZeroASC(), ...body };
+					send(res, 200, { success: true, data: null });
+				} catch (e) {
+					send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+				}
+			});
+			return;
+		}
+	}
+
 	if (req.method === 'GET' && path === '/test/connectivity') {
 		const id = url.searchParams.get('id') ?? '';
 		const tunnel = MOCK_AWG_TUNNELS.find((t) => t.id === id);
@@ -5089,7 +5281,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => {
 	console.log(`mock-proxy on http://127.0.0.1:${PORT} → ${UPSTREAM} (usageLevel=${usageLevel})`);
-	console.log('[mock-proxy] controls: GET /__mock/capabilities, GET /__mock/tunnels, POST /__mock/reset-runtime, POST /__mock/singbox-install-fail, POST /__mock/download-faults');
+	console.log('[mock-proxy] controls: GET /__mock/capabilities, GET /__mock/tunnels, POST /__mock/reset-runtime, POST /__mock/singbox-install-fail, POST /__mock/download-faults, POST /__mock/keenetic-os');
+	console.log(`[mock-proxy] keenetic-os: ${mockKeeneticProfile.key} (supportsExtendedASC=${mockKeeneticProfile.extended}; default: 5.1, force: MOCK_KEENETIC_OS=5.0|5.1, switch: POST /__mock/keenetic-os)`);
 	console.log(`[mock-proxy] download faults: enabled=${downloadFaultsEnabled} p=${downloadFaultProbability} (disable: MOCK_DOWNLOAD_FAULTS=0)`);
 });
 

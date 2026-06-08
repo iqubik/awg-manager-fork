@@ -436,11 +436,6 @@
 		gap: 0;
 	}
 
-	.vpn-import-stack--modal .vpn-paste-input--modal {
-		border-top: none;
-		border-radius: 0 0 8px 8px;
-	}
-
 	.config-textarea {
 		width: 100%;
 		min-height: 100px;
@@ -456,7 +451,7 @@
 
 	.vpn-paste-input {
 		min-height: 100px;
-		border-radius: 0 0 8px 8px;
+		border-radius: 8px;
 		margin-bottom: 0;
 	}
 

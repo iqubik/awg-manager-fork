@@ -12,7 +12,7 @@ import (
 // when plugin involves transport). Each scheme maps these into its
 // protocol-specific outbound JSON via MergeIntoOutbound.
 type StreamBuilder struct {
-	Network             string // "tcp" | "ws" | "grpc" | "http"
+	Network             string // "tcp" | "ws" | "grpc" | "http" | "httpupgrade"
 	TLS                 *outboundTLS
 	Path                string
 	Host                string // ws Host header / http hosts
@@ -58,6 +58,8 @@ func BuildStreamFromQuery(q url.Values, defaultHost string) (*StreamBuilder, err
 		s.Network = "http"
 	case "http":
 		s.Network = "http"
+	case "httpupgrade":
+		s.Network = "httpupgrade"
 	case "tcp":
 		s.Network = "tcp"
 	default:
@@ -213,6 +215,16 @@ func (s *StreamBuilder) MergeIntoOutbound(out map[string]any) {
 			transport["type"] = "http"
 			if s.Host != "" {
 				transport["host"] = []string{s.Host}
+			}
+			if s.Path != "" {
+				transport["path"] = s.Path
+			}
+		case "httpupgrade":
+			// httpupgrade carries host as a top-level string (not headers.Host
+			// like ws) and has no max_early_data.
+			transport["type"] = "httpupgrade"
+			if s.Host != "" {
+				transport["host"] = s.Host
 			}
 			if s.Path != "" {
 				transport["path"] = s.Path

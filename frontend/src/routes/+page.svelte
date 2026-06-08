@@ -18,6 +18,7 @@
 		TunnelTitleRow,
 		TunnelMetaText,
 		TunnelToolbarViewRow,
+		DefaultRouteBadge,
 	} from '$lib/components/tunnels';
 	import { TunnelListActions } from '$lib/components/ui';
 	import TunnelDiagnosticsModal from '$lib/components/testing/TunnelDiagnosticsModal.svelte';
@@ -1730,9 +1731,7 @@
 										onTitleClick={() => openDetail(tunnel.id)}
 									>
 										{#snippet badges()}
-											{#if tunnel.defaultRoute}
-												<Badge variant="accent" size="sm">default</Badge>
-											{/if}
+											<DefaultRouteBadge defaultRoute={tunnel.defaultRoute} />
 											{#if tunnel.backend}
 												<span class="awg-inline-badge">{tunnel.backend}</span>
 											{/if}
@@ -2395,7 +2394,7 @@
 					</div>
 				</div>
 			{/if}
-			{#if singboxTunnelsList.length === 0 && subscriptionsActiveCards.length === 0}
+			{#if singboxTunnelsList.length === 0}
 				<div class="empty-kinds">
 					<button type="button" class="empty-kind-card" onclick={() => openWizard('single')}>
 						<svg class="empty-kind-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -2442,12 +2441,24 @@
 							<span class="info-version-desc">Лёгкий протокол без шифрования на уровне протокола. Поддерживает <strong>Reality</strong> (маскировка под настоящий TLS-сервер) и транспорт gRPC для обхода DPI.</span>
 						</div>
 						<div class="info-version">
+							<Badge variant="error" size="sm" mono>Trojan</Badge>
+							<span class="info-version-desc">TLS-туннель с парольной аутентификацией. Работает поверх TCP, поддерживает WebSocket и gRPC как транспорт.</span>
+						</div>
+						<div class="info-version">
+							<Badge variant="success" size="sm" mono>Shadowsocks</Badge>
+							<span class="info-version-desc">Классический прокси с шифрованием на уровне приложения. Современные шифры (AES-GCM, ChaCha20) и плагины obfs-local / v2ray-plugin.</span>
+						</div>
+						<div class="info-version">
 							<Badge variant="warning" size="sm" mono>Hysteria2</Badge>
 							<span class="info-version-desc">QUIC-based, устойчив к потерям пакетов и работает поверх UDP. Паролевая аутентификация, обфускация salamander.</span>
 						</div>
 						<div class="info-version">
 							<Badge variant="info" size="sm" mono>NaiveProxy</Badge>
 							<span class="info-version-desc">HTTP/2 с полноценным TLS-маскированием под обычный HTTPS-сервер. Сложно отличим от браузерного трафика.</span>
+						</div>
+						<div class="info-version">
+							<Badge variant="purple" size="sm" mono>Mieru</Badge>
+							<span class="info-version-desc">Мультиплексированный прокси с парольной аутентификацией. TCP и UDP в одном профиле, несколько портов и транспортов.</span>
 						</div>
 					</div>
 				</div>

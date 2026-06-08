@@ -176,8 +176,19 @@
         await subscriptionsStore.refetch();
     }
 
-    function openDetail(): void {
+    function isNestedActionEvent(e: Event): boolean {
+        const target = e.target;
+        if (!(target instanceof HTMLElement)) return false;
+        return target.closest('button,a,input,select,textarea,label') !== null;
+    }
+
+    function openDetail(e?: MouseEvent | KeyboardEvent): void {
+        if (e && isNestedActionEvent(e)) return;
         goto(`/subscriptions/${subscription.id}`);
+    }
+
+    function openSettings(): void {
+        goto(`/subscriptions/${subscription.id}?tab=settings`);
     }
 
     async function removeSubscription(): Promise<void> {
@@ -203,11 +214,11 @@
         class:slow={cardState === 'slow'}
         class:fail={cardState === 'fail'}
         class:unknown={cardState === 'unknown'}
-        onclick={openDetail}
+        onclick={(e) => openDetail(e)}
         onkeydown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                openDetail();
+                openDetail(e);
             }
         }}
         role="button"
@@ -307,9 +318,9 @@
                 onclick={(e) => e.stopPropagation()}
             >
                 <TunnelListActions
-                    onEdit={openDetail}
-                    editLabel="Открыть"
-                    editTitle="Открыть подписку «{subscription.label}»"
+                    onEdit={openSettings}
+                    editLabel="Изменить"
+                    editTitle="Настройки подписки «{subscription.label}»"
                     onTest={() => (diagnosticsOpen = true)}
                     testTitle="Открыть диагностику подписки «{subscription.label}»"
                     onDelete={() => (confirmDeleteOpen = true)}
@@ -319,12 +330,21 @@
     </tr>
 {:else if layout === 'dense' || renderMode === 'list-card'}
 <div
-    class="card view-dense"
+    class="card view-dense card-clickable"
     class:view-list={renderMode === 'list-card'}
     class:ok={cardState === 'ok'}
     class:slow={cardState === 'slow'}
     class:fail={cardState === 'fail'}
     class:unknown={cardState === 'unknown'}
+    role="button"
+    tabindex="0"
+    onclick={(e) => openDetail(e)}
+    onkeydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openDetail(e);
+        }
+    }}
 >
     <div class="header header-dense">
         <div class="header-dense-body">
@@ -334,7 +354,7 @@
                     dotVariant={statusDot.variant}
                     dotPulse={statusDot.pulse}
                     dense
-                    onTitleClick={openDetail}
+                    staticTitle
                 >
                     {#snippet badges()}
                         <Badge variant="accent" size="sm">{sourceKindLabel}</Badge>
@@ -427,12 +447,12 @@
     </div>
     {/if}
 
-    <div class="actions">
+    <div class="actions" onclick={(e) => e.stopPropagation()}>
         <TunnelListActions
             variant="labeled"
-            onEdit={openDetail}
-            editLabel="Открыть"
-            editTitle="Открыть подписку «{subscription.label}»"
+            onEdit={openSettings}
+            editLabel="Изменить"
+            editTitle="Настройки подписки «{subscription.label}»"
             onTest={() => (diagnosticsOpen = true)}
             testTitle="Тест подписки «{subscription.label}»"
             onDelete={() => (confirmDeleteOpen = true)}
@@ -475,11 +495,20 @@
 </div>
 {:else}
 <div
-    class="card view-compact"
+    class="card view-compact card-clickable"
     class:ok={cardState === 'ok'}
     class:slow={cardState === 'slow'}
     class:fail={cardState === 'fail'}
     class:unknown={cardState === 'unknown'}
+    role="button"
+    tabindex="0"
+    onclick={(e) => openDetail(e)}
+    onkeydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openDetail(e);
+        }
+    }}
 >
     <div class="tunnel-card-intro">
     <div class="title-row">
@@ -487,7 +516,7 @@
             title={subscription.label}
             dotVariant={statusDot.variant}
             dotPulse={statusDot.pulse}
-            onTitleClick={openDetail}
+            staticTitle
         >
             {#snippet badges()}
                 <Badge variant="accent" size="sm">{sourceKindLabel}</Badge>
@@ -613,12 +642,12 @@
     </div>
     </div>
 
-    <div class="actions actions--bar">
+    <div class="actions actions--bar" onclick={(e) => e.stopPropagation()}>
         <TunnelListActions
             variant="labeled"
-            onEdit={openDetail}
-            editLabel="Открыть"
-            editTitle="Открыть подписку «{subscription.label}»"
+            onEdit={openSettings}
+            editLabel="Изменить"
+            editTitle="Настройки подписки «{subscription.label}»"
             onTest={() => (diagnosticsOpen = true)}
             testTitle="Открыть диагностику подписки «{subscription.label}»"
             onDelete={() => (confirmDeleteOpen = true)}
@@ -627,7 +656,7 @@
     </div>
 
     {#if !subscription.lastError}
-        <div class="chart-section">
+        <div class="chart-section" onclick={(e) => e.stopPropagation()}>
             <div class="chart-body">
                 <div class="chart-head">
                     <span>Delay (5 мин)</span>
@@ -711,6 +740,15 @@
     .card.slow { border-color: var(--color-warning-border); }
     .card.fail { border-color: var(--color-error-border); }
     .card.unknown { border-color: var(--color-border); }
+
+    .card.card-clickable {
+        cursor: pointer;
+    }
+
+    .card.card-clickable:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 2px;
+    }
 
     .card.view-dense {
         gap: 8px;

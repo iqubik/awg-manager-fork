@@ -24,11 +24,36 @@ export function shouldShowPremiumChrome(raw: string): boolean {
 	return classifyVpnLink(trimmed) !== 'regular';
 }
 
-export function readStoredPremiumVpnKey(storageKey: string): string | null {
+/** Единый ключ localStorage для «Запомнить ключ» (создание и замена туннеля). */
+export const PREMIUM_VPN_KEY_STORAGE = 'awgm.tunnels.premiumVpnKey';
+
+const LEGACY_PREMIUM_VPN_KEY_STORAGES = [
+	'awgm.tunnels.new.premiumVpnKey',
+	'awgm.tunnels.replace.premiumVpnKey'
+] as const;
+
+export function readStoredPremiumVpnKey(
+	storageKey: string = PREMIUM_VPN_KEY_STORAGE
+): string | null {
 	if (!browser) return null;
 	try {
-		const value = localStorage.getItem(storageKey)?.trim();
-		return value || null;
+		const direct = localStorage.getItem(storageKey)?.trim();
+		if (direct) return direct;
+
+		for (const legacy of LEGACY_PREMIUM_VPN_KEY_STORAGES) {
+			if (legacy === storageKey) continue;
+			const migrated = localStorage.getItem(legacy)?.trim();
+			if (!migrated) continue;
+			try {
+				localStorage.setItem(storageKey, migrated);
+				localStorage.removeItem(legacy);
+			} catch {
+				/* keep legacy value readable */
+			}
+			return migrated;
+		}
+
+		return null;
 	} catch {
 		return null;
 	}

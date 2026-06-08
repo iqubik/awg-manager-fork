@@ -5,17 +5,55 @@
 	import { api } from '$lib/api/client';
 	import { singboxTunnels } from '$lib/stores/singbox';
 	import { PageContainer } from '$lib/components/layout';
-	import { ArrowLeft } from 'lucide-svelte';
+	import { SettingsSectionLabel } from '$lib/components/settings';
+	import {
+		ArrowLeft,
+		Boxes,
+		Copy,
+		Globe,
+		Link2,
+		Lock,
+		Radio,
+		ScanEye,
+		UserRound,
+		Waypoints,
+		Zap
+	} from 'lucide-svelte';
 	import { Button, Dropdown } from '$lib/components/ui';
+	import { copyToClipboard } from '$lib/utils/clipboard';
+	import { notifications } from '$lib/stores/notifications';
+
+	const EXPORTABLE_PROTOCOLS = new Set([
+		'vless',
+		'trojan',
+		'shadowsocks',
+		'hysteria2',
+		'naive',
+		'mieru',
+	]);
 
 	let tag = $derived($page.params.tag!);
 	let loading = $state(true);
 	let saving = $state(false);
+	let copyingLink = $state(false);
+	let linkCopied = $state(false);
 	let error = $state<string | null>(null);
 	let outbound = $state<Record<string, any> | null>(null);
 	let protocol = $state<string>('');
 	let editableTag = $state('');
-	let initialOutboundFingerprint = '';
+	let initialOutboundFingerprint = $state('');
+
+	let canExportShareLink = $derived(EXPORTABLE_PROTOCOLS.has(protocol));
+	let hasUnsavedChanges = $derived(
+		outbound != null && outboundFingerprint(outbound) !== initialOutboundFingerprint,
+	);
+	let copyLinkTitle = $derived(
+		!canExportShareLink && protocol
+			? `Экспорт не поддерживается для протокола ${protocol}`
+			: hasUnsavedChanges
+				? 'Копирует текущие значения формы без сохранения'
+				: undefined,
+	);
 
 	onMount(async () => {
 		try {
@@ -98,6 +136,28 @@
 		const { tag: _tag, ...rest } = value;
 		return JSON.stringify(rest);
 	}
+
+	async function copyShareLink(): Promise<void> {
+		if (!outbound || copyingLink) return;
+		copyingLink = true;
+		try {
+			const { link } = await api.singboxExportShareLink(outbound, editableTag.trim() || tag);
+			const ok = await copyToClipboard(link);
+			if (ok) {
+				linkCopied = true;
+				notifications.success('Ссылка скопирована в буфер обмена');
+				setTimeout(() => {
+					linkCopied = false;
+				}, 1500);
+			} else {
+				notifications.error('Не удалось скопировать');
+			}
+		} catch (e) {
+			notifications.error(e instanceof Error ? e.message : String(e));
+		} finally {
+			copyingLink = false;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -116,15 +176,28 @@
 				<span class="badge-protocol">{protocol}</span>
 			{/if}
 		</div>
-		<Button
-			variant="primary"
-			size="md"
-			onclick={save}
-			disabled={!outbound}
-			loading={saving}
-		>
-			Сохранить
-		</Button>
+		<div class="header-actions">
+			<Button
+				variant="secondary"
+				size="md"
+				onclick={copyShareLink}
+				disabled={!outbound || !canExportShareLink}
+				loading={copyingLink}
+				iconBefore={copyIcon}
+				title={copyLinkTitle}
+			>
+				{linkCopied ? 'Скопировано' : 'Копировать ссылку'}
+			</Button>
+			<Button
+				variant="primary"
+				size="md"
+				onclick={save}
+				disabled={!outbound}
+				loading={saving}
+			>
+				Сохранить
+			</Button>
+		</div>
 	</div>
 
 	{#if loading}
@@ -132,9 +205,9 @@
 	{:else if !outbound}
 		<div class="py-12 text-center text-error-500">{error ?? 'Туннель не найден'}</div>
 	{:else}
-		<form onsubmit={(e) => { e.preventDefault(); save(); }}>
-				<div class="section">
-				<h2 class="section-title">Основные параметры</h2>
+		<form class="tab-form" onsubmit={(e) => { e.preventDefault(); save(); }}>
+				<section class="card tunnel-section">
+				<SettingsSectionLabel label="Основные параметры" icon={Globe} tone="slate" header />
 
 				<div class="form-group">
 					<label class="label" for="tag">Название / tag</label>
@@ -166,11 +239,11 @@
 						oninput={(e) => setField(['server_port'], parseInt((e.target as HTMLInputElement).value, 10))}
 					/>
 				</div>
-			</div>
+			</section>
 
 			{#if protocol === 'vless'}
-				<div class="section">
-					<h2 class="section-title">VLESS</h2>
+				<section class="card tunnel-section">
+					<SettingsSectionLabel label="VLESS" icon={Link2} tone="purple" header />
 
 					<div class="form-group">
 						<label class="label" for="uuid">UUID</label>
@@ -191,10 +264,36 @@
 							oninput={(e) => setField(['flow'], (e.target as HTMLInputElement).value)}
 						/>
 					</div>
-				</div>
+				</section>
 
-				<div class="section">
-					<h2 class="section-title">TLS</h2>
+				{#if getField(['tls', 'reality'])}
+					<section class="card tunnel-section">
+						<SettingsSectionLabel label="Reality" icon={ScanEye} tone="indigo" header />
+
+						<div class="form-group">
+							<label class="label" for="reality_pubkey">Public Key</label>
+							<input
+								id="reality_pubkey"
+								class="input"
+								value={getField(['tls', 'reality', 'public_key']) ?? ''}
+								oninput={(e) => setField(['tls', 'reality', 'public_key'], (e.target as HTMLInputElement).value)}
+							/>
+						</div>
+
+						<div class="form-group">
+							<label class="label" for="reality_short_id">Short ID</label>
+							<input
+								id="reality_short_id"
+								class="input"
+								value={getField(['tls', 'reality', 'short_id']) ?? ''}
+								oninput={(e) => setField(['tls', 'reality', 'short_id'], (e.target as HTMLInputElement).value)}
+							/>
+						</div>
+					</section>
+				{/if}
+
+				<section class="card tunnel-section">
+					<SettingsSectionLabel label="TLS" icon={Lock} tone="blue" header />
 
 					<div class="form-group">
 						<label class="label" for="sni">SNI</label>
@@ -222,35 +321,11 @@
 							fullWidth
 						/>
 					</div>
-
-					{#if getField(['tls', 'reality'])}
-						<h3 class="subsection-title">Reality</h3>
-
-						<div class="form-group">
-							<label class="label" for="reality_pubkey">Public Key</label>
-							<input
-								id="reality_pubkey"
-								class="input"
-								value={getField(['tls', 'reality', 'public_key']) ?? ''}
-								oninput={(e) => setField(['tls', 'reality', 'public_key'], (e.target as HTMLInputElement).value)}
-							/>
-						</div>
-
-						<div class="form-group">
-							<label class="label" for="reality_short_id">Short ID</label>
-							<input
-								id="reality_short_id"
-								class="input"
-								value={getField(['tls', 'reality', 'short_id']) ?? ''}
-								oninput={(e) => setField(['tls', 'reality', 'short_id'], (e.target as HTMLInputElement).value)}
-							/>
-						</div>
-					{/if}
-				</div>
+				</section>
 
 				{#if outbound.transport?.type === 'grpc'}
-					<div class="section">
-						<h2 class="section-title">Transport (gRPC)</h2>
+					<section class="card tunnel-section">
+						<SettingsSectionLabel label="Transport (gRPC)" icon={Waypoints} tone="teal" header />
 
 						<div class="form-group">
 							<label class="label" for="grpc_service">Service Name</label>
@@ -261,12 +336,12 @@
 								oninput={(e) => setField(['transport', 'service_name'], (e.target as HTMLInputElement).value)}
 							/>
 						</div>
-					</div>
+					</section>
 				{/if}
 
 				{#if outbound.transport?.type === 'ws'}
-					<div class="section">
-						<h2 class="section-title">Transport (WebSocket)</h2>
+					<section class="card tunnel-section">
+						<SettingsSectionLabel label="Transport (WebSocket)" icon={Radio} tone="orange" header />
 						<p class="section-hint">Параметры импортированы из ссылки и редактированию не подлежат.</p>
 
 						<div class="form-group">
@@ -287,12 +362,153 @@
 								<input id="ws_ed" class="input" value={getField(['transport', 'early_data_header_name'])} readonly />
 							</div>
 						{/if}
-					</div>
+					</section>
 				{/if}
 
+			{:else if protocol === 'trojan'}
+				<section class="card tunnel-section">
+					<SettingsSectionLabel label="Trojan" icon={Link2} tone="orange" header />
+
+					<div class="form-group">
+						<label class="label" for="trojan_password">Пароль</label>
+						<input
+							id="trojan_password"
+							class="input"
+							type="password"
+							value={outbound.password ?? ''}
+							oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
+						/>
+					</div>
+				</section>
+
+				<section class="card tunnel-section">
+					<SettingsSectionLabel label="TLS" icon={Lock} tone="blue" header />
+
+					<div class="form-group">
+						<label class="label" for="trojan_sni">SNI</label>
+						<input
+							id="trojan_sni"
+							class="input"
+							value={getField(['tls', 'server_name']) ?? ''}
+							oninput={(e) => setField(['tls', 'server_name'], (e.target as HTMLInputElement).value)}
+						/>
+					</div>
+
+					<div class="form-group">
+						<Dropdown
+							id="trojan_fingerprint"
+							label="Fingerprint"
+							value={getField(['tls', 'utls', 'fingerprint']) ?? ''}
+							options={[
+								{ value: '', label: '—' },
+								{ value: 'chrome', label: 'chrome' },
+								{ value: 'firefox', label: 'firefox' },
+								{ value: 'safari', label: 'safari' },
+								{ value: 'edge', label: 'edge' },
+							]}
+							onchange={(v) => setField(['tls', 'utls', 'fingerprint'], v)}
+							fullWidth
+						/>
+					</div>
+
+					<label class="checkbox-label">
+						<input
+							type="checkbox"
+							checked={getField(['tls', 'insecure']) ?? false}
+							onchange={(e) => setField(['tls', 'insecure'], (e.target as HTMLInputElement).checked)}
+						/>
+						<span>Insecure (пропустить проверку сертификата)</span>
+					</label>
+				</section>
+
+				{#if outbound.transport?.type === 'grpc'}
+					<section class="card tunnel-section">
+						<SettingsSectionLabel label="Transport (gRPC)" icon={Waypoints} tone="teal" header />
+
+						<div class="form-group">
+							<label class="label" for="trojan_grpc_service">Service Name</label>
+							<input
+								id="trojan_grpc_service"
+								class="input"
+								value={getField(['transport', 'service_name']) ?? ''}
+								oninput={(e) => setField(['transport', 'service_name'], (e.target as HTMLInputElement).value)}
+							/>
+						</div>
+					</section>
+				{/if}
+
+				{#if outbound.transport?.type === 'ws'}
+					<section class="card tunnel-section">
+						<SettingsSectionLabel label="Transport (WebSocket)" icon={Radio} tone="orange" header />
+						<p class="section-hint">Параметры импортированы из ссылки и редактированию не подлежат.</p>
+
+						<div class="form-group">
+							<label class="label" for="trojan_ws_path">Path</label>
+							<input id="trojan_ws_path" class="input" value={getField(['transport', 'path']) ?? '/'} readonly />
+						</div>
+
+						{#if getField(['transport', 'headers', 'Host'])}
+							<div class="form-group">
+								<label class="label" for="trojan_ws_host">Host header</label>
+								<input id="trojan_ws_host" class="input" value={getField(['transport', 'headers', 'Host'])} readonly />
+							</div>
+						{/if}
+					</section>
+				{/if}
+
+			{:else if protocol === 'shadowsocks'}
+				<section class="card tunnel-section">
+					<SettingsSectionLabel label="Shadowsocks" icon={ScanEye} tone="slate" header />
+
+					<div class="form-group">
+						<label class="label" for="ss_method">Метод (cipher)</label>
+						<input
+							id="ss_method"
+							class="input"
+							value={outbound.method ?? ''}
+							oninput={(e) => setField(['method'], (e.target as HTMLInputElement).value)}
+							placeholder="aes-256-gcm"
+						/>
+					</div>
+
+					<div class="form-group">
+						<label class="label" for="ss_password">Пароль</label>
+						<input
+							id="ss_password"
+							class="input"
+							type="password"
+							value={outbound.password ?? ''}
+							oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
+						/>
+					</div>
+
+					<div class="form-group">
+						<label class="label" for="ss_plugin">Plugin</label>
+						<input
+							id="ss_plugin"
+							class="input"
+							value={outbound.plugin ?? ''}
+							oninput={(e) => setField(['plugin'], (e.target as HTMLInputElement).value)}
+							placeholder="obfs-local, v2ray-plugin…"
+						/>
+					</div>
+
+					<div class="form-group">
+						<label class="label" for="ss_plugin_opts">Plugin opts</label>
+						<textarea
+							id="ss_plugin_opts"
+							class="input textarea"
+							rows="2"
+							value={outbound.plugin_opts ?? ''}
+							oninput={(e) => setField(['plugin_opts'], (e.target as HTMLTextAreaElement).value)}
+							placeholder="obfs=http;obfs-host=example.com"
+						></textarea>
+					</div>
+				</section>
+
 			{:else if protocol === 'hysteria2'}
-				<div class="section">
-					<h2 class="section-title">Hysteria2</h2>
+				<section class="card tunnel-section">
+					<SettingsSectionLabel label="Hysteria2" icon={Zap} tone="pink" header />
 
 					<div class="form-group">
 						<label class="label" for="password">Пароль</label>
@@ -304,10 +520,10 @@
 							oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
 						/>
 					</div>
-				</div>
+				</section>
 
-				<div class="section">
-					<h2 class="section-title">TLS</h2>
+				<section class="card tunnel-section">
+					<SettingsSectionLabel label="TLS" icon={Lock} tone="blue" header />
 
 					<div class="form-group">
 						<label class="label" for="hy2_sni">SNI</label>
@@ -327,11 +543,11 @@
 						/>
 						<span>Insecure (пропустить проверку сертификата)</span>
 					</label>
-				</div>
+				</section>
 
 			{:else if protocol === 'naive'}
-				<div class="section">
-					<h2 class="section-title">NaiveProxy</h2>
+				<section class="card tunnel-section">
+					<SettingsSectionLabel label="NaiveProxy" icon={UserRound} tone="green" header />
 
 					<div class="form-group">
 						<label class="label" for="username">Пользователь</label>
@@ -353,10 +569,10 @@
 							oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
 						/>
 					</div>
-				</div>
+				</section>
 			{:else if protocol === 'mieru'}
-				<div class="section">
-					<h2 class="section-title">Mieru</h2>
+				<section class="card tunnel-section">
+					<SettingsSectionLabel label="Mieru" icon={Boxes} tone="indigo" header />
 
 					<div class="form-group">
 						<label class="label" for="mieru_username">Пользователь</label>
@@ -424,7 +640,7 @@
 							oninput={(e) => setField(['traffic_pattern'], (e.target as HTMLTextAreaElement).value)}
 						></textarea>
 					</div>
-				</div>
+				</section>
 			{/if}
 
 			{#if error}
@@ -444,6 +660,10 @@
 
 {#snippet backIcon()}
 	<ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />
+{/snippet}
+
+{#snippet copyIcon()}
+	<Copy size={14} strokeWidth={2} aria-hidden="true" />
 {/snippet}
 
 <style>
@@ -466,6 +686,12 @@
 		gap: 0.75rem;
 	}
 
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
 	.page-title {
 		font-size: 1.25rem;
 		font-weight: 600;
@@ -483,31 +709,18 @@
 		color: var(--text-muted);
 	}
 
-	.section {
-		background: var(--bg-secondary);
-		border: 1px solid var(--border);
-		border-radius: 8px;
-		padding: 1.25rem;
-		margin-bottom: 1rem;
+	.tunnel-section {
+		background: var(--color-settings-surface-bg);
 	}
 
-	.section-title {
-		font-size: 1rem;
-		font-weight: 600;
-		margin: 0 0 1rem;
+	.tunnel-section :global(.settings-section-label.header) {
+		margin-bottom: 12px;
 	}
 
 	.section-hint {
 		font-size: 12px;
 		color: var(--text-muted);
-		margin: -0.5rem 0 1rem;
-	}
-
-	.subsection-title {
-		font-size: 13px;
-		font-weight: 600;
-		color: var(--text-secondary);
-		margin: 16px 0 8px;
+		margin: 0 0 12px;
 	}
 
 	.form-group {
@@ -588,6 +801,15 @@
 
 		.header-left {
 			flex-wrap: wrap;
+		}
+
+		.header-actions {
+			width: 100%;
+		}
+
+		.header-actions :global(.btn) {
+			flex: 1 1 0;
+			min-width: 0;
 		}
 	}
 </style>

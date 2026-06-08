@@ -11335,6 +11335,30 @@ paths:
       summary: Sing-box delay check
       tags:
       - singbox
+  /singbox/tunnels/share-link:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.APIEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Export sing-box tunnel as share-link
+      tags:
+      - singbox
   /singbox/tunnels/test/connectivity:
     get:
       description: Tests connectivity through a sing-box tunnel. Provide either `tag`

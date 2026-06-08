@@ -64,6 +64,44 @@ func TestMapClashVless_MissingUUID(t *testing.T) {
 	}
 }
 
+func TestMapClashVless_HTTPUpgrade(t *testing.T) {
+	// mihomo encodes httpupgrade as network: ws + ws-opts.v2ray-http-upgrade.
+	in := map[string]any{
+		"name":    "hu",
+		"type":    "vless",
+		"server":  "h.example.com",
+		"port":    443,
+		"uuid":    "3a3b1c2e-9999-4321-aaaa-1234567890ab",
+		"network": "ws",
+		"ws-opts": map[string]any{
+			"path":               "/up",
+			"headers":            map[string]any{"Host": "cdn.example.com"},
+			"v2ray-http-upgrade": true,
+		},
+	}
+	got, err := mapClashVless(in)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	var ob map[string]any
+	if err := json.Unmarshal(got.Outbound, &ob); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	tr, _ := ob["transport"].(map[string]any)
+	if tr == nil {
+		t.Fatalf("no transport: %v", ob)
+	}
+	if tr["type"] != "httpupgrade" {
+		t.Errorf("transport.type=%v want httpupgrade", tr["type"])
+	}
+	if tr["host"] != "cdn.example.com" {
+		t.Errorf("transport.host=%v want cdn.example.com (top-level string)", tr["host"])
+	}
+	if tr["path"] != "/up" {
+		t.Errorf("transport.path=%v want /up", tr["path"])
+	}
+}
+
 func TestMapClashVless_MissingServer(t *testing.T) {
 	_, err := mapClashVless(map[string]any{
 		"name": "x",

@@ -172,6 +172,9 @@
   --z-modal: 200;           /* Modal */
   --z-floating: 1000;       /* Floating-UI portal'd dropdowns, context menus */
   --z-toast: 1000;          /* Toast container — same tier as floating */
+
+  /** Межблочный зазор на странице настроек и в формах редактирования */
+  --settings-gap: 0.765rem;
 }
 
 /* ─── Light theme override ─── */
@@ -472,6 +475,16 @@ label {
 	width: 100%;
 }
 
+.tab-content {
+	padding: var(--settings-gap) 0;
+}
+
+.tab-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--settings-gap);
+}
+
 .flex {
 	display: flex;
 }
@@ -717,7 +730,6 @@ label {
 }
 
 .settings-layout {
-	--settings-gap: 0.765rem;
 	display: flex;
 	flex-direction: column;
 	gap: var(--settings-gap);
@@ -849,6 +861,22 @@ label {
 
 .setting-row .flex.flex-col {
 	min-width: 0;
+}
+
+/* Toggle/control справа — текст слева сжимается, переключатель не уезжает на новую строку */
+.setting-row.toggle-inline-row {
+	flex-wrap: nowrap;
+	align-items: center;
+	gap: 0.75rem;
+}
+
+.setting-row.toggle-inline-row > *:first-child {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.setting-row.toggle-inline-row > *:last-child {
+	flex-shrink: 0;
 }
 
 .setting-row:first-child {
@@ -1387,6 +1415,18 @@ label {
 	}
 	.setting-row > *:first-child {
 		flex: initial;
+	}
+
+	.setting-row.toggle-inline-row {
+		flex-direction: row;
+		align-items: center;
+		flex-wrap: nowrap;
+		gap: 0.75rem;
+	}
+
+	.setting-row.toggle-inline-row > *:first-child {
+		flex: 1 1 auto;
+		min-width: 0;
 	}
 }
 

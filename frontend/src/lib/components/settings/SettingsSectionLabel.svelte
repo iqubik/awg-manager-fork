@@ -4,6 +4,8 @@
 	export type SettingsSectionTone =
 		| 'blue'
 		| 'green'
+		| 'amber'
+		| 'info'
 		| 'purple'
 		| 'orange'
 		| 'pink'
@@ -18,6 +20,8 @@
 	export const SETTINGS_SECTION_TONE_COLORS: Record<SettingsSectionTone, string> = {
 		blue: '#0077ff',
 		green: '#00a650',
+		amber: 'var(--color-warning)',
+		info: 'var(--color-info)',
 		purple: '#8b5cf6',
 		orange: '#ff8a00',
 		pink: '#ff4d7e',
@@ -39,20 +43,37 @@
 		header?: boolean;
 		/** Compact row for collapse buttons and toolbars. */
 		inline?: boolean;
+		/** In «Красочная» mode — slowly cycle hue (experimental sections). */
+		cycleInVivid?: boolean;
 	}
 
-	let { label, icon: Icon, tone = 'blue', header = false, inline = false }: Props = $props();
+	let {
+		label,
+		icon: Icon,
+		tone = 'blue',
+		header = false,
+		inline = false,
+		cycleInVivid = false,
+	}: Props = $props();
 
 	const iconMode = $derived($settingsSectionIconMode);
 	const toneColor = $derived(SETTINGS_SECTION_TONE_COLORS[tone]);
+	const vividToneCycle = $derived(cycleInVivid && iconMode === 'vivid');
 </script>
 
-<div class="settings-section-label" class:header class:inline style:--tone-color={toneColor}>
+<div
+	class="settings-section-label"
+	class:header
+	class:inline
+	class:vivid-tone-cycle={vividToneCycle}
+	style:--tone-color={toneColor}
+>
 	<span
 		class="icon-badge"
 		class:mode-strict={iconMode === 'strict'}
 		class:mode-harmonious={iconMode === 'harmonious'}
 		class:mode-vivid={iconMode === 'vivid'}
+		class:vivid-tone-cycle={vividToneCycle}
 		data-tone={tone}
 		aria-hidden="true"
 	>
@@ -105,6 +126,17 @@
 		background: var(--tone-color);
 	}
 
+	/* Light semantic hues — tint + glyph (solid + white reads poorly). */
+	.icon-badge.mode-vivid[data-tone='amber'] {
+		color: var(--color-warning);
+		background: var(--color-warning-tint);
+	}
+
+	.icon-badge.mode-vivid[data-tone='info'] {
+		color: var(--color-info);
+		background: var(--color-info-tint);
+	}
+
 	.label-wrap {
 		display: inline-flex;
 		flex-direction: column;
@@ -138,6 +170,54 @@
 
 	.settings-section-label:has(.mode-vivid) .label-divider {
 		background: var(--tone-color);
+	}
+
+	.settings-section-label:has(.mode-vivid[data-tone='amber']) .label-divider {
+		background: color-mix(in srgb, var(--color-warning) 45%, transparent);
+	}
+
+	.settings-section-label:has(.mode-vivid[data-tone='info']) .label-divider {
+		background: color-mix(in srgb, var(--color-info) 45%, transparent);
+	}
+
+	@property --settings-vivid-hue {
+		syntax: '<angle>';
+		initial-value: 0deg;
+		inherits: true;
+	}
+
+	.settings-section-label.vivid-tone-cycle {
+		--settings-vivid-hue: 0deg;
+		animation: settings-vivid-tone-cycle 14s linear infinite;
+	}
+
+	.icon-badge.mode-vivid.vivid-tone-cycle {
+		color: var(--color-info);
+		background: var(--color-info-tint);
+		filter: hue-rotate(var(--settings-vivid-hue));
+	}
+
+	/* Same hue as the flask glyph — not the washed static info strip. */
+	.settings-section-label.vivid-tone-cycle:has(.mode-vivid[data-tone='info']) .label-divider:not(.hidden) {
+		background: var(--color-info);
+		filter: hue-rotate(var(--settings-vivid-hue));
+	}
+
+	@keyframes settings-vivid-tone-cycle {
+		to {
+			--settings-vivid-hue: 360deg;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.settings-section-label.vivid-tone-cycle {
+			animation: none;
+		}
+
+		.icon-badge.mode-vivid.vivid-tone-cycle,
+		.settings-section-label.vivid-tone-cycle:has(.mode-vivid[data-tone='info']) .label-divider:not(.hidden) {
+			filter: none;
+		}
 	}
 
 	.settings-section-label.inline .label-text {

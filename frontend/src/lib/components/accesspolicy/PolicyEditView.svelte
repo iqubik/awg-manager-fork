@@ -34,6 +34,11 @@
 
 	let assignedDevices = $derived(devices.filter((d) => d.policy === policy.name));
 	let descriptionValid = $derived(description.trim().length > 0 && description.trim().length <= MAX_LEN && VALID_PATTERN.test(description.trim()));
+	const standaloneHint = $derived(
+		policy.standalone
+			? 'Политика действует самостоятельно, без привязки к глобальным правилам. Статические маршруты из настроек роутера не копируются (маршруты из вкладки "IP-адреса" работать не будут).'
+			: 'Если standalone отключено - в политике действуют глобальные правила, статические маршруты из настроек роутера копируются.',
+	);
 
 	async function saveDescription() {
 		if (isHrPolicy) return;
@@ -157,7 +162,7 @@
 				onchange={toggleStandalone}
 				spinner="after"
 				label="Standalone"
-				hint="Политика действует самостоятельно, без привязки к глобальным правилам, статические маршруты из основных настроек не копируются"
+				hint={standaloneHint}
 			/>
 		{/if}
 

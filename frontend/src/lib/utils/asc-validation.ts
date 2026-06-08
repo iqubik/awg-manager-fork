@@ -11,6 +11,10 @@ function isMissing(v: unknown): boolean {
 	return v === undefined || v === null || v === '';
 }
 
+export function isExtendedASCParams(params: ASCParams): params is ASCParamsExtended {
+	return 's3' in params;
+}
+
 export function isZeroASCState(params: ASCParams): boolean {
 	for (const key of REQUIRED_NUMERIC) {
 		if (!isZeroLike(params[key])) {

@@ -3,6 +3,7 @@
 	import type { BadgeVariant } from '$lib/components/ui/Badge.svelte';
 	import MatrixCell from './MatrixCell.svelte';
 	import { Badge, LatencySparkline, VersionBadge } from '$lib/components/ui';
+	import DefaultRouteBadge from '$lib/components/tunnels/DefaultRouteBadge.svelte';
 	import { latencyTier } from '$lib/utils/latencyTier';
 	import { latencyHistory } from '$lib/stores/singboxProxies';
 
@@ -189,9 +190,9 @@
 									{/if}
 								</div>
 							</div>
-							{#if t.source === 'awg' && t.defaultRoute}
+							{#if t.source === 'awg' && !t.defaultRoute}
 								<div class="tunnel-default-row">
-									<Badge variant="accent" size="sm">default</Badge>
+									<DefaultRouteBadge defaultRoute={t.defaultRoute} />
 								</div>
 							{/if}
 							{#if showTypeRow}
@@ -277,7 +278,7 @@
 				{@const showTypeRow = typeBadges.length > 0 || (tunnel.source === 'awg' && (!!awgBackendValue || !!tunnel.awgVersion))}
 				{@const showMobileBadgeRow =
 					showTypeRow ||
-					(tunnel.source === 'awg' && tunnel.defaultRoute) ||
+					(tunnel.source === 'awg' && !tunnel.defaultRoute) ||
 					(tunnel.source === 'singbox' && !!tunnel.clashDelay && tunnel.clashDelay > 0)}
 				<section class="mobile-tunnel-card" aria-label={`Мониторинг ${tunnel.name}`}>
 					<header class="mobile-tunnel-head">
@@ -307,9 +308,7 @@
 									{#if tunnel.source === 'awg'}
 										{#if awgBackendValue}<VersionBadge kind="backend" value={awgBackendValue} />{/if}
 										{#if tunnel.awgVersion}<VersionBadge kind="awg" value={tunnel.awgVersion} />{/if}
-										{#if tunnel.defaultRoute}
-											<Badge variant="accent" size="sm">default</Badge>
-										{/if}
+										<DefaultRouteBadge defaultRoute={tunnel.defaultRoute} />
 									{:else}
 										{#each typeBadges as b, idx (`${tunnel.id}-mobile-type-${idx}-${b.label}`)}
 											<Badge variant={b.variant} size="sm" mono={b.mono ?? false}>{b.label}</Badge>

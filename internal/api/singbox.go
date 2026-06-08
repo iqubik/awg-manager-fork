@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/response"
 	"github.com/hoaxisr/awg-manager/internal/singbox"
+	"github.com/hoaxisr/awg-manager/internal/singbox/vlink"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/testing"
 )
@@ -513,6 +515,46 @@ func (h *SingboxHandler) GetTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, map[string]interface{}{"tag": tag, "outbound": json.RawMessage(ob)})
+}
+
+// ExportShareLink handles POST /api/singbox/tunnels/share-link.
+// Body: {"outbound":{...},"label":"optional fragment"}.
+//
+//	@Summary		Export sing-box tunnel as share-link
+//	@Tags			singbox
+//	@Accept			json
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Success		200	{object}	APIEnvelope
+//	@Failure		400	{object}	APIErrorEnvelope
+//	@Failure		500	{object}	APIErrorEnvelope
+//	@Router			/singbox/tunnels/share-link [post]
+func (h *SingboxHandler) ExportShareLink(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.MethodNotAllowed(w)
+		return
+	}
+	body, ok := parseJSON[struct {
+		Outbound json.RawMessage `json:"outbound"`
+		Label    string          `json:"label,omitempty"`
+	}](w, r, http.MethodPost)
+	if !ok {
+		return
+	}
+	if len(bytes.TrimSpace(body.Outbound)) == 0 {
+		response.BadRequest(w, "outbound required")
+		return
+	}
+	link, err := vlink.EncodeOutbound(body.Outbound, body.Label)
+	if err != nil {
+		if errors.Is(err, vlink.ErrEncodeUnsupported) {
+			response.Error(w, err.Error(), "ENCODE_UNSUPPORTED")
+		} else {
+			response.BadRequest(w, err.Error())
+		}
+		return
+	}
+	response.Success(w, map[string]string{"link": link})
 }
 
 // UpdateTunnel handles PUT /api/singbox/tunnels?tag={tag}.
