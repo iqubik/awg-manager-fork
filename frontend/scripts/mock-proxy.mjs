@@ -715,6 +715,33 @@ const MOCK_SINGBOX_TUNNELS = [
 		connectivity: { connected: false, latency: null },
 		running: false,
 	},
+	{
+		tag: 'ss-backup-demo',
+		protocol: 'shadowsocks',
+		server: 'backup.demo.example',
+		port: 8388,
+		security: '',
+		transport: 'tcp',
+		listenPort: 11016,
+		proxyInterface: 't2s5',
+		kernelInterface: 'sb5',
+		connectivity: { connected: true, latency: 94 },
+		running: true,
+	},
+	{
+		tag: 'mieru-cn-demo',
+		protocol: 'mieru',
+		server: 'cn01.demo.example',
+		port: 443,
+		security: 'none',
+		transport: 'tcp',
+		listenPort: 11017,
+		proxyInterface: 't2s6',
+		kernelInterface: 'sb6',
+		username: 'demo-user',
+		connectivity: { connected: true, latency: 108 },
+		running: true,
+	},
 ];
 
 const TRAFFIC_PROFILES = {
@@ -895,6 +922,22 @@ const singboxTrafficCounters = new Map(
 function isSingboxTunnelTrafficActive(tag) {
 	const t = MOCK_SINGBOX_TUNNELS.find((x) => x.tag === tag);
 	return !!(t && t.running && t.connectivity?.connected);
+}
+
+const MOCK_SHARE_LINK_TYPES = new Set([
+	'vless',
+	'trojan',
+	'shadowsocks',
+	'hysteria2',
+	'naive',
+	'mieru',
+]);
+
+/** Share-link scheme for mock encode stub (outbound type → URI scheme). */
+function mockShareLinkScheme(type) {
+	if (type === 'shadowsocks') return 'ss';
+	if (type === 'mieru') return 'mierus';
+	return type;
 }
 
 function buildAwgSnapshot() {
@@ -4125,6 +4168,28 @@ const server = http.createServer(async (req, res) => {
 			} catch (e) {
 				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
 			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/tunnels/share-link') {
+		const body = await readJsonBody(req);
+		if (!body?.outbound || typeof body.outbound !== 'object') {
+			send(res, 400, { error: true, message: 'outbound required', code: 'BAD_REQUEST' });
+			return;
+		}
+		const type = body.outbound.type;
+		if (!MOCK_SHARE_LINK_TYPES.has(type)) {
+			send(res, 400, {
+				error: true,
+				message: `unsupported outbound type: ${type ?? 'unknown'}`,
+				code: 'ENCODE_UNSUPPORTED',
+			});
+			return;
+		}
+		send(res, 200, {
+			success: true,
+			data: { link: `${mockShareLinkScheme(type)}://EXAMPLE_ENCODE` },
 		});
 		return;
 	}

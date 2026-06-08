@@ -1535,6 +1535,7 @@ class ApiClient {
 		};
 
 		if (t.protocol === 'vless') {
+			outbound.uuid = '00000000-0000-4000-8000-000000000001';
 			const tls: Record<string, unknown> = {};
 			if (t.sni) tls.server_name = t.sni;
 			if (t.fingerprint) tls.utls = { enabled: true, fingerprint: t.fingerprint };
@@ -1544,15 +1545,45 @@ class ApiClient {
 			} else if (t.security === 'tls') {
 				tls.enabled = true;
 			}
-			outbound.transport = { type: t.transport || 'tcp' };
+			const transport: Record<string, unknown> = { type: t.transport || 'tcp' };
+			if (t.transport === 'grpc') transport.service_name = 'demo-service';
+			outbound.transport = transport;
 			if (Object.keys(tls).length > 0) outbound.tls = tls;
+		} else if (t.protocol === 'hysteria2') {
+			outbound.password = 'demo-password';
+			outbound.tls = { enabled: true, server_name: t.sni || t.server };
+		} else if (t.protocol === 'naive') {
+			outbound.username = t.username || 'demo-user';
+			outbound.password = 'demo-password';
+			outbound.tls = { enabled: true, server_name: t.sni || t.server };
+		} else if (t.protocol === 'trojan') {
+			outbound.password = 'demo-password';
+			outbound.tls = { enabled: true, server_name: t.sni || t.server };
+			if (t.transport && t.transport !== 'tcp') {
+				outbound.transport = { type: t.transport };
+			}
+		} else if (t.protocol === 'shadowsocks') {
+			outbound.method = 'aes-256-gcm';
+			outbound.password = 'demo-password';
 		} else if (t.protocol === 'mieru') {
-			outbound.transport = (t.transport || 'TCP').toUpperCase();
-			outbound.username = t.username || '';
-			outbound.password = '';
+			outbound.transport = (t.transport || 'tcp').toUpperCase() === 'UDP' ? 'UDP' : 'TCP';
+			outbound.username = t.username || 'demo-user';
+			outbound.password = 'demo-password';
+			outbound.server_ports = ['8443', '1000:2000'];
+			outbound.multiplexing = 'MULTIPLEXING_LOW';
 		}
 
 		return outbound;
+	}
+
+	async singboxExportShareLink(
+		outbound: unknown,
+		label?: string,
+	): Promise<{ link: string }> {
+		return this.request('/singbox/tunnels/share-link', {
+			method: 'POST',
+			body: JSON.stringify({ outbound, label }),
+		});
 	}
 
 	async singboxUpdateTunnel(tag: string, outbound: unknown): Promise<SingboxTunnel[]> {
