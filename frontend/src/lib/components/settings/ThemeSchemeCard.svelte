@@ -237,6 +237,7 @@
 			onchange={(enabled) => compactLayout.setEnabled(enabled)}
 		/>
 	</div>
+	</div>
 </div>
 
 <style>

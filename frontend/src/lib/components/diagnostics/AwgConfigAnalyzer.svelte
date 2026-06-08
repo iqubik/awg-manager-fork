@@ -1768,10 +1768,6 @@
 			overflow-wrap: anywhere;
 		}
 
-		.analyzer-note strong {
-			display: inline;
-		}
-
 		.existing-tunnel-head {
 			display: grid;
 			grid-template-columns: 1fr;
