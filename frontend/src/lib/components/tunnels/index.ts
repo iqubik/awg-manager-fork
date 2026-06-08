@@ -2,6 +2,7 @@ export { default as AmneziaConfEditor } from './AmneziaConfEditor.svelte';
 export { default as VpnLinkPasteImport } from './VpnLinkPasteImport.svelte';
 export { default as AWGAdvancedParams } from './AWGAdvancedParams.svelte';
 export { default as ConnectivitySettingsModal } from './ConnectivitySettingsModal.svelte';
+export { default as DefaultRouteBadge } from './DefaultRouteBadge.svelte';
 export { default as TunnelCard } from './TunnelCard.svelte';
 export { default as TunnelDelaySparkBars } from './TunnelDelaySparkBars.svelte';
 export { default as TunnelFieldLabel } from './TunnelFieldLabel.svelte';

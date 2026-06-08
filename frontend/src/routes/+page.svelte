@@ -18,6 +18,7 @@
 		TunnelTitleRow,
 		TunnelMetaText,
 		TunnelToolbarViewRow,
+		DefaultRouteBadge,
 	} from '$lib/components/tunnels';
 	import { TunnelListActions } from '$lib/components/ui';
 	import TunnelDiagnosticsModal from '$lib/components/testing/TunnelDiagnosticsModal.svelte';
@@ -1730,9 +1731,7 @@
 										onTitleClick={() => openDetail(tunnel.id)}
 									>
 										{#snippet badges()}
-											{#if tunnel.defaultRoute}
-												<Badge variant="accent" size="sm">default</Badge>
-											{/if}
+											<DefaultRouteBadge defaultRoute={tunnel.defaultRoute} />
 											{#if tunnel.backend}
 												<span class="awg-inline-badge">{tunnel.backend}</span>
 											{/if}

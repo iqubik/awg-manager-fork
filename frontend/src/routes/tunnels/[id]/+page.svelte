@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount, onDestroy } from 'svelte';
 	import { tunnels } from '$lib/stores/tunnels';
+	import { usageLevel } from '$lib/stores/settings';
 	import { notifications } from '$lib/stores/notifications';
 	import { api } from '$lib/api/client';
 	import type { AWGTunnel, SystemInfo, WANInterface, RouterInterface, TunnelListItem } from '$lib/types';
@@ -453,19 +454,25 @@
 						</div>
 					</section>
 
-					<section class="form-section">
-						<h2 class="section-title">Маршрут по умолчанию</h2>
-						<div class="setting-row">
-							<div class="flex flex-col gap-1">
-								<span class="font-medium">Default route</span>
-								<span class="setting-description">NDMS default route через интерфейс туннеля</span>
+					{#if $usageLevel === 'expert'}
+						<section class="form-section">
+							<h2 class="section-title">Маршрут по умолчанию</h2>
+							<div class="setting-row">
+								<div class="flex flex-col gap-1">
+									<span class="font-medium">NDMS Default Route</span>
+									<span class="setting-description">
+										В NDMS для OpkgTunX выполняется «ip route default», а не как full-tunnel на уровне Linux. <br>
+										Так туннель регистрируется среди интернет-выходов с метрикой (весом), по которому NDMS выбирает канал по умолчанию. 
+										Без этой записи туннель не участвует в политиках доступа. <br>
+										В большинстве случаев, данная опция должна быть включена, особенно, если интерфейс должен конкурировать за роль основного выхода.</span>
+								</div>
+								<Toggle
+									checked={tunnel.defaultRoute}
+									onchange={() => toggleDefaultRoute()}
+								/>
 							</div>
-							<Toggle
-								checked={tunnel.defaultRoute}
-								onchange={() => toggleDefaultRoute()}
-							/>
-						</div>
-					</section>
+						</section>
+					{/if}
 				</div>
 			{:else if activeTab === 'awgConfig'}
 				<div class="tab-form">

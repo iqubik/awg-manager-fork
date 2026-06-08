@@ -148,6 +148,7 @@
     }
 
     .toggle-hint {
+        text-wrap: pretty;
         font-size: 12px;
         color: var(--text-muted);
         line-height: 1.5;
