@@ -1,0 +1,18 @@
+export const AWG_PARAM_HINTS: Record<string, string> = {
+	jc: 'Количество junk-пакетов, отправляемых перед handshake. Диапазон: 0-128.',
+	jmin: 'Минимальный размер junk-пакета в байтах. Диапазон: 0-1280.',
+	jmax: 'Максимальный размер junk-пакета в байтах. Диапазон: 0-1280.',
+	s1: 'Padding для Init Handshake.',
+	s2: 'Padding для Response Handshake.',
+	s3: 'Padding для Transport Handshake Init.',
+	s4: 'Padding для Transport Handshake Response.',
+	h1: 'Кастомный заголовок для Init Handshake. Формат: число или диапазон (мин-макс).',
+	h2: 'Кастомный заголовок для Response Handshake. Формат: число или диапазон (мин-макс).',
+	h3: 'Кастомный заголовок для Cookie Reply. Формат: число или диапазон (мин-макс).',
+	h4: 'Кастомный заголовок для Transport. Формат: число или диапазон (мин-макс).',
+	i1: 'Signature пакет I1 — имитация протокола. Поддерживает CPS теги.',
+	i2: 'Signature пакет I2.',
+	i3: 'Signature пакет I3.',
+	i4: 'Signature пакет I4.',
+	i5: 'Signature пакет I5.',
+};

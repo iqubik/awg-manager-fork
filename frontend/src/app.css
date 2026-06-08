@@ -472,6 +472,16 @@ label {
 	width: 100%;
 }
 
+.tab-content {
+	padding: 20px 0;
+}
+
+.tab-form {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+}
+
 .flex {
 	display: flex;
 }
