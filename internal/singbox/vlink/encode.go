@@ -1,6 +1,7 @@
 package vlink
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,7 +62,10 @@ func encodeVless(ob map[string]any, label string) (string, error) {
 		Host:   netJoinHostPort(host, port),
 		User:   url.User(uuid),
 	}
-	q := streamQueryFromOutbound(ob)
+	q, err := streamQueryFromOutbound(ob)
+	if err != nil {
+		return "", err
+	}
 	if flow, _ := ob["flow"].(string); flow != "" {
 		q.Set("flow", flow)
 	}
@@ -94,7 +98,10 @@ func encodeTrojan(ob map[string]any, label string) (string, error) {
 		Host:   netJoinHostPort(host, port),
 		User:   url.User(password),
 	}
-	q := streamQueryFromOutbound(ob)
+	q, err := streamQueryFromOutbound(ob)
+	if err != nil {
+		return "", err
+	}
 	if sec := q.Get("security"); sec == "" {
 		q.Set("security", "tls")
 	}
@@ -120,13 +127,20 @@ func encodeShadowsocks(ob map[string]any, label string) (string, error) {
 		return "", errors.New("vlink: shadowsocks: invalid server_port")
 	}
 
-	user := url.UserPassword(method, password)
+	// SIP002: userinfo is base64url(method:password). Plain percent-encoded
+	// userinfo (url.UserPassword) is not percent-decoded by standard SS clients
+	// nor by this package's parser, so a password with reserved characters
+	// (@ : / # %) would decode wrong. base64url is URL-safe → no extra escaping.
+	userinfo := base64.RawURLEncoding.EncodeToString([]byte(method + ":" + password))
+	q, err := streamQueryFromOutbound(ob)
+	if err != nil {
+		return "", err
+	}
 	u := &url.URL{
 		Scheme: "ss",
 		Host:   netJoinHostPort(host, port),
-		User:   user,
+		User:   url.User(userinfo),
 	}
-	q := streamQueryFromOutbound(ob)
 	u.RawQuery = q.Encode()
 	if label != "" {
 		u.Fragment = label
@@ -291,12 +305,14 @@ func encodeMieru(ob map[string]any, label string) (string, error) {
 	return u.String(), nil
 }
 
-func streamQueryFromOutbound(ob map[string]any) url.Values {
+func streamQueryFromOutbound(ob map[string]any) (url.Values, error) {
 	q := url.Values{}
 
 	network := "tcp"
 	if transport, _ := ob["transport"].(map[string]any); transport != nil {
-		switch strings.ToLower(stringFromAny(transport["type"])) {
+		switch ttype := strings.ToLower(stringFromAny(transport["type"])); ttype {
+		case "", "tcp":
+			// no transport / explicit tcp — plain network, nothing to add
 		case "ws":
 			network = "ws"
 			if path, _ := transport["path"].(string); path != "" {
@@ -323,6 +339,10 @@ func streamQueryFromOutbound(ob map[string]any) url.Values {
 			if hosts := stringSliceFromAny(transport["host"]); len(hosts) > 0 {
 				q.Set("host", hosts[0])
 			}
+		default:
+			// Unknown transport (e.g. httpupgrade, quic) — fail closed rather
+			// than silently emitting a plain-tcp link that misroutes.
+			return nil, fmt.Errorf("vlink: unsupported transport type %q", ttype)
 		}
 	}
 	if network != "tcp" {
@@ -362,7 +382,7 @@ func streamQueryFromOutbound(ob map[string]any) url.Values {
 		}
 	}
 
-	return q
+	return q, nil
 }
 
 func encodeMport(specs []string) string {

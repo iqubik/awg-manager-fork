@@ -1,0 +1,119 @@
+package vlink
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+// reparseOutbound encodes an outbound map and parses the result back.
+func reparseOutbound(t *testing.T, ob map[string]any, label string) (map[string]any, string, string) {
+	t.Helper()
+	raw, _ := json.Marshal(ob)
+	link, err := EncodeOutbound(raw, label)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	parsed, err := ParseLinkMany(link)
+	if err != nil {
+		t.Fatalf("reparse %q: %v", link, err)
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("reparse count=%d for %q", len(parsed), link)
+	}
+	var got map[string]any
+	json.Unmarshal(parsed[0].Outbound, &got)
+	return got, parsed[0].Label, link
+}
+
+// TestEncode_SpecialCharCredentials_RoundTrip is the regression for the
+// shadowsocks SIP002 fix and the trojan/vless reserved-char handling: a
+// credential containing @ : / # % must survive encode→reparse intact.
+func TestEncode_SpecialCharCredentials_RoundTrip(t *testing.T) {
+	const pw = "p@ss:wo/rd#x%1"
+
+	t.Run("shadowsocks", func(t *testing.T) {
+		got, _, link := reparseOutbound(t, map[string]any{
+			"type": "shadowsocks", "server": "h.com", "server_port": 8388,
+			"method": "aes-256-gcm", "password": pw,
+		}, "")
+		if got["password"] != pw {
+			t.Errorf("password corrupted: want %q got %q (link %q)", pw, got["password"], link)
+		}
+		if got["method"] != "aes-256-gcm" {
+			t.Errorf("method: want aes-256-gcm got %v", got["method"])
+		}
+		// SIP002 form: userinfo is base64url(method:password), not plaintext.
+		userinfo := link[len("ss://"):]
+		if at := strings.Index(userinfo, "@"); at >= 0 {
+			userinfo = userinfo[:at]
+		}
+		if strings.Contains(userinfo, ":") {
+			t.Errorf("SS userinfo must be base64 (no literal colon), got %q", userinfo)
+		}
+		if dec, err := base64.RawURLEncoding.DecodeString(userinfo); err != nil || string(dec) != "aes-256-gcm:"+pw {
+			t.Errorf("SS userinfo base64 decode = %q, %v; want %q", dec, err, "aes-256-gcm:"+pw)
+		}
+	})
+
+	t.Run("trojan", func(t *testing.T) {
+		got, _, link := reparseOutbound(t, map[string]any{
+			"type": "trojan", "server": "h.com", "server_port": 443, "password": pw,
+		}, "")
+		if got["password"] != pw {
+			t.Errorf("password corrupted: want %q got %q (link %q)", pw, got["password"], link)
+		}
+	})
+}
+
+// TestEncode_LabelRoundTrip covers unicode/space/# in the fragment label.
+func TestEncode_LabelRoundTrip(t *testing.T) {
+	const label = "мой сервер #1"
+	_, gotLabel, link := reparseOutbound(t, map[string]any{
+		"type": "shadowsocks", "server": "h.com", "server_port": 8388,
+		"method": "aes-256-gcm", "password": "x",
+	}, label)
+	if gotLabel != label {
+		t.Errorf("label round-trip: want %q got %q (link %q)", label, gotLabel, link)
+	}
+}
+
+// TestEncodeOutbound_ErrorBranches asserts encoders fail closed instead of
+// emitting a malformed share-link.
+func TestEncodeOutbound_ErrorBranches(t *testing.T) {
+	cases := map[string]string{
+		"unsupported type":   `{"type":"vmess","server":"h","server_port":443,"uuid":"u"}`,
+		"ss missing password": `{"type":"shadowsocks","server":"h","server_port":8388,"method":"aes-256-gcm"}`,
+		"ss missing method":   `{"type":"shadowsocks","server":"h","server_port":8388,"password":"p"}`,
+		"vless missing uuid":  `{"type":"vless","server":"h","server_port":443}`,
+		"trojan missing pw":   `{"type":"trojan","server":"h","server_port":443}`,
+		"port zero":           `{"type":"trojan","server":"h","server_port":0,"password":"p"}`,
+		"port too large":      `{"type":"trojan","server":"h","server_port":70000,"password":"p"}`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			if link, err := EncodeOutbound([]byte(raw), ""); err == nil {
+				t.Errorf("expected error, got link %q", link)
+			}
+		})
+	}
+}
+
+// TestEncode_UnknownTransport_FailsClosed: an unknown transport type must not
+// silently degrade to a plain-tcp link.
+func TestEncode_UnknownTransport_FailsClosed(t *testing.T) {
+	raw := []byte(`{"type":"vless","server":"h","server_port":443,"uuid":"3a3b1c2e-9999-4321-aaaa-1234567890ab","transport":{"type":"httpupgrade","path":"/x"}}`)
+	if link, err := EncodeOutbound(raw, ""); err == nil {
+		t.Errorf("expected error for httpupgrade transport, got %q", link)
+	}
+}
+
+func TestNetJoinHostPort_IPv6Bracketing(t *testing.T) {
+	if got := netJoinHostPort("2001:db8::1", 443); got != "[2001:db8::1]:443" {
+		t.Errorf("IPv6 host = %q, want [2001:db8::1]:443", got)
+	}
+	if got := netJoinHostPort("example.com", 443); got != "example.com:443" {
+		t.Errorf("host = %q, want example.com:443", got)
+	}
+}

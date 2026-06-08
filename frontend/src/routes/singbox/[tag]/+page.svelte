@@ -41,7 +41,7 @@
 	let outbound = $state<Record<string, any> | null>(null);
 	let protocol = $state<string>('');
 	let editableTag = $state('');
-	let initialOutboundFingerprint = '';
+	let initialOutboundFingerprint = $state('');
 
 	let canExportShareLink = $derived(EXPORTABLE_PROTOCOLS.has(protocol));
 	let hasUnsavedChanges = $derived(

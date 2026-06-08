@@ -78,10 +78,12 @@
 		const reader = new FileReader();
 		reader.onload = (e) => {
 			const content = e.target?.result as string;
-			if (content) {
+			if (content && content.trim()) {
 				importContent = content;
 				onfileloaded?.(file, content);
 				notifications.success(`Файл "${file.name}" загружен`);
+			} else {
+				notifications.error(`Файл "${file.name}" пуст`);
 			}
 		};
 		reader.onerror = () => {
