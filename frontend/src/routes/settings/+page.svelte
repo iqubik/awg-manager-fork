@@ -97,6 +97,7 @@
 	let systemInfoUpdatedAt = $state<string | null>(null);
 	let systemInfoInFlight: Promise<void> | null = null;
 	let developGateOpen = $state(false);
+	let footerPatrolWidth = $state(0);
 
 	const singboxStatusValue = $derived($singboxStatus.data ?? null);
 	const singboxStatusLoading = $derived(
@@ -1013,8 +1014,8 @@ $effect(() => {
 		</div>
 
 		<div class="settings-doc-block" id="settings-footer-block">
-			<div class="settings-footer-patrol-host">
-				<PukhososPatrol />
+			<div class="settings-footer-patrol-host" bind:clientWidth={footerPatrolWidth}>
+				<PukhososPatrol trackWidth={footerPatrolWidth} />
 				<SettingsFooter />
 			</div>
 		</div>

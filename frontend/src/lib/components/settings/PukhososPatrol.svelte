@@ -20,7 +20,12 @@
 	const PAUSE_MS = PUKHOSOS_PAUSE_MS;
 	const PASS_COUNT = PUKHOSOS_PASS_COUNT;
 
-	let trackWidth = $state(0);
+	interface Props {
+		/** Ширина блока футера (из bind:clientWidth на хосте). */
+		trackWidth?: number;
+	}
+
+	let { trackWidth = 0 }: Props = $props();
 	let visible = $state(false);
 	let x = $state(0);
 	let scale = $state(0);
@@ -129,6 +134,15 @@
 		}
 	}
 
+	async function ensureTrackReady(): Promise<boolean> {
+		for (let i = 0; i < 40; i++) {
+			if (trackWidth > SPRITE_SIZE) return true;
+			await tick();
+			await waitPaint();
+		}
+		return trackWidth > SPRITE_SIZE;
+	}
+
 	async function turnTo(nextFacing: 'left' | 'right') {
 		animation = 'turn';
 		facing = nextFacing;
@@ -141,7 +155,7 @@
 
 	async function startPatrol() {
 		const id = ++runId;
-		if (trackWidth <= SPRITE_SIZE) return;
+		if (!(await ensureTrackReady())) return;
 
 		visible = true;
 		facing = 'right';
@@ -196,7 +210,7 @@
 	}
 </script>
 
-<div class="patrol-track" bind:clientWidth={trackWidth} aria-hidden="true">
+<div class="patrol-track" aria-hidden="true">
 	{#if visible}
 		<div
 			class="patrol-sprite"
