@@ -54,6 +54,8 @@
     let confirmDeleteOpen = $state(false);
     let deleting = $state(false);
     let diagnosticsOpen = $state(false);
+    let tablePickerAnchorEl = $state<HTMLElement | null>(null);
+    let tablePickerAnchorRect = $state<DOMRect | null>(null);
 
     // NDMS Proxy interface name (Proxy<N>) and matching kernel TUN
     // (t2s<N>) — same naming convention sing-box tunnels use, just
@@ -196,6 +198,54 @@
         await subscriptionsStore.refetch();
     }
 
+    function showURLTestPickerInfo(): void {
+        notifications.info(
+            'Включён автовыбор (URLTest). Чтобы выбирать сервер вручную, откройте подписку → вкладка «Настройки» → режим «Вручную».',
+            { duration: 9000 },
+        );
+    }
+
+    function togglePicker(): void {
+        if (isURLTest) {
+            showURLTestPickerInfo();
+            return;
+        }
+        pickerOpen = !pickerOpen;
+    }
+
+    function openTablePickerFromButton(e: MouseEvent): void {
+        e.stopPropagation();
+        if (isURLTest) {
+            showURLTestPickerInfo();
+            return;
+        }
+        const el = e.currentTarget as HTMLElement | null;
+        tablePickerAnchorEl = el;
+        tablePickerAnchorRect = el?.getBoundingClientRect() ?? null;
+        pickerOpen = !pickerOpen;
+    }
+
+    function toggleEndpointVisibility(): void {
+        showEndpoint = !showEndpoint;
+    }
+
+    $effect(() => {
+        if (!pickerOpen || renderMode !== 'table') return;
+        const updateAnchorRect = () => {
+            if (tablePickerAnchorEl) {
+                tablePickerAnchorRect = tablePickerAnchorEl.getBoundingClientRect();
+            }
+        };
+        updateAnchorRect();
+        const handleViewportChange = () => updateAnchorRect();
+        window.addEventListener('resize', handleViewportChange);
+        window.addEventListener('scroll', handleViewportChange, true);
+        return () => {
+            window.removeEventListener('resize', handleViewportChange);
+            window.removeEventListener('scroll', handleViewportChange, true);
+        };
+    });
+
     function openDetail(e?: MouseEvent | KeyboardEvent): void {
         if (e && isCardNestedInteraction(e)) return;
         goto(`/subscriptions/${subscription.id}`);
@@ -225,6 +275,74 @@
     }
 
 </script>
+
+{#snippet activeServerPicker(buttonClass: string, eyeClass: string, showEye: boolean = true)}
+    <div class="picker-anchor">
+        <div class="server-control">
+            <button
+                type="button"
+                class={`server-btn ${buttonClass}`.trim()}
+                class:server-btn-readonly={isURLTest}
+                onclick={(e) => {
+                    if (renderMode === 'table') {
+                        openTablePickerFromButton(e);
+                        return;
+                    }
+                    e.stopPropagation();
+                    togglePicker();
+                }}
+                aria-haspopup={isURLTest ? undefined : 'listbox'}
+                aria-expanded={isURLTest ? undefined : pickerOpen}
+                title={isURLTest ? 'Sing-box выбирает самый быстрый сервер автоматически' : ''}
+            >
+                <span
+                    class="server-text"
+                    class:mono={showEndpoint || !listActiveServerName}
+                    title={showEndpoint ? activeEndpointTitle : (listActiveServerName || hiddenEndpointText)}
+                >
+                    {#if showEndpoint}
+                        {endpointText}
+                    {:else if listActiveServerName}
+                        {listActiveServerName}
+                    {:else}
+                        {hiddenEndpointText}
+                    {/if}
+                </span>
+                {#if !isURLTest}
+                    <span class="caret" aria-hidden="true">▾</span>
+                {/if}
+            </button>
+            {#if showEye}
+                <button
+                    type="button"
+                    class={`eye-btn ${eyeClass}`.trim()}
+                    onclick={(e) => {
+                        e.stopPropagation();
+                        toggleEndpointVisibility();
+                    }}
+                    title={showEndpoint ? 'Скрыть IP' : 'Показать IP'}
+                    aria-label={showEndpoint ? 'Скрыть IP сервера' : 'Показать IP сервера'}
+                >
+                    {#if showEndpoint}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    {:else}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    {/if}
+                </button>
+            {/if}
+        </div>
+        {#if pickerOpen && !isURLTest}
+            <SubscriptionMemberPicker
+                members={subscription.members ?? []}
+                activeMemberTag={subscription.activeMember}
+                onPick={pickMember}
+                onClose={() => (pickerOpen = false)}
+                placement={renderMode === 'table' ? 'fixed' : 'absolute'}
+                anchorRect={renderMode === 'table' ? tablePickerAnchorRect : null}
+            />
+        {/if}
+    </div>
+{/snippet}
 
 {#if renderMode === 'table'}
     <tr
@@ -286,9 +404,9 @@
             </td>
             <td class="tunnel-list-cell tunnel-list-cell--endpoint lc lc-endpoint" data-label="Активный сервер" title={activeEndpointTitle}>
                 <div class="lc-endpoint-stack">
-                    {#if listActiveServerName}
-                        <span class="lc-endpoint-name" title={listActiveServerName}>{listActiveServerName}</span>
-                    {/if}
+                    <div class="server-picker-inline">
+                        {@render activeServerPicker('server-btn--table', 'eye-btn--inline', false)}
+                    </div>
                     <TunnelListEndpointLine
                         host={activeMember.server}
                         port={activeMember.port}
@@ -418,6 +536,15 @@
     </div>
 
     {#if renderMode !== 'list-card'}
+    <div class="dense-server-row">
+        <span class="label">{isURLTest ? 'Авто' : 'Сервер'}</span>
+        <div class="server-picker-inline">
+            {@render activeServerPicker('server-btn--dense', 'eye-btn--inline', false)}
+        </div>
+    </div>
+    {/if}
+
+    {#if renderMode !== 'list-card'}
     <div class="details">
     {#if subscription.lastError}
         <div class="sub-error mono">{subscription.lastError}</div>
@@ -472,9 +599,9 @@
     <div class="mobile-list-facts">
         <div class="mobile-list-fact">
             <span class="mobile-list-fact-label">{isURLTest ? 'Авто' : 'Сервер'}</span>
-            <span class="mobile-list-fact-value" title={listActiveServerName || activeMember.tag}>
-                {listActiveServerName || activeMember.tag}
-            </span>
+            <div class="server-picker-inline server-picker-inline--mobile">
+                {@render activeServerPicker('server-btn--list', 'eye-btn--inline mobile-list-eye', false)}
+            </div>
         </div>
         <div class="mobile-list-fact">
             <span class="mobile-list-fact-label">Endpoint</span>
@@ -635,68 +762,8 @@
     <div class="server-section">
     <div class="server-row">
         <span class="label">{isURLTest ? 'Авто' : 'Активный сервер'}</span>
-        <div class="picker-anchor">
-            <div class="server-control">
-                <button
-                    class="server-btn"
-                    class:server-btn-readonly={isURLTest}
-                    onclick={(e) => {
-                        e.stopPropagation();
-                        if (isURLTest) {
-                            notifications.info(
-                                'Включён автовыбор (URLTest). Чтобы выбирать сервер вручную, откройте подписку → вкладка «Настройки» → режим «Вручную».',
-                                { duration: 9000 },
-                            );
-                            return;
-                        }
-                        pickerOpen = !pickerOpen;
-                    }}
-                    aria-haspopup={isURLTest ? undefined : 'listbox'}
-                    aria-expanded={isURLTest ? undefined : pickerOpen}
-                    title={isURLTest ? 'Sing-box выбирает самый быстрый сервер автоматически' : ''}
-                >
-                    <span
-                        class="server-text"
-                        class:mono={showEndpoint || !listActiveServerName}
-                        title={showEndpoint ? activeEndpointTitle : (listActiveServerName || hiddenEndpointText)}
-                    >
-                        {#if showEndpoint}
-                            {endpointText}
-                        {:else if listActiveServerName}
-                            {listActiveServerName}
-                        {:else}
-                            {hiddenEndpointText}
-                        {/if}
-                    </span>
-                    {#if !isURLTest}
-                        <span class="caret" aria-hidden="true">▾</span>
-                    {/if}
-                </button>
-                <button
-                    type="button"
-                    class="eye-btn"
-                    onclick={(e) => {
-                        e.stopPropagation();
-                        showEndpoint = !showEndpoint;
-                    }}
-                    title={showEndpoint ? 'Скрыть IP' : 'Показать IP'}
-                    aria-label={showEndpoint ? 'Скрыть IP сервера' : 'Показать IP сервера'}
-                >
-                    {#if showEndpoint}
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                    {:else}
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                    {/if}
-                </button>
-            </div>
-            {#if pickerOpen && !isURLTest}
-                <SubscriptionMemberPicker
-                    members={subscription.members ?? []}
-                    activeMemberTag={subscription.activeMember}
-                    onPick={pickMember}
-                    onClose={() => (pickerOpen = false)}
-                />
-            {/if}
+        <div class="server-picker-inline">
+            {@render activeServerPicker('', '')}
         </div>
     </div>
     </div>
@@ -879,6 +946,14 @@
         line-height: 1.3;
     }
 
+    .dense-server-row {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: 0.45rem;
+        align-items: center;
+        min-width: 0;
+    }
+
     .card.view-dense .badge.mode {
         background: rgba(100, 100, 100, 0.3);
         color: var(--color-text-muted);
@@ -972,6 +1047,20 @@
     .mobile-list-eye {
         padding: 0;
         flex-shrink: 0;
+    }
+
+    .server-picker-inline {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.35rem;
+        align-items: center;
+        min-width: 0;
+        width: 100%;
+    }
+
+    .server-picker-inline--mobile {
+        width: 100%;
+        min-width: 0;
     }
 
     .mobile-list-meta {
@@ -1207,10 +1296,12 @@
     }
     .picker-anchor { position: relative; min-width: 0; }
     .server-control {
-        display: flex;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.35rem;
         align-items: center;
-        gap: 0.25rem;
         min-width: 0;
+        width: 100%;
     }
     .server-btn {
         display: flex;
@@ -1246,6 +1337,21 @@
         font-family: var(--font-mono, ui-monospace, monospace);
         font-size: var(--sbx-card-value);
     }
+    .server-btn--dense,
+    .server-btn--list,
+    .server-btn--table {
+        padding: 0.3rem 0.45rem;
+        font-size: 0.78rem;
+    }
+    .server-btn--dense {
+        padding: 0.22rem 0.42rem;
+        min-height: 1.7rem;
+        font-size: 0.72rem;
+    }
+    .server-btn--dense .server-text {
+        font-size: 0.72rem;
+        line-height: 1.15;
+    }
     .caret { color: var(--color-text-muted); font-size: var(--sbx-card-note); }
     .eye-btn {
         display: inline-flex;
@@ -1259,7 +1365,22 @@
         cursor: pointer;
         transition: color var(--t-fast) ease;
     }
+    .eye-btn--inline {
+        padding: 0.2rem;
+    }
     .eye-btn:hover { color: var(--color-text-secondary); }
+
+    .lc-endpoint-stack {
+        display: grid;
+        gap: 0.35rem;
+        min-width: 0;
+    }
+
+    .lc-endpoint .picker-anchor,
+    .card.view-list .picker-anchor,
+    .card.view-dense .picker-anchor {
+        width: 100%;
+    }
 
     .chart-head {
         display: flex;
@@ -1312,6 +1433,17 @@
 
     .card.view-dense .chart-inline.delay-inline .chart-inline-head {
         padding: 0;
+    }
+
+    @media (max-width: 640px) {
+        .mobile-list-fact {
+            align-items: start;
+        }
+
+        .mobile-list-fact-value-endpoint {
+            align-items: flex-start;
+        }
+
     }
 
     .chart-section {

@@ -8,8 +8,17 @@
         activeMemberTag: string;
         onPick: (memberTag: string) => Promise<void>;
         onClose: () => void;
+        placement?: 'absolute' | 'fixed';
+        anchorRect?: DOMRect | null;
     }
-    let { members, activeMemberTag, onPick, onClose }: Props = $props();
+    let {
+        members,
+        activeMemberTag,
+        onPick,
+        onClose,
+        placement = 'absolute',
+        anchorRect = null,
+    }: Props = $props();
 
     let switching = $state<string | null>(null);
     let pickError = $state('');
@@ -60,9 +69,51 @@
             window.removeEventListener('keydown', handleKey);
         };
     });
+
+    const fixedDirection = $derived.by(() => {
+        if (placement !== 'fixed' || !anchorRect || typeof window === 'undefined') return 'down' as const;
+        const gap = 4;
+        const viewportPadding = 16;
+        const rowHeight = 42;
+        const estimatedHeight = Math.min(
+            280,
+            members.length * rowHeight + (pickError ? 42 : 0) + 8,
+        );
+        const fitsBelow = anchorRect.bottom + gap + estimatedHeight <= window.innerHeight - viewportPadding;
+        return fitsBelow ? 'down' as const : 'up' as const;
+    });
+
+    const popoverStyle = $derived.by(() => {
+        if (placement !== 'fixed' || !anchorRect) return undefined;
+        if (typeof window === 'undefined') return undefined;
+        const gap = 4;
+        const viewportPadding = 16;
+        const width = Math.min(
+            Math.max(anchorRect.width, 260),
+            Math.max(260, window.innerWidth - viewportPadding * 2),
+        );
+        const maxLeft = Math.max(viewportPadding, window.innerWidth - viewportPadding - width);
+        const left = Math.min(Math.max(viewportPadding, anchorRect.left), maxLeft);
+        if (fixedDirection === 'up') {
+            const bottom = Math.max(viewportPadding, window.innerHeight - anchorRect.top + gap);
+            return `--picker-left:${left}px;--picker-bottom:${bottom}px;--picker-width:${width}px;`;
+        }
+        const top = anchorRect.bottom + gap;
+        return `--picker-left:${left}px;--picker-top:${top}px;--picker-width:${width}px;`;
+    });
 </script>
 
-<div class="popover" bind:this={popoverEl} role="listbox">
+<div
+    class="popover"
+    class:fixed={placement === 'fixed'}
+    class:up={placement === 'fixed' && fixedDirection === 'up'}
+    bind:this={popoverEl}
+    role="listbox"
+    tabindex="-1"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+    style={popoverStyle}
+>
     {#each members as m (m.tag)}
         {@const isActive = m.tag === activeMemberTag}
         {@const isSwitching = switching === m.tag}
@@ -75,7 +126,10 @@
             class:active={isActive}
             class:switching={isSwitching}
             disabled={switching !== null}
-            onclick={() => pick(m.tag)}
+            onclick={(e) => {
+                e.stopPropagation();
+                void pick(m.tag);
+            }}
         >
             <span class="led" class:on={isActive}></span>
             <span class="server">{m.server}:{m.port}</span>
@@ -101,6 +155,18 @@
         border-radius: 6px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
         z-index: var(--z-page-overlay);
+    }
+    .popover.fixed {
+        position: fixed;
+        top: var(--picker-top);
+        left: var(--picker-left);
+        right: auto;
+        width: var(--picker-width);
+        z-index: calc(var(--z-page-overlay) + 10);
+    }
+    .popover.fixed.up {
+        top: auto;
+        bottom: var(--picker-bottom);
     }
     .row {
         display: flex;
