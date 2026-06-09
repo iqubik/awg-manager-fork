@@ -564,7 +564,30 @@
 		const map = $singboxTraffic;
 		const delayMap = $singboxDelayHistory;
 
-		function ingestMember(tag: string, label: string): void {
+		function latestDelayForTags(tags: Array<string | null | undefined>): number | null {
+			const seen = new Set<string>();
+
+			for (const rawTag of tags) {
+				const tag = rawTag?.trim();
+				if (!tag || seen.has(tag)) continue;
+				seen.add(tag);
+
+				const history = delayMap.get(tag) ?? [];
+				const last = history.length > 0 ? history[history.length - 1] : null;
+
+				if (typeof last === 'number' && last > 0) {
+					return last;
+				}
+			}
+
+			return null;
+		}
+
+		function ingestMember(
+			tag: string,
+			label: string,
+			delayTags: Array<string | null | undefined> = [tag],
+		): void {
 			const tr = map.get(tag);
 			const memberDown = tr?.download ?? 0;
 			const memberUp = tr?.upload ?? 0;
@@ -572,13 +595,7 @@
 			const normalizedLabel = label || tag;
 			down += memberDown;
 			up += memberUp;
-
-			const delayHistory = delayMap.get(tag) ?? [];
-			const lastDelay = delayHistory.length > 0 ? delayHistory[delayHistory.length - 1] : null;
-			const delay =
-				typeof lastDelay === 'number' && lastDelay > 0
-					? lastDelay
-					: null;
+			const delay = latestDelayForTags(delayTags);
 
 			if (delay !== null) {
 				delaySum += delay;
@@ -597,12 +614,23 @@
 			ingestMember(
 				card.activeMember.tag,
 				card.subscription.label || card.activeMember.label || card.activeMember.tag,
+				[
+					card.subscription.selectorTag,
+					card.activeMember.tag,
+				],
 			);
 		}
 		for (const sub of subscriptionsListRows) {
 			const tag = resolveSubscriptionMemberTag(sub, liveActives[sub.id] || null);
 			if (!tag) continue;
-			ingestMember(tag, sub.label || tag);
+			ingestMember(
+				tag,
+				sub.label || tag,
+				[
+					sub.selectorTag,
+					tag,
+				],
+			);
 		}
 
 		if (candidates.length > 0) {
