@@ -67,7 +67,7 @@
 	const expandUsageLevel = $derived($page.url.searchParams.has('mode'));
 	const highlightFeedbackFab = $derived($page.url.searchParams.has('feedbackFab'));
 	const defaultPingTarget = "8.8.8.8";
-	const defaultConnectivityCheckUrl = "http://connectivitycheck.gstatic.com/generate_204";
+	const defaultConnectivityCheckUrl = "https://connectivitycheck.gstatic.com/generate_204";
 	const highlightDownloads = $derived($page.url.searchParams.get('highlight') === 'downloads');
 
 	let systemInfo: SystemInfo | null = $state(null);
