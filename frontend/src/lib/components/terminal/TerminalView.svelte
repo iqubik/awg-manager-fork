@@ -6,7 +6,7 @@
 	import { buildXtermTheme } from '$lib/utils/xterm-theme';
 
 	interface Props {
-		onclose?: () => void;
+		onclose?: () => void | Promise<void>;
 		onerror?: (msg: string) => void;
 		onreconnect?: () => Promise<void>;
 	}
@@ -78,6 +78,37 @@
 		};
 	}
 
+	function closeSocketAndWait(socket: WebSocket | null, timeoutMs = 1200): Promise<void> {
+		if (!socket || socket.readyState === WebSocket.CLOSED) {
+			return Promise.resolve();
+		}
+
+		return new Promise((resolve) => {
+			let done = false;
+			const finish = () => {
+				if (done) return;
+				done = true;
+				resolve();
+			};
+
+			const prevOnClose = socket.onclose;
+			socket.onclose = (ev) => {
+				prevOnClose?.call(socket, ev);
+				finish();
+			};
+
+			try {
+				if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+					socket.close();
+				}
+			} catch {
+				finish();
+			}
+
+			window.setTimeout(finish, timeoutMs);
+		});
+	}
+
 	function connectSocket(term: any, fitAddon: any): Promise<WebSocket> {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const wsUrl = `${protocol}//${window.location.host}/api/terminal/ws`;
@@ -130,15 +161,16 @@
 
 		reconnecting = true;
 		intentionalDisconnect = true;
-		ws?.close();
+		const oldSocket = ws;
 		ws = null;
 
 		try {
+			await closeSocketAndWait(oldSocket);
 			await onreconnect?.();
-			intentionalDisconnect = false;
 			termInstance.reset();
 			fitAddonRef.fit();
 			ws = await connectSocket(termInstance, fitAddonRef);
+			intentionalDisconnect = false;
 		} catch {
 			onerror?.('Не удалось переподключиться');
 		} finally {

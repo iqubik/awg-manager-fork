@@ -150,6 +150,7 @@ func (h *TerminalHandler) Stop(w http.ResponseWriter, r *http.Request) {
 		response.InternalError(w, err.Error())
 		return
 	}
+	h.manager.SetSessionActive(false)
 	h.log.AppLog(logging.LevelInfo, "terminal", "", "stop", "ttyd", "stopped via API")
 	response.Success(w, map[string]bool{"stopped": true})
 }

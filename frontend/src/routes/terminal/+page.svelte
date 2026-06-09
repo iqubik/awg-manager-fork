@@ -63,11 +63,29 @@
 		}
 	}
 
-	function handleTerminalClose() {
-		api.terminalStop().catch(() => {});
+	function sleep(ms: number) {
+		return new Promise<void>((resolve) => setTimeout(resolve, ms));
+	}
+
+	async function waitTerminalReleased(timeoutMs = 3000) {
+		const deadline = Date.now() + timeoutMs;
+
+		while (Date.now() < deadline) {
+			const status = await api.terminalStatus().catch(() => null);
+			if (status && !status.sessionActive && !status.running) {
+				return;
+			}
+			await sleep(150);
+		}
+	}
+
+	async function handleTerminalClose() {
+		await api.terminalStop().catch(() => {});
 	}
 
 	async function handleTerminalReconnect() {
+		await api.terminalStop().catch(() => {});
+		await waitTerminalReleased();
 		await api.terminalStart();
 	}
 
