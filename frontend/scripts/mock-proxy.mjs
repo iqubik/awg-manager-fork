@@ -1518,6 +1518,7 @@ let mockSubscriptions = [
 		],
 		activeMember: 'sub-demo0001-aabbccdd',
 		enabled: true,
+		mode: 'selector',
 	},
 	{
 		id: 'sub-demo0002',
@@ -1847,7 +1848,13 @@ const mockBindableInterfaces = [
 	{ name: 'ppp0', id: 'PPPoE0', label: 'Letai (PPPoE)', up: true, priority: 0 },
 ];
 let mockOutbounds = [
-	{ type: 'selector', tag: 'manual-eu', outbounds: ['awg-de', 'awg-nl'], default: 'awg-de', source: 'router' },
+	{ type: 'selector', tag: 'manual-eu', outbounds: ['awg-vpn0', 'awg-sys-Wireguard0'], default: 'awg-vpn0', source: 'router' },
+	{
+		type: 'selector',
+		tag: 'sub-demo0001',
+		outbounds: ['sub-demo0001-aabbccdd', 'sub-demo0001-eeff0011', 'sub-demo0001-22334455'],
+		source: 'subscription',
+	},
 ];
 
 // WAN interfaces returned by GET /singbox/router/wan-interfaces. Mix of

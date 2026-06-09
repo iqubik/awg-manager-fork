@@ -15,6 +15,7 @@
   import RuleCard from './RuleCard.svelte';
   import { isSystemRule, singboxRuleToCard } from './adapters';
   import { presetCatalog } from '$lib/stores/presets';
+  import { subscriptionsStore } from '$lib/stores/subscriptions';
   import RuleEditModal from '$lib/components/routing/singboxRouter/RuleEditModal.svelte';
   import RuleSetAddModal from '$lib/components/routing/singboxRouter/RuleSetAddModal.svelte';
   import { computeRuleSetUsage } from '$lib/components/routing/singboxRouter';
@@ -47,7 +48,17 @@
 
   let cards: RuleCardData[] = $derived.by(() =>
     $rules.map((r, i) =>
-      singboxRuleToCard(r, i, $outbounds, rulesetLabels, $presets, $options, $presetCatalog, $ruleSets),
+      singboxRuleToCard(
+        r,
+        i,
+        $outbounds,
+        rulesetLabels,
+        $presets,
+        $options,
+        $presetCatalog,
+        $ruleSets,
+        $subscriptionsStore.data,
+      ),
     ),
   );
 

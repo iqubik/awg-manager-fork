@@ -82,12 +82,45 @@ describe('resolveOutboundDisplay', () => {
     expect(d.kind).toBe('tunnel');
   });
 
-  it('composite outbound (selector)', () => {
+  it('composite outbound (selector) expands member labels', () => {
     const ob: SingboxRouterOutbound[] = [
-      { tag: 'group-1', type: 'selector' } as unknown as SingboxRouterOutbound,
+      {
+        tag: 'group-1',
+        type: 'selector',
+        outbounds: ['node-a', 'node-b'],
+        source: 'router',
+      },
     ];
     const d = resolveOutboundDisplay('group-1', 'route', ob);
     expect(d.kind).toBe('composite');
+    expect(d.memberLabels).toEqual(['node-a', 'node-b']);
+    expect(d.compositeType).toBe('selector');
+  });
+
+  it('subscription composite without outbound entry still expands members', () => {
+    const subs = [{
+      id: 'sub-x',
+      label: 'My Sub',
+      url: '',
+      isInline: false,
+      headers: [],
+      refreshHours: 24,
+      lastFetched: '',
+      selectorTag: 'sub-x',
+      inboundTag: 'sub-x-in',
+      listenPort: 11000,
+      proxyIndex: 1,
+      memberTags: ['sub-x-a'],
+      members: [{ tag: 'sub-x-a', protocol: 'vless', server: 'host.example', port: 443 }],
+      orphanTags: [],
+      activeMember: 'sub-x-a',
+      enabled: true,
+      mode: 'selector' as const,
+    }];
+    const d = resolveOutboundDisplay('sub-x', 'route', [], [], subs);
+    expect(d.kind).toBe('composite');
+    expect(d.memberLabels).toEqual(['host.example']);
+    expect(d.label).toBe('My Sub');
   });
 
   it('unknown outbound by name', () => {

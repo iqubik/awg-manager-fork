@@ -10,7 +10,7 @@
  * (всё остальное где outbound найден в списке).
  */
 
-import type { CatalogPreset, SingboxRouterPreset, SingboxRouterRule, SingboxRouterRuleSet, SingboxRouterOutbound } from '$lib/types';
+import type { CatalogPreset, SingboxRouterPreset, SingboxRouterRule, SingboxRouterRuleSet, SingboxRouterOutbound, Subscription } from '$lib/types';
 import type { OutboundGroup } from '$lib/components/routing/singboxRouter/outboundOptions';
 import type {
   MatcherChip,
@@ -20,6 +20,7 @@ import type {
 } from './types';
 import { detectService } from './serviceDetection';
 import { resolveRuleSetDisplayType } from '$lib/utils/ruleSetType';
+import { COMPOSITE_OUTBOUND_TYPES, resolveCompositeMemberDisplay } from './compositeOutboundDisplay';
 
 /* ─── System rule detection ─────────────────────────────────────────── */
 
@@ -55,7 +56,7 @@ function mapAction(rule: SingboxRouterRule): RuleAction {
 
 /* ─── Outbound display ──────────────────────────────────────────────── */
 
-const COMPOSITE_TYPES = new Set(['selector', 'urltest']);
+const COMPOSITE_TYPES = COMPOSITE_OUTBOUND_TYPES;
 const AWG_OPTION_GROUPS = new Set(['AWG туннели', 'Системные WireGuard']);
 
 function findOutboundOption(
@@ -74,6 +75,7 @@ export function resolveOutboundDisplay(
   action: RuleAction,
   outbounds: SingboxRouterOutbound[],
   outboundOptions: OutboundGroup[] = [],
+  subscriptions: Subscription[] | null = null,
 ): OutboundDisplay {
   // System actions — render as mono badges instead of destination tile.
   if (action === 'sniff') {
@@ -100,11 +102,30 @@ export function resolveOutboundDisplay(
     return { name, label: option.label, kind: 'awg' };
   }
   if (!ob) {
+    const expanded = resolveCompositeMemberDisplay(name, outbounds, outboundOptions, subscriptions);
+    if (expanded) {
+      return {
+        name,
+        label: expanded.groupTitle,
+        kind: 'composite',
+        compositeType: expanded.compositeType,
+        memberLabels: expanded.memberLabels,
+        memberTitles: expanded.memberTitles,
+      };
+    }
     return { name, label: option?.label ?? name, kind: option ? 'tunnel' : 'unknown' };
   }
   const obType = (ob as { type?: string }).type ?? '';
   if (COMPOSITE_TYPES.has(obType)) {
-    return { name, label: option?.label ?? name, kind: 'composite' };
+    const expanded = resolveCompositeMemberDisplay(name, outbounds, outboundOptions, subscriptions);
+    return {
+      name,
+      label: expanded?.groupTitle ?? option?.label ?? name,
+      kind: 'composite',
+      compositeType: expanded?.compositeType ?? (obType as OutboundDisplay['compositeType']),
+      memberLabels: expanded?.memberLabels,
+      memberTitles: expanded?.memberTitles,
+    };
   }
   return { name, label: option?.label ?? name, kind: 'tunnel' };
 }
@@ -205,11 +226,12 @@ export function singboxRuleToCard(
   outboundOptions: OutboundGroup[] = [],
   catalog: CatalogPreset[] = [],
   ruleSets: SingboxRouterRuleSet[] = [],
+  subscriptions: Subscription[] | null = null,
 ): RuleCardData {
   const detected = detectService(rule, routerPresets, catalog);
   const serviceKey = detected.iconSlug;
   const action = mapAction(rule);
-  const outbound = resolveOutboundDisplay(rule.outbound, action, outbounds, outboundOptions);
+  const outbound = resolveOutboundDisplay(rule.outbound, action, outbounds, outboundOptions, subscriptions);
   const matchers = extractMatcherChips(rule, rulesetLabels, ruleSets);
   const isSystem = isSystemRule(rule);
   const title = fallbackTitle(rule, serviceKey, index, detected.displayName);

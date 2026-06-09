@@ -1,5 +1,9 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { Badge } from '$lib/components/ui';
+	import { countVisibleBadges, readBadgeRowBudgetWidth } from '$lib/utils/fittingBadgeLayout';
+
+	export type RoutingTargetBadgeVariant = 'muted' | 'tunnel';
 
 	interface Props {
 		labels: string[];
@@ -7,16 +11,17 @@
 		titles?: string[];
 		/** Noun for overflow aria-label, e.g. «интерфейсов», «туннелей». */
 		overflowNoun?: string;
+		/** muted — NDMS cards; tunnel — accent tiles как OutboundTile в RuleCard. */
+		variant?: RoutingTargetBadgeVariant;
+		/** Явный бюджет ширины (px) — RuleCard передаёт зазор до кнопок. */
+		budgetWidth?: number;
 	}
 
-	let { labels, titles = [], overflowNoun = 'целей' }: Props = $props();
-
-	const GAP = 4;
+	let { labels, titles = [], overflowNoun = 'целей', variant = 'muted', budgetWidth }: Props = $props();
 
 	let containerEl = $state<HTMLDivElement | null>(null);
 	let measureEl = $state<HTMLDivElement | null>(null);
 	let visibleCount = $state(1);
-	let cachedContainerWidth = 0;
 
 	let visibleLabels = $derived(labels.slice(0, visibleCount));
 	let overflowCount = $derived(Math.max(0, labels.length - visibleCount));
@@ -24,20 +29,26 @@
 	let hiddenTitles = $derived(titles.slice(visibleCount));
 	let overflowMeasure = $derived(`+${Math.max(1, labels.length - 1)}`);
 
-	function readContainerWidth(): number {
-		if (!containerEl) return 0;
-		const parent = containerEl.parentElement;
-		return Math.max(containerEl.clientWidth, parent?.clientWidth ?? 0);
+	function readGap(): number {
+		if (!measureEl) return 4;
+		const gap = parseFloat(getComputedStyle(measureEl).columnGap || getComputedStyle(measureEl).gap);
+		return Number.isFinite(gap) && gap > 0 ? gap : 4;
 	}
 
-	function recalc(nextWidth = cachedContainerWidth) {
-		const availableWidth = nextWidth || readContainerWidth();
+	function recalc() {
 		if (labels.length === 0) return;
-		if (!measureEl || availableWidth === 0) {
-			visibleCount = 1;
+		if (!measureEl || !containerEl) {
+			visibleCount = labels.length;
 			return;
 		}
-		cachedContainerWidth = availableWidth;
+
+		const availableWidth = budgetWidth != null && budgetWidth > 0
+			? budgetWidth
+			: readBadgeRowBudgetWidth(containerEl);
+		if (availableWidth <= 0) {
+			visibleCount = labels.length;
+			return;
+		}
 
 		const children = Array.from(measureEl.children) as HTMLElement[];
 		if (children.length < 2) return;
@@ -45,65 +56,75 @@
 		const arrowW = children[0].getBoundingClientRect().width;
 		const chipW = children[children.length - 1].getBoundingClientRect().width;
 		const badgeEls = children.slice(1, -1);
-		const total = badgeEls.length;
+		const badgeWidths = badgeEls.map((el) => el.getBoundingClientRect().width);
 
-		let used = arrowW;
-		let fit = 0;
+		visibleCount = countVisibleBadges({
+			badgeWidths,
+			arrowWidth: arrowW,
+			overflowChipWidth: chipW,
+			gap: readGap(),
+			availableWidth,
+		});
+	}
 
-		for (let i = 0; i < total; i++) {
-			const badgeW = badgeEls[i].getBoundingClientRect().width;
-			const isLastBadge = i === total - 1;
-			const cost = GAP + badgeW + (isLastBadge ? 0 : GAP + chipW);
-			if (used + cost <= availableWidth) {
-				used += GAP + badgeW;
-				fit++;
-			} else {
-				break;
-			}
-		}
-
-		if (fit < total) {
-			while (fit > 1) {
-				let rowWidth = arrowW;
-				for (let i = 0; i < fit; i++) {
-					rowWidth += GAP + badgeEls[i].getBoundingClientRect().width;
-				}
-				rowWidth += GAP + chipW;
-				if (rowWidth <= availableWidth) break;
-				fit--;
-			}
-		}
-
-		visibleCount = Math.max(1, fit || 1);
+	async function scheduleRecalc() {
+		await tick();
+		recalc();
+		requestAnimationFrame(() => {
+			recalc();
+			requestAnimationFrame(recalc);
+		});
 	}
 
 	$effect(() => {
 		if (!measureEl || !containerEl) return;
 		void labels.length;
 		void labels.join('\0');
-		cachedContainerWidth = readContainerWidth();
-		recalc(cachedContainerWidth);
+		void variant;
+		void budgetWidth;
+		void scheduleRecalc();
 	});
 
 	$effect(() => {
 		if (!containerEl) return;
 		const ro = new ResizeObserver(() => {
-			cachedContainerWidth = readContainerWidth();
-			recalc(cachedContainerWidth);
+			void scheduleRecalc();
 		});
 		ro.observe(containerEl);
-		const parent = containerEl.parentElement;
-		if (parent) ro.observe(parent);
-		return () => ro.disconnect();
+		let el: HTMLElement | null = containerEl.parentElement;
+		while (el) {
+			ro.observe(el);
+			if (el.classList.contains('action') || el.classList.contains('card-route') || el.classList.contains('trail')) break;
+			el = el.parentElement;
+		}
+		const onWindowResize = () => {
+			void scheduleRecalc();
+		};
+		window.addEventListener('resize', onWindowResize);
+		return () => {
+			ro.disconnect();
+			window.removeEventListener('resize', onWindowResize);
+		};
 	});
 </script>
 
 {#if labels.length > 0}
-	<div class="fitting-badges" bind:this={containerEl}>
+	<div class="fitting-badges" class:is-tunnel={variant === 'tunnel'} bind:this={containerEl}>
 		<div class="measure-row" bind:this={measureEl} aria-hidden="true">
-			<span class="route-arrow">&rarr;</span>
+			{#if variant === 'tunnel'}
+				<svg class="route-arrow route-arrow-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					<line x1="5" y1="12" x2="19" y2="12" />
+					<polyline points="12 5 19 12 12 19" />
+				</svg>
+			{:else}
+				<span class="route-arrow">&rarr;</span>
+			{/if}
 			{#each labels as label, index (`${label}:${index}`)}
-				<Badge variant="muted" mono size="xs">{label}</Badge>
+				{#if variant === 'tunnel'}
+					<span class="tunnel-chip">{label}</span>
+				{:else}
+					<Badge variant="muted" mono size="xs">{label}</Badge>
+				{/if}
 			{/each}
 			<Badge variant="dotted" mono size="xs" compact>{overflowMeasure}</Badge>
 		</div>
@@ -112,9 +133,20 @@
 			class="visible-row"
 			class:sole={labels.length === 1 && overflowCount === 0}
 		>
-			<span class="route-arrow">&rarr;</span>
+			{#if variant === 'tunnel'}
+				<svg class="route-arrow route-arrow-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					<line x1="5" y1="12" x2="19" y2="12" />
+					<polyline points="12 5 19 12 12 19" />
+				</svg>
+			{:else}
+				<span class="route-arrow">&rarr;</span>
+			{/if}
 			{#each visibleLabels as label, index (index)}
-				<Badge variant="muted" mono size="xs" title={titles[index] ?? label}>{label}</Badge>
+				{#if variant === 'tunnel'}
+					<span class="tunnel-chip" title={titles[index] ?? label}>{label}</span>
+				{:else}
+					<Badge variant="muted" mono size="xs" title={titles[index] ?? label}>{label}</Badge>
+				{/if}
 			{/each}
 			{#if overflowCount > 0}
 				<span
@@ -145,7 +177,8 @@
 		min-width: 0;
 		width: 100%;
 		max-width: 100%;
-		overflow: visible;
+		overflow-x: clip;
+		overflow-y: visible;
 	}
 
 	.measure-row,
@@ -183,6 +216,39 @@
 	.visible-row.sole :global(.badge) {
 		flex-shrink: 1;
 		min-width: 0;
+	}
+
+	.visible-row.sole .tunnel-chip {
+		flex-shrink: 1;
+		min-width: 0;
+	}
+
+	.route-arrow-svg {
+		flex-shrink: 0;
+		color: var(--text-muted);
+	}
+
+	.tunnel-chip {
+		display: inline-flex;
+		align-items: center;
+		padding: 5px 10px;
+		border-radius: 6px;
+		font-size: 12px;
+		line-height: 1;
+		border: 1px solid var(--accent-line);
+		background: var(--accent-soft);
+		color: var(--accent);
+		font-weight: 600;
+		font-family: var(--font-mono);
+		white-space: nowrap;
+		flex-shrink: 0;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.is-tunnel .visible-row {
+		gap: 6px;
 	}
 
 	.overflow-tip {

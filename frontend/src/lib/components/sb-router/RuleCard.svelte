@@ -8,9 +8,10 @@
   import type { MatcherChip as MatcherChipData, RuleCardData } from './types';
   import ServiceTile from './ServiceTile.svelte';
   import MatcherChip from './MatcherChip.svelte';
-  import OutboundTile from './OutboundTile.svelte';
+  import RuleOutboundAction from './RuleOutboundAction.svelte';
   import { Badge } from '$lib/components/ui';
   import { Edit3, GripVertical, Trash2 } from 'lucide-svelte';
+  import { computeRuleCardBadgeBudget, measureMainContentRight, ruleCardTunnelBudgetCap } from '$lib/utils/fittingBadgeLayout';
 
   interface Props {
     card: RuleCardData;
@@ -42,9 +43,69 @@
   let editTip = $derived(actionTooltip('edit', card, index));
   let deleteTip = $derived(actionTooltip('delete', card, index));
 
+  let cardEl = $state<HTMLElement | null>(null);
+  let mainEl = $state<HTMLElement | null>(null);
+  let trailEl = $state<HTMLElement | null>(null);
+  let badgeBudget = $state<number | undefined>(undefined);
+
+  const isCompositeOutbound = $derived(
+    card.outbound.kind === 'composite' && (card.outbound.memberLabels?.length ?? 0) > 0,
+  );
+
+  function updateBadgeBudget() {
+    if (!isCompositeOutbound || !cardEl || !mainEl) {
+      badgeBudget = undefined;
+      return;
+    }
+    const cardRect = cardEl.getBoundingClientRect();
+    const buttonsEl = trailEl?.querySelector('.right-slot');
+    const buttonsW = buttonsEl?.getBoundingClientRect().width ?? 0;
+    const styles = getComputedStyle(cardEl);
+    const padR = parseFloat(styles.paddingRight) || 0;
+    const gap = parseFloat(styles.columnGap || styles.gap) || 12;
+    const mobile = window.matchMedia('(max-width: 768px)').matches;
+    const tunnelCap = ruleCardTunnelBudgetCap(window.innerWidth, mobile);
+    if (mobile) {
+      const actionEl = trailEl?.querySelector('.action');
+      const w = actionEl?.clientWidth;
+      badgeBudget = w != null ? Math.min(w, tunnelCap) : undefined;
+      return;
+    }
+    badgeBudget = computeRuleCardBadgeBudget({
+      cardRight: cardRect.right,
+      paddingRight: padR,
+      mainContentRight: measureMainContentRight(mainEl),
+      columnGap: gap,
+      buttonsWidth: buttonsW,
+      maxBudget: tunnelCap,
+    });
+  }
+
+  $effect(() => {
+    if (!cardEl) return;
+    void isCompositeOutbound;
+    const ro = new ResizeObserver(() => {
+      updateBadgeBudget();
+      requestAnimationFrame(() => {
+        updateBadgeBudget();
+      });
+    });
+    ro.observe(cardEl);
+    if (mainEl) ro.observe(mainEl);
+    if (trailEl) ro.observe(trailEl);
+    const onResize = () => updateBadgeBudget();
+    window.addEventListener('resize', onResize);
+    updateBadgeBudget();
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', onResize);
+    };
+  });
+
   function outboundLabel(cardData: RuleCardData): string {
     if (cardData.action === 'block' || cardData.outbound.kind === 'block') return 'Заблокировать';
     if (cardData.outbound.kind === 'direct') return 'Напрямую';
+    if (cardData.outbound.memberLabels?.length) return cardData.outbound.memberLabels.join(', ');
     return cardData.outbound.label;
   }
 
@@ -80,7 +141,7 @@
 </script>
 
 <div class="card-wrap" title={card.isSystem ? card.tooltip : undefined}>
-<div class="card" class:is-system={card.isSystem} class:dragging>
+<div class="card" class:is-system={card.isSystem} class:dragging bind:this={cardEl}>
   <!-- Order number -->
   <div class="order">{orderStr}</div>
 
@@ -101,7 +162,7 @@
   </div>
 
   <!-- Service tile or generic icon-tile + matchers -->
-  <div class="main">
+  <div class="main" bind:this={mainEl}>
     {#if useServiceTile}
       <ServiceTile serviceKey={card.serviceKey} name={card.title} sub={card.subtitle} />
     {:else}
@@ -139,46 +200,43 @@
     {/if}
   </div>
 
-  <!-- Arrow + outbound tile -->
-  <div class="action">
-    <svg class="arrow" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <line x1="5" y1="12" x2="19" y2="12" />
-      <polyline points="12 5 19 12 12 19" />
-    </svg>
-    <OutboundTile outbound={card.outbound} />
-  </div>
-
-  <!-- System badge -->
-  {#if card.isSystem}
-    <div class="right-slot">
-      <Badge variant="muted" size="sm">система</Badge>
+  <div class="trail" bind:this={trailEl}>
+    <div class="action" class:composite={isCompositeOutbound}>
+      <RuleOutboundAction outbound={card.outbound} badgeBudget={badgeBudget} />
     </div>
-  {:else if onDelete || onEdit}
-    <div class="right-slot">
-      {#if onEdit}
-        <span class="action-tip" data-tip={editTip}>
-          <button type="button" class="route-action-btn" onclick={onEdit} aria-label={editTip} title={editTip}>
-            <Edit3 size={15} />
+
+    {#if card.isSystem}
+      <div class="right-slot">
+        <Badge variant="muted" size="sm">система</Badge>
+      </div>
+    {:else if onDelete || onEdit}
+      <div class="right-slot">
+        {#if onEdit}
+          <span class="action-tip" data-tip={editTip}>
+            <button type="button" class="route-action-btn" onclick={onEdit} aria-label={editTip} title={editTip}>
+              <Edit3 size={15} />
+            </button>
+          </span>
+        {/if}
+        <span class="action-tip" data-tip={deleteTip}>
+          <button type="button" class="route-action-btn danger" onclick={onDelete} aria-label={deleteTip} title={deleteTip}>
+            <Trash2 size={15} />
           </button>
         </span>
-      {/if}
-      <span class="action-tip" data-tip={deleteTip}>
-        <button type="button" class="route-action-btn danger" onclick={onDelete} aria-label={deleteTip} title={deleteTip}>
-          <Trash2 size={15} />
-        </button>
-      </span>
-    </div>
-  {/if}
+      </div>
+    {/if}
+  </div>
 </div>
 </div>
 
 <style>
   .card-wrap {
     position: relative;
+    min-width: 0;
   }
   .card {
     display: grid;
-    grid-template-columns: 28px 28px minmax(0, 1fr) auto auto;
+    grid-template-columns: 28px 28px minmax(0, 1fr) auto;
     gap: 12px;
     align-items: center;
     padding: 10px 14px;
@@ -186,6 +244,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     transition: border-color var(--t-fast);
+    min-width: 0;
   }
   .card:hover { border-color: var(--border-hover); }
   .card.is-system {
@@ -310,17 +369,33 @@
     line-height: 1.4;
   }
 
+  .trail {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    justify-content: flex-end;
+  }
+
   .action {
     display: flex;
     align-items: center;
     gap: 10px;
-    flex-shrink: 0;
+    flex-shrink: 1;
     min-width: 0;
     max-width: 100%;
   }
-  .arrow {
-    color: var(--text-muted);
-    flex-shrink: 0;
+  .action.composite {
+    flex-shrink: 1;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  @media (min-width: 769px) {
+    .action.composite {
+      max-width: min(40vw, 100%);
+    }
   }
   .action :global(.tile) {
     min-width: 0;
@@ -384,6 +459,10 @@
       padding: 10px 12px;
     }
 
+    .trail {
+      display: contents;
+    }
+
     .drag-slot {
       grid-area: drag;
       width: 28px;
@@ -444,12 +523,24 @@
     .action {
       grid-area: action;
       min-width: 0;
+      max-width: 100%;
       display: flex;
       align-items: center;
       gap: 8px;
       border-top: 1px dashed var(--border);
       padding-top: 8px;
       margin-top: 2px;
+      justify-content: flex-start;
+    }
+
+    .action.composite {
+      width: 100%;
+      max-width: 100%;
+    }
+
+    .action.composite :global(.fitting-badges) {
+      width: 100%;
+      max-width: 100%;
     }
 
     .card.is-system {

@@ -35,6 +35,11 @@ export interface OutboundDisplay {
   label: string;
   /** Тип — определяет визуальный вариант OutboundTile */
   kind: OutboundKind;
+  /** Тип composite (selector / urltest / loadbalance) */
+  compositeType?: 'selector' | 'urltest' | 'loadbalance';
+  /** Раскрытые участники composite для простого режима */
+  memberLabels?: string[];
+  memberTitles?: string[];
 }
 
 export interface RuleCardData {
