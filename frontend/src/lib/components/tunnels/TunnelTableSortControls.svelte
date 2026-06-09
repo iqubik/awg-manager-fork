@@ -42,13 +42,26 @@
 
 <div class="tunnel-sort-controls">
 	{#if showSearch}
-		<input
-			class="tunnel-search"
-			type="text"
-			placeholder="Поиск..."
-			value={searchQuery}
-			oninput={(e) => onSearchChange((e.currentTarget as HTMLInputElement).value)}
-		/>
+		<div class="tunnel-search-wrap">
+			<input
+				class="tunnel-search"
+				type="text"
+				placeholder="Поиск..."
+				value={searchQuery}
+				oninput={(e) => onSearchChange((e.currentTarget as HTMLInputElement).value)}
+			/>
+			{#if searchQuery.trim()}
+				<button
+					type="button"
+					class="tunnel-search-clear"
+					aria-label="Очистить поиск"
+					title="Очистить поиск"
+					onclick={() => onSearchChange('')}
+				>
+					×
+				</button>
+			{/if}
+		</div>
 	{/if}
 	{#if showSort}
 		<div class="tunnel-sort-ui">
@@ -86,16 +99,59 @@
 		gap: 0.375rem;
 	}
 
+	.tunnel-search-wrap {
+		position: relative;
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
 	.tunnel-search {
 		width: 140px;
 		height: 32px;
 		box-sizing: border-box;
-		padding: 0 0.5rem;
+		padding: 0 1.8rem 0 0.5rem;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
 		background: var(--bg-primary);
 		color: var(--text-primary);
 		font-size: 0.6875rem;
+	}
+
+	.tunnel-search-wrap .tunnel-search {
+		width: 100%;
+	}
+
+	.tunnel-search-clear {
+		position: absolute;
+		top: 50%;
+		right: 0.375rem;
+		transform: translateY(-50%);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.125rem;
+		height: 1.125rem;
+		padding: 0;
+		border: 0;
+		border-radius: 999px;
+		background: transparent;
+		color: var(--color-text-muted, var(--text-muted));
+		font-size: 1rem;
+		line-height: 1;
+		cursor: pointer;
+		transition:
+			color 0.15s ease,
+			background 0.15s ease;
+	}
+
+	.tunnel-search-clear:hover {
+		color: var(--color-text-primary, var(--text-primary));
+		background: color-mix(in srgb, var(--color-text-muted, var(--text-muted)) 14%, transparent);
+	}
+
+	.tunnel-search-clear:focus-visible {
+		outline: 2px solid var(--color-accent, var(--accent));
+		outline-offset: 2px;
 	}
 
 	.tunnel-search::placeholder {
@@ -133,7 +189,7 @@
 			width: 100%;
 		}
 
-		.tunnel-search {
+		.tunnel-search-wrap {
 			width: 100%;
 			min-width: 0;
 		}
@@ -144,7 +200,7 @@
 			gap: 0.375rem;
 		}
 
-		.tunnel-sort-controls:has(.tunnel-sort-ui) .tunnel-search {
+		.tunnel-sort-controls:has(.tunnel-sort-ui) .tunnel-search-wrap {
 			grid-column: 1 / -1;
 		}
 
