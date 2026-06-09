@@ -118,6 +118,9 @@
     const activeEndpointTitle = $derived(
         listActiveServerName ? `${listActiveServerName} · ${endpointText}` : endpointText,
     );
+    const activeEndpointDisplay = $derived(
+        `${showEndpoint ? endpointText : hiddenEndpointText}${activeMember.sni ? ` · SNI ${showEndpoint ? activeMember.sni : '••••••••'}` : ''}`,
+    );
     const isURLTest = $derived(subscription.mode === 'urltest');
     /** URL feed vs inline server list (wizard: «Подписка» / «Группа серверов»). */
     const isInlineGroup = $derived(subscription.isInline || !subscription.url?.trim());
@@ -145,6 +148,12 @@
             default:              return activeMember.protocol;
         }
     });
+    const mobileTrafficText = $derived(
+        `↓ ${formatBitRate(inlineRxRate)} · ↑ ${formatBitRate(inlineTxRate)}`,
+    );
+    const mobileSubscriptionMetaText = $derived(
+        `${subscription.memberTags.length} серверов · ${lastFetchedHuman} · ${isURLTest ? 'URLTest' : 'Selector'}`,
+    );
 
     async function triggerCheck(e?: MouseEvent | KeyboardEvent): Promise<void> {
         e?.stopPropagation();
@@ -380,6 +389,11 @@
                 {/if}
                 <span class="badge mode">{isURLTest ? 'URLTest' : 'Selector'}</span>
             </div>
+            {#if renderMode === 'list-card'}
+            <div class="mobile-list-meta mono" title={mobileSubscriptionMetaText}>
+                {mobileSubscriptionMetaText}
+            </div>
+            {/if}
         </div>
         <div class="dense-toolbar">
             <div class="dense-toolbar-bottom">
@@ -446,20 +460,40 @@
     {/if}
 
     {#if renderMode === 'list-card'}
-    <div class="list-card-endpoint mono">
-        <span class="list-card-endpoint-label">{isURLTest ? 'Авто' : 'Активен'}</span>
-        <span
-            class="list-card-endpoint-value"
-            title={showEndpoint ? activeEndpointTitle : (listActiveServerName || subscription.activeMember || activeMember.tag)}
-        >
-            {#if showEndpoint}
-                {endpointText}
-            {:else if listActiveServerName}
-                {listActiveServerName}
-            {:else}
-                {subscription.activeMember || activeMember.tag}
-            {/if}
-        </span>
+    <div class="mobile-list-facts">
+        <div class="mobile-list-fact">
+            <span class="mobile-list-fact-label">{isURLTest ? 'Авто' : 'Сервер'}</span>
+            <span class="mobile-list-fact-value" title={listActiveServerName || activeMember.tag}>
+                {listActiveServerName || activeMember.tag}
+            </span>
+        </div>
+        <div class="mobile-list-fact">
+            <span class="mobile-list-fact-label">Endpoint</span>
+            <span class="mobile-list-fact-value mobile-list-fact-value-endpoint" title={activeEndpointTitle}>
+                <span class="mobile-list-fact-text">{activeEndpointDisplay}</span>
+                <button
+                    type="button"
+                    class="eye-btn mobile-list-eye"
+                    onclick={(e) => {
+                        e.stopPropagation();
+                        showEndpoint = !showEndpoint;
+                    }}
+                    aria-label={showEndpoint ? 'Скрыть IP' : 'Показать IP'}
+                >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        {#if showEndpoint}
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                        {:else}
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+                        {/if}
+                    </svg>
+                </button>
+            </span>
+        </div>
+        <div class="mobile-list-fact">
+            <span class="mobile-list-fact-label">Трафик</span>
+            <span class="mobile-list-fact-value" title={mobileTrafficText}>{mobileTrafficText}</span>
+        </div>
     </div>
     {/if}
 
@@ -880,30 +914,65 @@
         white-space: nowrap;
     }
 
-    .list-card-endpoint {
-        display: flex;
-        align-items: baseline;
+    .mobile-list-facts {
+        display: grid;
         gap: 0.35rem;
+        margin-top: 0.2rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid var(--color-border);
+    }
+
+    .mobile-list-fact {
+        display: grid;
+        grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr);
+        gap: 0.5rem;
+        align-items: baseline;
         min-width: 0;
-        font-size: 10px;
-        line-height: 1.3;
+    }
+
+    .mobile-list-fact-label {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
         color: var(--color-text-muted);
     }
 
-    .list-card-endpoint-label {
-        flex: 0 0 auto;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        font-size: 9px;
+    .mobile-list-fact-value {
+        min-width: 0;
+        font-size: 0.78rem;
+        color: var(--color-text-secondary);
+        font-family: var(--font-mono, monospace);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
-    .list-card-endpoint-value {
-        flex: 1 1 auto;
+    .mobile-list-fact-value-endpoint {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .mobile-list-fact-text {
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        color: var(--color-text-secondary);
+    }
+
+    .mobile-list-eye {
+        padding: 0;
+        flex-shrink: 0;
+    }
+
+    .mobile-list-meta {
+        margin-top: 0.2rem;
+        font-size: 0.72rem;
+        line-height: 1.3;
+        color: var(--color-text-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .kv-stacked-stat {

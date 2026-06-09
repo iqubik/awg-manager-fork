@@ -18,6 +18,7 @@
 	import { singboxDelayStatusDot } from '$lib/utils/statusDot';
 	import { resolveSubscriptionMemberTag } from '$lib/utils/subscriptionMember';
 	import { isCardNestedInteraction } from '$lib/utils/cardClick';
+	import { formatBitRate } from '$lib/utils/format';
 	import TunnelDiagnosticsModal from '$lib/components/testing/TunnelDiagnosticsModal.svelte';
 
 	interface Props {
@@ -150,6 +151,20 @@
 	const sourceKindLabel = $derived(isInlineGroup ? 'группа' : 'подписка');
 	const lastFetchedHuman = $derived(
 		subscription.lastFetched ? formatRelative(subscription.lastFetched) : '—',
+	);
+	const activeServerSummary = $derived(
+		listActiveServerName || resolvedMemberTag || liveActiveMember || subscription.activeMember || 'нет активного сервера',
+	);
+	const resolvedEndpointDisplay = $derived.by(() => {
+		if (!resolvedMember) return '—';
+		const endpoint = `${showEndpoint ? resolvedMember.server : `••••••••`}:${resolvedMember.port}`;
+		return `${endpoint}${resolvedMember.sni ? ` · SNI ${showEndpoint ? resolvedMember.sni : '••••••••'}` : ''}`;
+	});
+	const mobileTrafficText = $derived(
+		resolvedMemberTag ? `↓ ${formatBitRate(inlineRxRate)} · ↑ ${formatBitRate(inlineTxRate)}` : '—',
+	);
+	const mobileStatusText = $derived(
+		!subscription.enabled ? 'Выключена' : subscription.lastError ? 'Ошибка' : status === 'pending' ? 'pending' : 'OK',
 	);
 
 	function formatRelative(iso: string): string {
@@ -364,6 +379,63 @@
 	{/if}
 	{/if}
 	{#if renderMode === 'list-card'}
+	<div class="mobile-list-facts">
+		<div class="mobile-list-fact">
+			<span class="mobile-list-fact-label">Статус</span>
+			<span class="mobile-list-fact-value" title={mobileStatusText}>{mobileStatusText}</span>
+		</div>
+		<div class="mobile-list-fact">
+			<span class="mobile-list-fact-label">Активный</span>
+			<span class="mobile-list-fact-value mono" title={activeServerSummary}>{activeServerSummary}</span>
+		</div>
+		{#if resolvedMember}
+		<div class="mobile-list-fact">
+			<span class="mobile-list-fact-label">Endpoint</span>
+			<span class="mobile-list-fact-value mobile-list-fact-value-endpoint" title={`${resolvedMember.server}:${resolvedMember.port}`}>
+				<span class="mobile-list-fact-text">{resolvedEndpointDisplay}</span>
+				<button
+					type="button"
+					class="eye-btn mobile-list-eye"
+					onclick={(e) => {
+						e.stopPropagation();
+						showEndpoint = !showEndpoint;
+					}}
+					aria-label={showEndpoint ? 'Скрыть IP' : 'Показать IP'}
+				>
+					{#if showEndpoint}
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+					{:else}
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+					{/if}
+				</button>
+			</span>
+		</div>
+		{/if}
+		<div class="mobile-list-fact">
+			<span class="mobile-list-fact-label">Обновлено</span>
+			<span class="mobile-list-fact-value" title={lastFetchedHuman}>{lastFetchedHuman}</span>
+		</div>
+		<div class="mobile-list-fact">
+			<span class="mobile-list-fact-label">Серверы</span>
+			<span class="mobile-list-fact-value">{subscription.memberTags.length}</span>
+		</div>
+		<div class="mobile-list-fact">
+			<span class="mobile-list-fact-label">Режим</span>
+			<span class="mobile-list-fact-value" title={modeLabel}>{modeLabel}</span>
+		</div>
+		{#if resolvedMemberTag && subscription.enabled && !subscription.lastError}
+		<div class="mobile-list-fact">
+			<span class="mobile-list-fact-label">Трафик</span>
+			<span class="mobile-list-fact-value" title={mobileTrafficText}>{mobileTrafficText}</span>
+		</div>
+		{/if}
+		{#if subscription.lastError}
+		<div class="mobile-list-fact">
+			<span class="mobile-list-fact-label">Ошибка</span>
+			<span class="mobile-list-fact-value mono" title={subscription.lastError}>{subscription.lastError}</span>
+		</div>
+		{/if}
+	</div>
 	<div class="actions">
 		<TunnelListActions
 			variant="labeled"
@@ -525,6 +597,57 @@
 	}
 	.card.view-list.inactive-panel {
 		cursor: pointer;
+	}
+
+	.mobile-list-facts {
+		display: grid;
+		gap: 0.35rem;
+		margin-top: 0.2rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid var(--color-border);
+	}
+
+	.mobile-list-fact {
+		display: grid;
+		grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr);
+		gap: 0.5rem;
+		align-items: baseline;
+		min-width: 0;
+	}
+
+	.mobile-list-fact-label {
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--color-text-muted);
+	}
+
+	.mobile-list-fact-value {
+		min-width: 0;
+		font-size: 0.78rem;
+		color: var(--color-text-secondary);
+		font-family: var(--font-mono, ui-monospace, monospace);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.mobile-list-fact-value-endpoint {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.mobile-list-fact-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.mobile-list-eye {
+		padding: 0;
+		flex-shrink: 0;
 	}
 	.inactive-header-dense {
 		display: flex;

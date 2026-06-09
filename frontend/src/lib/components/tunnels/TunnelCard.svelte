@@ -206,6 +206,15 @@
 
 	let inlineRxRate = $derived(rxRates.length > 0 ? rxRates[rxRates.length - 1] : 0);
 	let inlineTxRate = $derived(txRates.length > 0 ? txRates[txRates.length - 1] : 0);
+	let mobileEndpointText = $derived(
+		`${showEndpoint ? (serverHost || '—') : '•••••••••'}${serverPort ? `:${serverPort}` : ''}`,
+	);
+	let mobileTrafficText = $derived(
+		`↓ ${formatBitRate(inlineRxRate)} · ↑ ${formatBitRate(inlineTxRate)}`,
+	);
+	let mobileStatusText = $derived(
+		`${listStatusText}${tunnel.lastHandshake ? ` · Handshake ${compactRelativeTime(tunnel.lastHandshake)}` : ''}`,
+	);
 
 	function compactRelativeTime(value: string | null | undefined): string {
 		return value ? formatRelativeTime(value).replace(/\s+назад$/u, '') : '—';
@@ -410,7 +419,39 @@
 			{/if}
 		</div>
 
-		{#if view !== 'list'}
+		{#if view === 'list'}
+		<div class="mobile-list-facts">
+			<div class="mobile-list-fact">
+				<span class="mobile-list-fact-label">Статус</span>
+				<span class="mobile-list-fact-value" title={statusHint || mobileStatusText}>
+					{statusHint || mobileStatusText}
+				</span>
+			</div>
+			<div class="mobile-list-fact">
+				<span class="mobile-list-fact-label">Endpoint</span>
+				<span class="mobile-list-fact-value mobile-list-fact-value-endpoint" title={mobileEndpointText}>
+					<span class="mobile-list-fact-text">{mobileEndpointText}</span>
+					<button
+						class="eye-btn mobile-list-eye"
+						onclick={() => showEndpoint = !showEndpoint}
+						title={showEndpoint ? 'Скрыть' : 'Показать'}
+					>
+						{#if showEndpoint}
+							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+						{:else}
+							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+						{/if}
+					</button>
+				</span>
+			</div>
+			<div class="mobile-list-fact">
+				<span class="mobile-list-fact-label">Трафик</span>
+				<span class="mobile-list-fact-value" title={mobileTrafficText}>
+					{mobileTrafficText}
+				</span>
+			</div>
+		</div>
+		{:else}
 		<!-- Details -->
 		<div class="details">
 			{#if view === 'cards'}
@@ -650,6 +691,57 @@
 	.card.view-dense .details {
 		gap: 6px;
 		padding: 4px 0;
+	}
+
+	.mobile-list-facts {
+		display: grid;
+		gap: 0.35rem;
+		margin-top: 0.2rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid var(--color-border);
+	}
+
+	.mobile-list-fact {
+		display: grid;
+		grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr);
+		gap: 0.5rem;
+		align-items: baseline;
+		min-width: 0;
+	}
+
+	.mobile-list-fact-label {
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--color-text-muted);
+	}
+
+	.mobile-list-fact-value {
+		min-width: 0;
+		font-size: 0.78rem;
+		color: var(--color-text-secondary);
+		font-family: var(--font-mono);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.mobile-list-fact-value-endpoint {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.mobile-list-fact-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.mobile-list-eye {
+		padding: 0;
+		flex-shrink: 0;
 	}
 
 	.title-line-dense {
