@@ -381,6 +381,46 @@
     </div>
 {/snippet}
 
+{#snippet activeEndpointSniLines()}
+    <div class="active-sensitive-block mono">
+        <div class="active-sensitive-line active-sensitive-line--endpoint" title={showEndpoint ? endpointText : hiddenEndpointText}>
+            <span class="active-sensitive-text" class:muted={!showEndpoint}>
+                {showEndpoint ? endpointText : hiddenEndpointText}
+            </span>
+            <button
+                type="button"
+                class="eye-btn eye-btn--inline"
+                onclick={(e) => {
+                    e.stopPropagation();
+                    toggleEndpointVisibility();
+                }}
+                aria-label={showEndpoint ? 'Скрыть endpoint и SNI' : 'Показать endpoint и SNI'}
+                title={showEndpoint ? 'Скрыть endpoint и SNI' : 'Показать endpoint и SNI'}
+            >
+                {#if showEndpoint}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                        <circle cx="12" cy="12" r="3" />
+                    </svg>
+                {:else}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                        <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                {/if}
+            </button>
+        </div>
+        {#if activeMember.sni}
+            <div class="active-sensitive-sni-line" title={showEndpoint ? activeMember.sni : 'SNI скрыт'}>
+                <span class="active-sensitive-sni-label">SNI</span>
+                <span class="active-sensitive-sni-value" class:muted={!showEndpoint}>
+                    {showEndpoint ? activeMember.sni : '••••••••'}
+                </span>
+            </div>
+        {/if}
+    </div>
+{/snippet}
+
 {#if renderMode === 'table'}
     <tr
         class="sbx-sub-active-row"
@@ -456,7 +496,7 @@
                     <div class="server-picker-inline server-picker-inline--table">
                         {@render activeServerPicker('server-btn--table', 'eye-btn--inline', false)}
                     </div>
-                    {@render activeSensitiveLine('endpoint-sni')}
+                    {@render activeEndpointSniLines()}
                 </div>
             </td>
             <td
@@ -1356,6 +1396,42 @@
     .active-sensitive-line .muted {
         color: var(--color-text-muted);
     }
+    .active-sensitive-block {
+        display: grid;
+        gap: 0.1rem;
+        min-width: 0;
+        max-width: 100%;
+    }
+    .active-sensitive-line--endpoint {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        min-width: 0;
+    }
+    .active-sensitive-sni-line {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        min-width: 0;
+        max-width: 100%;
+        font-size: 0.72rem;
+        color: var(--color-text-muted);
+    }
+    .active-sensitive-sni-label {
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        opacity: 0.85;
+        flex: 0 0 auto;
+    }
+    .active-sensitive-sni-value {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .active-sensitive-sni-value.muted {
+        color: var(--color-text-muted);
+    }
     .label {
         color: var(--color-text-muted);
         font-size: var(--sbx-card-label);
@@ -1583,6 +1659,9 @@
         flex: 1;
     }
     .lc-endpoint-stack .active-sensitive-line {
+        width: 100%;
+    }
+    .lc-endpoint-stack .active-sensitive-block {
         width: 100%;
     }
     .lc-endpoint-name {
