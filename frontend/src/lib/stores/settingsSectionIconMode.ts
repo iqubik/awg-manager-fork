@@ -1,9 +1,10 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 
-export type SettingsSectionIconMode = 'strict' | 'harmonious' | 'vivid';
+export type SettingsSectionIconMode = 'none' | 'strict' | 'harmonious' | 'vivid';
 
 export const SETTINGS_SECTION_ICON_MODE_LABELS: Record<SettingsSectionIconMode, string> = {
+	none: 'Без иконок',
 	strict: 'Строгая',
 	harmonious: 'Гармоничная',
 	vivid: 'Красочная',
@@ -13,7 +14,7 @@ const storageKey = 'awg-manager-settings-section-icon-mode';
 const DEFAULT_MODE: SettingsSectionIconMode = 'harmonious';
 
 function isValidMode(value: string | null): value is SettingsSectionIconMode {
-	return value === 'strict' || value === 'harmonious' || value === 'vivid';
+	return value === 'none' || value === 'strict' || value === 'harmonious' || value === 'vivid';
 }
 
 function readStored(): SettingsSectionIconMode {

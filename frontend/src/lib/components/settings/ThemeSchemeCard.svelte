@@ -34,6 +34,7 @@
 		{ value: 'strict', label: SETTINGS_SECTION_ICON_MODE_LABELS.strict },
 		{ value: 'harmonious', label: SETTINGS_SECTION_ICON_MODE_LABELS.harmonious },
 		{ value: 'vivid', label: SETTINGS_SECTION_ICON_MODE_LABELS.vivid },
+		{ value: 'none', label: SETTINGS_SECTION_ICON_MODE_LABELS.none },
 	];
 
 	let expanded = $state(false);
@@ -243,6 +244,24 @@
 <style>
 	.compact-layout-row {
 		align-items: center;
+	}
+
+	.icon-mode-row {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.75rem;
+	}
+
+	.icon-mode-row :global(.segmented-control) {
+		display: flex;
+		width: 100%;
+		max-width: none;
+	}
+
+	.icon-mode-row :global(.segmented-control-btn) {
+		flex: 1 1 0;
+		min-width: 0;
+		padding-inline: 0.5rem;
 	}
 
 	@media (max-width: 640px) {

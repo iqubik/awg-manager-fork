@@ -59,6 +59,7 @@
 	const iconMode = $derived($settingsSectionIconMode);
 	const toneColor = $derived(SETTINGS_SECTION_TONE_COLORS[tone]);
 	const vividToneCycle = $derived(cycleInVivid && iconMode === 'vivid');
+	const showIcon = $derived(iconMode !== 'none');
 </script>
 
 <div
@@ -68,22 +69,24 @@
 	class:vivid-tone-cycle={vividToneCycle}
 	style:--tone-color={toneColor}
 >
-	<span
-		class="icon-badge"
-		class:mode-strict={iconMode === 'strict'}
-		class:mode-harmonious={iconMode === 'harmonious'}
-		class:mode-vivid={iconMode === 'vivid'}
-		class:vivid-tone-cycle={vividToneCycle}
-		data-tone={tone}
-		aria-hidden="true"
-	>
-		{#key iconMode}
-			<Icon size={18} strokeWidth={2.25} color="currentColor" />
-		{/key}
-	</span>
+	{#if showIcon}
+		<span
+			class="icon-badge"
+			class:mode-strict={iconMode === 'strict'}
+			class:mode-harmonious={iconMode === 'harmonious'}
+			class:mode-vivid={iconMode === 'vivid'}
+			class:vivid-tone-cycle={vividToneCycle}
+			data-tone={tone}
+			aria-hidden="true"
+		>
+			{#key iconMode}
+				<Icon size={18} strokeWidth={2.25} color="currentColor" />
+			{/key}
+		</span>
+	{/if}
 	<span class="label-wrap">
 		<span class="label-text">{label}</span>
-		<span class="label-divider" class:hidden={iconMode === 'strict'} aria-hidden="true"></span>
+		<span class="label-divider" class:hidden={iconMode === 'strict' || iconMode === 'none'} aria-hidden="true"></span>
 	</span>
 </div>
 
