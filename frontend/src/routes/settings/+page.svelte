@@ -1063,6 +1063,12 @@ $effect(() => {
 
 <style>
 	/* Сетка страницы настроек — базовый layout/gap в app.css (.settings-layout) */
+	.settings-layout {
+		--settings-page-gap: var(--settings-gap, 0.875rem);
+		display: flex;
+		flex-direction: column;
+		gap: var(--settings-page-gap);
+	}
 
 	.settings-doc-block {
 		margin-top: 0;
@@ -1071,7 +1077,7 @@ $effect(() => {
 	.settings-grid {
 		display: grid;
 		grid-template-columns: 360px 1fr;
-		gap: var(--settings-gap);
+		gap: var(--settings-page-gap);
 		align-items: start;
 	}
 
@@ -1079,7 +1085,8 @@ $effect(() => {
 	.settings-right {
 		display: flex;
 		flex-direction: column;
-		gap: var(--settings-gap);
+		gap: var(--settings-page-gap);
+		row-gap: var(--settings-page-gap);
 	}
 
 	.settings-left {
