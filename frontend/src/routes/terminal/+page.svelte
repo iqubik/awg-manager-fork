@@ -7,7 +7,7 @@
 	import { TerminalInstall, TerminalView } from '$lib/components/terminal';
 	import type { TerminalStatus } from '$lib/types';
 
-	type PageState = 'loading' | 'not-installed' | 'starting' | 'active' | 'session-busy' | 'error';
+	type PageState = 'loading' | 'not-installed' | 'starting' | 'active' | 'session-busy' | 'disconnected' | 'error';
 
 	let pageState: PageState = $state('loading');
 	let installing = $state(false);
@@ -79,8 +79,9 @@
 		}
 	}
 
-	async function handleTerminalClose() {
+	async function handleTerminalDisconnect() {
 		await api.terminalStop().catch(() => {});
+		pageState = 'disconnected';
 	}
 
 	async function handleTerminalReconnect() {
@@ -117,10 +118,17 @@
 			<Button variant="primary" size="md" onclick={checkStatus}>Повторить</Button>
 		</div>
 	</PageContainer>
+{:else if pageState === 'disconnected'}
+	<PageContainer>
+		<div class="terminal-loading">
+			<p>Терминал отключён</p>
+			<Button variant="primary" size="md" onclick={startTerminal}>Подключиться</Button>
+		</div>
+	</PageContainer>
 {:else if pageState === 'active'}
 	<div class="terminal-page">
 		<TerminalView
-			onclose={handleTerminalClose}
+			onclose={handleTerminalDisconnect}
 			onerror={handleTerminalError}
 			onreconnect={handleTerminalReconnect}
 		/>
