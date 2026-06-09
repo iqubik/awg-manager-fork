@@ -374,6 +374,11 @@
 
 	const singboxTunnelListStats = $derived.by(() => {
 		void trafficTick;
+		type TunnelStatCandidate = {
+			tag: string;
+			bytes: number;
+		};
+
 		const list = singboxTunnelsList;
 		let running = 0;
 		let down = 0;
@@ -382,22 +387,18 @@
 		let delayN = 0;
 		let leaderBytes = 0;
 		let leaderName = '—';
+		const candidates: TunnelStatCandidate[] = [];
 		const trMap = $singboxTraffic;
 		const histMap = $singboxDelayHistory;
 		for (const t of list) {
 			if (t.running === true) running++;
 			const tr = trMap.get(t.tag);
-			if (tr) {
-				const tunnelDown = tr.download ?? 0;
-				const tunnelUp = tr.upload ?? 0;
-				const total = tunnelDown + tunnelUp;
-				down += tunnelDown;
-				up += tunnelUp;
-				if (total > leaderBytes) {
-					leaderBytes = total;
-					leaderName = t.tag;
-				}
-			}
+			const tunnelDown = tr?.download ?? 0;
+			const tunnelUp = tr?.upload ?? 0;
+			const total = tunnelDown + tunnelUp;
+			down += tunnelDown;
+			up += tunnelUp;
+			candidates.push({ tag: t.tag, bytes: total });
 			const h = histMap.get(t.tag) ?? [];
 			const last = h.length > 0 ? h[h.length - 1] : 0;
 			if (typeof last === 'number' && last > 0) {
@@ -405,6 +406,16 @@
 				delayN++;
 			}
 		}
+
+		if (candidates.length > 0) {
+			const sorted = [...candidates].sort((a, b) => {
+				if (b.bytes !== a.bytes) return b.bytes - a.bytes;
+				return a.tag.localeCompare(b.tag, 'ru');
+			});
+			leaderBytes = sorted[0].bytes;
+			leaderName = sorted[0].tag;
+		}
+
 		return {
 			count: list.length,
 			running,
@@ -536,42 +547,56 @@
 
 	const singboxSubscriptionsTrafficStats = $derived.by(() => {
 		void trafficTick;
+		type SubscriptionStatCandidate = {
+			tag: string;
+			label: string;
+			bytes: number;
+			delay: number | null;
+		};
+
 		let down = 0;
 		let up = 0;
 		let delaySum = 0;
 		let delaySamples = 0;
 		let leaderBytes = 0;
 		let leaderName = '—';
+		const candidates: SubscriptionStatCandidate[] = [];
 		const map = $singboxTraffic;
 		const delayMap = $singboxDelayHistory;
 
-		function ingestMember(tag: string, label: string, sampleDelay = false): void {
+		function ingestMember(tag: string, label: string): void {
 			const tr = map.get(tag);
 			const memberDown = tr?.download ?? 0;
 			const memberUp = tr?.upload ?? 0;
 			const memberTotal = memberDown + memberUp;
+			const normalizedLabel = label || tag;
 			down += memberDown;
 			up += memberUp;
-			if (memberTotal > leaderBytes) {
-				leaderBytes = memberTotal;
-				leaderName = label || tag;
+
+			const delayHistory = delayMap.get(tag) ?? [];
+			const lastDelay = delayHistory.length > 0 ? delayHistory[delayHistory.length - 1] : null;
+			const delay =
+				typeof lastDelay === 'number' && lastDelay > 0
+					? lastDelay
+					: null;
+
+			if (delay !== null) {
+				delaySum += delay;
+				delaySamples += 1;
 			}
 
-			if (sampleDelay) {
-				const delayHistory = delayMap.get(tag) ?? [];
-				const lastDelay = delayHistory.length > 0 ? delayHistory[delayHistory.length - 1] : 0;
-				if (typeof lastDelay === 'number' && lastDelay > 0) {
-					delaySum += lastDelay;
-					delaySamples += 1;
-				}
-			}
+			candidates.push({
+				tag,
+				label: normalizedLabel,
+				bytes: memberTotal,
+				delay,
+			});
 		}
 
 		for (const card of subscriptionsActiveCards) {
 			ingestMember(
 				card.activeMember.tag,
 				card.subscription.label || card.activeMember.label || card.activeMember.tag,
-				true,
 			);
 		}
 		for (const sub of subscriptionsListRows) {
@@ -579,6 +604,16 @@
 			if (!tag) continue;
 			ingestMember(tag, sub.label || tag);
 		}
+
+		if (candidates.length > 0) {
+			const sorted = [...candidates].sort((a, b) => {
+				if (b.bytes !== a.bytes) return b.bytes - a.bytes;
+				return a.label.localeCompare(b.label, 'ru');
+			});
+			leaderBytes = sorted[0].bytes;
+			leaderName = sorted[0].label;
+		}
+
 		const totalTraffic = down + up;
 		return {
 			count: subscriptionsList.length,
@@ -1054,31 +1089,37 @@
 	);
 
 	let awgTrafficLeader = $derived.by(() => {
+		type AwgTrafficCandidate = {
+			name: string;
+			bytes: number;
+		};
+
 		let bytes = 0;
 		let name = '—';
+		const candidates: AwgTrafficCandidate[] = [];
 
 		for (const tunnel of awgList) {
 			const total = (tunnel.rxBytes ?? 0) + (tunnel.txBytes ?? 0);
-			if (total > bytes) {
-				bytes = total;
-				name = tunnel.name;
-			}
+			candidates.push({ name: tunnel.name, bytes: total });
 		}
 
 		for (const tunnel of visibleSystemList) {
 			const total = (tunnel.peer?.rxBytes ?? 0) + (tunnel.peer?.txBytes ?? 0);
-			if (total > bytes) {
-				bytes = total;
-				name = tunnel.description || tunnel.interfaceName;
-			}
+			candidates.push({ name: tunnel.description || tunnel.interfaceName, bytes: total });
 		}
 
 		for (const tunnel of externalList) {
 			const total = tunnel.rxBytes + tunnel.txBytes;
-			if (total > bytes) {
-				bytes = total;
-				name = tunnel.interfaceName;
-			}
+			candidates.push({ name: tunnel.interfaceName, bytes: total });
+		}
+
+		if (candidates.length > 0) {
+			const sorted = [...candidates].sort((a, b) => {
+				if (b.bytes !== a.bytes) return b.bytes - a.bytes;
+				return a.name.localeCompare(b.name, 'ru');
+			});
+			bytes = sorted[0].bytes;
+			name = sorted[0].name;
 		}
 
 		return { bytes, name };
@@ -1658,9 +1699,13 @@
 							sub={`↓ ${formatBytes(awgSummaryRx)} · ↑ ${formatBytes(awgSummaryTx)}`}
 						/>
 						<Stat
-							value={awgTrafficLeader.bytes > 0 ? formatBytes(awgTrafficLeader.bytes) : '—'}
+							value={awgList.length + visibleSystemList.length + externalList.length > 0
+								? formatBytes(awgTrafficLeader.bytes)
+								: '—'}
 							label="Лидер по трафику"
-							sub={awgTrafficLeader.name}
+							sub={awgList.length + visibleSystemList.length + externalList.length > 0
+								? awgTrafficLeader.name
+								: '—'}
 						/>
 					</StatStrip>
 				</div>
@@ -2218,11 +2263,11 @@
 											: 'нет активных замеров'}
 									/>
 									<Stat
-										value={singboxSubscriptionsTrafficStats.leaderBytes > 0
+										value={singboxSubscriptionsTrafficStats.count > 0
 											? formatBytes(singboxSubscriptionsTrafficStats.leaderBytes)
 											: '—'}
 										label="Лидер по трафику"
-										sub={singboxSubscriptionsTrafficStats.leaderBytes > 0
+										sub={singboxSubscriptionsTrafficStats.count > 0
 											? `${singboxSubscriptionsTrafficStats.leaderName} · ${singboxSubscriptionsTrafficStats.leaderSharePct}% всего`
 											: '—'}
 									/>
@@ -2500,11 +2545,11 @@
 								sub="по последним проверкам"
 							/>
 							<Stat
-								value={singboxTunnelListStats.leaderBytes > 0
+								value={singboxTunnelListStats.count > 0
 									? formatBytes(singboxTunnelListStats.leaderBytes)
 									: '—'}
 								label="Лидер по трафику"
-								sub={singboxTunnelListStats.leaderName}
+								sub={singboxTunnelListStats.count > 0 ? singboxTunnelListStats.leaderName : '—'}
 							/>
 							</StatStrip>
 						</div>
