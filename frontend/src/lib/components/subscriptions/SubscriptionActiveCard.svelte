@@ -5,7 +5,6 @@
     import { Badge, Button, Modal, TrafficChart, TrafficSparkline, TunnelListActions } from '$lib/components/ui';
     import {
         TunnelDelaySparkBars,
-        TunnelListEndpointLine,
         TunnelListTrafficCell,
         TunnelMetaText,
         TunnelSingboxPingButton,
@@ -344,6 +343,44 @@
     </div>
 {/snippet}
 
+{#snippet activeSensitiveLine(mode: 'endpoint-sni' | 'sni-only' = 'sni-only')}
+    <div class="active-sensitive-line mono" title={mode === 'endpoint-sni' ? activeEndpointDisplay : (activeMember.sni || '—')}>
+        <span class="active-sensitive-text" class:muted={!showEndpoint}>
+            {#if mode === 'endpoint-sni'}
+                {activeEndpointDisplay}
+            {:else if activeMember.sni}
+                {showEndpoint ? activeMember.sni : '••••••••'}
+            {:else}
+                —
+            {/if}
+        </span>
+        {#if mode === 'endpoint-sni' || activeMember.sni}
+            <button
+                type="button"
+                class="eye-btn eye-btn--inline"
+                onclick={(e) => {
+                    e.stopPropagation();
+                    toggleEndpointVisibility();
+                }}
+                aria-label={showEndpoint ? 'Скрыть endpoint и SNI' : 'Показать endpoint и SNI'}
+                title={showEndpoint ? 'Скрыть endpoint и SNI' : 'Показать endpoint и SNI'}
+            >
+                {#if showEndpoint}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                        <circle cx="12" cy="12" r="3" />
+                    </svg>
+                {:else}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                        <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                {/if}
+            </button>
+        {/if}
+    </div>
+{/snippet}
+
 {#if renderMode === 'table'}
     <tr
         class="sbx-sub-active-row"
@@ -392,26 +429,34 @@
                         <span class="meta-dot" aria-hidden="true">·</span>
                         <span>{lastFetchedHuman}</span>
                     </TunnelMetaText>
+                    <div class="active-member-badges">
+                        <span class="badge proto">{protocolLabel}</span>
+                        {#if activeMember.transport && activeMember.transport !== 'tcp'}
+                            <span class="badge transport">{activeMember.transport.toUpperCase()}</span>
+                        {/if}
+                        {#if activeMember.security === 'reality'}
+                            <span class="badge reality">Reality</span>
+                        {:else if activeMember.security === 'tls'}
+                            <span class="badge tls">TLS</span>
+                        {/if}
+                    </div>
                     <TunnelMetaText mono>
                         {#if proxyIface}
                             <span>{proxyIface}</span>
                             {#if kernelIface}<span class="meta-dot" aria-hidden="true">·</span><span>{kernelIface}</span>{/if}
-                            <span class="meta-dot" aria-hidden="true">·</span>
                         {/if}
-                        <span>{isURLTest ? 'URLTest' : 'Selector'}</span>
                     </TunnelMetaText>
                 </div>
             </td>
             <td class="tunnel-list-cell tunnel-list-cell--endpoint lc lc-endpoint" data-label="Активный сервер" title={activeEndpointTitle}>
                 <div class="lc-endpoint-stack">
-                    <div class="server-picker-inline">
+                    <div class="table-mode-badge-row">
+                        <span class="badge mode table-mode-badge">{isURLTest ? 'URLTest' : 'Selector'}</span>
+                    </div>
+                    <div class="server-picker-inline server-picker-inline--table">
                         {@render activeServerPicker('server-btn--table', 'eye-btn--inline', false)}
                     </div>
-                    <TunnelListEndpointLine
-                        host={activeMember.server}
-                        port={activeMember.port}
-                        bind:show={showEndpoint}
-                    />
+                    {@render activeSensitiveLine('endpoint-sni')}
                 </div>
             </td>
             <td
@@ -551,42 +596,14 @@
     {/if}
 
     <div class="details-dense-cols">
-        <div class="details-dense-col">
-            <div class="kv-stacked-stat">
-                <span class="kv-stacked-label">{isURLTest ? 'Авто' : 'Активный сервер'}</span>
-                <span class="kv-endpoint">
-                    <span
-                        class="kv-stacked-value"
-                        title={showEndpoint ? activeEndpointTitle : (listActiveServerName || hiddenEndpointText)}
-                    >
-                        {#if showEndpoint}
-                            {endpointText}
-                        {:else if listActiveServerName}
-                            {listActiveServerName}
-                        {:else}
-                            {hiddenEndpointText}
-                        {/if}
-                    </span>
-                    <button
-                        type="button"
-                        class="eye-btn"
-                        onclick={(e) => {
-                            e.stopPropagation();
-                            showEndpoint = !showEndpoint;
-                        }}
-                        aria-label={showEndpoint ? 'Скрыть IP' : 'Показать IP'}
-                    >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            {#if showEndpoint}
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-                            {:else}
-                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
-                            {/if}
-                        </svg>
-                    </button>
-                </span>
+        {#if activeMember.sni}
+            <div class="details-dense-col">
+                <div class="kv-stacked-stat">
+                    <span class="kv-stacked-label">SNI</span>
+                    {@render activeSensitiveLine('sni-only')}
+                </div>
             </div>
-        </div>
+        {/if}
     </div>
     <div class="dense-meta-line mono">
         <span>{subscription.memberTags.length} серверов</span>
@@ -763,9 +780,15 @@
     <div class="server-row">
         <span class="label">{isURLTest ? 'Авто' : 'Активный сервер'}</span>
         <div class="server-picker-inline">
-            {@render activeServerPicker('', '')}
+            {@render activeServerPicker('', '', false)}
         </div>
     </div>
+    {#if activeMember.sni}
+        <div class="server-row">
+            <span class="label">SNI</span>
+            {@render activeSensitiveLine('sni-only')}
+        </div>
+    {/if}
     </div>
 
     <div class="actions actions--bar">
@@ -1062,6 +1085,32 @@
         width: 100%;
         min-width: 0;
     }
+    .server-picker-inline--table {
+        display: flex;
+        flex-wrap: nowrap;
+        min-width: 0;
+        width: 100%;
+        align-items: stretch;
+    }
+    .table-mode-badge-row {
+        display: flex;
+        width: 100%;
+        min-width: 0;
+        align-items: center;
+    }
+    .table-mode-badge {
+        flex: 0 0 auto;
+        font-size: var(--sbx-card-badge);
+        line-height: 1.2;
+        padding: 2px 8px;
+        border-radius: 10px;
+        white-space: nowrap;
+    }
+    .badge.mode,
+    .table-mode-badge {
+        background: rgba(100, 100, 100, 0.3);
+        color: var(--color-text-muted);
+    }
 
     .mobile-list-meta {
         margin-top: 0.2rem;
@@ -1088,15 +1137,6 @@
 
     .card.view-dense .details-dense-cols .kv-stacked-label {
         flex: 0 0 auto;
-    }
-
-    .card.view-dense .details-dense-cols .kv-endpoint {
-        flex: 1 1 auto;
-        min-width: 0;
-    }
-
-    .card.view-dense .details-dense-cols .kv-stacked-value {
-        min-width: 0;
     }
 
     .card.view-dense .kv-endpoint {
@@ -1267,6 +1307,14 @@
         font-family: var(--font-mono, ui-monospace, monospace);
     }
     .badges { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .active-member-badges {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.25rem;
+        margin-top: 0.2rem;
+        min-width: 0;
+    }
     .badge {
         font-size: var(--sbx-card-badge);
         padding: 2px 8px;
@@ -1287,6 +1335,26 @@
         gap: 0.45rem;
         align-items: center;
         margin: 0;
+    }
+    .active-sensitive-line {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        font-size: 0.72rem;
+    }
+    .active-sensitive-text {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 0 1 auto;
+    }
+    .active-sensitive-text.muted,
+    .active-sensitive-line .muted {
+        color: var(--color-text-muted);
     }
     .label {
         color: var(--color-text-muted);
@@ -1513,6 +1581,9 @@
         gap: 0.12rem;
         min-width: 0;
         flex: 1;
+    }
+    .lc-endpoint-stack .active-sensitive-line {
+        width: 100%;
     }
     .lc-endpoint-name {
         width: 100%;
