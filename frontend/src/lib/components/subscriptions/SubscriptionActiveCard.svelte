@@ -67,14 +67,23 @@
         subscription.proxyIndex >= 0 ? `t2s${subscription.proxyIndex}` : '',
     );
     const selectorTag = $derived(subscription.selectorTag ?? '');
+    const cardDelayTag = $derived(selectorTag.trim() || activeMember.tag);
     const diagnosticsUnavailableReason = $derived(
         !selectorTag || !kernelIface
             ? 'Для подписки не удалось определить интерфейс тестирования.'
             : undefined,
     );
 
-    const history = $derived($singboxDelayHistory.get(activeMember.tag) ?? []);
-    const delayPresentation = $derived(singboxDelayFromHistory(history));
+    const selectorDelayHistory = $derived(
+        cardDelayTag ? ($singboxDelayHistory.get(cardDelayTag) ?? []) : [],
+    );
+    const activeMemberDelayHistory = $derived(
+        activeMember.tag ? ($singboxDelayHistory.get(activeMember.tag) ?? []) : [],
+    );
+    const displayDelayHistory = $derived(
+        selectorDelayHistory.length > 0 ? selectorDelayHistory : activeMemberDelayHistory,
+    );
+    const delayPresentation = $derived(singboxDelayFromHistory(displayDelayHistory));
     const traffic = $derived($singboxTraffic.get(activeMember.tag));
 
     const trafficSparkSeries = $derived.by(() => {
@@ -160,7 +169,7 @@
         if (checking) return;
         checking = true;
         try {
-            await triggerDelayCheck(activeMember.tag);
+            await triggerDelayCheck(cardDelayTag);
         } finally {
             checking = false;
         }
@@ -170,7 +179,7 @@
     $effect(() => {
         const nonce = autoDelayCheckNonce;
         const delay = autoDelayCheckDelayMs;
-        const tag = activeMember.tag;
+        const tag = cardDelayTag;
 
         if (nonce <= 0 || nonce === lastAutoDelayCheckNonce) return;
         lastAutoDelayCheckNonce = nonce;
@@ -312,7 +321,7 @@
                     <span class="delay-dash">—</span>
                 {:else}
                     <TunnelDelaySparkBars
-                        {history}
+                        history={displayDelayHistory}
                         state={cardState}
                         layout="list"
                         onclick={() => void triggerCheck()}
@@ -534,7 +543,7 @@
                     <span class="chart-inline-label">Delay (5 мин)</span>
                 </div>
                 <TunnelDelaySparkBars
-                    {history}
+                    history={displayDelayHistory}
                     state={cardState}
                     layout="dense"
                     onclick={() => void triggerCheck()}
@@ -712,7 +721,7 @@
                     <span>Delay (5 мин)</span>
                 </div>
                 <TunnelDelaySparkBars
-                    {history}
+                    history={displayDelayHistory}
                     state={cardState}
                     layout="compact"
                     onclick={() => void triggerCheck()}

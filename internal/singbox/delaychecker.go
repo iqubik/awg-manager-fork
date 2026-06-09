@@ -19,11 +19,12 @@ type clashAPI interface {
 // tunnelLister returns current tunnel tags.
 type tunnelLister interface {
 	ListTunnels(ctx context.Context) ([]TunnelInfo, error)
-	// ListSubActiveTags returns active outbound tags of enabled
-	// subscriptions. The DelayChecker treats each tag identically
+	// ListSubDelayTags returns the subscription-card delay targets for
+	// enabled subscriptions: selectorTag when present, otherwise the
+	// active member tag. The DelayChecker treats each tag identically
 	// to a tunnel tag for the purpose of periodic latency tests.
 	// Empty slice is fine if no subscriptions are configured.
-	ListSubActiveTags() []string
+	ListSubDelayTags() []string
 }
 
 const (
@@ -66,11 +67,14 @@ func NewDelayChecker(clash clashAPI, lister tunnelLister, pub DelayPublisher) *D
 // CheckOne runs a single delay test for `tag` and publishes the result.
 // Returns the delay in ms (0 on timeout). Errors from Clash are normalized
 // to (0, nil) since they represent timeouts from the UI's perspective.
+// When another check for the same tag is already in flight, returns -1
+// without publishing a new event so callers do not mistake a skipped run
+// for a real timeout sample.
 func (d *DelayChecker) CheckOne(ctx context.Context, tag string) (int, error) {
 	d.mu.Lock()
 	if d.inflight[tag] {
 		d.mu.Unlock()
-		return 0, nil
+		return -1, nil
 	}
 	d.inflight[tag] = true
 	d.mu.Unlock()
@@ -124,7 +128,7 @@ func (d *DelayChecker) Check(ctx context.Context) {
 			tags = append(tags, t.Tag)
 		}
 	}
-	for _, tag := range d.lister.ListSubActiveTags() {
+	for _, tag := range d.lister.ListSubDelayTags() {
 		if tag != "" && !seen[tag] {
 			seen[tag] = true
 			tags = append(tags, tag)

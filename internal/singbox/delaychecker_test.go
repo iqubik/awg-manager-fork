@@ -128,7 +128,7 @@ type fakeDelayLister struct {
 func (f *fakeDelayLister) ListTunnels(ctx context.Context) ([]TunnelInfo, error) {
 	return f.tunnels, nil
 }
-func (f *fakeDelayLister) ListSubActiveTags() []string { return nil }
+func (f *fakeDelayLister) ListSubDelayTags() []string { return nil }
 
 // combinedListerStub satisfies the extended tunnelLister interface for tests.
 type combinedListerStub struct {
@@ -139,7 +139,7 @@ type combinedListerStub struct {
 func (l *combinedListerStub) ListTunnels(ctx context.Context) ([]TunnelInfo, error) {
 	return l.tunnels, nil
 }
-func (l *combinedListerStub) ListSubActiveTags() []string { return l.subTags }
+func (l *combinedListerStub) ListSubDelayTags() []string { return l.subTags }
 
 func TestDelayChecker_Check_AllTunnels(t *testing.T) {
 	clash := &fakeClash{delays: map[string]int{"A": 10, "B": 20}}
@@ -156,7 +156,7 @@ func TestDelayChecker_Check_AllTunnels(t *testing.T) {
 	}
 }
 
-func TestDelayChecker_TicksTunnelsAndSubActiveTags(t *testing.T) {
+func TestDelayChecker_TicksTunnelsAndSubDelayTags(t *testing.T) {
 	clash := &fakeClash{delays: map[string]int{
 		"awg-vpn0":         50,
 		"sub-AAA-bbbbcccc": 120,
@@ -170,7 +170,7 @@ func TestDelayChecker_TicksTunnelsAndSubActiveTags(t *testing.T) {
 	dc.Check(context.Background())
 
 	if len(pub.events) != 2 {
-		t.Fatalf("expected 2 publish events (tunnel + sub-active), got %d", len(pub.events))
+		t.Fatalf("expected 2 publish events (tunnel + sub-delay), got %d", len(pub.events))
 	}
 	got := map[string]int{}
 	for _, e := range pub.events {
@@ -184,6 +184,29 @@ func TestDelayChecker_TicksTunnelsAndSubActiveTags(t *testing.T) {
 	}
 	if got["sub-AAA-bbbbcccc"] != 120 {
 		t.Errorf("sub-AAA-bbbbcccc delay = %d, want 120", got["sub-AAA-bbbbcccc"])
+	}
+}
+
+func TestDelayChecker_CheckOne_SkipInflightDoesNotPublishTimeout(t *testing.T) {
+	clash := &fakeClash{}
+	pub := &fakeDelayPublisher{}
+	d := &DelayChecker{
+		clash:     clash,
+		publisher: pub,
+		testURL:   "https://example.com/",
+		timeout:   3 * time.Second,
+		inflight:  map[string]bool{"A": true},
+	}
+
+	got, err := d.CheckOne(context.Background(), "A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != -1 {
+		t.Fatalf("delay: %d want -1 for inflight skip", got)
+	}
+	if len(pub.snapshotEvents()) != 0 {
+		t.Fatalf("expected no publish events for inflight skip, got %d", len(pub.snapshotEvents()))
 	}
 }
 

@@ -2065,9 +2065,10 @@ func (a *installerDownloaderAdapter) DownloadFile(ctx context.Context, req insta
 }
 
 // singboxAndSubLister satisfies singbox.tunnelLister by combining the regular
-// sing-box tunnel list with the active outbound tags of enabled subscriptions.
-// This lets DelayChecker probe subscription active members with the same
-// periodic clash latency test it runs for regular sing-box tunnels.
+// sing-box tunnel list with the subscription-card delay tags of enabled
+// subscriptions. This lets DelayChecker probe the same selector/composite
+// target the active subscription card uses, while member tabs still run their
+// own per-member checks on demand.
 type singboxAndSubLister struct {
 	op  *singbox.Operator
 	sub *subscription.Service
@@ -2077,8 +2078,8 @@ func (l *singboxAndSubLister) ListTunnels(ctx context.Context) ([]singbox.Tunnel
 	return l.op.ListTunnels(ctx)
 }
 
-func (l *singboxAndSubLister) ListSubActiveTags() []string {
-	return l.sub.ListActiveMemberTags()
+func (l *singboxAndSubLister) ListSubDelayTags() []string {
+	return l.sub.ListDelayTags()
 }
 
 // orchValidatorAdapter bridges singbox.Validator (no context) to the

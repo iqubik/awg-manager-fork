@@ -535,28 +535,44 @@ func TestService_Delete_AlwaysCleansEverything(t *testing.T) {
 	}
 }
 
-func TestService_ListActiveMemberTags_FiltersDisabledAndEmpty(t *testing.T) {
+func TestService_ListDelayTags_PrefersSelectorThenActiveMember(t *testing.T) {
 	store, _ := NewStore(filepath.Join(t.TempDir(), "sub.json"))
 
-	// Enabled with active set — should appear
+	// Enabled with selector + active set — selector should win.
 	a, _ := store.Create(CreateInput{Label: "a", URL: "u", Enabled: true})
 	store.SetMembers(a.ID, []MemberInfo{{Tag: "sub-A-1111"}}, nil)
+	store.mu.Lock()
+	store.data[a.ID].SelectorTag = "sub-A-selector"
+	store.mu.Unlock()
 
-	// Disabled — should be filtered out
-	b, _ := store.Create(CreateInput{Label: "b", URL: "u", Enabled: false})
+	// Enabled with active set but no selector — active member should be used.
+	b, _ := store.Create(CreateInput{Label: "b", URL: "u", Enabled: true})
 	store.SetMembers(b.ID, []MemberInfo{{Tag: "sub-B-2222"}}, nil)
+	store.mu.Lock()
+	store.data[b.ID].SelectorTag = ""
+	store.mu.Unlock()
 
-	// Enabled but no members — ActiveMember stays empty, should be filtered
-	store.Create(CreateInput{Label: "c", URL: "u", Enabled: true})
+	// Disabled — should be filtered out.
+	c, _ := store.Create(CreateInput{Label: "c", URL: "u", Enabled: false})
+	store.SetMembers(c.ID, []MemberInfo{{Tag: "sub-C-3333"}}, nil)
+
+	// Enabled but no selector/active member — should be filtered.
+	d, _ := store.Create(CreateInput{Label: "d", URL: "u", Enabled: true})
+	store.mu.Lock()
+	store.data[d.ID].SelectorTag = ""
+	store.mu.Unlock()
 
 	svc := NewService(store, &fakeMutator{})
 	withLegacySetupNoop(svc)
-	tags := svc.ListActiveMemberTags()
-	if len(tags) != 1 {
-		t.Fatalf("expected 1 active tag, got %d: %v", len(tags), tags)
+	tags := svc.ListDelayTags()
+	if len(tags) != 2 {
+		t.Fatalf("expected 2 delay tags, got %d: %v", len(tags), tags)
 	}
-	if tags[0] != "sub-A-1111" {
-		t.Errorf("got %q want sub-A-1111", tags[0])
+	if tags[0] != "sub-A-selector" {
+		t.Errorf("got %q want sub-A-selector", tags[0])
+	}
+	if tags[1] != "sub-B-2222" {
+		t.Errorf("got %q want sub-B-2222", tags[1])
 	}
 }
 
