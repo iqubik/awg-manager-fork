@@ -207,9 +207,9 @@
 
 	.download-setting {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, min(50%, 34rem));
-		gap: 1rem;
-		align-items: center;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0.75rem;
+		align-items: stretch;
 	}
 
 	.download-setting > :first-child {
@@ -218,7 +218,7 @@
 
 	.download-controls {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-columns: minmax(0, 1fr) max-content;
 		align-items: stretch;
 		gap: 0.5rem;
 		width: 100%;
@@ -226,8 +226,8 @@
 	}
 
 	.route-select {
-		width: 100%;
 		min-width: 0;
+		width: 100%;
 		max-width: 100%;
 	}
 
@@ -243,6 +243,16 @@
 		max-height: 32px;
 		box-sizing: border-box;
 		padding-block: 0;
+	}
+
+	@media (max-width: 480px) {
+		.download-controls {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.download-action :global(.btn) {
+			width: 100%;
+		}
 	}
 
 	.download-error {
@@ -342,13 +352,8 @@
 
 		.download-controls {
 			width: 100%;
-			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-columns: minmax(0, 1fr) max-content;
 			align-items: stretch;
-		}
-
-		.download-action :global(.btn) {
-			width: auto;
-			min-width: 7.5rem;
 		}
 	}
 
@@ -358,7 +363,7 @@
 		}
 
 		.download-controls {
-			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-columns: minmax(0, 1fr) max-content;
 		}
 
 		.info-popup {

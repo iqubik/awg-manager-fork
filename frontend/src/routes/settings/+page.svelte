@@ -1137,7 +1137,7 @@ $effect(() => {
 
 	.api-key-controls {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-columns: minmax(0, 1fr) max-content;
 		align-items: stretch;
 		gap: 0.5rem;
 		width: 100%;
@@ -1202,6 +1202,8 @@ $effect(() => {
 
 	.api-key-input {
 		cursor: pointer;
+		width: 100%;
+		min-width: 0;
 	}
 
 	.api-key-action {
@@ -1220,9 +1222,9 @@ $effect(() => {
 
 	.api-key-setting {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, min(50%, 34rem));
-		gap: 1rem;
-		align-items: center;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0.75rem;
+		align-items: stretch;
 	}
 	.api-key-setting > *:first-child {
 		min-width: 0;
@@ -1265,8 +1267,10 @@ $effect(() => {
 		}
 
 		.api-key-setting {
-			grid-template-columns: minmax(0, 1fr) minmax(0, min(50%, 34rem));
-			align-items: center;
+			display: grid;
+			grid-template-columns: minmax(0, 1fr);
+			gap: 0.75rem;
+			align-items: stretch;
 		}
 
 		.api-key-setting > *:first-child {
@@ -1284,20 +1288,12 @@ $effect(() => {
 
 		.api-key-controls {
 			width: 100%;
-			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-columns: minmax(0, 1fr) max-content;
 			align-items: stretch;
 		}
 
-		.api-key-action {
-			display: flex;
-		}
-
-		.api-key-action :global(.btn) {
-			width: auto;
-			min-width: 7.5rem;
-			height: 32px;
-			min-height: 32px;
-			max-height: 32px;
+		.api-key-input {
+			min-width: 0;
 		}
 	}
 
@@ -1319,13 +1315,18 @@ $effect(() => {
 			width: 100%;
 		}
 
+		.api-key-setting {
+			grid-template-columns: 1fr;
+		}
+
 		.api-key-controls {
-			grid-template-columns: minmax(0, 1fr) auto;
+			grid-template-columns: minmax(0, 1fr) max-content;
 		}
 
 		.api-key-setting {
 			grid-template-columns: 1fr;
 		}
+
 
 		.toggle-inline-row {
 			flex-direction: row;
@@ -1388,6 +1389,16 @@ $effect(() => {
 		.action-buttons :global(.btn) {
 			width: 100%;
 			min-width: 0;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.api-key-controls {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.api-key-action :global(.btn) {
+			width: 100%;
 		}
 	}
 

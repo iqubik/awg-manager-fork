@@ -209,14 +209,20 @@
 
 	.hours-select,
 	.num-input {
-		width: 180px;
-		min-width: 180px;
+		width: var(--logging-control-width);
+		min-width: var(--logging-control-width);
 		flex-shrink: 0;
 	}
 
+	.logging-main-row,
+	.logging-level-row,
+	.logging-buffer-row {
+		--logging-control-width: 192px;
+	}
+
 	.logging-main-row .hours-select {
-		width: 132px;
-		min-width: 132px;
+		width: 120px;
+		min-width: 120px;
 	}
 
 	.hours-select :global(.field),
@@ -251,11 +257,11 @@
 	}
 
 	.logging-level-row {
-		grid-template-columns: minmax(0, 1fr) 180px;
+		grid-template-columns: minmax(0, 1fr) var(--logging-control-width);
 	}
 
 	.logging-buffer-row {
-		grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+		grid-template-columns: minmax(0, 1fr) var(--logging-control-width);
 	}
 
 	.logging-buffer-row .num-input {
