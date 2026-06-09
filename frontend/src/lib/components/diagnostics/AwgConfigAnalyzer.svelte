@@ -56,6 +56,7 @@
 	let fileInput: HTMLInputElement | undefined = $state();
 	let configSensitiveHidden = $state(true);
 	let tunnelSelectionHidden = $state(true);
+	let hasAnalysisResults = $derived(Boolean(version && awgScores && verdict && parsed));
 
 	let tunnels = $state<TunnelListItem[]>([]);
 	let selectedTunnelId = $state('');
@@ -540,6 +541,8 @@
 	class="awg-analyzer"
 	class:embedded={embedded || layoutMode === 'embedded'}
 	class:standalone={!embedded && layoutMode === 'standalone'}
+	class:has-results={hasAnalysisResults}
+	class:no-results={!hasAnalysisResults}
 >
 	<div class="privacy-banner" role="status">
 		<div class="privacy-banner-icon" aria-hidden="true">
@@ -677,8 +680,8 @@
 			{/if}
 		</div>
 
-		<div class="col-results">
-			{#if version && awgScores && verdict && parsed}
+		{#if hasAnalysisResults && version && awgScores && verdict && parsed}
+			<div class="col-results">
 		<section class="card ver">
 			<span class="ver-badge">{version.ver}</span>
 			<p class="ver-desc">{version.desc}</p>
@@ -863,8 +866,8 @@
 				{/each}
 			</div>
 		{/each}
-			{/if}
-		</div>
+			</div>
+		{/if}
 	</div>
 </div>
 
@@ -1112,6 +1115,15 @@
 
 		.awg-analyzer.standalone .col-results > .card {
 			margin-bottom: 0;
+		}
+
+		.awg-analyzer.standalone.no-results .layout {
+			grid-template-columns: minmax(0, 1fr);
+			column-gap: 0;
+		}
+
+		.awg-analyzer.standalone.no-results .col-input {
+			width: 100%;
 		}
 	}
 
