@@ -818,7 +818,7 @@
 
     <div class="server-section">
     <div class="server-row">
-        <span class="label">{isURLTest ? 'Авто' : 'Активный сервер'}</span>
+        <span class="label">{isURLTest ? 'Авто' : 'Активный'}</span>
         <div class="server-picker-inline">
             {@render activeServerPicker('', '', false)}
         </div>

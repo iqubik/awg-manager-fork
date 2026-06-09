@@ -33,6 +33,7 @@
 </script>
 
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { settingsSectionIconMode } from '$lib/stores/settingsSectionIconMode';
 
 	interface Props {
@@ -45,6 +46,7 @@
 		inline?: boolean;
 		/** In «Красочная» mode — slowly cycle hue (experimental sections). */
 		cycleInVivid?: boolean;
+		action?: Snippet;
 	}
 
 	let {
@@ -54,6 +56,7 @@
 		header = false,
 		inline = false,
 		cycleInVivid = false,
+		action,
 	}: Props = $props();
 
 	const iconMode = $derived($settingsSectionIconMode);
@@ -86,7 +89,12 @@
 		</span>
 	{/if}
 	<span class="label-wrap">
-		<span class="label-text">{label}</span>
+		<span class="label-row">
+			<span class="label-text">{label}</span>
+			{#if action}
+				<span class="label-action">{@render action()}</span>
+			{/if}
+		</span>
 		<span class="label-divider" class:hidden={iconMode === 'strict' || iconMode === 'none'} aria-hidden="true"></span>
 	</span>
 </div>
@@ -164,12 +172,26 @@
 		max-width: 100%;
 	}
 
+	.label-row {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		min-width: 0;
+		max-width: 100%;
+	}
+
 	.label-text {
 		font-size: 0.9375rem;
 		font-weight: 600;
 		line-height: 1.25;
 		color: var(--text, var(--color-text));
 		min-width: 0;
+	}
+
+	.label-action {
+		display: inline-flex;
+		align-items: center;
+		flex: 0 0 auto;
 	}
 
 	.label-divider {

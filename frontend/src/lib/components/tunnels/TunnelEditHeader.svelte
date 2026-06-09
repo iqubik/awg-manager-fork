@@ -35,11 +35,19 @@
 
 <div class="sticky-header">
 	<div class="header-left">
-		<BackLink href="/" />
+		<BackLink href="/" variant="accent" />
 		<div class="title-row">
 			<h1 class="page-title">{tunnelName}</h1>
-			<span class="badge" class:badge-success={tunnelState === 'running'} class:badge-warning={tunnelState === 'starting' || tunnelState === 'broken' || tunnelState === 'needs_start' || tunnelState === 'needs_stop' || tunnelState === 'stopping'} class:badge-muted={tunnelState === 'disabled'} class:badge-error={tunnelState === 'stopped' || tunnelState === 'not_created'}>
-				<span class="w-1.5 h-1.5 rounded-full bg-current"></span>
+			<span
+				class="tunnel-state-badge"
+				class:state-running={tunnelState === 'running'}
+				class:state-starting={tunnelState === 'starting'}
+				class:state-warning={tunnelState === 'needs_start' || tunnelState === 'needs_stop' || tunnelState === 'stopping'}
+				class:state-disabled={tunnelState === 'disabled'}
+				class:state-broken={tunnelState === 'broken'}
+				class:state-stopped={tunnelState === 'stopped' || tunnelState === 'not_created'}
+			>
+				<span class="state-dot" aria-hidden="true"></span>
 				{tunnelState === 'running' ? 'Работает'
 				 : tunnelState === 'starting' ? 'Запускается'
 				 : tunnelState === 'needs_start' ? 'Ожидает запуска'
@@ -145,35 +153,76 @@
 		flex-wrap: wrap;
 	}
 
-	/* Badge */
-	.badge {
-		display: flex;
+	.tunnel-state-badge {
+		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		padding: 4px 10px;
+		min-height: 24px;
+		padding: 3px 9px;
+		border-radius: 999px;
 		font-size: 12px;
-		font-weight: 500;
-		border-radius: 12px;
+		font-weight: 600;
+		line-height: 1;
+		border: 1px solid transparent;
+		white-space: nowrap;
 	}
 
-	.badge-success {
-		background: rgba(16, 185, 129, 0.15);
-		color: var(--success);
+	.state-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 999px;
+		background: currentColor;
+		box-shadow: 0 0 8px currentColor;
 	}
 
-	.badge-error {
-		background: rgba(239, 68, 68, 0.15);
-		color: var(--error);
+	.tunnel-state-badge.state-running {
+		color: var(--color-success, var(--success));
+		background: var(--color-success-tint, rgba(16, 185, 129, 0.15));
+		border-color: var(--color-success-border, rgba(16, 185, 129, 0.3));
 	}
 
-	.badge-warning {
-		background: rgba(245, 158, 11, 0.15);
-		color: var(--warning, #f59e0b);
+	.tunnel-state-badge.state-starting {
+		color: var(--color-info, #38bdf8);
+		background: var(--color-info-tint, rgba(56, 189, 248, 0.14));
+		border-color: var(--color-info-border, rgba(56, 189, 248, 0.28));
 	}
 
-	.badge-muted {
-		background: var(--bg-tertiary);
-		color: var(--text-muted);
+	.tunnel-state-badge.state-starting .state-dot {
+		animation: tunnel-state-pulse 1.2s ease-in-out infinite;
+	}
+
+	.tunnel-state-badge.state-warning {
+		color: var(--color-warning, var(--warning, #f59e0b));
+		background: var(--color-warning-tint, rgba(245, 158, 11, 0.15));
+		border-color: var(--color-warning-border, rgba(245, 158, 11, 0.3));
+	}
+
+	.tunnel-state-badge.state-disabled {
+		color: var(--color-text-muted, var(--text-muted));
+		background: var(--color-muted-tint, var(--bg-tertiary));
+		border-color: var(--color-muted-border, var(--border));
+	}
+
+	.tunnel-state-badge.state-broken {
+		color: var(--color-broken, var(--color-error, var(--error)));
+		background: var(--color-broken-tint, var(--color-error-tint, rgba(239, 68, 68, 0.15)));
+		border-color: var(--color-broken-border, var(--color-error-border, rgba(239, 68, 68, 0.3)));
+	}
+
+	.tunnel-state-badge.state-stopped {
+		color: var(--color-error, var(--error));
+		background: var(--color-error-tint, rgba(239, 68, 68, 0.15));
+		border-color: var(--color-error-border, rgba(239, 68, 68, 0.3));
+	}
+
+	@keyframes tunnel-state-pulse {
+		0%, 100% {
+			opacity: 0.55;
+		}
+
+		50% {
+			opacity: 1;
+		}
 	}
 
 	.header-left {

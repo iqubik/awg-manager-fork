@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, ConfirmModal, Dropdown } from '$lib/components/ui';
+	import { Button, ConfirmModal, Dropdown, SensitiveBlockEye } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { tunnels as tunnelsStore } from '$lib/stores/tunnels';
@@ -52,6 +52,7 @@
 	let fixes: string[] = $state([]);
 	let camouflage = $state<'LOW' | 'MEDIUM' | 'HIGH'>('LOW');
 	let fileInput: HTMLInputElement | undefined = $state();
+	let configSensitiveHidden = $state(true);
 
 	let tunnels = $state<TunnelListItem[]>([]);
 	let selectedTunnelId = $state('');
@@ -61,6 +62,30 @@
 
 	let savingTunnel = $state(false);
 	let confirmSaveOpen = $state(false);
+
+	const SENSITIVE_AWG_KEYS = new Set([
+		'privatekey',
+		'publickey',
+		'presharedkey',
+		'address',
+		'dns',
+		'endpoint',
+		'allowedips',
+	]);
+
+	function maskAwgConfigSensitiveLines(value: string): string {
+		return value
+			.split('\n')
+			.map((line) => {
+				const match = line.match(/^(\s*([A-Za-z0-9]+)\s*=\s*)(.*)$/);
+				if (!match) return line;
+
+				const [, prefix, key, rawValue] = match;
+				if (!SENSITIVE_AWG_KEYS.has(key.toLowerCase())) return line;
+				return rawValue.trim() ? `${prefix}********` : line;
+			})
+			.join('\n');
+	}
 
 	function isEmbeddedLocked(): boolean {
 		return embedded && lockTunnelSelection && !!initialTunnelId;
@@ -435,6 +460,7 @@
 
 	let parsedLines = $derived.by(() => {
 		if (!parsed) return [] as { key: string; value: string }[];
+		const hidden = configSensitiveHidden;
 		const { iface, peer } = parsed;
 		const rows: [string, string][] = [
 			['privatekey', iface.privatekey ? `${iface.privatekey.slice(0, 16)}…` : '—'],
@@ -462,8 +488,14 @@
 		];
 		return rows
 			.filter(([, v]) => v && v !== '—')
-			.map(([key, value]) => ({ key, value }));
+			.map(([key, value]) => ({
+				key,
+				value:
+					hidden && SENSITIVE_AWG_KEYS.has(key.toLowerCase()) && value !== '—' ? '********' : value,
+			}));
 	});
+
+	let maskedRaw = $derived(maskAwgConfigSensitiveLines(raw));
 
 	let categories = $derived([...new Set(checks.map((c) => c.cat))]);
 	let canAnalyze = $derived(raw.trim().length > 0);
@@ -494,7 +526,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="awg-analyzer">
+<div class="awg-analyzer" class:embedded>
 	<div class="privacy-banner" role="status">
 		<div class="privacy-banner-icon" aria-hidden="true">
 			<svg
@@ -567,15 +599,30 @@
 				ondragover={(e) => e.preventDefault()}
 				ondrop={onDrop}
 			>
-				<span class="drop-label">AWG / WireGuard .conf — вставьте или перетащите файл</span>
-				<textarea
-					class="ta"
-					bind:value={raw}
-					rows="16"
-					spellcheck="false"
-					autocomplete="off"
-					placeholder="[Interface]&#10;PrivateKey = …&#10;…"
-				></textarea>
+				<div class="drop-head">
+					<span class="drop-label">AWG / WireGuard .conf — вставьте или перетащите файл</span>
+					<SensitiveBlockEye bind:hidden={configSensitiveHidden} label="конфиг AWG" />
+				</div>
+				{#if configSensitiveHidden}
+					<textarea
+						class="ta"
+						value={maskedRaw}
+						rows="16"
+						spellcheck="false"
+						autocomplete="off"
+						readonly
+						placeholder="[Interface]&#10;PrivateKey = …&#10;…"
+					></textarea>
+				{:else}
+					<textarea
+						class="ta"
+						bind:value={raw}
+						rows="16"
+						spellcheck="false"
+						autocomplete="off"
+						placeholder="[Interface]&#10;PrivateKey = …&#10;…"
+					></textarea>
+				{/if}
 			</label>
 
 			<div class="bar">
@@ -827,6 +874,11 @@
 		overflow-x: clip;
 	}
 
+	.awg-analyzer.embedded {
+		max-width: none;
+		padding: 0;
+	}
+
 	.privacy-banner {
 		display: flex;
 		align-items: flex-start;
@@ -955,6 +1007,52 @@
 			overflow-y: auto;
 			resize: none;
 		}
+
+		.awg-analyzer.embedded .layout {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			column-gap: 24px;
+			row-gap: 0;
+			align-items: start;
+		}
+
+		.awg-analyzer.embedded .col-input {
+			position: static;
+			max-height: none;
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+		}
+
+		.awg-analyzer.embedded .col-input > :not(.drop) {
+			flex-shrink: 0;
+		}
+
+		.awg-analyzer.embedded .drop {
+			flex: none;
+			min-height: auto;
+			overflow: visible;
+		}
+
+		.awg-analyzer.embedded .ta {
+			min-height: 300px;
+			max-height: 420px;
+			resize: vertical;
+			overflow-y: auto;
+		}
+
+		.awg-analyzer.embedded .existing-tunnel-box {
+			margin: 0;
+		}
+
+		.awg-analyzer.embedded .col-results {
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+		}
+
+		.awg-analyzer.embedded .col-results > .card {
+			margin-bottom: 0;
+		}
 	}
 
 	@media (min-width: 641px) and (max-width: 900px) {
@@ -1020,6 +1118,14 @@
 		background: var(--color-bg-tertiary, var(--bg-tertiary));
 	}
 
+	.drop-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+
 	.drop-label {
 		display: block;
 		font-size: 11px;
@@ -1028,6 +1134,11 @@
 		letter-spacing: 0.06em;
 		color: var(--color-text-muted, var(--text-muted));
 		margin-bottom: 8px;
+	}
+
+	.drop-head .drop-label {
+		margin-bottom: 0;
+		min-width: 0;
 	}
 
 	.ta {

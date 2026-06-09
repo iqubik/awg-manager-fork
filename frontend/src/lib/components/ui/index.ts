@@ -51,3 +51,4 @@ export { default as SectionLabel } from './SectionLabel.svelte';
 export { default as NdmsIconTile } from './NdmsIconTile.svelte';
 export { default as TableSortHeader } from './TableSortHeader.svelte';
 export { default as FieldHint } from './FieldHint.svelte';
+export { default as SensitiveBlockEye } from './SensitiveBlockEye.svelte';

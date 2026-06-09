@@ -4,6 +4,7 @@
 	import DownloadRouteNote from '$lib/components/downloads/DownloadRouteNote.svelte';
 	import DownloadErrorNotice from '$lib/components/downloads/DownloadErrorNotice.svelte';
 	import { downloadErrorToText } from '$lib/utils/downloadError';
+	import { maskSensitive } from '$lib/utils/sensitiveMask';
 	import AmneziaConfEditor from './AmneziaConfEditor.svelte';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
@@ -38,6 +39,7 @@
 		/** localStorage для «Запомнить ключ»; без ключа — кнопки сохранения скрыты */
 		storageKey?: string;
 		variant?: 'page' | 'modal';
+		privacyHidden?: boolean;
 		placeholder?: string;
 		/** После скачивания конфига страны Premium (импорт / замена — на стороне родителя) */
 		oncountryconfig?: (config: string, meta: CountryConfigMeta) => void | Promise<void>;
@@ -53,6 +55,7 @@
 		linkPreview = $bindable(''),
 		storageKey,
 		variant = 'page',
+		privacyHidden = false,
 		placeholder = 'Вставьте vpn:// — клиентский конфиг или ключ Amnezia Premium',
 		oncountryconfig,
 		onregularconfig,
@@ -81,6 +84,7 @@
 	});
 
 	const previewVariant = $derived(variant === 'modal' ? 'modal-preview' : 'preview');
+	const displayValue = $derived(privacyHidden ? maskSensitive(value) : value);
 
 	function resetPremiumCatalogState() {
 		premiumSid = '';
@@ -313,15 +317,26 @@
 </script>
 
 <div class="vpn-import-stack" class:vpn-import-stack--modal={variant === 'modal'}>
-	<textarea
-		class="config-textarea vpn-paste-input"
-		class:vpn-paste-input--modal={variant === 'modal'}
-		bind:value
-		oninput={scheduleVpnPasteAnalysis}
-		onpaste={() => queueMicrotask(() => void runVpnPasteAnalysis())}
-		{placeholder}
-		spellcheck="false"
-	></textarea>
+	{#if privacyHidden}
+		<textarea
+			class="config-textarea vpn-paste-input"
+			class:vpn-paste-input--modal={variant === 'modal'}
+			value={displayValue}
+			placeholder={placeholder}
+			readonly
+			spellcheck="false"
+		></textarea>
+	{:else}
+		<textarea
+			class="config-textarea vpn-paste-input"
+			class:vpn-paste-input--modal={variant === 'modal'}
+			bind:value
+			oninput={scheduleVpnPasteAnalysis}
+			onpaste={() => queueMicrotask(() => void runVpnPasteAnalysis())}
+			{placeholder}
+			spellcheck="false"
+		></textarea>
+	{/if}
 	{#if showPremiumChrome}
 		<DownloadRouteNote text="Список стран и конфигурации Amnezia Premium будут получены через" />
 		<p class="premium-cp-note">
@@ -408,7 +423,7 @@
 		<p class="link-error">{linkError}</p>
 	{/if}
 	{#if linkPreview}
-		<AmneziaConfEditor bind:value={linkPreview} variant={previewVariant} readonly />
+		<AmneziaConfEditor bind:value={linkPreview} variant={previewVariant} readonly privacyHidden={privacyHidden} />
 	{/if}
 </div>
 

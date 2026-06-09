@@ -4,12 +4,13 @@
 	import { tunnels } from '$lib/stores/tunnels';
 	import { notifications } from '$lib/stores/notifications';
 	import { PageContainer } from '$lib/components/layout';
-	import { BackLink, Button } from '$lib/components/ui';
+	import { BackLink, Button, SensitiveBlockEye } from '$lib/components/ui';
 	import TunnelConfigImportPanel, {
 		type TunnelImportTab
 	} from '$lib/components/tunnels/TunnelConfigImportPanel.svelte';
 	import { decodeVpnLink, isVpnLink, vpnLinkUnsupportedPortalReason } from '$lib/utils/vpnlink';
 	import { nativewgUnavailableHint } from '$lib/utils/backendAvailability';
+	import { maskSensitive } from '$lib/utils/sensitiveMask';
 	import { api } from '$lib/api/client';
 	import type { SystemInfo } from '$lib/types';
 
@@ -29,6 +30,7 @@
 	let linkPreview = $state('');
 	let systemInfo = $state<SystemInfo | null>(null);
 	let selectedBackend = $state<'nativewg' | 'kernel'>('nativewg');
+	let importPrivacyHidden = $state(true);
 
 	let nativewgHint = $derived(
 		systemInfo !== null && !systemInfo.backendAvailability?.nativewg
@@ -135,8 +137,16 @@
 
 <div class="import-container">
 	<label class="field-label" for="import-name">Название туннеля</label>
+	<div class="privacy-row">
+		<span class="privacy-label">Скрыть чувствительные данные импорта</span>
+		<SensitiveBlockEye bind:hidden={importPrivacyHidden} label="импорта туннеля" />
+	</div>
 	<div class="top-row">
-		<input type="text" id="import-name" class="name-input" bind:value={importName} placeholder="Мой VPN">
+		{#if importPrivacyHidden}
+			<input type="text" id="import-name" class="name-input" value={maskSensitive(importName)} placeholder={maskSensitive('Мой VPN')} readonly>
+		{:else}
+			<input type="text" id="import-name" class="name-input" bind:value={importName} placeholder="Мой VPN">
+		{/if}
 		<div class="btn-import-wrap">
 			<Button variant="primary" size="md" onclick={handleImport} disabled={!importContent.trim()} loading={loading}>
 				Импортировать
@@ -183,6 +193,7 @@
 		bind:activeTab
 		bind:vpnPasteInput
 		bind:linkPreview
+		privacyHidden={importPrivacyHidden}
 		onfileloaded={(file) => handleFileLoaded(file)}
 		onregularconfig={(meta) => {
 			if (meta.suggestedName && !importName) importName = meta.suggestedName;
@@ -209,6 +220,19 @@
 		font-weight: 500;
 		color: var(--color-text-secondary);
 		margin-bottom: 6px;
+	}
+
+	.privacy-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		margin-bottom: 10px;
+	}
+
+	.privacy-label {
+		font-size: 13px;
+		color: var(--color-text-muted);
 	}
 
 	.top-row {
