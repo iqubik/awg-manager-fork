@@ -29,6 +29,7 @@
 	interface Props {
 		initialTunnelId?: string;
 		embedded?: boolean;
+		layoutMode?: 'embedded' | 'standalone';
 		lockTunnelSelection?: boolean;
 		onTunnelSaved?: () => void;
 	}
@@ -36,6 +37,7 @@
 	let {
 		initialTunnelId = '',
 		embedded = false,
+		layoutMode = 'standalone',
 		lockTunnelSelection = false,
 		onTunnelSaved,
 	}: Props = $props();
@@ -53,6 +55,7 @@
 	let camouflage = $state<'LOW' | 'MEDIUM' | 'HIGH'>('LOW');
 	let fileInput: HTMLInputElement | undefined = $state();
 	let configSensitiveHidden = $state(true);
+	let tunnelSelectionHidden = $state(true);
 
 	let tunnels = $state<TunnelListItem[]>([]);
 	let selectedTunnelId = $state('');
@@ -449,7 +452,14 @@
 		}
 	});
 
-	const tunnelOptions = $derived(buildManagedTunnelListDropdownOptions(tunnels));
+	const tunnelOptions = $derived.by(() => {
+		const options = buildManagedTunnelListDropdownOptions(tunnels);
+		if (!tunnelSelectionHidden) return options;
+		return options.map((option) => ({
+			...option,
+			label: '********',
+		}));
+	});
 	const tunnelPlaceholder = $derived(
 		tunnelsLoading
 			? 'Загрузка туннелей…'
@@ -526,7 +536,11 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="awg-analyzer" class:embedded>
+<div
+	class="awg-analyzer"
+	class:embedded={embedded || layoutMode === 'embedded'}
+	class:standalone={!embedded && layoutMode === 'standalone'}
+>
 	<div class="privacy-banner" role="status">
 		<div class="privacy-banner-icon" aria-hidden="true">
 			<svg
@@ -559,8 +573,11 @@
 			{#if !embedded || !lockTunnelSelection}
 				<div class="existing-tunnel-box">
 					<div class="existing-tunnel-head">
-						<span class="existing-tunnel-title">Существующий AWG-туннель</span>
-						<span class="existing-tunnel-note">или вставьте .conf ниже</span>
+						<div class="existing-tunnel-head-copy">
+							<span class="existing-tunnel-title">Существующий AWG-туннель</span>
+							<span class="existing-tunnel-note">или вставьте .conf ниже</span>
+						</div>
+						<SensitiveBlockEye bind:hidden={tunnelSelectionHidden} label="выбранного AWG-туннеля" />
 					</div>
 					<div class="existing-tunnel-row">
 						<div class="existing-tunnel-select">
@@ -1051,6 +1068,49 @@
 		}
 
 		.awg-analyzer.embedded .col-results > .card {
+			margin-bottom: 0;
+		}
+
+		.awg-analyzer.standalone .layout {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			column-gap: 24px;
+			row-gap: 0;
+			align-items: start;
+		}
+
+		.awg-analyzer.standalone .col-input {
+			position: static;
+			max-height: none;
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+			min-height: 0;
+		}
+
+		.awg-analyzer.standalone .drop {
+			flex: none;
+			min-height: auto;
+			overflow: visible;
+		}
+
+		.awg-analyzer.standalone .ta {
+			min-height: 300px;
+			max-height: 420px;
+			resize: vertical;
+			overflow-y: auto;
+		}
+
+		.awg-analyzer.standalone .existing-tunnel-box {
+			margin: 0;
+		}
+
+		.awg-analyzer.standalone .col-results {
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+		}
+
+		.awg-analyzer.standalone .col-results > .card {
 			margin-bottom: 0;
 		}
 	}
@@ -1808,8 +1868,17 @@
 	.existing-tunnel-head {
 		display: flex;
 		align-items: baseline;
+		justify-content: space-between;
 		gap: 8px;
 		margin-bottom: 10px;
+	}
+
+	.existing-tunnel-head-copy {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		min-width: 0;
+		flex-wrap: wrap;
 	}
 
 	.existing-tunnel-title {
