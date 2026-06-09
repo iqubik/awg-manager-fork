@@ -291,6 +291,10 @@
 			min-width: 0;
 		}
 
+		.num-input input {
+			text-align: left;
+		}
+
 		.setting-controls {
 			width: 100%;
 			justify-content: space-between;
