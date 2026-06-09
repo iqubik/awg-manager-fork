@@ -122,10 +122,24 @@
 			{#if !isBasic}
 				<div class="head-actions">
 					{#if updatedLabel}
-						<span class="updated-at" title="Последнее обновление">
-							<span class="live-dot" class:live-dot-loading={refreshing}></span>
-							{updatedLabel}
-						</span>
+						{#if onrefresh}
+							<button
+								type="button"
+								class="updated-at updated-at-button"
+								title="Обновить информацию о системе"
+								aria-label="Обновить информацию о системе"
+								disabled={refreshing}
+								onclick={() => onrefresh()}
+							>
+								<span class="live-dot" class:live-dot-loading={refreshing}></span>
+								{updatedLabel}
+							</button>
+						{:else}
+							<span class="updated-at" title="Последнее обновление">
+								<span class="live-dot" class:live-dot-loading={refreshing}></span>
+								{updatedLabel}
+							</span>
+						{/if}
 					{/if}
 				</div>
 			{/if}
@@ -249,7 +263,9 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.75rem;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.75rem;
+		padding-bottom: 0.625rem;
+		border-bottom: 1px solid var(--color-border);
 	}
 
 	.section-collapse-btn {
@@ -350,6 +366,36 @@
 		font-size: 0.6875rem;
 		color: var(--color-text-muted);
 		white-space: nowrap;
+	}
+
+	.updated-at-button {
+		padding: 0.25rem 0.375rem;
+		margin: -0.25rem -0.375rem;
+		border: 1px solid transparent;
+		border-radius: var(--radius-sm);
+		background: transparent;
+		cursor: pointer;
+		transition:
+			color var(--t-fast) ease,
+			background var(--t-fast) ease,
+			border-color var(--t-fast) ease,
+			box-shadow var(--t-fast) ease;
+	}
+
+	.updated-at-button:hover:not(:disabled) {
+		color: var(--color-text-secondary);
+		background: color-mix(in srgb, var(--color-bg-tertiary) 65%, transparent);
+		border-color: color-mix(in srgb, var(--color-border) 75%, transparent);
+	}
+
+	.updated-at-button:focus-visible {
+		outline: none;
+		border-color: var(--color-accent);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 28%, transparent);
+	}
+
+	.updated-at-button:disabled {
+		cursor: progress;
 	}
 
 	.live-dot {

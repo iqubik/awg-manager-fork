@@ -66,6 +66,7 @@
 	class="settings-section-label"
 	class:header
 	class:inline
+	class:mode-none={iconMode === 'none'}
 	class:vivid-tone-cycle={vividToneCycle}
 	style:--tone-color={toneColor}
 >
@@ -101,6 +102,20 @@
 
 	.settings-section-label.header {
 		margin-bottom: 0.5rem;
+	}
+
+	.settings-section-label.header .label-divider {
+		display: inline-block;
+	}
+
+	.settings-section-label.header.mode-none {
+		margin-bottom: 0.75rem;
+		padding-bottom: 0.625rem;
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.settings-section-label.header.mode-none .label-divider {
+		display: none;
 	}
 
 	.icon-badge {
