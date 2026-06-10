@@ -113,15 +113,3 @@ export function resetWizardState(): void {
   customW.set(emptyCustom());
 }
 
-if (typeof window !== 'undefined') {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('add') === '1') {
-    openW.set(true);
-    if (params.has('trace') || params.has('q')) {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('trace');
-      url.searchParams.delete('q');
-      window.history.replaceState({}, '', url);
-    }
-  }
-}

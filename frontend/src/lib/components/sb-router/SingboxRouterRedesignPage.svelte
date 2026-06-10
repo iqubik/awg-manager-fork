@@ -15,6 +15,8 @@
     traceOpen,
     AddWizardPanel,
     addWizardOpen,
+    closeAddWizard,
+    closeTrace,
     EmptyState,
     ExpertPanel,
     mode as sbMode,
@@ -27,8 +29,32 @@
   const singboxInitialized = singboxRouterStore.initialized;
   let singboxRulesCount = $derived($singboxRulesStore.length);
 
+  const SUB_VIEWS = new Set(['connections', 'deviceproxy']);
+
+  function resetSingboxOverlayState() {
+    closeAddWizard();
+    closeTrace();
+  }
+
   onMount(() => {
+    // Вкладка открывается на списке правил: не восстанавливаем визард (?add=1)
+    // и sub-экраны (?sub=connections / deviceproxy) после ухода на другие вкладки.
+    resetSingboxOverlayState();
+    const sub = $page.url.searchParams.get('sub');
+    if (sub && SUB_VIEWS.has(sub)) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('sub');
+      void goto(`${url.pathname}${url.search}`, { replaceState: true, keepFocus: true, noScroll: true });
+    }
     void singboxRouterStore.loadAll();
+  });
+
+  // Явный переход в sub-вид (чип «соединения») — закрыть визард/trace, но sub оставить.
+  $effect(() => {
+    const sub = activeSingboxSub;
+    if (sub && SUB_VIEWS.has(sub)) {
+      resetSingboxOverlayState();
+    }
   });
 
   // Активен ли отдельный sub-вид (рендерится на всю страницу) — для кнопки «Назад».

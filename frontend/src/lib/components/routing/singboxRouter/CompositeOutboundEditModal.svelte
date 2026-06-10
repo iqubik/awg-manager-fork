@@ -327,14 +327,3 @@
 		</Button>
 	{/snippet}
 </SingboxSettingsModal>
-
-<style>
-	.type-field :global(.segmented-control) {
-		width: 100%;
-	}
-
-	.type-field :global(.segmented-control-btn) {
-		flex: 1;
-		min-width: 0;
-	}
-</style>

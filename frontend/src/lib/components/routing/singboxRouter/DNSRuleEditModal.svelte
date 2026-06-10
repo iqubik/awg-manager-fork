@@ -1,5 +1,13 @@
 <script lang="ts">
-	import { Button, Dropdown, ChipMultiSelect, type DropdownOption, type ChipOption } from '$lib/components/ui';
+	import {
+		Button,
+		Dropdown,
+		ChipMultiSelect,
+		SegmentedControl,
+		type DropdownOption,
+		type ChipOption,
+		type SegmentedOption,
+	} from '$lib/components/ui';
 	import SingboxSettingsModal from './SingboxSettingsModal.svelte';
 	import type { SingboxRouterDNSRule, SingboxRouterDNSServer, SingboxRouterRuleSet } from '$lib/types';
 
@@ -72,6 +80,11 @@
 		{ value: 'nxdomain', label: 'NXDOMAIN (нет такого домена)' },
 		{ value: 'refused', label: 'REFUSED' },
 		{ value: 'drop', label: 'Drop (без ответа)' },
+	];
+
+	const actionOptions: SegmentedOption<'route' | 'block'>[] = [
+		{ value: 'route', label: 'Резолвить' },
+		{ value: 'block', label: 'Заблокировать' },
 	];
 
 	let busy = $state(false);
@@ -231,10 +244,12 @@
 
 		<div class="action-section">
 			<div class="section-label">Действие</div>
-			<div class="segment">
-				<button class:active={action === 'route'} onclick={() => (action = 'route')} type="button">Резолвить</button>
-				<button class:active={action === 'block'} onclick={() => (action = 'block')} type="button">Заблокировать</button>
-			</div>
+			<SegmentedControl
+				value={action}
+				options={actionOptions}
+				ariaLabel="Действие DNS правила"
+				onchange={(next) => (action = next)}
+			/>
 
 			{#if action === 'route'}
 				<label class="field">

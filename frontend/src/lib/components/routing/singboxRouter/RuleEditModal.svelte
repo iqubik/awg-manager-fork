@@ -1,6 +1,14 @@
 <script lang="ts">
 	import SingboxSettingsModal from './SingboxSettingsModal.svelte';
-	import { Button, Dropdown, ChipMultiSelect, type DropdownOption, type ChipOption } from '$lib/components/ui';
+	import {
+		Button,
+		Dropdown,
+		ChipMultiSelect,
+		SegmentedControl,
+		type DropdownOption,
+		type ChipOption,
+		type SegmentedOption,
+	} from '$lib/components/ui';
 	import type { SingboxRouterRule, SingboxRouterRuleSet } from '$lib/types';
 	import type { OutboundGroup } from './outboundOptions';
 
@@ -66,6 +74,11 @@
 	let action: 'route' | 'reject' = $state((rule?.action === 'reject' ? 'reject' : 'route'));
 	// svelte-ignore state_referenced_locally
 	let outbound = $state(rule?.outbound ?? '');
+
+	const actionOptions: SegmentedOption<'route' | 'reject'>[] = [
+		{ value: 'route', label: 'Направить' },
+		{ value: 'reject', label: 'Заблокировать' },
+	];
 
 	let busy = $state(false);
 	let error = $state('');
@@ -251,10 +264,12 @@
 
 			<div class="action-section">
 				<div class="section-label">Действие</div>
-				<div class="segment">
-					<button class:active={action === 'route'} onclick={() => (action = 'route')} type="button">Направить</button>
-					<button class:active={action === 'reject'} onclick={() => (action = 'reject')} type="button">Заблокировать</button>
-				</div>
+				<SegmentedControl
+					value={action}
+					options={actionOptions}
+					ariaLabel="Действие правила маршрутизации"
+					onchange={(next) => (action = next)}
+				/>
 
 				{#if action === 'route'}
 					<label class="field">

@@ -448,12 +448,15 @@ geosite:xai`;
 		overflow: hidden;
 		min-width: 0;
 		align-items: stretch;
+		background: var(--sbr-control-bg, var(--bg-tertiary, var(--bg)));
+		border: 1px solid var(--sbr-control-border, var(--border));
+		border-radius: var(--sbr-control-radius, 4px);
 	}
 	.line-numbers {
 		margin: 0;
 		padding: 0.5rem 0.45rem 0.5rem 0.55rem;
-		border-right: 1px solid var(--border);
-		background: var(--bg);
+		border-right: 1px solid var(--sbr-control-border, var(--border));
+		background: color-mix(in srgb, var(--sbr-control-bg, var(--bg-tertiary, var(--bg))) 85%, var(--sbr-control-border, var(--border)));
 		color: var(--muted-text);
 		font-family: ui-monospace, monospace;
 		font-size: 0.8rem;

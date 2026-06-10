@@ -10,7 +10,13 @@
     ArrowLeft, Info, Check, Zap, Globe, ShieldOff, Plus,
   } from 'lucide-svelte';
   import { singboxRouter as singboxRouterStore } from '$lib/stores/singboxRouter';
+  import { subscriptionsStore } from '$lib/stores/subscriptions';
+  import { singboxProxies } from '$lib/stores/singboxProxies';
+  import { singboxTunnels } from '$lib/stores/singbox';
   import { notifications } from '$lib/stores/notifications';
+  import { resolveOutboundDisplay } from './adapters';
+  import OutboundToneIcon from './OutboundToneIcon.svelte';
+  import { displayTone, toneClass } from './outboundTileTone';
   import { Button } from '$lib/components/ui';
   import StepPill from './StepPill.svelte';
   import WizardStep from './WizardStep.svelte';
@@ -279,8 +285,20 @@
             <div class="tunnel-chips">
               {#each tunnelOutbounds as ob (ob.value)}
                 {@const selected = $wizardTunnelTag === ob.value}
+                {@const tunnelDisplay = resolveOutboundDisplay(
+                  ob.value,
+                  'route',
+                  $outbounds,
+                  $options,
+                  $subscriptionsStore.data,
+                  $singboxProxies.data ?? [],
+                  $singboxTunnels.data ?? [],
+                )}
+                {@const tunnelTone = displayTone(tunnelDisplay)}
                 <button type="button" class="t-chip" class:selected onclick={() => setTunnelTag(ob.value)}>
-                  <Zap size={12} />
+                  <span class="tone-icon {toneClass(tunnelTone)}">
+                    <OutboundToneIcon tone={tunnelTone} kind={tunnelDisplay.kind} size={12} />
+                  </span>
                   <span class="tag">{ob.label}</span>
                 </button>
               {/each}
@@ -339,6 +357,8 @@
 {/if}
 
 <style>
+  @import './outboundTone.css';
+
   .wizard {
     max-width: 720px;
     margin: 0 auto;

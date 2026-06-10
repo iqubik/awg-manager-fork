@@ -1,5 +1,15 @@
 /* Shared outbound chip tones — RuleCard / OutboundTile */
 
+.tone-icon {
+	display: inline-flex;
+	align-items: center;
+	flex-shrink: 0;
+}
+
+.tone-icon :global(svg) {
+	flex-shrink: 0;
+}
+
 .tone-chip :global(svg) {
 	flex-shrink: 0;
 }
@@ -40,53 +50,85 @@
 	line-height: inherit;
 }
 
-.tone-proxy {
-	background: color-mix(in srgb, #56c8b8 14%, transparent);
-	border-color: color-mix(in srgb, #56c8b8 36%, transparent);
+.tone-chip.tone-proxy,
+.tone-icon.tone-proxy {
 	color: #56c8b8;
 }
 
-.tone-awg {
-	background: color-mix(in srgb, #9c8aff 12%, transparent);
-	border-color: color-mix(in srgb, #9c8aff 34%, transparent);
+.tone-chip.tone-proxy {
+	background: color-mix(in srgb, #56c8b8 14%, transparent);
+	border-color: color-mix(in srgb, #56c8b8 36%, transparent);
+}
+
+.tone-chip.tone-awg,
+.tone-icon.tone-awg {
 	color: #9c8aff;
 }
 
-.tone-subscription {
-	background: color-mix(in srgb, #7dcfff 14%, transparent);
-	border-color: color-mix(in srgb, #7dcfff 36%, transparent);
+.tone-chip.tone-awg {
+	background: color-mix(in srgb, #9c8aff 12%, transparent);
+	border-color: color-mix(in srgb, #9c8aff 34%, transparent);
+}
+
+.tone-chip.tone-subscription,
+.tone-icon.tone-subscription {
 	color: #7dcfff;
 }
 
-.tone-composite {
-	background: var(--accent-soft);
-	border-color: var(--accent-line);
+.tone-chip.tone-subscription {
+	background: color-mix(in srgb, #7dcfff 14%, transparent);
+	border-color: color-mix(in srgb, #7dcfff 36%, transparent);
+}
+
+.tone-chip.tone-composite,
+.tone-icon.tone-composite {
 	color: var(--accent);
 }
 
-.tone-block {
-	background: rgba(181, 101, 119, 0.12);
-	border-color: rgba(181, 101, 119, 0.3);
+.tone-chip.tone-composite {
+	background: var(--accent-soft);
+	border-color: var(--accent-line);
+}
+
+.tone-chip.tone-block,
+.tone-icon.tone-block {
 	color: var(--error);
 }
 
-.tone-direct {
+.tone-chip.tone-block {
+	background: rgba(181, 101, 119, 0.12);
+	border-color: rgba(181, 101, 119, 0.3);
+}
+
+.tone-chip.tone-direct,
+.tone-icon.tone-direct {
+	color: var(--text-secondary);
+}
+
+.tone-chip.tone-direct {
 	background: rgba(255, 255, 255, 0.04);
 	border-color: var(--border);
-	color: var(--text-secondary);
 	font-weight: 500;
 }
 
-.tone-system {
+.tone-chip.tone-system,
+.tone-icon.tone-system {
+	color: var(--text-muted);
+}
+
+.tone-chip.tone-system {
 	background: var(--bg-tertiary);
 	border-color: var(--border);
-	color: var(--text-muted);
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
 }
 
-.tone-unknown {
+.tone-chip.tone-unknown,
+.tone-icon.tone-unknown {
+	color: var(--warning);
+}
+
+.tone-chip.tone-unknown {
 	background: rgba(184, 147, 90, 0.12);
 	border-color: rgba(184, 147, 90, 0.3);
-	color: var(--warning);
 }

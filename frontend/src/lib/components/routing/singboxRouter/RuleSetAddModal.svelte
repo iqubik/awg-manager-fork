@@ -1,6 +1,13 @@
 <script lang="ts">
 	import SingboxSettingsModal from './SingboxSettingsModal.svelte';
-	import { Button, Dropdown, SyntaxHighlightedTextarea, type DropdownOption } from '$lib/components/ui';
+	import {
+		Button,
+		Dropdown,
+		SegmentedControl,
+		SyntaxHighlightedTextarea,
+		type DropdownOption,
+		type SegmentedOption,
+	} from '$lib/components/ui';
 	import { highlightJson } from '$lib/utils/shareEditorHighlight';
 	import { api } from '$lib/api/client';
 	import type { GeoFileEntry, SingboxRouterRuleSet } from '$lib/types';
@@ -24,12 +31,32 @@
 	}
 	let { ruleSet, outboundOptions, onClose, onSave }: Props = $props();
 
+	type RuleSetFormType = 'remote' | 'local' | 'inline' | 'geosite' | 'geoip';
+
 	// ── constants ───────────────────────────────────────────────
 	const UPDATE_INTERVAL_OPTIONS: DropdownOption[] = [
 		{ value: '6h', label: '6h' },
 		{ value: '12h', label: '12h' },
 		{ value: '24h', label: '24h (рекомендуется)' },
 		{ value: '168h', label: '168h (неделя)' },
+	];
+
+	const typeOptions: SegmentedOption<RuleSetFormType>[] = [
+		{ value: 'remote', label: 'Remote' },
+		{ value: 'local', label: 'Local' },
+		{ value: 'inline', label: 'Inline' },
+		{ value: 'geosite', label: 'Geosite' },
+		{ value: 'geoip', label: 'GeoIP' },
+	];
+
+	const formatOptions: SegmentedOption<'binary' | 'source'>[] = [
+		{ value: 'binary', label: 'Binary (.srs)' },
+		{ value: 'source', label: 'Source (JSON)' },
+	];
+
+	const inlineModeOptions: SegmentedOption<'list' | 'json'>[] = [
+		{ value: 'list', label: 'Список' },
+		{ value: 'json', label: 'JSON' },
 	];
 
 	// ── derived ────────────────────────────────────────────────
@@ -61,8 +88,6 @@
 	let inlineMode: 'list' | 'json' = $state('list');
 
 	let rulesList = $state('');
-
-	type RuleSetFormType = 'remote' | 'local' | 'inline' | 'geosite' | 'geoip';
 
 	let type = $state<RuleSetFormType>('remote');
 	let format: 'binary' | 'source' = $state('binary');
@@ -426,13 +451,12 @@
 	<div class="form">
 		<div class="field">
 			<div class="lbl">Тип</div>
-			<div class="segment segment-type">
-				<button class:active={type === 'remote'} onclick={() => setType('remote')} type="button">Remote</button>
-				<button class:active={type === 'local'} onclick={() => setType('local')} type="button">Local</button>
-				<button class:active={type === 'inline'} onclick={() => setType('inline')} type="button">Inline</button>
-				<button class:active={type === 'geosite'} onclick={() => setType('geosite')} type="button">Geosite</button>
-				<button class:active={type === 'geoip'} onclick={() => setType('geoip')} type="button">GeoIP</button>
-			</div>
+			<SegmentedControl
+				value={type}
+				options={typeOptions}
+				ariaLabel="Тип rule set"
+				onchange={(next) => setType(next)}
+			/>
 		</div>
 
 		<label class="field">
@@ -448,10 +472,12 @@
 		{#if type !== 'inline' && !isDatType}
 			<label class="field">
 				<div class="lbl">Формат</div>
-				<div class="segment">
-					<button class:active={format === 'binary'} onclick={() => (format = 'binary')} type="button">Binary (.srs)</button>
-					<button class:active={format === 'source'} onclick={() => (format = 'source')} type="button">Source (JSON)</button>
-				</div>
+				<SegmentedControl
+					value={format}
+					options={formatOptions}
+					ariaLabel="Формат rule set"
+					onchange={(next) => (format = next)}
+				/>
 			</label>
 		{/if}
 
@@ -515,24 +541,13 @@
 		{:else}
 			<div class="field">
 				<div class="lbl">Формат ввода</div>
-				<div class="segment">
-					<button
-						class:active={inlineMode === 'list'}
-						disabled={inlineModeBusy}
-						onclick={() => void switchInlineMode('list')}
-						type="button"
-					>
-						Список
-					</button>
-					<button
-						class:active={inlineMode === 'json'}
-						disabled={inlineModeBusy}
-						onclick={() => void switchInlineMode('json')}
-						type="button"
-					>
-						JSON
-					</button>
-				</div>
+				<SegmentedControl
+					value={inlineMode}
+					options={inlineModeOptions}
+					ariaLabel="Формат ввода inline rule set"
+					disabled={inlineModeBusy}
+					onchange={(next) => void switchInlineMode(next)}
+				/>
 				{#if inlineTabConvertWarnings.length > 0}
 					<div class="parse-messages parse-messages-warning">
 						<div class="parse-messages-title">При переключении режима</div>
@@ -652,9 +667,9 @@
 		line-height: 1;
 	}
 	.rules-json-editor {
-		background: var(--bg);
-		border: 1px solid var(--border);
-		border-radius: 4px;
+		background: var(--sbr-control-bg, var(--bg-tertiary, var(--bg)));
+		border: 1px solid var(--sbr-control-border, var(--border));
+		border-radius: var(--sbr-control-radius, 4px);
 		width: 100%;
 		box-sizing: border-box;
 		height: calc(10 * 1.45em + 1rem);
@@ -664,65 +679,6 @@
 		border-color: var(--accent, #3b82f6);
 	}
 
-	@media (max-width: 640px) {
-		:global(.sbr-settings-form) .segment {
-			overflow: visible;
-		}
-
-		:global(.sbr-settings-form) .segment button + button {
-			border-left: none;
-		}
-
-		:global(.sbr-settings-form) .segment button {
-			border-left: 1px solid var(--border);
-			border-top: 1px solid var(--border);
-		}
-
-		:global(.sbr-settings-form) .segment button:nth-child(-n + 2) {
-			border-top: none;
-		}
-
-		:global(.sbr-settings-form) .segment button:nth-child(2n + 1) {
-			border-left: none;
-		}
-
-		:global(.sbr-settings-form) .segment:not(.segment-type) button:last-child:nth-child(odd) {
-			grid-column: 2 / 3;
-		}
-
-		:global(.sbr-settings-form) .segment.segment-type {
-			grid-template-columns: repeat(6, minmax(0, 1fr));
-		}
-
-		:global(.sbr-settings-form) .segment.segment-type button {
-			grid-column: span 2;
-			min-width: 0;
-		}
-
-		:global(.sbr-settings-form) .segment.segment-type button:nth-child(4),
-		:global(.sbr-settings-form) .segment.segment-type button:nth-child(5) {
-			grid-column: span 3;
-		}
-
-		:global(.sbr-settings-form) .segment.segment-type button:nth-child(3) {
-			border-left: 1px solid var(--border);
-			border-top: none;
-		}
-
-		:global(.sbr-settings-form) .segment.segment-type button:nth-child(4) {
-			border-left: none;
-			border-top: 1px solid var(--border);
-		}
-
-		:global(.sbr-settings-form) .segment.segment-type button:nth-child(5) {
-			border-left: 1px solid var(--border);
-			border-top: 1px solid var(--border);
-		}
-
-		:global(.sbr-settings-form) .segment.segment-type button:last-child:nth-child(odd) {
-			grid-column: span 3;
-		}
-	}
 	.rules-editor {
 		display: grid;
 		grid-template-columns: auto 1fr;
@@ -733,12 +689,15 @@
 		overflow: hidden;
 		min-width: 0;
 		align-items: stretch;
+		background: var(--sbr-control-bg, var(--bg-tertiary, var(--bg)));
+		border: 1px solid var(--sbr-control-border, var(--border));
+		border-radius: var(--sbr-control-radius, 4px);
 	}
 	.line-numbers {
 		margin: 0;
 		padding: 0.5rem 0.45rem 0.5rem 0.55rem;
-		border-right: 1px solid var(--border);
-		background: var(--bg);
+		border-right: 1px solid var(--sbr-control-border, var(--border));
+		background: color-mix(in srgb, var(--sbr-control-bg, var(--bg-tertiary, var(--bg))) 85%, var(--sbr-control-border, var(--border)));
 		color: var(--muted-text);
 		font-family: ui-monospace, monospace;
 		font-size: 0.8rem;

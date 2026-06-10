@@ -85,18 +85,10 @@ describe('addWizardStore', () => {
     expect(get(m.wizardCustom).rulesList).toBe('');
   });
 
-  it('module init с URL ?add=1 → open=true', async () => {
+  it('module init с URL ?add=1 не восстанавливает визард', async () => {
     resetEnv('/?add=1');
     const m = await import('./addWizardStore');
-    expect(get(m.addWizardOpen)).toBe(true);
-  });
-
-  it('module init с URL ?add=1&trace=1 → wizard wins (trace closed)', async () => {
-    resetEnv('/?add=1&trace=1');
-    const m = await import('./addWizardStore');
-    expect(get(m.addWizardOpen)).toBe(true);
-    // trace param removed by addWizard init logic
-    expect(window.location.search).not.toContain('trace=1');
+    expect(get(m.addWizardOpen)).toBe(false);
   });
 
   it('openEditWizard: prefill + edit state', async () => {

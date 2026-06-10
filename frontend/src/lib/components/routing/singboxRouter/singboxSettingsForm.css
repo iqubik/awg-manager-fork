@@ -1,7 +1,16 @@
 /* Shared sing-box settings modal form — label above field, no row dividers */
 
-:global(.modal-body:has(> .sbr-settings-form)) {
+.modal-body:has(> .sbr-settings-form) {
 	padding: 0.875rem 1rem;
+}
+
+.sbr-settings-form {
+	--sbr-control-bg: var(--bg-tertiary, var(--color-bg-tertiary, var(--bg)));
+	--sbr-control-border: var(--border, var(--color-border));
+	--sbr-control-radius: 4px;
+	--sbr-control-padding: 0.4rem 0.6rem;
+	--sbr-control-font-size: 0.8125rem;
+	--sbr-control-color: var(--text-primary, var(--text));
 }
 
 .sbr-settings-form .form {
@@ -105,12 +114,12 @@
 .sbr-settings-form .field input:not(.shl-ta),
 .sbr-settings-form .field textarea:not(.shl-ta),
 .sbr-settings-form .field select {
-	background: var(--bg-tertiary, var(--bg));
-	border: 1px solid var(--border);
-	padding: 0.4rem 0.6rem;
-	border-radius: 4px;
-	color: var(--text-primary, var(--text));
-	font-size: 0.8125rem;
+	background: var(--sbr-control-bg);
+	border: 1px solid var(--sbr-control-border);
+	padding: var(--sbr-control-padding);
+	border-radius: var(--sbr-control-radius);
+	color: var(--sbr-control-color);
+	font-size: var(--sbr-control-font-size);
 	box-sizing: border-box;
 	width: 100%;
 }
@@ -121,9 +130,9 @@
 }
 
 /* Code editors manage their own typography — never style .shl-ta / .shl-stack from form tokens */
-.sbr-settings-form .field :global(.shl-stack),
-.sbr-settings-form .field :global(.rules-editor),
-.sbr-settings-form .field :global(.inline-rule-list-editor) {
+.sbr-settings-form .field .shl-stack,
+.sbr-settings-form .field .rules-editor,
+.sbr-settings-form .field .inline-rule-list-editor {
 	min-width: 0;
 	width: 100%;
 }
@@ -179,36 +188,14 @@
 	font-size: 0.85rem;
 }
 
-.sbr-settings-form .segment {
-	display: inline-flex;
-	border: 1px solid var(--border);
-	border-radius: 4px;
-	overflow: hidden;
-	width: fit-content;
+.sbr-settings-form .segmented-control {
+	display: flex;
+	width: 100%;
 }
 
-.sbr-settings-form .segment button {
-	background: transparent;
-	border: none;
-	padding: 0.4rem 0.9rem;
-	font-size: 0.85rem;
-	cursor: pointer;
-	color: var(--muted-text);
-}
-
-.sbr-settings-form .segment button + button {
-	border-left: 1px solid var(--border);
-}
-
-.sbr-settings-form .segment button.active {
-	background: var(--accent, #3b82f6);
-	color: var(--color-accent-contrast, #ffffff);
-	font-weight: 600;
-}
-
-.sbr-settings-form .segment button:disabled {
-	opacity: 0.55;
-	cursor: not-allowed;
+.sbr-settings-form .segmented-control-btn {
+	flex: 1;
+	min-width: 0;
 }
 
 .sbr-settings-form .form .field.field-toggle {
@@ -222,8 +209,8 @@
 	gap: 0.75rem;
 }
 
-.sbr-settings-form .field-toggle-line > :global(.toggle-container),
-.sbr-settings-form .field-toggle-line > :global([role='switch']) {
+.sbr-settings-form .field-toggle-line > .toggle-container,
+.sbr-settings-form .field-toggle-line > [role='switch'] {
 	flex-shrink: 0;
 }
 
@@ -242,7 +229,7 @@
 		width: 100%;
 	}
 
-	.sbr-settings-form .pw-group :global(.btn) {
+	.sbr-settings-form .pw-group .btn {
 		width: 100%;
 	}
 }
@@ -290,9 +277,9 @@
 	gap: 0.35rem;
 	padding: 0.4rem 0.5rem;
 	min-height: 2.1rem;
-	background: var(--bg);
-	border: 1px solid var(--border);
-	border-radius: 4px;
+	background: var(--sbr-control-bg);
+	border: 1px solid var(--sbr-control-border);
+	border-radius: var(--sbr-control-radius);
 	align-items: center;
 }
 
@@ -390,7 +377,7 @@
 }
 
 @media (max-width: 640px) {
-	:global(.modal-body:has(> .sbr-settings-form)) {
+	.modal-body:has(> .sbr-settings-form) {
 		padding: 0.75rem 0.875rem;
 	}
 
@@ -404,27 +391,4 @@
 		grid-column: auto;
 	}
 
-	.sbr-settings-form .segment {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		width: 100%;
-		border-radius: 0.375rem;
-	}
-
-	.sbr-settings-form .segment button {
-		min-width: 0;
-		width: 100%;
-		min-height: 2.375rem;
-		padding: 0.5rem 0.625rem;
-		text-align: center;
-		white-space: nowrap;
-	}
-
-	.sbr-settings-form .segment button + button {
-		border-left: 1px solid var(--border);
-	}
-
-	.sbr-settings-form .action-section .segment {
-		overflow: hidden;
-	}
 }
