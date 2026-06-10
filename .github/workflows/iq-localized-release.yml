@@ -289,16 +289,28 @@ jobs:
           cp "$ipk" "$tmp/package.ipk"
           (
             cd "$tmp"
-            ar x package.ipk
-            data_tar="$(ls data.tar.* | head -n 1)"
+
+            echo "IPK file type:"
+            file package.ipk
+
+            tar -xzf package.ipk
+
+            data_tar="$(find . -maxdepth 1 -type f -name 'data.tar.*' | head -n 1)"
             if [[ -z "$data_tar" ]]; then
               echo "Missing data.tar.* inside IPK" >&2
+              echo "IPK contents:" >&2
+              tar -tzf package.ipk >&2 || true
               exit 1
             fi
 
-            tar -tf "$data_tar" | grep -F 'opt/share/awg-manager/www/iq-i18n-runtime.min.js' >/dev/null
+            if ! tar -tzf "$data_tar" | grep -F 'opt/share/awg-manager/www/iq-i18n-runtime.min.js' >/dev/null; then
+              echo "Missing iq-i18n-runtime.min.js inside IPK data archive" >&2
+              echo "Known iq-i18n files inside IPK:" >&2
+              tar -tzf "$data_tar" | grep -F 'iq-i18n' >&2 || true
+              exit 1
+            fi
 
-            forbidden_ipk="$(tar -tf "$data_tar" | grep -E '(^|/)(tr|fa|zh)\.json$|(^|/).*iq-i18n.*\.map$|(^|/).*iq-i18n.*LICENSE' || true)"
+            forbidden_ipk="$(tar -tzf "$data_tar" | grep -E '(^|/)(tr|fa|zh)\.json$|(^|/).*iq-i18n.*\.map$|(^|/).*iq-i18n.*LICENSE' || true)"
             if [[ -n "$forbidden_ipk" ]]; then
               echo "Forbidden i18n source/debug files found inside IPK" >&2
               echo "$forbidden_ipk" >&2
