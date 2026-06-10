@@ -33,12 +33,7 @@
 ```sh
 opkg update && opkg upgrade
 opkg install curl
-curl -sL https://raw.githubusercontent.com/iqubik/awg-manager-fork/master/scripts/install.sh | sh
-```
-
-Если у вас недоступен GitHub или при выполнении скрипта установки он "зависает", можете воспользоваться зеркалом: 
-```sh
-wget -qO- http://repo.hoaxisr.ru/install.sh | sh
+curl -sL https://raw.githubusercontent.com/iqubik/awg-manager-fork/master/scripts/iq/install-localized.sh | sh
 ```
 
 После установки веб-интерфейс доступен по адресу роутера и обычно по 2222 порту.
