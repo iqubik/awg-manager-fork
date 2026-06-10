@@ -76,7 +76,7 @@ jobs:
             -name '*i18n*.map' -o \
             -name '*dictionary*' -o \
           -name '*dict*' \
-        \) -print | grep -q .; then
+          \) -print | grep -q .; then
             echo "Forbidden i18n debug/source files in frontend/static" >&2
             exit 1
           fi
