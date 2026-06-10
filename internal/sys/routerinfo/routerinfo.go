@@ -293,7 +293,19 @@ done:
 
 var cpuModelPattern = regexp.MustCompile(`MT76[0-9A-Za-z]*|MT79[0-9A-Za-z]*|EN75[0-9A-Za-z]*`)
 
+// CPU model cannot change while the process runs, and detecting it means
+// regexp-scanning a multi-MB system library — compute once per process.
+var (
+	cpuModelOnce sync.Once
+	cpuModelVal  string
+)
+
 func detectCPUModel() string {
+	cpuModelOnce.Do(func() { cpuModelVal = detectCPUModelUncached() })
+	return cpuModelVal
+}
+
+func detectCPUModelUncached() string {
 	b, err := os.ReadFile("/lib/libndmMwsController.so")
 	if err == nil {
 		if m := cpuModelPattern.Find(b); len(m) > 0 {
