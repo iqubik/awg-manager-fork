@@ -537,7 +537,7 @@ func main() {
 		TunnelStore:   awgStore,
 		SettingsStore: settingsStore,
 		SystemTunnels: &monitoringSystemTunnelAdapter{svc: systemTunnelSvc},
-		Prober:        monitoring.NewHTTPProber(),
+		Prober:        monitoring.NewTCPProber(),
 		ICMPProber:    monitoring.NewICMPProber(),
 		Log:           loggingService,
 	})

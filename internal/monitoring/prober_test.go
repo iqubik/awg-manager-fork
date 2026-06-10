@@ -2,106 +2,60 @@ package monitoring
 
 import (
 	"context"
-	"errors"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/sys/exec"
-	"github.com/hoaxisr/awg-manager/internal/sys/httpclient"
 )
 
-type stubDoer struct {
-	result *httpclient.Result
-	err    error
+// TCPProber: ok=true + positive latency on successful connect, ok=false on
+// refused/unreachable. No interface binding in tests (empty ifaceName).
+func TestTCPProber_ConnectSuccess(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &TCPProber{port: port}
+	ms, ok := p.Probe(context.Background(), "127.0.0.1", "", 5*time.Second)
+	if !ok {
+		t.Fatal("Probe() ok = false, want true for listening port")
+	}
+	if ms < 1 {
+		t.Errorf("latency = %d, want >= 1", ms)
+	}
 }
 
-func (s stubDoer) Do(_ context.Context, _ httpclient.CallConfig) (*httpclient.Result, error) {
-	if s.err != nil {
-		return nil, s.err
+func TestTCPProber_ConnectRefused(t *testing.T) {
+	// Grab a free port and close the listener so the connect is refused.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
 	}
-	return s.result, nil
-}
-
-// HTTPProber latency = (time_connect - time_namelookup) * 1000 ms.
-// TimeConnect and TimeNameLookup are cumulative-from-start (matching curl
-// semantics), so the subtraction yields pure TCP RTT.
-func TestHTTPProber_ParseLatency(t *testing.T) {
-	cases := []struct {
-		name   string
-		result *httpclient.Result
-		err    error
-		wantOK bool
-		wantMs int
-	}{
-		{
-			name: "ok 200, TCP RTT 12ms",
-			result: &httpclient.Result{
-				Metrics: httpclient.Metrics{HTTPCode: 200, TimeNameLookup: 0.001, TimeConnect: 0.013, TimeTotal: 0.020},
-			},
-			wantOK: true,
-			wantMs: 12,
-		},
-		{
-			name: "ok with 404 still reachable, TCP RTT 25ms",
-			result: &httpclient.Result{
-				Metrics: httpclient.Metrics{HTTPCode: 404, TimeNameLookup: 0.002, TimeConnect: 0.027, TimeTotal: 0.030},
-			},
-			wantOK: true,
-			wantMs: 25,
-		},
-		{
-			name: "no response — code 0",
-			result: &httpclient.Result{
-				Metrics: httpclient.Metrics{HTTPCode: 0, TimeNameLookup: 0, TimeConnect: 0, TimeTotal: 5.0},
-			},
-			wantOK: false,
-		},
-		{
-			name: "DNS slow — cumulative timings preserve correct RTT",
-			result: &httpclient.Result{
-				Metrics: httpclient.Metrics{HTTPCode: 200, TimeNameLookup: 0.200, TimeConnect: 0.280, TimeTotal: 0.390},
-			},
-			wantOK: true,
-			wantMs: 80,
-		},
-		{
-			name: "fallback to time_total when timings invalid",
-			result: &httpclient.Result{
-				Metrics: httpclient.Metrics{HTTPCode: 200, TimeNameLookup: 0.020, TimeConnect: 0.010, TimeTotal: 0.030},
-			},
-			wantOK: true,
-			wantMs: 30,
-		},
-		{
-			name:   "exec error",
-			err:    errors.New("boom"),
-			wantOK: false,
-		},
-		{
-			name:   "garbage output (nil result)",
-			result: nil,
-			wantOK: false,
-		},
-		{
-			name: "non-numeric code (treated as 0)",
-			result: &httpclient.Result{
-				Metrics: httpclient.Metrics{HTTPCode: 0, TimeNameLookup: 0.001, TimeConnect: 0.013, TimeTotal: 0.020},
-			},
-			wantOK: false,
-		},
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
 	}
+	ln.Close()
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			p := &HTTPProber{Doer: stubDoer{result: c.result, err: c.err}}
-			ms, ok := p.Probe(context.Background(), "1.1.1.1", "wg0", 5*time.Second)
-			if ok != c.wantOK {
-				t.Errorf("ok = %v, want %v", ok, c.wantOK)
-			}
-			if c.wantOK && ms != c.wantMs {
-				t.Errorf("latency = %d, want %d", ms, c.wantMs)
-			}
-		})
+	p := &TCPProber{port: port}
+	if _, ok := p.Probe(context.Background(), "127.0.0.1", "", 2*time.Second); ok {
+		t.Fatal("Probe() ok = true, want false for closed port")
 	}
 }
 

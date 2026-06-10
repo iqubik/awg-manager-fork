@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+// DialTCP opens a single TCP connection to addr ("host:port"), bound to
+// iface via SO_BINDTODEVICE when non-empty. Hostnames resolve through the
+// same iface-bound DNS path the HTTP client uses. The caller closes the conn.
+func DialTCP(ctx context.Context, iface, addr string, connectTimeout time.Duration) (net.Conn, error) {
+	return buildDialContext(iface, nil, connectTimeout)(ctx, "tcp", addr)
+}
+
 func buildDialContext(bindIface string, dnsServers []string, connectTimeout time.Duration) func(context.Context, string, string) (net.Conn, error) {
 	dialer := bindDialer(bindIface, connectTimeout)
 	bindIface = strings.TrimSpace(bindIface)
