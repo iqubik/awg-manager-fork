@@ -614,6 +614,24 @@ func TestService_SaveInstance_PortCollisionAcrossInstances(t *testing.T) {
 	}
 }
 
+func TestService_DeleteInstance_Default_PersistsWhenApplyFails(t *testing.T) {
+	sb := &fakeSingboxOperator{running: true, applyInstancesErr: errors.New("simulated apply failure")}
+	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
+	s := NewService(Deps{Store: store, Singbox: sb})
+
+	if err := s.DeleteInstance(context.Background(), "default"); err != nil {
+		t.Fatalf("delete default: %v", err)
+	}
+
+	snap := store.Snapshot()
+	if len(snap.Instances) != 0 {
+		t.Fatalf("expected empty snapshot after deleting default, got %#v", snap.Instances)
+	}
+	if sb.applyInstancesCalls != 1 {
+		t.Fatalf("expected one apply attempt, got %d", sb.applyInstancesCalls)
+	}
+}
+
 // contains is a tiny helper for substring assertions.
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)

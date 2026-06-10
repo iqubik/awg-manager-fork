@@ -102,12 +102,7 @@ func (s *Store) SaveInstance(in Instance) error {
 }
 
 // DeleteInstance removes one proxy instance by id.
-// The default instance cannot be deleted.
 func (s *Store) DeleteInstance(id string) error {
-	if id == "default" {
-		return nil
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

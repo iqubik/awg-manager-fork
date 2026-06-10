@@ -563,11 +563,6 @@ func (h *DeviceProxyHandler) DeleteInstance(w http.ResponseWriter, r *http.Reque
 		response.Error(w, "missing id", "MISSING_ID")
 		return
 	}
-	if id == "default" {
-		response.Error(w, "default instance cannot be deleted", "DEFAULT_INSTANCE_PROTECTED")
-		return
-	}
-
 	if err := h.svc.DeleteInstance(r.Context(), id); err != nil {
 		if errors.Is(err, singbox.ErrSingboxNotRunning) {
 			response.ErrorWithStatus(w, http.StatusConflict, err.Error(), "SINGBOX_DOWN")

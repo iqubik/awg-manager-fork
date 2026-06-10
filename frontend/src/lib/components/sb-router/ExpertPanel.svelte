@@ -100,10 +100,12 @@
 
   let activeProxyCount = $state<number | null>(null);
   let totalProxyCount = $state<number | null>(null);
+  let deviceProxyInstances = $state<DeviceProxyInstance[]>([]);
 
   async function loadActiveProxyCount() {
     try {
       const proxyInstances = await api.listDeviceProxyInstances();
+      deviceProxyInstances = proxyInstances;
       totalProxyCount = proxyInstances.length;
 
         const runtimeEntries = await Promise.all(
@@ -119,8 +121,26 @@
       } catch {
         activeProxyCount = null;
       totalProxyCount = null;
+      deviceProxyInstances = [];
     }
   }
+
+  const outboundUsageContext = $derived({
+    rules: $storeRules,
+    routeFinal: $storeStatus?.final || 'direct',
+    outbounds: $storeOutbounds,
+    dnsServers: $storeDnsServers,
+    ruleSets: $storeRuleSets,
+    deviceProxyOutbounds: deviceProxyInstances
+      .map((in_) => in_.selectedOutbound)
+      .filter((tag): tag is string => !!tag),
+  });
+
+  const dnsServerUsageContext = $derived({
+    rules: $storeDnsRules,
+    servers: $storeDnsServers,
+    dnsFinal: $storeDnsGlobals.final || '',
+  });
 
   const activeProxyCountLabel = $derived(
     activeProxyCount === null || totalProxyCount === null ? '—' : `${activeProxyCount}/${totalProxyCount}`,
@@ -179,7 +199,6 @@
     void loadActiveProxyCount();
   }
   function deleteInbound(in_: DeviceProxyInstance) {
-    if (in_.id === 'default') return;
     pendingConfirm = {
       title: 'Удалить inbound',
       message: `Удалить inbound «${in_.name || in_.id}»?`,
@@ -345,6 +364,22 @@
     };
   }
 
+  function handleDeleteDnsServer(tag: string) {
+    pendingConfirm = {
+      title: 'Удалить DNS-сервер',
+      message: `Удалить DNS-сервер «${tag}»?`,
+      run: async () => {
+        try {
+          await api.singboxRouterDeleteDNSServer(tag);
+          await singboxRouterStore.loadAll();
+          notifications.success('DNS-сервер удалён');
+        } catch (e) {
+          notifications.error(`Ошибка: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      },
+    };
+  }
+
   async function handleMoveRule(idx: number, dir: 'up' | 'down') {
     const to = dir === 'up' ? idx - 1 : idx + 1;
     if (to < 0 || to >= $storeRules.length) return;
@@ -412,6 +447,24 @@
     }
     outboundEditTag = null;
     await singboxRouterStore.loadAll();
+  }
+
+  function handleDeleteOutbound(tag: string) {
+    const outbound = $storeOutbounds.find((o) => o.tag === tag);
+    if (!outbound) return;
+    pendingConfirm = {
+      title: 'Удалить outbound',
+      message: `Удалить outbound «${tag}»?`,
+      run: async () => {
+        try {
+          await api.singboxRouterDeleteOutbound(tag);
+          await singboxRouterStore.loadAll();
+          notifications.success('Outbound удалён');
+        } catch (e) {
+          notifications.error(`Ошибка: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      },
+    };
   }
 
   // DNS server handlers
@@ -521,7 +574,9 @@
         <OutboundsCompact
           outbounds={$storeOutbounds}
           subscriptions={$subscriptionsStore.data ?? []}
+          usage={outboundUsageContext}
           onEdit={(tag) => (outboundEditTag = tag)}
+          onDelete={handleDeleteOutbound}
         />
       </SidePanel>
 
@@ -555,7 +610,9 @@
           subscriptions={$subscriptionsStore.data}
           proxyGroups={$singboxProxies.data ?? []}
           singboxTunnels={$singboxTunnels.data ?? []}
+          dnsUsage={dnsServerUsageContext}
           onEditServer={(tag) => (dnsServerEditTag = tag)}
+          onDeleteServer={handleDeleteDnsServer}
           onEditRule={(idx) => (dnsRuleEditIdx = idx)}
           onDeleteRule={handleDeleteDNSRule}
           onAddRule={() => (dnsRuleAddOpen = true)}

@@ -5,16 +5,20 @@
 <script lang="ts">
   import type { SingboxRouterOutbound, Subscription } from '$lib/types';
   import { Badge } from '$lib/components/ui';
+  import { Edit3, Trash2 } from 'lucide-svelte';
   import { outboundDisplay } from './outboundLabel';
+  import { outboundDeleteBlockReason, type OutboundUsageInput } from './outboundUsage';
 
   interface Props {
     outbounds: SingboxRouterOutbound[];
     onEdit: (tag: string) => void;
+    onDelete?: (tag: string) => void;
     /** Subscriptions, to resolve sub-<hash> composite tags to their names. */
     subscriptions?: Subscription[];
+    usage?: Omit<OutboundUsageInput, 'tag'>;
   }
 
-  let { outbounds, onEdit, subscriptions = [] }: Props = $props();
+  let { outbounds, onEdit, onDelete, subscriptions = [], usage }: Props = $props();
 
   function toneFor(type: string): 'success' | 'accent' | 'info' | 'muted' | 'error' {
     if (type === 'direct') return 'muted';
@@ -26,19 +30,50 @@
     if (type === 'selector' || type === 'urltest' || type === 'loadbalance') return 'composite';
     return type;
   }
+
+  function deleteBlockReason(o: SingboxRouterOutbound): string | null {
+    if (!usage) return null;
+    return outboundDeleteBlockReason(o, usage);
+  }
 </script>
 
 <div class="list">
   {#each outbounds as o (o.tag)}
     {@const d = outboundDisplay(o, subscriptions)}
-    <button type="button" class="row" onclick={() => onEdit(o.tag)}>
+    {@const deleteReason = deleteBlockReason(o)}
+    <div class="row">
       <span class="dot" data-tone={toneFor(o.type)}></span>
-      <div class="meta">
-        <div class="tag">{d.title}</div>
-        <div class="sub">{d.subtitle}</div>
-      </div>
+      <button type="button" class="meta-btn" onclick={() => onEdit(o.tag)}>
+        <div class="meta">
+          <div class="tag">{d.title}</div>
+          <div class="sub">{d.subtitle}</div>
+        </div>
+      </button>
       <Badge variant="default" size="sm">{kindLabel(o.type)}</Badge>
-    </button>
+      <div class="actions">
+        <button
+          type="button"
+          class="route-action-btn"
+          onclick={() => onEdit(o.tag)}
+          aria-label={`Редактировать outbound ${o.tag}`}
+          title={`Редактировать outbound «${d.title}»`}
+        >
+          <Edit3 size={15} />
+        </button>
+        {#if onDelete}
+          <button
+            type="button"
+            class="route-action-btn danger"
+            disabled={deleteReason !== null}
+            onclick={() => onDelete(o.tag)}
+            aria-label={`Удалить outbound ${o.tag}`}
+            title={deleteReason ?? `Удалить outbound «${d.title}»`}
+          >
+            <Trash2 size={15} />
+          </button>
+        {/if}
+      </div>
+    </div>
   {/each}
   {#if outbounds.length === 0}
     <div class="empty">Нет outbounds</div>
@@ -52,20 +87,12 @@
   }
   .row {
     transition: background-color 0.15s ease;
-    display: flex;
+    display: grid;
+    grid-template-columns: 6px minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 10px;
     padding: 8px 14px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    background: transparent;
-    border-left: 0;
-    border-right: 0;
-    border-top: 0;
-    cursor: pointer;
-    font-family: inherit;
-    color: inherit;
-    width: 100%;
-    text-align: left;
   }
 
   @media (hover: hover) and (pointer: fine) {
@@ -84,6 +111,16 @@
   .dot[data-tone='accent'] { background: var(--accent); }
   .dot[data-tone='info'] { background: var(--color-info, #3b82f6); }
   .dot[data-tone='error'] { background: var(--color-error, #dc2626); }
+  .meta-btn {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
   .meta {
     flex: 1;
     min-width: 0;
@@ -99,6 +136,11 @@
   .sub {
     font-size: 11px;
     color: var(--text-muted);
+  }
+  .actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
   }
   .empty {
     padding: 14px;

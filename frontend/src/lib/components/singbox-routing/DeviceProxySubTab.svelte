@@ -304,7 +304,6 @@
 	}
 
 	async function deleteInstance(in_: DeviceProxyInstance) {
-		if (in_.id === 'default') return;
 		if (!confirm(`Удалить "${in_.name || in_.id}"?`)) return;
 
 		deletingId = in_.id;
@@ -474,16 +473,14 @@
 							{isCollapsed(in_.id) ? 'Развернуть' : 'Свернуть'}
 						</Button>
 						<Button variant="ghost" size="sm" onclick={() => openSettings(in_)}>Настройки</Button>
-						{#if in_.id !== 'default'}
-							<Button
-								variant="ghost"
-								size="sm"
-								loading={deletingId === in_.id}
-								onclick={() => deleteInstance(in_)}
-							>
-								Удалить
-							</Button>
-						{/if}
+						<Button
+							variant="ghost"
+							size="sm"
+							loading={deletingId === in_.id}
+							onclick={() => deleteInstance(in_)}
+						>
+							Удалить
+						</Button>
 					</div>
 				</div>
 

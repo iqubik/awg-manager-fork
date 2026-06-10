@@ -41,3 +41,14 @@ func TestStore_SaveThenLoad_Roundtrip(t *testing.T) {
 		t.Fatalf("roundtrip mismatch:\n got = %#v\nwant = %#v", got, cfg)
 	}
 }
+
+func TestStore_DeleteInstance_RemovesDefault(t *testing.T) {
+	s := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
+	if err := s.DeleteInstance("default"); err != nil {
+		t.Fatalf("delete default: %v", err)
+	}
+	snap := s.Snapshot()
+	if len(snap.Instances) != 0 {
+		t.Fatalf("expected empty snapshot after deleting default, got %#v", snap.Instances)
+	}
+}

@@ -18,12 +18,14 @@
   import OutboundTile from './OutboundTile.svelte';
   import { dnsRuleTarget } from './dnsRuleLabel';
   import { dnsMatcherParts, dnsMatcherSummary } from './dnsMatcherParts';
+  import { dnsServerDeleteBlockReason, type DnsServerUsageInput } from './dnsServerUsage';
 
   interface Props {
     servers: SingboxRouterDNSServer[];
     rules: SingboxRouterDNSRule[];
     outbounds?: SingboxRouterOutbound[];
     onEditServer: (tag: string) => void;
+    onDeleteServer?: (tag: string) => void;
     onEditRule: (idx: number) => void;
     onDeleteRule?: (idx: number) => void;
     onAddRule?: () => void;
@@ -33,6 +35,7 @@
     subscriptions?: Subscription[] | null;
     proxyGroups?: SingboxProxyGroup[];
     singboxTunnels?: SingboxTunnel[];
+    dnsUsage?: Omit<DnsServerUsageInput, 'tag'>;
   }
 
   let {
@@ -40,6 +43,7 @@
     rules,
     outbounds = [],
     onEditServer,
+    onDeleteServer,
     onEditRule,
     onDeleteRule,
     onAddRule,
@@ -49,6 +53,7 @@
     subscriptions = null,
     proxyGroups = [],
     singboxTunnels = [],
+    dnsUsage,
   }: Props = $props();
 
   function subFor(s: SingboxRouterDNSServer): string {
@@ -68,21 +73,52 @@
       singboxTunnels,
     );
   }
+
+  function serverDeleteReason(s: SingboxRouterDNSServer): string | null {
+    if (!dnsUsage) return null;
+    return dnsServerDeleteBlockReason(s, dnsUsage);
+  }
 </script>
 
 <div class="wrap">
   <div class="servers">
     {#each servers as s (s.tag)}
-      <button type="button" class="row" onclick={() => onEditServer(s.tag)}>
+      {@const deleteReason = serverDeleteReason(s)}
+      <div class="server-row">
         <span class="dot"></span>
-        <div class="meta">
-          <div class="tag">{s.tag}</div>
-          <div class="sub">{subFor(s)}</div>
-        </div>
+        <button type="button" class="meta-btn" onclick={() => onEditServer(s.tag)}>
+          <div class="meta">
+            <div class="tag">{s.tag}</div>
+            <div class="sub">{subFor(s)}</div>
+          </div>
+        </button>
         <span class="detour-chip">
           <OutboundTile outbound={detourDisplay(s)} size="compact" />
         </span>
-      </button>
+        <div class="server-actions">
+          <button
+            type="button"
+            class="route-action-btn"
+            onclick={() => onEditServer(s.tag)}
+            aria-label={`Редактировать DNS-сервер ${s.tag}`}
+            title={`Редактировать DNS-сервер «${s.tag}»`}
+          >
+            <Edit3 size={15} />
+          </button>
+          {#if onDeleteServer}
+            <button
+              type="button"
+              class="route-action-btn danger"
+              disabled={deleteReason !== null}
+              onclick={() => onDeleteServer(s.tag)}
+              aria-label={`Удалить DNS-сервер ${s.tag}`}
+              title={deleteReason ?? `Удалить DNS-сервер «${s.tag}»`}
+            >
+              <Trash2 size={15} />
+            </button>
+          {/if}
+        </div>
+      </div>
     {/each}
     {#if servers.length === 0}
       <div class="empty">Нет серверов</div>
@@ -182,6 +218,30 @@
     display: flex;
     flex-direction: column;
   }
+  .server-row {
+    transition: background-color 0.15s ease;
+    display: grid;
+    grid-template-columns: 6px minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  }
+  .meta-btn {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .server-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
   .row {
     transition: background-color 0.15s ease;
     display: flex;
@@ -199,6 +259,7 @@
   }
   @media (hover: hover) and (pointer: fine) {
     .row:hover,
+    .server-row:hover,
     .rule-row:hover {
       background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
     }

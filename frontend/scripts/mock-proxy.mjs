@@ -4235,6 +4235,70 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'DELETE' && path === '/proxy/instance') {
+		const id = new URL(req.url, 'http://x').searchParams.get('id');
+		if (!id) {
+			send(res, 400, { success: false, error: { code: 'MISSING_ID', message: 'missing id' } });
+			return;
+		}
+		const idx = mockProxyInstances.findIndex((i) => i.id === id);
+		if (idx === -1) {
+			send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'proxy instance not found' } });
+			return;
+		}
+		mockProxyInstances.splice(idx, 1);
+		delete mockProxyRuntimeByID[id];
+		send(res, 200, { success: true, data: { deleted: true } });
+		return;
+	}
+
+	if (req.method === 'PUT' && path === '/proxy/instance') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const body = JSON.parse(raw || '{}');
+				const id = String(body.id || '');
+				if (!id) {
+					send(res, 400, { success: false, error: { code: 'MISSING_ID', message: 'instance id is empty' } });
+					return;
+				}
+				const idx = mockProxyInstances.findIndex((i) => i.id === id);
+				const next = {
+					id,
+					name: String(body.name || id),
+					enabled: !!body.enabled,
+					listenAll: !!body.listenAll,
+					listenInterface: String(body.listenInterface || ''),
+					port: Number(body.port ?? 1099),
+					auth: body.auth ?? { enabled: false, username: '', password: '' },
+					selectedOutbound: String(body.selectedOutbound || 'direct'),
+				};
+				if (idx === -1) {
+					mockProxyInstances.push(next);
+				} else {
+					mockProxyInstances[idx] = next;
+				}
+				if (!mockProxyRuntimeByID[id]) {
+					mockProxyRuntimeByID[id] = {
+						alive: !!next.enabled,
+						activeTag: next.selectedOutbound,
+						defaultTag: next.selectedOutbound,
+					};
+				}
+				send(res, 200, { success: true, data: next });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/proxy/instances/apply') {
+		send(res, 200, { success: true, data: { applied: true } });
+		return;
+	}
+
 	if (req.method === 'GET' && path === '/proxy/outbounds') {
 		send(res, 200, {
 			success: true,
@@ -4695,6 +4759,62 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'POST' && path === '/singbox/router/dns/servers/update') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const { tag, server } = JSON.parse(raw || '{}');
+				const idx = mockDNSServers.findIndex((s) => s.tag === tag);
+				if (idx === -1) {
+					send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'dns server not found' } });
+					return;
+				}
+				mockDNSServers[idx] = server;
+				send(res, 200, { success: true, data: { ok: true } });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/dns/servers/delete') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const { tag } = JSON.parse(raw || '{}');
+				const idx = mockDNSServers.findIndex((s) => s.tag === tag);
+				if (idx === -1) {
+					send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'dns server not found' } });
+					return;
+				}
+				const refs = [];
+				for (let i = 0; i < mockDNSRules.length; i++) {
+					if (mockDNSRules[i]?.server === tag) refs.push(`rule[${i}]`);
+				}
+				for (const s of mockDNSServers) {
+					if (s.tag !== tag && s.domain_resolver?.server === tag) {
+						refs.push(`server[${s.tag}].domain_resolver`);
+					}
+				}
+				if (refs.length > 0) {
+					send(res, 409, {
+						success: false,
+						error: { code: 'CONFLICT', message: `dns server "${tag}" referenced by ${refs.join(', ')}` },
+					});
+					return;
+				}
+				mockDNSServers.splice(idx, 1);
+				send(res, 200, { success: true, data: { ok: true } });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
 	if (req.method === 'POST' && path === '/singbox/router/presets/apply') {
 		// simulate latency for visible "Применяем" log
 		await wait(200);
@@ -4715,6 +4835,44 @@ const server = http.createServer(async (req, res) => {
 				const payload = JSON.parse(raw || '{}');
 				mockDNSRules.push(payload);
 				send(res, 200, { success: true, data: payload });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/dns/rules/update') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const { index, rule } = JSON.parse(raw || '{}');
+				if (index < 0 || index >= mockDNSRules.length) {
+					send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'dns rule not found' } });
+					return;
+				}
+				mockDNSRules[index] = rule;
+				send(res, 200, { success: true, data: { ok: true } });
+			} catch (e) {
+				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/router/dns/rules/delete') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const { index } = JSON.parse(raw || '{}');
+				if (index < 0 || index >= mockDNSRules.length) {
+					send(res, 404, { success: false, error: { code: 'NOT_FOUND', message: 'dns rule not found' } });
+					return;
+				}
+				mockDNSRules.splice(index, 1);
+				send(res, 200, { success: true, data: { ok: true } });
 			} catch (e) {
 				send(res, 400, { success: false, error: { code: 'INVALID_REQUEST', message: String(e) } });
 			}

@@ -201,7 +201,9 @@ func (s *Service) SaveInstance(ctx context.Context, in Instance) error {
 }
 
 // DeleteInstance removes one configured proxy instance.
-// The default instance is preserved by Store.DeleteInstance.
+// Storage is always updated; a sing-box apply failure is logged but does
+// not roll back the deletion — the user should be able to drop an inbound
+// even when the daemon is temporarily unavailable.
 func (s *Service) DeleteInstance(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("instance id is empty")
@@ -210,14 +212,15 @@ func (s *Service) DeleteInstance(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	prev := s.d.Store.Snapshot()
-
 	if err := s.d.Store.DeleteInstance(id); err != nil {
 		return err
 	}
 	if err := s.applyInstancesLocked(ctx); err != nil {
-		_ = s.restoreSnapshot(ctx, prev)
-		return err
+		s.appLog.Warn("delete-instance", id, "apply after delete failed: "+err.Error())
+		if s.d.Bus != nil {
+			s.d.Bus.Publish("resource:invalidated", events.ResourceInvalidatedEvent{Resource: "deviceproxy.config"})
+			s.d.Bus.Publish("resource:invalidated", events.ResourceInvalidatedEvent{Resource: "deviceproxy.runtime"})
+		}
 	}
 	return nil
 }

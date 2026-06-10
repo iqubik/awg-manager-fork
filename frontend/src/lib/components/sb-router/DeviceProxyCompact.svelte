@@ -34,6 +34,7 @@
   let runtimes = $state<RuntimeById>({});
   let listenChoices = $state<ListenChoices | null>(null);
   let loadError = $state<string | null>(null);
+  let loaded = $state(false);
 
   onMount(async () => {
     try {
@@ -57,6 +58,8 @@
       runtimes = Object.fromEntries(runtimeEntries) as RuntimeById;
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
+    } finally {
+      loaded = true;
     }
   });
 
@@ -143,7 +146,7 @@
               </button>
             {/if}
 
-            {#if onDelete && in_.id !== 'default'}
+            {#if onDelete}
               <button
                 type="button"
                 class="route-action-btn danger"
@@ -163,10 +166,15 @@
       <div class="title">Не удалось загрузить</div>
       <div class="sub error">{loadError}</div>
     </div>
-  {:else}
+  {:else if !loaded}
     <div class="info">
       <div class="title">Загрузка...</div>
       <div class="sub">device proxy</div>
+    </div>
+  {:else}
+    <div class="info">
+      <div class="title">Нет inbounds</div>
+      <div class="sub">Добавьте inbound для локального прокси</div>
     </div>
   {/if}
   {#if !bare && onConfigure}
