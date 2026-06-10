@@ -29,8 +29,17 @@ const (
 	channelDevelop = "develop"
 )
 
-// entwareRepoURL is a variable so tests can override it with httptest server URL.
-var entwareRepoURL = defaultEntwareRepoURL
+var (
+	releaseVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+(?:\+r\d+)?$`)
+
+	// entwareRepoURL is a variable so tests can override it with httptest server URL.
+	entwareRepoURL = defaultEntwareRepoURL
+
+	// releaseBaseURL is optionally injected at build time for fork-specific
+	// release channels, for example:
+	// https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest
+	releaseBaseURL = ""
+)
 
 // channelBaseURL возвращает базовый URL репозитория для канала. develop
 // отдаётся из подкаталога /develop того же сервера.
@@ -44,7 +53,7 @@ func channelBaseURL(channel string) string {
 // versionComparator выбирает сравнялку версий по каналу: develop учитывает
 // build-revision (+rN), stable — нет (как было).
 func versionComparator(channel string) func(a, b string) int {
-	if channel == channelDevelop {
+	if channel == channelDevelop || (channel == channelStable && strings.TrimSpace(releaseBaseURL) != "") {
 		return semver.CompareWithRevision
 	}
 	return semver.Compare
@@ -64,6 +73,11 @@ func checkWithDownloader(ctx context.Context, currentVersion, channel string, dl
 	}
 
 	cmp := versionComparator(channel)
+
+	if channel == channelStable && strings.TrimSpace(releaseBaseURL) != "" {
+		return checkReleaseWithDownloader(ctx, info, currentVersion, dl, cmp)
+	}
+
 	base := channelBaseURL(channel)
 	archDir := archSuffixToRepoDir(archSuffix())
 	pkgsURL := fmt.Sprintf("%s/%s/Packages.gz", base, archDir)
@@ -82,6 +96,68 @@ func checkWithDownloader(ctx context.Context, currentVersion, channel string, dl
 	info.LatestVersion = pkg.Version
 	info.DownloadURL = fmt.Sprintf("%s/%s/%s", base, archDir, pkg.Filename)
 	return info
+}
+
+func checkReleaseWithDownloader(
+	ctx context.Context,
+	info *UpdateInfo,
+	currentVersion string,
+	dl Downloader,
+	cmp func(a, b string) int,
+) *UpdateInfo {
+	if dl == nil {
+		dl = newDefaultDownloader()
+	}
+
+	latest, err := fetchLatestReleaseVersionWithDownloader(ctx, dl)
+	if err != nil {
+		info.Error = fmt.Sprintf("release channel: %s", err)
+		return info
+	}
+
+	if cmp(currentVersion, latest) >= 0 {
+		return info
+	}
+
+	info.Available = true
+	info.LatestVersion = latest
+	info.DownloadURL = releaseAssetURL(fmt.Sprintf(
+		"%s_%s_%s-kn.ipk",
+		pkgName,
+		latest,
+		archSuffix(),
+	))
+	return info
+}
+
+func fetchLatestReleaseVersionWithDownloader(ctx context.Context, dl Downloader) (string, error) {
+	body, _, err := dl.ReadAll(ctx, downloader.Request{
+		Purpose:      "awgm-update-check",
+		URL:          releaseAssetURL("VERSION"),
+		Method:       http.MethodGet,
+		Timeout:      repoTimeout,
+		MaxBodyBytes: releaseVersionMaxBytes,
+	})
+	if err != nil {
+		return "", fmt.Errorf("fetch VERSION: %w", err)
+	}
+
+	version := strings.TrimSpace(string(body))
+	if version == "" {
+		return "", fmt.Errorf("empty VERSION")
+	}
+	if strings.ContainsAny(version, "\r\n\t /\\") {
+		return "", fmt.Errorf("invalid VERSION %q", version)
+	}
+	if !releaseVersionPattern.MatchString(version) {
+		return "", fmt.Errorf("invalid VERSION %q", version)
+	}
+
+	return version, nil
+}
+
+func releaseAssetURL(filename string) string {
+	return strings.TrimRight(releaseBaseURL, "/") + "/" + filename
 }
 
 // Upgrade downloads the IPK from downloadURL and launches opkg install in a

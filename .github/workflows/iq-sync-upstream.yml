@@ -1,0 +1,89 @@
+name: "IQ Sync upstream develop"
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: iq-sync-upstream-develop
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Rebase fork branch onto hoaxisr/develop
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          set -euo pipefail
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/hoaxisr/awg-manager.git
+          git fetch upstream develop
+          git fetch origin develop
+
+      - name: Create sync branch and rebase
+        id: rebase
+        run: |
+          set -euo pipefail
+
+          DATE="$(date +%Y%m%d-%H%M%S)"
+          UPSTREAM_SHA="$(git rev-parse --short upstream/develop)"
+          BRANCH="bot/sync-upstream-${DATE}-${UPSTREAM_SHA}"
+
+          git checkout -b "$BRANCH"
+          git rebase upstream/develop
+
+          if [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/develop)" ]]; then
+            echo "No upstream changes to sync"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Push sync branch
+        if: steps.rebase.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git push -u origin "${{ steps.rebase.outputs.branch }}"
+
+      - name: Open pull request
+        if: steps.rebase.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          gh pr create \
+            --base develop \
+            --head "${{ steps.rebase.outputs.branch }}" \
+            --title "chore(sync): rebase develop onto hoaxisr/develop ${{ steps.rebase.outputs.upstream_sha }}" \
+            --body "Automated safe upstream sync.
+
+          Source upstream:
+          - hoaxisr/awg-manager develop
+          - upstream sha: ${{ steps.rebase.outputs.upstream_sha }}
+
+          Rules:
+          - no direct force-push to develop
+          - review diff before merge
+          - keep IQ localization workflows and loader intact"
