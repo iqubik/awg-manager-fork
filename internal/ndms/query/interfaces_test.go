@@ -1071,3 +1071,49 @@ func TestInterfaceStore_ListAll_DeduplicatesByKernelName_TieKeepsOne(t *testing.
 		t.Fatalf("expected 1 warn-log, got %d: %v", len(log.msgs), log.msgs)
 	}
 }
+
+func TestFetchSummary_ViaPost(t *testing.T) {
+	g := NewFakeGetter()
+	g.SetPostInterface("OpkgTun0", `{"show":{"interface":{
+		"id":"OpkgTun0","state":"up","link":"up","conf-layer":"running",
+		"summary":{"layer":{"conf":"running","link":"running","ctrl":"running"}}
+	}}}`)
+	s := NewInterfaceStore(g, NopLogger())
+
+	d, err := s.FetchSummary(context.Background(), "OpkgTun0")
+	if err != nil || d == nil {
+		t.Fatalf("d=%v err=%v", d, err)
+	}
+	if d.ConfLayer != "running" || d.Link != "up" || d.State != "up" {
+		t.Fatalf("details = %+v, want conf=running link=up state=up", d)
+	}
+}
+
+func TestFetchSummary_FallbackTopLevelFields(t *testing.T) {
+	g := NewFakeGetter()
+	g.SetPostInterface("OpkgTun0", `{"show":{"interface":{
+		"id":"OpkgTun0","state":"up","link":"up","conf-layer":"running"
+	}}}`)
+	s := NewInterfaceStore(g, NopLogger())
+
+	d, err := s.FetchSummary(context.Background(), "OpkgTun0")
+	if err != nil || d == nil {
+		t.Fatalf("d=%v err=%v", d, err)
+	}
+	if d.ConfLayer != "running" || d.Link != "up" || d.State != "up" {
+		t.Fatalf("details = %+v", d)
+	}
+}
+
+func TestFetchSummary_NoDataMeansNilDetails(t *testing.T) {
+	g := NewFakeGetter()
+	g.SetPostInterface("OpkgTun9", `{"show":{"interface":{
+		"status":[{"status":"error","code":"6553619","message":"unable to find"}]
+	}}}`)
+	s := NewInterfaceStore(g, NopLogger())
+
+	d, err := s.FetchSummary(context.Background(), "OpkgTun9")
+	if err != nil || d != nil {
+		t.Fatalf("want (nil, nil), got d=%+v err=%v", d, err)
+	}
+}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/logging"
+	"github.com/hoaxisr/awg-manager/internal/ndms/cache"
 	"github.com/hoaxisr/awg-manager/internal/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/traffic"
@@ -45,6 +46,11 @@ type ServiceImpl struct {
 
 	// bus is the event bus for SSE publishing.
 	bus *events.Bus
+
+	// stateCache dedups raw state reads across read paths (TTL 2s +
+	// singleflight). nil in bare test constructions.
+	stateCache      *cache.KeyedStore[string, tunnel.StateInfo]
+	invalidatorOnce sync.Once
 
 	// selfCreateGate (optional) suppresses the hook-driven snapshot refresh
 	// during awg-manager-initiated NDMS interface creations. Without it,
@@ -86,7 +92,7 @@ func New(
 	wanModel *wan.Model,
 	appLogger logging.AppLogger,
 ) *ServiceImpl {
-	return &ServiceImpl{
+	svc := &ServiceImpl{
 		store:          store,
 		state:          stateMgr,
 		nwgOperator:    nwgOp,
@@ -94,6 +100,9 @@ func New(
 		appLog:         logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubLifecycle),
 		wan:            wanModel,
 	}
+	svc.stateCache = cache.NewKeyedStore[string, tunnel.StateInfo](
+		stateCacheTTL, nil, "tunnel state", svc.fetchRawStateByID)
+	return svc
 }
 
 // WANModel returns the WAN state model for direct access by API handlers.
@@ -119,7 +128,10 @@ func (s *ServiceImpl) SetOrchestrator(orch *orchestrator.Orchestrator) {
 }
 
 // SetEventBus sets the event bus for SSE publishing.
-func (s *ServiceImpl) SetEventBus(bus *events.Bus) { s.bus = bus }
+func (s *ServiceImpl) SetEventBus(bus *events.Bus) {
+	s.bus = bus
+	s.startStateInvalidator(bus)
+}
 
 // RunningTunnels returns the list of currently running tunnels for the traffic collector.
 //
@@ -147,12 +159,7 @@ func (s *ServiceImpl) RunningTunnels(ctx context.Context) []traffic.RunningTunne
 		wg.Add(1)
 		go func(i int, t storage.AWGTunnel) {
 			defer wg.Done()
-			var si tunnel.StateInfo
-			if t.Backend == "nativewg" && s.nwgOperator != nil {
-				si = s.nwgOperator.GetState(ctx, &t)
-			} else {
-				si = s.state.GetState(ctx, t.ID)
-			}
+			si := s.rawState(ctx, &t)
 			if si.State != tunnel.StateRunning {
 				return
 			}
@@ -421,6 +428,7 @@ func (s *ServiceImpl) Update(ctx context.Context, oldStored, newStored *storage.
 
 	s.logInfo("update", tunnelID, "Tunnel updated")
 	s.notifyAWGSyncer(ctx)
+	s.invalidateState(newStored.ID)
 	return nil
 }
 
@@ -632,6 +640,7 @@ func (s *ServiceImpl) SetEnabled(ctx context.Context, tunnelID string, enabled b
 	}
 
 	s.logInfo("set-enabled", tunnelID, fmt.Sprintf("Enabled set to %v", enabled))
+	s.invalidateState(tunnelID)
 	return nil
 }
 
@@ -898,6 +907,7 @@ func (s *ServiceImpl) ReplaceConfig(ctx context.Context, tunnelID, confContent, 
 	// Legacy tunnel:updated publish removed (Task 14 sweep); the
 	// ReplaceConfig handler emits resource:invalidated via publishTunnelList.
 
+	s.invalidateState(tunnelID)
 	return nil
 }
 
@@ -931,12 +941,7 @@ func (s *ServiceImpl) GetState(ctx context.Context, tunnelID string) tunnel.Stat
 // (Intent=UP while Enabled=false) still surfaces its real state, so the user
 // sees the divergence. Get, List and GetState all route through here.
 func (s *ServiceImpl) stateForStored(ctx context.Context, stored *storage.AWGTunnel) tunnel.StateInfo {
-	var info tunnel.StateInfo
-	if s.nwgOperator != nil && s.isNativeWG(stored) {
-		info = s.nwgOperator.GetState(ctx, stored)
-	} else {
-		info = s.state.GetState(ctx, stored.ID)
-	}
+	info := s.rawState(ctx, stored)
 
 	if !stored.Enabled {
 		switch info.State {

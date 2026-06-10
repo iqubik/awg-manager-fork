@@ -516,12 +516,32 @@ func classifyNWGState(rci NWGState, supportsASC bool, hasProxySlot func(listenPo
 	}
 }
 
+// fetchInterfaceRCI reads the full interface object via batch POST — the
+// direct GET path costs ~115ms flat on NDMS regardless of response size,
+// POST is ~10x cheaper and coalesces in the transport batcher.
+func (o *OperatorNativeWG) fetchInterfaceRCI(ctx context.Context, ndmsName string) ([]byte, error) {
+	raw, err := o.transport.Post(ctx, transport.ShowInterface(ndmsName, nil))
+	if err != nil {
+		return nil, err
+	}
+	inner, err := transport.UnwrapShowInterface(raw)
+	if err != nil {
+		return nil, err
+	}
+	if len(inner) == 0 {
+		// Паритет с прежним GET: parseRCIInterfaceResponse ждёт валидный
+		// JSON; пустой объект → Exists=false → StateNotCreated.
+		return []byte("{}"), nil
+	}
+	return inner, nil
+}
+
 // GetState returns the state of a NativeWG tunnel via RCI.
 // KmodManager does NOT participate in state detection — RCI is the single source of truth.
 func (o *OperatorNativeWG) GetState(ctx context.Context, stored *storage.AWGTunnel) tunnel.StateInfo {
 	names := NewNWGNames(stored.NWGIndex)
 
-	body, err := o.transport.GetRaw(ctx, "/show/interface/"+names.NDMSName)
+	body, err := o.fetchInterfaceRCI(ctx, names.NDMSName)
 	if err != nil {
 		return tunnel.StateInfo{State: tunnel.StateNotCreated}
 	}
@@ -747,7 +767,7 @@ func (o *OperatorNativeWG) SyncKmodSlot(ctx context.Context, stored *storage.AWG
 func (o *OperatorNativeWG) ResolveActiveWAN(ctx context.Context, stored *storage.AWGTunnel) string {
 	names := NewNWGNames(stored.NWGIndex)
 
-	body, err := o.transport.GetRaw(ctx, "/show/interface/"+names.NDMSName)
+	body, err := o.fetchInterfaceRCI(ctx, names.NDMSName)
 	if err != nil {
 		return ""
 	}

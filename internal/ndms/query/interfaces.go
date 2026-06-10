@@ -236,14 +236,14 @@ func (s *InterfaceStore) GetProxy(ctx context.Context, name string) (*ndms.Proxy
 	}, nil
 }
 
-// FetchSummary returns InterfaceDetails by issuing a fresh
-// GET /show/interface/<name>/summary on every call — no cache read.
-// Used by state.Manager for kernel-tunnel state determination because
-// NDMS `iflayerchanged link=running` hooks are not reliable for
-// OpkgTun: the cache that GetDetails consults can stay frozen with
-// Link != "up" after `ip link set up`, producing a permanent
-// StateStarting for a working tunnel. Direct GET sees the layer
-// truth NDMS reports right now.
+// FetchSummary returns InterfaceDetails by issuing a fresh batch-POST
+// show.interface query on every call — no cache read. Used by
+// state.Manager for kernel-tunnel state determination because NDMS
+// `iflayerchanged link=running` hooks are not reliable for OpkgTun:
+// the cache that GetDetails consults can stay frozen with Link != "up"
+// after `ip link set up`, producing a permanent StateStarting for a
+// working tunnel. The direct query sees the layer truth NDMS reports
+// right now.
 //
 // Uptime is consulted from the same daemon-tracked startedAt map as
 // GetDetails (cache helper, not authoritative).
@@ -251,21 +251,56 @@ func (s *InterfaceStore) FetchSummary(ctx context.Context, name string) (*ndms.I
 	if name == "" {
 		return nil, nil
 	}
-	var resp struct {
-		Layer struct {
-			Conf string `json:"conf"`
-			Link string `json:"link"`
-			Ctrl string `json:"ctrl"`
-		} `json:"layer"`
-	}
-	if err := s.getter.Get(ctx, "/show/interface/"+name+"/summary", &resp); err != nil {
+	// Batch POST вместо прямого GET /summary: NDMS обрабатывает GET с
+	// фиксированной стоимостью ~115мс независимо от размера ответа, POST
+	// ~10x быстрее и коалесцируется батчером (замеры в спеке
+	// 2026-06-10-getstate-cache-rci-post-design.md). Свежесть сохранена:
+	// это по-прежнему прямой запрос к NDMS на каждый вызов, мимо кеша
+	// снапшота.
+	raw, err := s.getter.Post(ctx, transport.ShowInterface(name, nil))
+	if err != nil {
 		return nil, err
 	}
-	d := &ndms.InterfaceDetails{
-		ConfLayer: resp.Layer.Conf,
-		Link:      layerLevelToUpDown(resp.Layer.Link),
-		State:     layerLevelToUpDown(resp.Layer.Ctrl),
+	inner, err := unwrapShowInterface(raw)
+	if err != nil {
+		return nil, err
 	}
+	var resp struct {
+		State     string `json:"state"`
+		Link      string `json:"link"`
+		ConfLayer string `json:"conf-layer"`
+		Summary   struct {
+			Layer struct {
+				Conf string `json:"conf"`
+				Link string `json:"link"`
+				Ctrl string `json:"ctrl"`
+			} `json:"layer"`
+		} `json:"summary"`
+	}
+	if len(inner) > 0 {
+		if err := json.Unmarshal(inner, &resp); err != nil {
+			return nil, err
+		}
+	}
+
+	d := &ndms.InterfaceDetails{
+		ConfLayer: resp.Summary.Layer.Conf,
+		Link:      layerLevelToUpDown(resp.Summary.Layer.Link),
+		State:     layerLevelToUpDown(resp.Summary.Layer.Ctrl),
+	}
+	if resp.Summary.Layer.Conf == "" {
+		// Полный объект без summary-подсекции (или status-error на
+		// отсутствующий интерфейс): берём верхнеуровневые поля.
+		d.ConfLayer = resp.ConfLayer
+		d.Link = resp.Link
+		d.State = resp.State
+	}
+	if d.ConfLayer == "" && d.Link == "" && d.State == "" {
+		// Ни данных, ни ошибки транспорта — интерфейса нет. nil details
+		// = showInterfaceFailed в state-матрице (паритет с прежним 404).
+		return nil, nil
+	}
+
 	s.mu.RLock()
 	if t, ok := s.startedAt[name]; ok && !t.IsZero() {
 		d.Uptime = int(time.Since(t).Seconds())

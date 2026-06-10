@@ -15,6 +15,7 @@ func (s *ServiceImpl) Start(ctx context.Context, tunnelID string) error {
 	err := s.orch.HandleEvent(ctx, orchestrator.Event{
 		Type: orchestrator.EventStart, Tunnel: tunnelID,
 	})
+	s.invalidateState(tunnelID)
 	if err == nil {
 		s.notifyAWGSyncer(ctx)
 	}
@@ -29,6 +30,7 @@ func (s *ServiceImpl) Stop(ctx context.Context, tunnelID string) error {
 	err := s.orch.HandleEvent(ctx, orchestrator.Event{
 		Type: orchestrator.EventStop, Tunnel: tunnelID,
 	})
+	s.invalidateState(tunnelID)
 	if err == nil {
 		s.notifyAWGSyncer(ctx)
 	}
@@ -43,6 +45,7 @@ func (s *ServiceImpl) Restart(ctx context.Context, tunnelID string) error {
 	err := s.orch.HandleEvent(ctx, orchestrator.Event{
 		Type: orchestrator.EventRestart, Tunnel: tunnelID,
 	})
+	s.invalidateState(tunnelID)
 	if err == nil {
 		s.notifyAWGSyncer(ctx)
 	}
@@ -63,6 +66,7 @@ func (s *ServiceImpl) Delete(ctx context.Context, tunnelID string) error {
 	err := s.orch.HandleEvent(ctx, orchestrator.Event{
 		Type: orchestrator.EventDelete, Tunnel: tunnelID,
 	})
+	s.invalidateState(tunnelID)
 	if err == nil {
 		s.notifyAWGSyncer(ctx)
 	}
