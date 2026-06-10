@@ -105,13 +105,8 @@ jobs:
 
           test -s frontend/build/iq-i18n-runtime.min.js
 
-          if find frontend/build -type f \( \
-            -name 'tr.json' -o \
-            -name 'fa.json' -o \
-            -name 'zh.json' -o \
-            -name '*.map' \
-          \) -print | grep -q .; then
-            echo "Forbidden dictionary/source-map files in frontend/build" >&2
+          if find frontend/build -type f -print | grep -E '(^|/)(tr|fa|zh)\.json$|iq-i18n-runtime.*\.map$|i18n.*\.map$|dictionary|dict|i18n-runtime.*LICENSE' | grep -q .; then
+            echo "Forbidden i18n dictionary/source/debug files in frontend/build" >&2
             exit 1
           fi
 
@@ -294,9 +289,10 @@ jobs:
 
             tar -tf "$data_tar" | grep -F 'opt/share/awg-manager/www/iq-i18n-runtime.min.js' >/dev/null
 
-            if tar -tf "$data_tar" | grep -E '(^|/)(tr|fa|zh)\.json$|\.map$|i18n-runtime.*LICENSE' >/dev/null; then
+            forbidden_ipk="$(tar -tf "$data_tar" | grep -E '(^|/)(tr|fa|zh)\.json$|iq-i18n-runtime.*\.map$|i18n.*\.map$|dictionary|dict|i18n-runtime.*LICENSE' || true)"
+            if [[ -n "$forbidden_ipk" ]]; then
               echo "Forbidden i18n source/debug files found inside IPK" >&2
-              tar -tf "$data_tar" | grep -E '(^|/)(tr|fa|zh)\.json$|\.map$|i18n-runtime.*LICENSE' >&2
+              echo "$forbidden_ipk" >&2
               exit 1
             fi
           )
