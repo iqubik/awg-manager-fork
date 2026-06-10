@@ -88,11 +88,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          if find . \
-            -path './.git' -prune -o \
-            -path './.iq-i18n-private' -prune -o \
-            -type f \( -name 'tr.json' -o -name 'fa.json' -o -name 'zh.json' \) -print | grep -q .; then
+          forbidden_public="$(git ls-files | grep -E '(^|/)(tr|fa|zh)\.json$' || true)"
+          if [[ -n "$forbidden_public" ]]; then
             echo "Public repo must not contain tr/fa/zh dictionaries" >&2
+            echo "$forbidden_public" >&2
             exit 1
           fi
 
