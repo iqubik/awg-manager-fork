@@ -12,6 +12,8 @@ permissions:
 
 env:
   AWG_RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest
+  IQ_I18N_LANGUAGES: en,tr,fa,zh
+  IQ_I18N_PRIMARY_LANGUAGE: en
 
 jobs:
   frontend:
@@ -64,14 +66,16 @@ jobs:
           fi
 
           node .iq-i18n-private/scripts/build-runtime.mjs \
-            --out frontend/static/iq-i18n-runtime.min.js
+            --out frontend/static/iq-i18n-runtime.min.js \
+            --languages "$IQ_I18N_LANGUAGES" \
+            --primary-language "$IQ_I18N_PRIMARY_LANGUAGE"
 
           rm -f frontend/static/iq-i18n-runtime.min.js.map
           rm -f frontend/static/iq-i18n-runtime.min.js.LICENSE.txt
 
-          forbidden_static="$(find frontend/static -maxdepth 1 -type f -print | grep -E '(^|/)(tr|fa|zh)\.json$|(^|/).*iq-i18n.*\.map$|(^|/).*iq-i18n.*LICENSE' || true)"
+          forbidden_static="$(find frontend/static -maxdepth 1 -type f -print | grep -E '(^|/)(en|tr|fa|zh)\.json$|(^|/).*iq-i18n.*\.map$|(^|/).*iq-i18n.*LICENSE' || true)"
           if [[ -n "$forbidden_static" ]]; then
-            echo "Forbidden i18n debug/source files in frontend/static" >&2
+            echo "Forbidden standalone i18n dictionaries or private debug artifacts" >&2
             echo "$forbidden_static" >&2
             exit 1
           fi
@@ -83,9 +87,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          forbidden_public="$(git ls-files | grep -E '(^|/)(tr|fa|zh)\.json$' || true)"
+          forbidden_public="$(git ls-files | grep -E '(^|/)(en|tr|fa|zh)\.json$' || true)"
           if [[ -n "$forbidden_public" ]]; then
-            echo "Public repo must not contain tr/fa/zh dictionaries" >&2
+            echo "Public repo must not contain standalone en/tr/fa/zh dictionaries" >&2
             echo "$forbidden_public" >&2
             exit 1
           fi
@@ -112,9 +116,9 @@ jobs:
 
           test -s frontend/build/iq-i18n-runtime.min.js
 
-          forbidden_build="$(find frontend/build -type f -print | grep -E '(^|/)(tr|fa|zh)\.json$|(^|/).*iq-i18n.*\.map$|(^|/).*iq-i18n.*LICENSE' || true)"
+          forbidden_build="$(find frontend/build -type f -print | grep -E '(^|/)(en|tr|fa|zh)\.json$|(^|/).*iq-i18n.*\.map$|(^|/).*iq-i18n.*LICENSE' || true)"
           if [[ -n "$forbidden_build" ]]; then
-            echo "Forbidden i18n dictionary/source/debug files in frontend/build" >&2
+            echo "Forbidden standalone i18n dictionaries or private debug artifacts" >&2
             echo "$forbidden_build" >&2
             exit 1
           fi
