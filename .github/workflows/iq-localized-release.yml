@@ -75,8 +75,8 @@ jobs:
             -name 'zh.json' -o \
             -name '*i18n*.map' -o \
             -name '*dictionary*' -o \
-            -name '*dict*' \
-          ) -print | grep -q .; then
+          -name '*dict*' \
+        \) -print | grep -q .; then
             echo "Forbidden i18n debug/source files in frontend/static" >&2
             exit 1
           fi
@@ -111,7 +111,7 @@ jobs:
             -name 'fa.json' -o \
             -name 'zh.json' -o \
             -name '*.map' \
-          ) -print | grep -q .; then
+          \) -print | grep -q .; then
             echo "Forbidden dictionary/source-map files in frontend/build" >&2
             exit 1
           fi
