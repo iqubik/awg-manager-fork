@@ -303,10 +303,27 @@ jobs:
               exit 1
             fi
 
-            if ! tar -tzf "$data_tar" | grep -F 'opt/share/awg-manager/www/iq-i18n-runtime.min.js' >/dev/null; then
-              echo "Missing iq-i18n-runtime.min.js inside IPK data archive" >&2
-              echo "Known iq-i18n files inside IPK:" >&2
-              tar -tzf "$data_tar" | grep -F 'iq-i18n' >&2 || true
+            if ! tar -tzf "$data_tar" | grep -E '(^|/)\.?/opt/bin/awg-manager$|^\./opt/bin/awg-manager$' >/dev/null; then
+              echo "Missing /opt/bin/awg-manager inside IPK data archive" >&2
+              echo "IPK data archive contents:" >&2
+              tar -tzf "$data_tar" >&2
+              exit 1
+            fi
+
+            mkdir -p data-root
+            tar -xzf "$data_tar" -C data-root
+
+            bin="data-root/opt/bin/awg-manager"
+            if [[ ! -s "$bin" ]]; then
+              echo "Missing extracted awg-manager binary: $bin" >&2
+              find data-root -maxdepth 4 -type f -print >&2 || true
+              exit 1
+            fi
+
+            if ! strings "$bin" | grep -E 'iq-i18n-runtime\.min\.js|__IQ_I18N__|\[iq-i18n\]' >/dev/null; then
+              echo "Embedded frontend does not appear to contain IQ i18n runtime" >&2
+              echo "Known embedded iq-i18n strings:" >&2
+              strings "$bin" | grep -F 'iq-i18n' >&2 || true
               exit 1
             fi
 
