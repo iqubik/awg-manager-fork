@@ -99,6 +99,3 @@ export function resolveCompositeOutboundView(
 		otherMemberLabels: otherTags.map((t) => resolveMemberLabel(t, subscriptions, outboundOptions)),
 	};
 }
-
-/** @deprecated используйте resolveCompositeOutboundView */
-export const resolveCompositeMemberDisplay = resolveCompositeOutboundView;

@@ -5,7 +5,7 @@
   import { ArrowLeft } from 'lucide-svelte';
   import { LoadingSpinner } from '$lib/components/layout';
   import { singboxRouter as singboxRouterStore } from '$lib/stores/singboxRouter';
-  import { DeviceProxySubTab, StagingBanner, RouteInspector, JsonConfigDrawer } from '$lib/components/singbox-routing';
+  import { StagingBanner, RouteInspector, JsonConfigDrawer } from '$lib/components/singbox-routing';
   import { ConnectionsSubTab } from '$lib/components/routing/singboxRouter';
   import {
     PageShell,
@@ -29,7 +29,8 @@
   const singboxInitialized = singboxRouterStore.initialized;
   let singboxRulesCount = $derived($singboxRulesStore.length);
 
-  const SUB_VIEWS = new Set(['connections', 'deviceproxy']);
+  const SUB_VIEWS = new Set(['connections']);
+  const LEGACY_SUBS = new Set(['deviceproxy', 'rules', 'rulesets', 'outbounds', 'dns', 'engine']);
 
   function resetSingboxOverlayState() {
     closeAddWizard();
@@ -37,39 +38,55 @@
   }
 
   onMount(() => {
-    // Вкладка открывается на списке правил: не восстанавливаем визард (?add=1)
-    // и sub-экраны (?sub=connections / deviceproxy) после ухода на другие вкладки.
+    // Не восстанавливаем визард (?add=1) и sub=connections после ухода на другие вкладки routing.
     resetSingboxOverlayState();
     const sub = $page.url.searchParams.get('sub');
-    if (sub && SUB_VIEWS.has(sub)) {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('sub');
-      void goto(`${url.pathname}${url.search}`, { replaceState: true, keepFocus: true, noScroll: true });
+    if (!sub) {
+      void singboxRouterStore.loadAll();
+      return;
     }
+
+    const url = new URL(window.location.href);
+    let shouldReplace = false;
+
+    if (SUB_VIEWS.has(sub)) {
+      url.searchParams.delete('sub');
+      shouldReplace = true;
+    } else if (LEGACY_SUBS.has(sub)) {
+      url.searchParams.delete('sub');
+      if (sub === 'deviceproxy') {
+        url.searchParams.set('mode', 'expert');
+      }
+      shouldReplace = true;
+    }
+
+    if (shouldReplace) {
+      const search = url.searchParams.toString();
+      void goto(`${url.pathname}${search ? `?${search}` : ''}`, {
+        replaceState: true,
+        keepFocus: true,
+        noScroll: true,
+      });
+    }
+
     void singboxRouterStore.loadAll();
   });
 
-  // Явный переход в sub-вид (чип «соединения») — закрыть визард/trace, но sub оставить.
+  // Явный переход в sub=connections — закрыть визард/trace, но sub оставить.
   $effect(() => {
     const sub = activeSingboxSub;
-    if (sub && SUB_VIEWS.has(sub)) {
+    if (sub === 'connections') {
       resetSingboxOverlayState();
     }
   });
 
-  // Активен ли отдельный sub-вид (рендерится на всю страницу) — для кнопки «Назад».
-  let inSubView = $derived(
-    activeSingboxSub === 'deviceproxy' ||
-    activeSingboxSub === 'connections',
-  );
+  let inSubView = $derived(activeSingboxSub === 'connections');
 
   function clearSub() {
     const url = new URL(window.location.href);
     url.searchParams.delete('sub');
     void goto(`${url.pathname}${url.search}`, { keepFocus: true, noScroll: true });
   }
-
-
 </script>
 
 <PageShell onOpenInspector={() => (inspectorOpen = true)} onOpenJson={() => (jsonOpen = true)}>
@@ -79,9 +96,7 @@
       <ArrowLeft size={14} /> Назад
     </button>
   {/if}
-  {#if activeSingboxSub === 'deviceproxy'}
-    <DeviceProxySubTab />
-  {:else if activeSingboxSub === 'connections'}
+  {#if activeSingboxSub === 'connections'}
     <ConnectionsSubTab />
   {:else if $sbMode === 'beginner'}
     {#if $addWizardOpen}

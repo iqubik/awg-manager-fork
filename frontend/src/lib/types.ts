@@ -1389,6 +1389,7 @@ export interface SingboxRouterRule {
 	// the same shape.
 	action?: 'route' | 'reject' | 'sniff' | 'hijack-dns';
 	outbound?: string;
+	rules?: SingboxRouterRule[];
 }
 
 /**

@@ -90,6 +90,12 @@ function detectFromRuleSets(
     if (preset) {
       return { iconSlug: preset.iconSlug, displayName: preset.name };
     }
+    // Tag совпадает с display name пресета (напр. rule_set «Российские сервисы»)
+    const rsKey = rs.trim().toLowerCase();
+    const byName = catalog.find((p) => p.name.trim().toLowerCase() === rsKey);
+    if (byName) {
+      return { iconSlug: byName.iconSlug, displayName: byName.name };
+    }
     // Special case: 'ru' / 'russia' → russian-services
     if (normalized === 'ru' || normalized === 'russia') {
       const ru = catalog.find((p) => p.id === 'russian-services');

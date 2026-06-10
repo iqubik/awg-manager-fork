@@ -18,3 +18,40 @@ func TestDetectSystemServerNATMode(t *testing.T) {
 		}
 	}
 }
+
+func TestIsValidServerEndpointHost(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"", true},
+		{"  ", true},
+		{"203.0.113.42", true},
+		{"vpn.example.com", true},
+		{"router.keenetic.pro", true},
+		{"not a host!", false},
+		{"bad..domain", false},
+	}
+	for _, c := range cases {
+		if got := isValidServerEndpointHost(c.in); got != c.want {
+			t.Fatalf("isValidServerEndpointHost(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestResolveWireguardClientEndpointHost(t *testing.T) {
+	cases := []struct {
+		stored, keenDNS, want string
+	}{
+		{"", "", ""},
+		{" 203.0.113.1 ", "router.keenetic.pro", "203.0.113.1"},
+		{"", "router.keenetic.pro", "router.keenetic.pro"},
+		{"", "  ", ""},
+		{"vpn.example.com", "router.keenetic.pro", "vpn.example.com"},
+	}
+	for _, c := range cases {
+		if got := resolveWireguardClientEndpointHost(c.stored, c.keenDNS); got != c.want {
+			t.Fatalf("resolve(%q, %q) = %q, want %q", c.stored, c.keenDNS, got, c.want)
+		}
+	}
+}

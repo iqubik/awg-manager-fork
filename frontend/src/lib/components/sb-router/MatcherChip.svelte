@@ -19,6 +19,7 @@
 </script>
 
 <script lang="ts">
+  import { Link } from 'lucide-svelte';
   import RuleSetTypeIcon from './RuleSetTypeIcon.svelte';
   import type { RuleSetDisplayType } from '$lib/utils/ruleSetType';
 
@@ -27,7 +28,7 @@
     label: string;
     /** Если true — значение mono шрифтом (для IP/port/cidr). Подпись слева всегда sans. */
     mono?: boolean;
-    /** Иконка типа rule_set вместо подписи «набор:» */
+    /** Иконка типа rule_set перед подписью «набор:» */
     rulesetType?: RuleSetDisplayType;
     /** Клик по чипу — открыть связанный редактор */
     onclick?: () => void;
@@ -39,22 +40,30 @@
   const isClickable = $derived(typeof onclick === 'function');
 </script>
 
+{#snippet chipPrefix()}
+  {#if kind === 'domain'}
+    <span class="chip-prefix">
+      <Link size={10} strokeWidth={2.25} aria-hidden="true" />
+      <span class="chip-key">{LABELS.domain}:</span>
+    </span>
+  {:else if kind === 'ruleset' && rulesetType}
+    <span class="chip-prefix">
+      <RuleSetTypeIcon type={rulesetType} size={10} />
+      <span class="chip-key">{LABELS.ruleset}:</span>
+    </span>
+  {:else}
+    <span class="chip-key">{LABELS[kind]}:</span>
+  {/if}
+{/snippet}
+
 {#if isClickable}
   <button type="button" class="chip is-clickable" {title} aria-label={title} {onclick}>
-    {#if kind === 'ruleset' && rulesetType}
-      <RuleSetTypeIcon type={rulesetType} size={10} />
-    {:else}
-      <span class="chip-key">{LABELS[kind]}:</span>
-    {/if}
+    {@render chipPrefix()}
     <span class="chip-val" class:is-mono={mono}>{label}</span>
   </button>
 {:else}
   <span class="chip">
-    {#if kind === 'ruleset' && rulesetType}
-      <RuleSetTypeIcon type={rulesetType} size={10} />
-    {:else}
-      <span class="chip-key">{LABELS[kind]}:</span>
-    {/if}
+    {@render chipPrefix()}
     <span class="chip-val" class:is-mono={mono}>{label}</span>
   </span>
 {/if}
@@ -93,10 +102,22 @@
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
+  .chip-prefix {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+  }
   .chip-key {
     font-size: 10px;
     color: var(--text-muted);
     font-family: var(--font-sans);
+    flex-shrink: 0;
+  }
+  /* Иконки префикса — тот же цвет, что у подписи «домен:» / «набор:» */
+  .chip-prefix :global(svg),
+  .chip-prefix :global(.icon) {
+    color: var(--text-muted);
     flex-shrink: 0;
   }
   .chip-val {

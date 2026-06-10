@@ -619,8 +619,10 @@ func TestService_DeleteInstance_Default_PersistsWhenApplyFails(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
 	s := NewService(Deps{Store: store, Singbox: sb})
 
-	if err := s.DeleteInstance(context.Background(), "default"); err != nil {
+	if applied, err := s.DeleteInstance(context.Background(), "default"); err != nil {
 		t.Fatalf("delete default: %v", err)
+	} else if applied {
+		t.Fatalf("expected apply to fail in this test")
 	}
 
 	snap := store.Snapshot()

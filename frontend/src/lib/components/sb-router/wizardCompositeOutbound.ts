@@ -41,6 +41,36 @@ export interface TunnelOutboundPreview {
   tunnelCount: number;
 }
 
+export type WizardOutboundCategory = 'tunnel' | 'direct' | 'block';
+
+/** Текст предпросмотра outbound на шаге 3 визарда. */
+export function formatTunnelOutboundPreview(preview: TunnelOutboundPreview): string {
+  if (preview.tunnelCount === 1) {
+    return `Правило направит трафик через outbound «${preview.outboundTag}»`;
+  }
+  if (preview.willCreate) {
+    return `Будет создан composite outbound «${preview.outboundTag}» из выбранных туннелей (${preview.tunnelCount}) — автовыбор по скорости`;
+  }
+  return `Будет использован composite outbound «${preview.outboundTag}» из выбранных туннелей (${preview.tunnelCount})`;
+}
+
+export function formatWizardOutboundPreview(
+  category: WizardOutboundCategory | null,
+  preview: TunnelOutboundPreview | null,
+  directTag = 'direct',
+): string | null {
+  if (category === 'direct') {
+    return `Трафик пойдёт напрямую (outbound «${directTag}»)`;
+  }
+  if (category === 'block') {
+    return 'Трафик будет заблокирован (reject)';
+  }
+  if (category === 'tunnel' && preview) {
+    return formatTunnelOutboundPreview(preview);
+  }
+  return null;
+}
+
 /** Предпросмотр: какой outbound будет использован для выбранных туннелей. */
 export function previewTunnelOutboundResolution(
   tunnelTags: string[],

@@ -29,13 +29,21 @@
       : (outbound.activeMemberLabel ?? outbound.label),
   );
   const memberChipMeta = $derived(
-    outbound.kind === 'subscription' ? outbound.metaSuffix : undefined,
+    outbound.kind === 'subscription'
+      ? outbound.metaSuffix
+      : outbound.activeMemberMetaSuffix,
   );
-  const memberChipTitle = $derived(
-    outbound.kind === 'subscription' && outbound.activeMemberLabel
-      ? `${outboundDisplayTitle(outbound)} → ${outbound.activeMemberTitle ?? outbound.activeMemberLabel}`
-      : (outbound.activeMemberTitle ?? outbound.activeMemberLabel ?? outboundDisplayTitle(outbound)),
-  );
+  const memberChipTitle = $derived.by(() => {
+    if (outbound.kind === 'subscription' && outbound.activeMemberLabel) {
+      const member = outboundFullLabel(
+        outbound.activeMemberLabel,
+        outbound.activeMemberMetaSuffix,
+      );
+      return `${outboundDisplayTitle(outbound)} → ${member}`;
+    }
+    const memberLabel = outbound.activeMemberLabel ?? outbound.label;
+    return outboundFullLabel(memberLabel, memberChipMeta);
+  });
   const tooltipItems = $derived((outbound.otherMemberLabels ?? []).slice(0, TOOLTIP_MAX_ITEMS));
   const tooltipTruncated = $derived(overflowCount > TOOLTIP_MAX_ITEMS);
 </script>
@@ -84,8 +92,6 @@
 </div>
 
 <style>
-  @import './outboundTone.css';
-
   .wrap {
     display: flex;
     align-items: center;

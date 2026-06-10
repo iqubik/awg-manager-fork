@@ -33,6 +33,7 @@
     DeviceProxyInstance,
   } from '$lib/types';
   import { newDeviceProxyInstance } from '$lib/utils/deviceProxyInstance';
+  import { deleteDeviceProxyInstanceWithNotice } from '$lib/utils/deviceProxyDeleteNotice';
 
   import StatStrip, { type StatCellData } from './StatStrip.svelte';
   import SidePanel from './SidePanel.svelte';
@@ -204,8 +205,11 @@
       message: `Удалить inbound «${in_.name || in_.id}»?`,
       run: async () => {
         try {
-          await api.deleteDeviceProxyInstance(in_.id);
-          notifications.success('Inbound удалён');
+          await deleteDeviceProxyInstanceWithNotice(in_.id, {
+            successMessage: 'Inbound удалён',
+            pendingApplyMessage:
+              'Inbound удалён из конфига, но sing-box ещё не обновлён. Нажмите «Применить сейчас», когда сервис будет доступен.',
+          });
           dpReloadKey += 1;
           await loadActiveProxyCount();
         } catch (e) {

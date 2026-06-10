@@ -117,92 +117,15 @@ SCENARIOS.extend([
 ])
 
 
-# Sing-box Router modals — use URL deep-link via ?tab=singbox&sub=<X>.
-# Click-based sub-tab nav was flaky (button click registered but content
-# stayed on engine tab); URL deep-link is what SingboxRoutingPage uses
-# internally (readSubFromURL on mount + $effect).
-def _nav_singbox_subtab(sub: str):
-    """Navigate to Sing-box Router with a specific sub via URL deep-link."""
-    def _go(p: Page):
-        goto(p, f"/routing?tab=singbox&sub={sub}")
-    return _go
+# Sing-box Router modals — Expert panel on /routing?tab=singbox&mode=expert.
+def _nav_singbox_expert(p: Page):
+    goto(p, "/routing?tab=singbox&mode=expert")
 
 
 def _open_singbox_ruleset(p: Page):
-    """Open RuleSetAddModal and interact with the URL field."""
+    """Open RuleSetAddModal from Expert → Rule-sets."""
     p.locator('button:has-text("+ Набор")').first.click(timeout=4000)
     p.wait_for_timeout(600)
-
-
-def _nav_to_rulesets(p: Page):
-    """Navigate to Sing-box Router → Наборы sub-tab."""
-    goto(p, "/routing?tab=singbox&sub=rulesets")
-
-
-def _nav_to_singbox_dns(p: Page):
-    """Navigate to Sing-box Router → DNS sub-tab.
-
-    Uses URL deep-link — SingboxRoutingPage reads ?sub= on mount and
-    primes the singboxRouter store via loadAll() before DNS subtab renders.
-    """
-    goto(p, "/routing?tab=singbox&sub=dns")
-
-
-def _nav_to_dns_with_server(p: Page):
-    """Navigate to Sing-box Router → DNS sub-tab, creating a server first if needed."""
-    _nav_to_singbox_dns(p)
-
-    # Try to open the server creation modal
-    p.locator('button:has-text("+ Сервер")').first.click(timeout=4000)
-    p.wait_for_timeout(800)
-
-    # Fill in required server details: tag and server address
-    inputs = p.locator('.modal-card input').all()
-    if len(inputs) > 0:
-        # First input is usually the tag
-        inputs[0].fill("test-server", timeout=2000)
-        p.wait_for_timeout(200)
-    if len(inputs) > 1:
-        # Second input is usually the server address
-        inputs[1].fill("8.8.8.8", timeout=2000)
-        p.wait_for_timeout(200)
-
-    # Click save
-    save_btns = p.locator('.modal-card button:has-text("Сохранить")').all()
-    if save_btns:
-        save_btns[0].click(timeout=2000)
-        p.wait_for_timeout(1000)
-
-    # Wait for the modal to close
-    try:
-        p.locator('.modal-card').first.wait_for(state="detached", timeout=2000)
-    except:
-        # If modal didn't close, try clicking X to close it
-        try:
-            p.locator('.modal-card button[aria-label="Close modal"]').first.click(timeout=1000)
-            p.wait_for_timeout(400)
-        except:
-            pass
-
-
-def _open_refresh_settings(p: Page):
-    """Open RefreshSettingsModal via the settings icon in RuleSets sub-tab."""
-    # Click the settings icon (aria-label="Настройки автообновления")
-    p.locator('button[aria-label="Настройки автообновления"]').first.click(timeout=4000)
-    p.wait_for_timeout(400)
-
-
-def _make_refresh_settings_dirty(p: Page):
-    """Make RefreshSettingsModal dirty by changing the refresh mode via dropdown."""
-    # Click the Dropdown trigger button to open options
-    dropdown_btn = p.locator('.modal-card button[aria-haspopup="listbox"]').first
-    dropdown_btn.click(timeout=2000)
-    p.wait_for_timeout(400)
-    # Click the second option (toggle from Каждые N часов to Ежедневно в заданное время)
-    options = p.locator('[role="option"]').all()
-    if len(options) > 1:
-        options[1].click(timeout=2000)
-        p.wait_for_timeout(400)
 
 
 def _open_wizard_choose_step0(p: Page):
@@ -229,41 +152,28 @@ SCENARIOS.extend([
     ),
     Scenario(
         name="RuleEditModal_singbox",
-        navigate=_nav_singbox_subtab("rules"),
+        navigate=_nav_singbox_expert,
         trigger=lambda p: p.locator('button:has-text("+ Правило")').first.click(timeout=4000),
         input_selector='.modal-card textarea',
     ),
     Scenario(
         name="RuleSetAddModal",
-        navigate=_nav_to_rulesets,
+        navigate=_nav_singbox_expert,
         trigger=_open_singbox_ruleset,
         input_selector='input[placeholder*="https://raw"]',
     ),
     Scenario(
         name="CompositeOutboundEditModal",
-        navigate=_nav_singbox_subtab("outbounds"),
-        trigger=lambda p: p.locator('button:has-text("+ Создать outbound")').first.click(timeout=4000),
+        navigate=_nav_singbox_expert,
+        trigger=lambda p: p.locator('button:has-text("+ Outbound")').first.click(timeout=4000),
         input_selector='input[placeholder*="fast"]',
     ),
     Scenario(
         name="DNSServerEditModal",
-        navigate=_nav_to_singbox_dns,
+        navigate=_nav_singbox_expert,
         trigger=lambda p: p.locator('button:has-text("+ Сервер")').first.click(timeout=4000),
         input_selector='input[placeholder*="bootstrap"]',
     ),
-    Scenario(
-        name="RefreshSettingsModal",
-        navigate=_nav_to_rulesets,
-        trigger=_open_refresh_settings,
-        input_selector='',  # Not used; see make_dirty instead
-        make_dirty=_make_refresh_settings_dirty,
-    ),
-    # DNSRuleEditModal is wired in code (commit cca920d1) but unreachable
-    # in the mock — the "+ Правило" button stays disabled even after a server
-    # has been added via _nav_to_dns_with_server, and the mock-proxy's POST
-    # persistence doesn't propagate to the frontend disabled-gate logic.
-    # The modal itself uses the same hasUnsavedChanges pattern as other
-    # singbox-router modals which are smoke-covered.
 ])
 
 

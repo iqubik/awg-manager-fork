@@ -29,6 +29,18 @@ func isValidServerEndpointHost(val string) bool {
 	return serverEndpointHostPattern.MatchString(val)
 }
 
+// resolveWireguardClientEndpointHost picks the connect host for generated
+// client configs before WAN IP fallback: stored override → KeenDNS → empty.
+func resolveWireguardClientEndpointHost(storedEndpoint, keenDNSDomain string) string {
+	if ep := strings.TrimSpace(storedEndpoint); ep != "" {
+		return ep
+	}
+	if domain := strings.TrimSpace(keenDNSDomain); domain != "" {
+		return domain
+	}
+	return ""
+}
+
 func detectSystemServerNATMode(natEnabled, hasStatic bool) string {
 	switch {
 	case hasStatic && !natEnabled:

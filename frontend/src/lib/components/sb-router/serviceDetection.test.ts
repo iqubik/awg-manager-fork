@@ -181,6 +181,11 @@ describe('detectServiceKey', () => {
     expect(detectServiceKey(rule({ rule_set: ['geosite-ru'] }), undefined, catalog)).toBe('rkn');
   });
 
+  it('detects russian-services when rule_set tag equals preset display name', () => {
+    expect(detectServiceKey(rule({ rule_set: ['Российские сервисы'] }), undefined, catalog)).toBe('rkn');
+    expect(detectServiceKey(rule({ rule_set: ['российские сервисы'] }), undefined, catalog)).toBe('rkn');
+  });
+
   it('domain_suffix takes precedence over rule_set when rule_set is empty', () => {
     expect(detectServiceKey(rule({
       domain_suffix: ['netflix.com'],

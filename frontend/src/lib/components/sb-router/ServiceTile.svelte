@@ -11,7 +11,8 @@
 
 <script lang="ts">
   import PresetIcon from '$lib/components/routing/singboxRouter/PresetIcon.svelte';
-  import { resolveIconSlug } from '$lib/utils/resolve-icon-slug';
+  import { presetCatalog } from '$lib/stores/presets';
+  import { isPresetIconResolvable, resolveIconSlug } from '$lib/utils/resolve-icon-slug';
 
   interface Props {
     /** Slug — preset iconSlug из каталога или известный brandIcons key. */
@@ -26,9 +27,12 @@
 
   let { serviceKey, name, sub, size = 'md' }: Props = $props();
   let dim = $derived(size === 'sm' ? 24 : size === 'lg' ? 40 : 32);
-  let iconSlug = $derived(
-    resolveIconSlug(name ?? '', serviceKey !== 'custom' ? serviceKey : undefined) ?? 'custom',
-  );
+  let iconSlug = $derived.by(() => {
+    const explicit = serviceKey !== 'custom' ? serviceKey : undefined;
+    const fromResolver = resolveIconSlug(name ?? '', explicit, $presetCatalog)
+      ?? (explicit && isPresetIconResolvable(explicit) ? explicit : undefined);
+    return fromResolver ?? 'custom';
+  });
 </script>
 
 <div class="service-tile">

@@ -41,7 +41,7 @@
   import { mode } from './modeStore';
   import { ensureTunnelDnsInfra, syncTunnelDnsRule } from './emptyStateActions';
   import { pluralize, RULE_WORDS, SERVICE_WORDS, SET_WORDS } from '$lib/utils/pluralize';
-  import { previewTunnelOutboundResolution } from './wizardCompositeOutbound';
+  import { previewTunnelOutboundResolution, formatWizardOutboundPreview } from './wizardCompositeOutbound';
 
   const outbounds = singboxRouterStore.outbounds;
   const options = singboxRouterStore.options;
@@ -95,6 +95,10 @@
     if ($wizardOutboundCategory !== 'tunnel' || $wizardTunnelTags.length === 0) return null;
     return previewTunnelOutboundResolution($wizardTunnelTags, $outbounds);
   });
+
+  const outboundPreviewText = $derived(
+    formatWizardOutboundPreview($wizardOutboundCategory, tunnelOutboundPreview, directTag),
+  );
 
   let submitting = $state(false);
   // Бамп для remount CustomMatcherForm после «добавить ещё одно»:
@@ -337,15 +341,12 @@
             {pluralize($templatesSelection.size + (hasCustom ? 1 : 0), RULE_WORDS)} будет создано.
           </span>
         </div>
-        {#if tunnelOutboundPreview?.willCreate}
-          <div class="preview-composite">
-            <Info size={14} />
-            <span>
-              Будет создан composite outbound «{tunnelOutboundPreview.outboundTag}»
-              из выбранных туннелей ({tunnelOutboundPreview.tunnelCount})
-            </span>
-          </div>
-        {/if}
+      {/if}
+      {#if outboundPreviewText}
+        <div class="preview-outbound">
+          <Info size={14} />
+          <span>{outboundPreviewText}</span>
+        </div>
       {/if}
     </WizardStep>
 
@@ -380,8 +381,6 @@
 {/if}
 
 <style>
-  @import './outboundTone.css';
-
   .wizard {
     max-width: 720px;
     margin: 0 auto;
@@ -527,7 +526,7 @@
     color: var(--text-secondary);
   }
   .preview-info,
-  .preview-composite {
+  .preview-outbound {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -537,7 +536,7 @@
     background: rgba(107, 148, 168, 0.08);
     border-radius: var(--radius-sm);
   }
-  .preview-composite {
+  .preview-outbound {
     margin-top: 8px;
     color: var(--text-secondary);
     background: var(--accent-soft);

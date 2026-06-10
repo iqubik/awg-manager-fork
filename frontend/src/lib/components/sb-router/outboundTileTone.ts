@@ -18,6 +18,7 @@ export function toneClass(tone: OutboundTileTone): string {
 export function toneForKind(kind: OutboundKind): OutboundTileTone {
 	switch (kind) {
 		case 'proxy':
+		case 'tunnel':
 			return 'proxy';
 		case 'awg':
 			return 'awg';

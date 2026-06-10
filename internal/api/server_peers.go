@@ -453,8 +453,17 @@ func (h *ServersHandler) generateServerPeerConf(ctx context.Context, server *ndm
 }
 
 func (h *ServersHandler) resolveServerEndpoint(ctx context.Context, serverID string) (string, error) {
-	if meta, ok := h.settings.GetServerInterfaceMeta(serverID); ok && strings.TrimSpace(meta.Endpoint) != "" {
-		return strings.TrimSpace(meta.Endpoint), nil
+	var storedEndpoint, keenDNSDomain string
+	if meta, ok := h.settings.GetServerInterfaceMeta(serverID); ok {
+		storedEndpoint = meta.Endpoint
+	}
+	if h.queries != nil && h.queries.KeenDNS != nil {
+		if info, err := h.queries.KeenDNS.Get(ctx); err == nil && info != nil {
+			keenDNSDomain = info.Domain
+		}
+	}
+	if host := resolveWireguardClientEndpointHost(storedEndpoint, keenDNSDomain); host != "" {
+		return host, nil
 	}
 	return testing.GetWANIPWithFallback(ctx, h.queries.WANInterfaceAddress)
 }

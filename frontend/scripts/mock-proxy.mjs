@@ -4248,7 +4248,7 @@ const server = http.createServer(async (req, res) => {
 		}
 		mockProxyInstances.splice(idx, 1);
 		delete mockProxyRuntimeByID[id];
-		send(res, 200, { success: true, data: { deleted: true } });
+		send(res, 200, { success: true, data: { deleted: true, applied: true } });
 		return;
 	}
 

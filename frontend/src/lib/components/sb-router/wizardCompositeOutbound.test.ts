@@ -3,6 +3,8 @@ import type { SingboxRouterOutbound } from '$lib/types';
 import {
   buildWizardCompositeOutbound,
   findMatchingComposite,
+  formatTunnelOutboundPreview,
+  formatWizardOutboundPreview,
   nextCustomCompositeTag,
   previewTunnelOutboundResolution,
   sameOutboundMemberSet,
@@ -66,6 +68,35 @@ describe('previewTunnelOutboundResolution', () => {
       willCreate: true,
       tunnelCount: 2,
     });
+  });
+});
+
+describe('formatTunnelOutboundPreview', () => {
+  it('описывает один туннель, reuse и создание composite', () => {
+    expect(
+      formatTunnelOutboundPreview({ outboundTag: 'warp', willCreate: false, tunnelCount: 1 }),
+    ).toContain('«warp»');
+    expect(
+      formatTunnelOutboundPreview({
+        outboundTag: 'custom-composite-1',
+        willCreate: false,
+        tunnelCount: 2,
+      }),
+    ).toContain('использован composite');
+    expect(
+      formatTunnelOutboundPreview({
+        outboundTag: 'custom-composite-2',
+        willCreate: true,
+        tunnelCount: 2,
+      }),
+    ).toContain('создан composite');
+  });
+});
+
+describe('formatWizardOutboundPreview', () => {
+  it('direct и block не зависят от tunnel preview', () => {
+    expect(formatWizardOutboundPreview('direct', null)).toContain('напрямую');
+    expect(formatWizardOutboundPreview('block', null)).toContain('заблокирован');
   });
 });
 

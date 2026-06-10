@@ -111,6 +111,33 @@ describe('resolveOutboundDisplay', () => {
     expect(d.compositeType).toBe('selector');
   });
 
+  it('composite active member gets proxyInterface suffix from singbox tunnels', () => {
+    const ob: SingboxRouterOutbound[] = [
+      {
+        tag: 'group-1',
+        type: 'selector',
+        outbounds: ['vless-nl', 'vless-de'],
+        source: 'router',
+      },
+    ];
+    const tunnels = [{
+      tag: 'vless-nl',
+      protocol: 'vless' as const,
+      server: 'x',
+      port: 443,
+      security: 'tls' as const,
+      transport: 'tcp' as const,
+      listenPort: 11000,
+      proxyInterface: 't2s1',
+      connectivity: { connected: true, latency: 50 },
+      running: true,
+    }];
+    const d = resolveOutboundDisplay('group-1', 'route', ob, [], null, [
+      { tag: 'group-1', type: 'selector', now: 'vless-nl', members: [] },
+    ], tunnels);
+    expect(d.activeMemberMetaSuffix).toBe('t2s1');
+  });
+
   it('subscription composite without outbound entry still expands members', () => {
     const subs = [{
       id: 'sub-x',

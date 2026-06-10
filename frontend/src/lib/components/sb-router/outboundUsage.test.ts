@@ -24,6 +24,15 @@ describe('collectOutboundReferences', () => {
 		expect(refs).toEqual(['route.rules[0]', 'route.final']);
 	});
 
+	it('finds nested route rule references', () => {
+		const refs = collectOutboundReferences({
+			tag: 'warp',
+			...emptyCtx,
+			rules: [{ action: 'hijack-dns', rules: [{ outbound: 'warp' }] }],
+		});
+		expect(refs).toEqual(['route.rules[0]']);
+	});
+
 	it('finds composite member references', () => {
 		const refs = collectOutboundReferences({
 			tag: 'warp',

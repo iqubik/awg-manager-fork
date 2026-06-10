@@ -76,6 +76,10 @@ describe('resolveIconSlug token match', () => {
 			expect(resolveIconSlug('Alice')).toBe('yandex');
 			expect(resolveIconSlug('Alisa')).toBe('yandex');
 		});
+
+		it('Российские сервисы → rkn inline', () => {
+			expect(resolveIconSlug('Российские сервисы')).toBe('rkn');
+		});
 	});
 
 describe('resolveIconSlug IP checker variants', () => {

@@ -55,6 +55,8 @@ export interface OutboundDisplay {
   /** Активный участник composite (clash now / selector / urltest) */
   activeMemberLabel?: string;
   activeMemberTitle?: string;
+  /** proxyInterface активного участника — суффикс в chip composite */
+  activeMemberMetaSuffix?: string;
   /** Остальные участники — в +N */
   otherMemberLabels?: string[];
   otherMemberTitles?: string[];

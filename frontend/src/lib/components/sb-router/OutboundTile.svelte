@@ -47,7 +47,3 @@
     />
   </div>
 {/if}
-
-<style>
-  @import './outboundTone.css';
-</style>

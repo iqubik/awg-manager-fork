@@ -463,6 +463,7 @@
 				endpoint={server.endpoint}
 				listenPort={server.listenPort}
 				wanIP={builtinWanIP}
+				keenDnsDomain={server.keenDnsDomain}
 				loadingWanIP={loadingBuiltinWanIP}
 			/>
 		</div>

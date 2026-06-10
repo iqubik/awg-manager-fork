@@ -93,7 +93,10 @@ function proxyMetaSuffix(tag: string, tunnels: SingboxTunnel[]): string | undefi
   return tunnels.find((t) => t.tag === tag)?.proxyInterface;
 }
 
-function mapCompositeOutbound(expanded: NonNullable<ReturnType<typeof resolveCompositeOutboundView>>): OutboundDisplay {
+function mapCompositeOutbound(
+  expanded: NonNullable<ReturnType<typeof resolveCompositeOutboundView>>,
+  singboxTunnels: SingboxTunnel[] = [],
+): OutboundDisplay {
   const isSubscription = expanded.isSubscription;
   return {
     name: expanded.groupTitle,
@@ -104,6 +107,7 @@ function mapCompositeOutbound(expanded: NonNullable<ReturnType<typeof resolveCom
     compositeType: expanded.compositeType,
     activeMemberLabel: expanded.activeMemberLabel,
     activeMemberTitle: expanded.activeMemberTag,
+    activeMemberMetaSuffix: proxyMetaSuffix(expanded.activeMemberTag, singboxTunnels),
     otherMemberLabels: expanded.otherMemberLabels,
     otherMemberTitles: expanded.otherMemberTags,
   };
@@ -155,7 +159,7 @@ export function resolveOutboundDisplay(
   if (!ob) {
     const expanded = resolveCompositeOutboundView(name, outbounds, outboundOptions, subscriptions, proxyGroups);
     if (expanded) {
-      return { ...mapCompositeOutbound(expanded), name };
+      return { ...mapCompositeOutbound(expanded, singboxTunnels), name };
     }
     const baseLabel = option?.label ?? name;
     const isSingboxProxy = option?.group === SINGBOX_TUNNEL_GROUP
@@ -172,7 +176,7 @@ export function resolveOutboundDisplay(
   if (COMPOSITE_TYPES.has(obType)) {
     const expanded = resolveCompositeOutboundView(name, outbounds, outboundOptions, subscriptions, proxyGroups);
     if (expanded) {
-      return { ...mapCompositeOutbound(expanded), name };
+      return { ...mapCompositeOutbound(expanded, singboxTunnels), name };
     }
     return {
       name,

@@ -2,13 +2,18 @@
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { servers } from '$lib/stores/servers';
-	import { isValidEndpointHost } from '$lib/utils/endpoint';
+	import {
+		emptyEndpointDescription,
+		emptyEndpointPlaceholder,
+		isValidEndpointHost,
+	} from '$lib/utils/endpoint';
 
 	interface Props {
 		serverId: string;
 		endpoint?: string;
 		listenPort: number;
 		wanIP?: string;
+		keenDnsDomain?: string;
 		loadingWanIP?: boolean;
 		disabled?: boolean;
 	}
@@ -18,6 +23,7 @@
 		endpoint = '',
 		listenPort,
 		wanIP = '',
+		keenDnsDomain = '',
 		loadingWanIP = false,
 		disabled = false,
 	}: Props = $props();
@@ -27,14 +33,16 @@
 	let saving = $state(false);
 
 	const storedEndpoint = $derived(endpoint ?? '');
+	const endpointDescription = $derived(emptyEndpointDescription(keenDnsDomain));
+	const endpointPlaceholder = $derived(
+		emptyEndpointPlaceholder(keenDnsDomain, wanIP, loadingWanIP),
+	);
 
 	$effect(() => {
 		if (!editing) {
 			draft = storedEndpoint;
 		}
 	});
-
-	const effectiveHost = $derived(draft.trim() || wanIP || '');
 
 	async function commitEndpoint() {
 		if (saving || disabled) return;
@@ -87,7 +95,7 @@
 	<div class="setting-copy">
 		<span class="setting-title">Endpoint клиентов</span>
 		<span class="setting-description">
-			Хост для подключения в .conf (без порта). Пустое поле — внешний IP роутера.
+			{endpointDescription}
 		</span>
 	</div>
 	<div class="setting-control">
@@ -96,7 +104,7 @@
 			class="endpoint-input"
 			class:saving
 			bind:value={draft}
-			placeholder={loadingWanIP ? 'Определение WAN IP...' : (wanIP || 'WAN IP')}
+			placeholder={endpointPlaceholder}
 			{disabled}
 			onfocus={handleFocus}
 			onblur={handleBlur}
@@ -128,10 +136,5 @@
 	.endpoint-input:disabled,
 	.endpoint-input.saving {
 		opacity: 0.7;
-	}
-
-	.endpoint-fallback {
-		font-family: var(--font-mono, monospace);
-		font-size: 0.75rem;
 	}
 </style>

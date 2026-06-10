@@ -3,6 +3,7 @@
 @import './lib/styles/route-actions.css';
 @import './lib/styles/tunnel-layout.css';
 @import './lib/components/servers/serverCardShared.css';
+@import './lib/components/sb-router/outboundTone.css';
 
 /* ─── Self-hosted IBM Plex (Latin + Cyrillic subsets) ─── */
 @font-face {

@@ -563,16 +563,13 @@ func (h *DeviceProxyHandler) DeleteInstance(w http.ResponseWriter, r *http.Reque
 		response.Error(w, "missing id", "MISSING_ID")
 		return
 	}
-	if err := h.svc.DeleteInstance(r.Context(), id); err != nil {
-		if errors.Is(err, singbox.ErrSingboxNotRunning) {
-			response.ErrorWithStatus(w, http.StatusConflict, err.Error(), "SINGBOX_DOWN")
-			return
-		}
+	applied, err := h.svc.DeleteInstance(r.Context(), id)
+	if err != nil {
 		response.Error(w, err.Error(), "DELETE_INSTANCE_FAILED")
 		return
 	}
 
-	response.Success(w, map[string]bool{"deleted": true})
+	response.Success(w, map[string]bool{"deleted": true, "applied": applied})
 }
 
 // ApplyInstances handles POST /api/proxy/instances/apply.

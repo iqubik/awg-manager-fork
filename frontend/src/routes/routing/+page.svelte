@@ -35,12 +35,12 @@
     let unsubRouting: (() => void) | null = null;
 
     onMount(() => {
-        // Legacy URL redirect: the standalone "Прокси для устройств" tab
-        // moved into the Sing-box page as a sub-tab. Preserve old links.
+        // Legacy URL: standalone «Прокси для устройств» → Expert Inbounds в Sing-box Router.
         const sp = new URLSearchParams($page.url.search);
         if (sp.get('tab') === 'deviceproxy') {
             sp.set('tab', 'singbox');
-            sp.set('sub', 'deviceproxy');
+            sp.set('mode', 'expert');
+            sp.delete('sub');
             goto(`?${sp.toString()}`, { replaceState: true });
         }
         unsubRouting = subscribeRouting();

@@ -15,13 +15,21 @@ export type OutboundUsageInput = {
 	deviceProxyOutbounds?: readonly string[];
 };
 
-/** Mirrors backend outboundReferences for UI delete guards. */
+function ruleReferencesOutbound(rule: SingboxRouterRule, tag: string): boolean {
+	if (rule.outbound === tag) return true;
+	for (const nested of rule.rules ?? []) {
+		if (ruleReferencesOutbound(nested, tag)) return true;
+	}
+	return false;
+}
+
+/** Best-effort UI delete guards; API remains source of truth. Also blocks device-proxy usage (frontend-only). */
 export function collectOutboundReferences(input: OutboundUsageInput): string[] {
 	const { tag, rules, routeFinal, outbounds, dnsServers, ruleSets, deviceProxyOutbounds } = input;
 	const refs: string[] = [];
 
 	rules.forEach((r, i) => {
-		if (r.outbound === tag) refs.push(`route.rules[${i}]`);
+		if (ruleReferencesOutbound(r, tag)) refs.push(`route.rules[${i}]`);
 	});
 
 	if (routeFinal === tag) refs.push('route.final');

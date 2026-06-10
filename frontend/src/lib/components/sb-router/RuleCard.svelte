@@ -380,7 +380,8 @@
       max-width: min(40vw, 100%);
     }
   }
-  .action :global(.tile) {
+  .action :global(.tile),
+  .action :global(.tone-chip) {
     min-width: 0;
     max-width: 11rem;
   }

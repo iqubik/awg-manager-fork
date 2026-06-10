@@ -1808,8 +1808,8 @@ class ApiClient {
 		});
 	}
 
-	async deleteDeviceProxyInstance(id: string): Promise<{ deleted: boolean }> {
-		return this.request<{ deleted: boolean }>(`/proxy/instance?id=${encodeURIComponent(id)}`, {
+	async deleteDeviceProxyInstance(id: string): Promise<{ deleted: boolean; applied: boolean }> {
+		return this.request<{ deleted: boolean; applied: boolean }>(`/proxy/instance?id=${encodeURIComponent(id)}`, {
 			method: 'DELETE'
 		});
 	}

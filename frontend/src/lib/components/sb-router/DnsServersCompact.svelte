@@ -242,23 +242,7 @@
     align-items: center;
     gap: 4px;
   }
-  .row {
-    transition: background-color 0.15s ease;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 14px;
-    background: transparent;
-    border: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    cursor: pointer;
-    font-family: inherit;
-    color: inherit;
-    width: 100%;
-    text-align: left;
-  }
   @media (hover: hover) and (pointer: fine) {
-    .row:hover,
     .server-row:hover,
     .rule-row:hover {
       background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
