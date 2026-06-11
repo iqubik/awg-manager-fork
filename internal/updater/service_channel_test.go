@@ -2,31 +2,57 @@ package updater
 
 import "testing"
 
-func TestChangelogURLForChannel(t *testing.T) {
+func TestChangelogSourcesForChannel_DefaultsToUpstream(t *testing.T) {
+	oldEntwareRepoURL := entwareRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	entwareRepoURL = "http://example.test"
+	releaseBaseURL = ""
+	t.Cleanup(func() {
+		entwareRepoURL = oldEntwareRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+	})
+
 	cases := []struct {
-		channel string
-		want    string
+		channel          string
+		wantPrimaryURL   string
+		wantSecondaryURL string
 	}{
-		{"stable", "http://repo.hoaxisr.ru/CHANGELOG.md"},
-		{"develop", "http://repo.hoaxisr.ru/develop/CHANGELOG.md"},
-		{"", "http://repo.hoaxisr.ru/CHANGELOG.md"},
+		{channel: "stable", wantPrimaryURL: "http://example.test/CHANGELOG.md"},
+		{channel: "develop", wantPrimaryURL: "http://example.test/develop/CHANGELOG.md"},
+		{channel: "", wantPrimaryURL: "http://example.test/CHANGELOG.md"},
 	}
-	for _, c := range cases {
-		if got := changelogURLForChannel(c.channel); got != c.want {
-			t.Errorf("changelogURLForChannel(%q) = %q, want %q", c.channel, got, c.want)
+
+	for _, tc := range cases {
+		primary, secondary := changelogSourcesForChannel(tc.channel)
+		if primary != tc.wantPrimaryURL || secondary != tc.wantSecondaryURL {
+			t.Fatalf("changelogSourcesForChannel(%q) = (%q, %q), want (%q, %q)", tc.channel, primary, secondary, tc.wantPrimaryURL, tc.wantSecondaryURL)
 		}
 	}
 }
 
-func TestChangelogURLForChannel_UsesEntwareRepoURL(t *testing.T) {
-	old := entwareRepoURL
+func TestChangelogSourcesForChannel_PrefersForkReleaseBase(t *testing.T) {
+	oldEntwareRepoURL := entwareRepoURL
+	oldReleaseBaseURL := releaseBaseURL
 	entwareRepoURL = "http://example.test"
-	t.Cleanup(func() { entwareRepoURL = old })
+	releaseBaseURL = "https://github.example/releases/download/iq-latest"
+	t.Cleanup(func() {
+		entwareRepoURL = oldEntwareRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+	})
 
-	if got := changelogURLForChannel("stable"); got != "http://example.test/CHANGELOG.md" {
-		t.Errorf("stable = %q, want http://example.test/CHANGELOG.md", got)
+	primary, secondary := changelogSourcesForChannel("stable")
+	if primary != "https://github.example/releases/download/iq-latest/CHANGELOG.md" {
+		t.Fatalf("stable primary = %q", primary)
 	}
-	if got := changelogURLForChannel("develop"); got != "http://example.test/develop/CHANGELOG.md" {
-		t.Errorf("develop = %q, want http://example.test/develop/CHANGELOG.md", got)
+	if secondary != "http://example.test/CHANGELOG.md" {
+		t.Fatalf("stable secondary = %q", secondary)
+	}
+
+	primary, secondary = changelogSourcesForChannel("develop")
+	if primary != "https://github.example/releases/download/iq-latest/CHANGELOG.md" {
+		t.Fatalf("develop primary = %q", primary)
+	}
+	if secondary != "http://example.test/develop/CHANGELOG.md" {
+		t.Fatalf("develop secondary = %q", secondary)
 	}
 }

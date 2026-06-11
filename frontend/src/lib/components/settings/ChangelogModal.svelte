@@ -28,6 +28,27 @@
 	let error = $state('');
 	let entries = $state<ChangelogEntry[]>([]);
 
+	function changelogErrorToText(error: unknown): string {
+		const raw = error instanceof Error ? error.message : String(error ?? '');
+
+		if (
+			raw.includes('502') ||
+			raw.includes('Bad Gateway') ||
+			raw.includes('CHANGELOG_FETCH_FAILED') ||
+			raw.includes('Unexpected token') ||
+			raw.includes('<!DOCTYPE') ||
+			raw.includes('status 502')
+		) {
+			return 'Список изменений временно недоступен. Проверьте подключение к репозиторию обновлений или повторите попытку позже.';
+		}
+
+		if (raw.includes('changelog not published yet')) {
+			return 'Для этой версии список изменений ещё не опубликован.';
+		}
+
+		return 'Не удалось загрузить список изменений. Повторите попытку позже.';
+	}
+
 	$effect(() => {
 		if (!open) return;
 		loading = true;
@@ -38,7 +59,7 @@
 				entries = resp.entries ?? [];
 			})
 			.catch((e: unknown) => {
-				error = e instanceof Error ? e.message : String(e);
+				error = changelogErrorToText(e);
 			})
 			.finally(() => {
 				loading = false;
@@ -66,7 +87,7 @@
 		{#if loading}
 			<LoadingSpinner />
 		{:else if error}
-			<p class="state-msg state-error">Не удалось загрузить changelog. {error}</p>
+			<p class="state-msg state-error">{error}</p>
 		{:else if entries.length === 0}
 			<p class="state-msg">В CHANGELOG нет записей для этой ветки версий.</p>
 		{:else}

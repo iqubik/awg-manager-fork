@@ -164,3 +164,84 @@ func Slice(entries map[string]Entry, fromVer, toVer string) []Entry {
 	})
 	return out
 }
+
+func mergeChangelogEntries(primary, secondary map[string]Entry) map[string]Entry {
+	out := make(map[string]Entry, len(primary)+len(secondary))
+	for version, entry := range secondary {
+		out[version] = cloneEntry(entry)
+	}
+	for version, primaryEntry := range primary {
+		if secondaryEntry, ok := out[version]; ok {
+			out[version] = mergeChangelogEntry(primaryEntry, secondaryEntry)
+			continue
+		}
+		out[version] = cloneEntry(primaryEntry)
+	}
+	return out
+}
+
+func mergeChangelogEntry(primary, secondary Entry) Entry {
+	merged := Entry{
+		Version: primary.Version,
+		Date:    primary.Date,
+		Groups:  make([]Group, 0, len(primary.Groups)+len(secondary.Groups)),
+	}
+	if merged.Version == "" {
+		merged.Version = secondary.Version
+	}
+	if merged.Date == "" {
+		merged.Date = secondary.Date
+	}
+
+	groupIndex := make(map[string]int, len(primary.Groups)+len(secondary.Groups))
+	appendGroup := func(group Group) {
+		if idx, ok := groupIndex[group.Heading]; ok {
+			merged.Groups[idx].Items = appendUniqueItems(merged.Groups[idx].Items, group.Items)
+			return
+		}
+		groupIndex[group.Heading] = len(merged.Groups)
+		merged.Groups = append(merged.Groups, Group{
+			Heading: group.Heading,
+			Items:   append([]string(nil), group.Items...),
+		})
+	}
+
+	for _, group := range primary.Groups {
+		appendGroup(group)
+	}
+	for _, group := range secondary.Groups {
+		appendGroup(group)
+	}
+
+	return merged
+}
+
+func appendUniqueItems(existing, incoming []string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(incoming))
+	for _, item := range existing {
+		seen[item] = struct{}{}
+	}
+	for _, item := range incoming {
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		existing = append(existing, item)
+	}
+	return existing
+}
+
+func cloneEntry(entry Entry) Entry {
+	cloned := Entry{
+		Version: entry.Version,
+		Date:    entry.Date,
+		Groups:  make([]Group, 0, len(entry.Groups)),
+	}
+	for _, group := range entry.Groups {
+		cloned.Groups = append(cloned.Groups, Group{
+			Heading: group.Heading,
+			Items:   append([]string(nil), group.Items...),
+		})
+	}
+	return cloned
+}

@@ -172,7 +172,13 @@ func (h *UpdateHandler) Changelog(w http.ResponseWriter, r *http.Request) {
 	if from == "" {
 		entries, err := h.updater.GetChangelogMinor(r.Context(), to)
 		if err != nil {
-			response.ErrorWithStatus(w, http.StatusBadGateway, err.Error(), "CHANGELOG_FETCH_FAILED")
+			h.log.Warn("changelog", "", "Changelog fetch failed: "+err.Error())
+			response.ErrorWithStatus(
+				w,
+				http.StatusBadGateway,
+				"Список изменений временно недоступен. Повторите попытку позже.",
+				"CHANGELOG_FETCH_FAILED",
+			)
 			return
 		}
 		response.Success(w, map[string]interface{}{"entries": entries})
@@ -181,7 +187,13 @@ func (h *UpdateHandler) Changelog(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := h.updater.GetChangelog(r.Context(), from, to)
 	if err != nil {
-		response.ErrorWithStatus(w, http.StatusBadGateway, err.Error(), "CHANGELOG_FETCH_FAILED")
+		h.log.Warn("changelog", "", "Changelog fetch failed: "+err.Error())
+		response.ErrorWithStatus(
+			w,
+			http.StatusBadGateway,
+			"Список изменений временно недоступен. Повторите попытку позже.",
+			"CHANGELOG_FETCH_FAILED",
+		)
 		return
 	}
 	response.Success(w, map[string]interface{}{"entries": entries})

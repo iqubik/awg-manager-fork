@@ -38,7 +38,8 @@ func New(version string, settings *storage.SettingsStore, appLogger logging.AppL
 		done:     make(chan struct{}),
 	}
 	s.downloader = newLoggingDownloader(newDefaultDownloader(), s.appLog)
-	s.changelog = newChangelogFetcher(changelogURLForChannel(channelStable), 10*time.Minute, s.downloader)
+	primary, secondary := changelogSourcesForChannel(channelStable)
+	s.changelog = newChangelogFetcher(primary, secondary, 10*time.Minute, s.downloader)
 	return s
 }
 
@@ -60,6 +61,12 @@ func (s *Service) SetDownloader(dl Downloader) {
 	if s.changelog != nil {
 		s.changelog.downloader = s.downloader
 	}
+}
+
+func (s *Service) syncChangelogSource() {
+	ch := s.channel()
+	primary, secondary := changelogSourcesForChannel(ch)
+	s.changelog.SetSources(primary, secondary)
 }
 
 // Start begins periodic update checks.
@@ -118,7 +125,7 @@ func (s *Service) doCheck() {
 
 	ctx := context.Background()
 	ch := s.channel()
-	s.changelog.SetURL(changelogURLForChannel(ch))
+	s.syncChangelogSource()
 	info := checkWithDownloader(ctx, s.version, ch, s.downloader)
 
 	s.mu.Lock()
@@ -158,7 +165,7 @@ func (s *Service) CheckNow(ctx context.Context) *UpdateInfo {
 	s.mu.Unlock()
 
 	ch := s.channel()
-	s.changelog.SetURL(changelogURLForChannel(ch))
+	s.syncChangelogSource()
 	info := checkWithDownloader(ctx, s.version, ch, s.downloader)
 
 	// A user-forced refresh should also invalidate the changelog cache so
@@ -204,6 +211,7 @@ func (s *Service) ApplyUpgrade(ctx context.Context) error {
 // parses it, and returns the slice of entries strictly newer than fromVer
 // and no newer than toVer. Result is sorted newest-first.
 func (s *Service) GetChangelog(ctx context.Context, fromVer, toVer string) ([]Entry, error) {
+	s.syncChangelogSource()
 	entries, err := s.changelog.Fetch(ctx)
 	if err != nil {
 		return nil, err
@@ -215,6 +223,7 @@ func (s *Service) GetChangelog(ctx context.Context, fromVer, toVer string) ([]En
 // only the entry that exactly matches version, or nil if there is no
 // such entry.
 func (s *Service) GetChangelogSingle(ctx context.Context, version string) (*Entry, error) {
+	s.syncChangelogSource()
 	entries, err := s.changelog.Fetch(ctx)
 	if err != nil {
 		return nil, err
@@ -225,6 +234,7 @@ func (s *Service) GetChangelogSingle(ctx context.Context, version string) (*Entr
 // GetChangelogMinor returns all CHANGELOG entries for the same major.minor
 // as version up to and including that release (e.g. 2.11.0–2.11.2 on 2.11.2+r70).
 func (s *Service) GetChangelogMinor(ctx context.Context, version string) ([]Entry, error) {
+	s.syncChangelogSource()
 	entries, err := s.changelog.Fetch(ctx)
 	if err != nil {
 		return nil, err

@@ -242,7 +242,7 @@ func TestChangelogFetcher_UsesDownloaderRequest(t *testing.T) {
 			return []byte(md), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 		},
 	}
-	f := newChangelogFetcher("http://repo.local/CHANGELOG.md", repoTimeout, dl)
+	f := newChangelogFetcher("http://repo.local/CHANGELOG.md", "", repoTimeout, dl)
 	entries, err := f.Fetch(context.Background())
 	if err != nil {
 		t.Fatalf("fetch changelog: %v", err)

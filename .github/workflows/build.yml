@@ -309,11 +309,23 @@ jobs:
           [[ -f "$PREV" ]] || PREV=/dev/null
           if [[ -s /tmp/delta.md ]]; then
             cat /tmp/delta.md "$PREV" > dist/CHANGELOG.md
-          else
+          elif [[ -s "$PREV" ]]; then
             cat "$PREV" > dist/CHANGELOG.md
+          else
+            {
+              echo "## [${IPK_VERSION}] - $(date +%F)"
+              echo
+              echo "### Сборка"
+              echo "- Development build ${GITHUB_SHA}"
+              echo
+            } > dist/CHANGELOG.md
           fi
-          printf '%s\n' "$GITHUB_SHA" > dist/RELEASED_SHA
-          echo "=== dist/CHANGELOG.md (head) ==="; head -20 dist/CHANGELOG.md || true
+           printf '%s\n' "$GITHUB_SHA" > dist/RELEASED_SHA
+           echo "=== dist/CHANGELOG.md (head) ==="; head -20 dist/CHANGELOG.md || true
+           if [[ ! -s dist/CHANGELOG.md ]]; then
+             echo "dist/CHANGELOG.md is empty" >&2
+             exit 1
+           fi
 
       - name: Publish pre-release
         env:
@@ -322,15 +334,26 @@ jobs:
         run: |
           set -euo pipefail
 
+          created_release=0
+
+          cleanup_failed_release() {
+            code=$?
+            if (( code != 0 )) && (( created_release == 1 )); then
+              echo "Publish failed, deleting partial latest release"
+              gh release delete latest --yes --cleanup-tag || true
+            fi
+            exit "$code"
+          }
+
+          trap cleanup_failed_release EXIT
+
           shopt -s nullglob
-          files=(./dist/awg-manager_* ./dist/sing-box-* ./dist/VERSION ./dist/CHANGELOG.md ./dist/RELEASED_SHA)
 
-          if (( ${#files[@]} == 0 )); then
-            echo "No release files found in ./dist"
-            exit 1
+          if gh release view latest >/dev/null 2>&1; then
+            gh release delete latest --yes --cleanup-tag
+          else
+            echo "No previous latest release, creating a fresh one"
           fi
-
-          gh release delete latest --yes --cleanup-tag || true
 
           PREV_TAG=$(gh release list --limit 10 --json tagName --jq '[.[] | select(.tagName != "latest")] | .[0].tagName' 2>/dev/null)
 
@@ -339,9 +362,40 @@ jobs:
             EXTRA_FLAGS+=("--notes-start-tag" "${PREV_TAG}")
           fi
 
+          required_files=(
+            ./dist/VERSION
+            ./dist/CHANGELOG.md
+            ./dist/RELEASED_SHA
+          )
+
+          for file in "${required_files[@]}"; do
+            if [[ ! -s "$file" ]]; then
+              echo "Required release asset is missing or empty: $file" >&2
+              exit 1
+            fi
+          done
+
+          ipks=(./dist/awg-manager_*_*-kn.ipk)
+          if (( ${#ipks[@]} == 0 )); then
+            echo "No IPK packages found in ./dist" >&2
+            find ./dist -maxdepth 1 -type f -print
+            exit 1
+          fi
+
+          files=(./dist/awg-manager_* ./dist/sing-box-* ./dist/VERSION ./dist/CHANGELOG.md ./dist/RELEASED_SHA)
+
+          if (( ${#files[@]} == 0 )); then
+            echo "No release files found in ./dist"
+            exit 1
+          fi
+
+          created_release=1
           gh release create latest "${files[@]}" \
             --target "${GITHUB_SHA}" \
             --title "Development build" \
             --generate-notes \
             "${EXTRA_FLAGS[@]}" \
             --prerelease
+
+          created_release=0
+          trap - EXIT

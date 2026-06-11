@@ -5,27 +5,29 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
 	"net/http"
+	"strings"
 
 	"github.com/hoaxisr/awg-manager/internal/downloader"
 )
 
-// changelogURLForChannel возвращает URL CHANGELOG.md для канала. develop
-// отдаётся из /develop. База берётся из entwareRepoURL (переопределяема в
-// тестах), чтобы остаться согласованной с Packages.gz.
-func changelogURLForChannel(channel string) string {
+func changelogSourcesForChannel(channel string) (primary, secondary string) {
+	upstream := entwareRepoURL + "/CHANGELOG.md"
 	if channel == channelDevelop {
-		return entwareRepoURL + "/develop/CHANGELOG.md"
+		upstream = entwareRepoURL + "/develop/CHANGELOG.md"
 	}
-	return entwareRepoURL + "/CHANGELOG.md"
+	if strings.TrimSpace(releaseBaseURL) == "" {
+		return upstream, ""
+	}
+	return releaseAssetURL("CHANGELOG.md"), upstream
 }
 
 // changelogFetcher pulls the monolithic CHANGELOG.md, parses it, and
 // serves cached results. Single-flight via fetchMu so a slow HTTP call
 // converges to one real request under concurrent load.
 type changelogFetcher struct {
-	url        string
+	primaryURL   string
+	secondaryURL string
 	ttl        time.Duration
 	downloader Downloader
 
@@ -35,8 +37,8 @@ type changelogFetcher struct {
 	fetched time.Time
 }
 
-func newChangelogFetcher(url string, ttl time.Duration, dl Downloader) *changelogFetcher {
-	return &changelogFetcher{url: url, ttl: ttl, downloader: dl}
+func newChangelogFetcher(primaryURL, secondaryURL string, ttl time.Duration, dl Downloader) *changelogFetcher {
+	return &changelogFetcher{primaryURL: primaryURL, secondaryURL: secondaryURL, ttl: ttl, downloader: dl}
 }
 
 // Fetch returns the parsed changelog map. Fresh cache hits skip HTTP;
@@ -55,16 +57,31 @@ func (c *changelogFetcher) Fetch(ctx context.Context) (map[string]Entry, error) 
 		return entries, nil
 	}
 
-	body, err := c.download(ctx)
-	if err != nil {
-		return nil, err
+	primaryEntries, primaryErr := c.fetchURL(ctx, c.primary())
+	secondaryURL := c.secondary()
+	if secondaryURL == "" {
+		if primaryErr != nil {
+			return nil, primaryErr
+		}
+		c.store(primaryEntries)
+		return primaryEntries, nil
 	}
-	parsed, err := ParseChangelog(body)
-	if err != nil {
-		return nil, fmt.Errorf("parse changelog: %w", err)
+
+	secondaryEntries, secondaryErr := c.fetchURL(ctx, secondaryURL)
+	switch {
+	case primaryErr == nil && secondaryErr == nil:
+		merged := mergeChangelogEntries(primaryEntries, secondaryEntries)
+		c.store(merged)
+		return merged, nil
+	case primaryErr == nil:
+		c.store(primaryEntries)
+		return primaryEntries, nil
+	case secondaryErr == nil:
+		c.store(secondaryEntries)
+		return secondaryEntries, nil
+	default:
+		return nil, fmt.Errorf("all changelog sources failed: primary=%v secondary=%v", primaryErr, secondaryErr)
 	}
-	c.store(parsed)
-	return parsed, nil
 }
 
 // Invalidate forces the next Fetch to hit the network.
@@ -74,15 +91,28 @@ func (c *changelogFetcher) Invalidate() {
 	c.cached = nil
 }
 
-// SetURL переключает источник changelog (например при смене канала).
-// Сброс кэша гарантирует, что следующий Fetch ударит по новому URL.
-func (c *changelogFetcher) SetURL(url string) {
+// SetSources переключает источники changelog (например при смене канала).
+// Сброс кэша гарантирует, что следующий Fetch ударит по новым URL.
+func (c *changelogFetcher) SetSources(primaryURL, secondaryURL string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.url != url {
-		c.url = url
+	if c.primaryURL != primaryURL || c.secondaryURL != secondaryURL {
+		c.primaryURL = primaryURL
+		c.secondaryURL = secondaryURL
 		c.cached = nil
 	}
+}
+
+func (c *changelogFetcher) primary() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.primaryURL
+}
+
+func (c *changelogFetcher) secondary() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.secondaryURL
 }
 
 func (c *changelogFetcher) peek() (map[string]Entry, bool) {
@@ -101,14 +131,23 @@ func (c *changelogFetcher) store(entries map[string]Entry) {
 	c.fetched = time.Now()
 }
 
-func (c *changelogFetcher) download(ctx context.Context) (string, error) {
+func (c *changelogFetcher) fetchURL(ctx context.Context, url string) (map[string]Entry, error) {
+	body, err := c.download(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := ParseChangelog(body)
+	if err != nil {
+		return nil, fmt.Errorf("parse changelog: %w", err)
+	}
+	return parsed, nil
+}
+
+func (c *changelogFetcher) download(ctx context.Context, url string) (string, error) {
 	dl := c.downloader
 	if dl == nil {
 		dl = newDefaultDownloader()
 	}
-	c.mu.RLock()
-	url := c.url
-	c.mu.RUnlock()
 	body, meta, err := dl.ReadAll(ctx, downloader.Request{
 		Purpose:       "awgm-changelog",
 		URL:           url,
@@ -125,6 +164,10 @@ func (c *changelogFetcher) download(ctx context.Context) (string, error) {
 	}
 	if meta.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("changelog status %d", meta.StatusCode)
+	}
+	trimmed := strings.TrimSpace(string(body))
+	if strings.HasPrefix(trimmed, "<") {
+		return "", fmt.Errorf("changelog source returned html instead of markdown")
 	}
 	return string(body), nil
 }
