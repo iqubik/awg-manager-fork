@@ -157,7 +157,9 @@
 	);
 	const resolvedEndpointDisplay = $derived.by(() => {
 		if (!resolvedMember) return '—';
-		const endpoint = `${showEndpoint ? resolvedMember.server : `••••••••`}:${resolvedMember.port}`;
+		const endpoint = showEndpoint
+			? `${resolvedMember.server}:${resolvedMember.port}`
+			: '••••••••:•••••';
 		return `${endpoint}${resolvedMember.sni ? ` · SNI ${showEndpoint ? resolvedMember.sni : '••••••••'}` : ''}`;
 	});
 	const mobileTrafficText = $derived(
@@ -391,7 +393,10 @@
 		{#if resolvedMember}
 		<div class="mobile-list-fact">
 			<span class="mobile-list-fact-label">Endpoint</span>
-			<span class="mobile-list-fact-value mobile-list-fact-value-endpoint" title={`${resolvedMember.server}:${resolvedMember.port}`}>
+			<span
+				class="mobile-list-fact-value mobile-list-fact-value-endpoint"
+				title={showEndpoint ? `${resolvedMember.server}:${resolvedMember.port}` : resolvedEndpointDisplay}
+			>
 				<span class="mobile-list-fact-text">{resolvedEndpointDisplay}</span>
 				<button
 					type="button"

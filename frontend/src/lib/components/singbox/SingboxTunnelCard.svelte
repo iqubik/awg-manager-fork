@@ -152,11 +152,13 @@
 	let rxRates = $state<number[]>([]);
 	let txRates = $state<number[]>([]);
 	let tunnelTag = $derived(tunnel.tag);
+	const hiddenEndpointText = '••••••••:•••••';
+	const visibleEndpointText = $derived(`${tunnel.server}:${tunnel.port}`);
 
 	let inlineRxRate = $derived(rxRates.length > 0 ? rxRates[rxRates.length - 1] : 0);
 	let inlineTxRate = $derived(txRates.length > 0 ? txRates[txRates.length - 1] : 0);
 	let mobileEndpointText = $derived(
-		`${showServer ? tunnel.server : '••••••••'}:${tunnel.port}${tunnel.sni ? ` · SNI ${showServer ? tunnel.sni : '••••••••'}` : ''}`,
+		`${showServer ? visibleEndpointText : hiddenEndpointText}${tunnel.sni ? ` · SNI ${showServer ? tunnel.sni : '••••••••'}` : ''}`,
 	);
 	let mobileTrafficText = $derived(
 		`↓ ${formatBitRate(inlineRxRate)} · ↑ ${formatBitRate(inlineTxRate)}`,
@@ -364,7 +366,7 @@
 		<div class="details-dense-col details-dense-col-right">
 			<div class="kv-stacked-stat">
 				<span class="kv-stacked-label">Порт</span>
-				<span class="kv-stacked-value">:{tunnel.port}</span>
+				<span class="kv-stacked-value">{showServer ? `:${tunnel.port}` : ':•••••'}</span>
 			</div>
 			<div class="kv-stacked-stat">
 				<span class="kv-stacked-label">Delay</span>
@@ -478,7 +480,7 @@
 					<circle cx="12" cy="12" r="3"/>
 				</svg>
 			</button>
-			<span class="port">:{tunnel.port}</span>
+			<span class="port">{showServer ? `:${tunnel.port}` : ':•••••'}</span>
 		</div>
 	</div>
 

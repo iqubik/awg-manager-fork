@@ -45,6 +45,24 @@
 				</div>
 			</div>
 		</div>
+		{#if isListCard}
+			<div class="mobile-list-facts">
+				<div class="mobile-list-fact">
+					<span class="mobile-list-fact-label">Статус</span>
+					<span class="mobile-list-fact-value">{statusDot.label}</span>
+				</div>
+				<div class="mobile-list-fact">
+					<span class="mobile-list-fact-label">Endpoint</span>
+					<span class="mobile-list-fact-value mobile-list-fact-value-endpoint" title={tunnel.endpoint ?? ''}>
+						<span class="mobile-list-fact-text">{tunnel.endpoint ?? '—'}</span>
+					</span>
+				</div>
+				<div class="mobile-list-fact">
+					<span class="mobile-list-fact-label">Трафик</span>
+					<span class="mobile-list-fact-value">↓ {formatBytes(tunnel.rxBytes)} · ↑ {formatBytes(tunnel.txBytes)}</span>
+				</div>
+			</div>
+		{/if}
 		<div class="actions">
 			<Button variant="primary" onclick={handleAdopt}>
 				{#snippet iconBefore()}
@@ -127,6 +145,52 @@
 	.ext-card.view-compact {
 		gap: 8px;
 		padding: 10px 12px;
+	}
+
+	.mobile-list-facts {
+		display: grid;
+		gap: 0.35rem;
+		margin-top: 0.2rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid var(--color-border);
+	}
+
+	.mobile-list-fact {
+		display: grid;
+		grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr);
+		gap: 0.5rem;
+		align-items: baseline;
+		min-width: 0;
+	}
+
+	.mobile-list-fact-label {
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--color-text-muted);
+	}
+
+	.mobile-list-fact-value {
+		min-width: 0;
+		font-size: 0.78rem;
+		color: var(--color-text-secondary);
+		font-family: var(--font-mono);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.mobile-list-fact-value-endpoint {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.mobile-list-fact-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.ext-card.view-list .actions {

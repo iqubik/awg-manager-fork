@@ -118,7 +118,7 @@
         untrack(() => loadHistory(tag));
     });
     const endpointText = $derived(`${activeMember.server}:${activeMember.port}`);
-    const hiddenEndpointText = $derived(`••••••••:${activeMember.port}`);
+    const hiddenEndpointText = '••••••••:•••••';
     const inlineRxRate = $derived(rxRates.length > 0 ? rxRates[rxRates.length - 1] : 0);
     const inlineTxRate = $derived(txRates.length > 0 ? txRates[txRates.length - 1] : 0);
     /** List row: title above IP — prefer remark, else outbound tag. */
@@ -344,7 +344,7 @@
 {/snippet}
 
 {#snippet activeSensitiveLine(mode: 'endpoint-sni' | 'sni-only' = 'sni-only')}
-    <div class="active-sensitive-line mono" title={mode === 'endpoint-sni' ? activeEndpointDisplay : (activeMember.sni || '—')}>
+    <div class="active-sensitive-line mono" title={mode === 'endpoint-sni' ? activeEndpointDisplay : (showEndpoint ? (activeMember.sni || '—') : '••••••••')}>
         <span class="active-sensitive-text" class:muted={!showEndpoint}>
             {#if mode === 'endpoint-sni'}
                 {activeEndpointDisplay}
@@ -411,7 +411,7 @@
             </button>
         </div>
         {#if activeMember.sni}
-            <div class="active-sensitive-sni-line" title={showEndpoint ? activeMember.sni : 'SNI скрыт'}>
+            <div class="active-sensitive-sni-line" title={showEndpoint ? activeMember.sni : '••••••••'}>
                 <span class="active-sensitive-sni-label">SNI</span>
                 <span class="active-sensitive-sni-value" class:muted={!showEndpoint}>
                     {showEndpoint ? activeMember.sni : '••••••••'}

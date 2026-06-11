@@ -1708,7 +1708,7 @@
 					</Button>
 				</div>
 			</div>
-			{#if isTunnelListRenderMode(awgRenderMode)}
+			{#if awgSummaryTotal > 0}
 				<div class="awg-summary-row">
 					<StatStrip>
 						<Stat
@@ -2263,7 +2263,7 @@
 							</Button>
 						</div>
 					{:else}
-						{#if isTunnelListRenderMode(singboxSubscriptionsRenderMode)}
+						{#if singboxSubscriptionsTrafficStats.count > 0}
 							<div class="awg-summary-row">
 								<StatStrip>
 									<Stat
@@ -2552,7 +2552,7 @@
 					</div>
 				</div>
 			{:else if singboxTunnelsList.length > 0}
-				{#if isTunnelListRenderMode(singboxTunnelsRenderMode)}
+				{#if singboxTunnelListStats.count > 0}
 					<div class="awg-summary-row">
 						<StatStrip>
 							<Stat
@@ -2579,8 +2579,8 @@
 								label="Лидер по трафику"
 								sub={singboxTunnelListStats.count > 0 ? singboxTunnelListStats.leaderName : '—'}
 							/>
-							</StatStrip>
-						</div>
+						</StatStrip>
+					</div>
 				{/if}
 				{#if singboxTunnelsRenderMode === 'table'}
 					<div class="tunnel-table-wrap">
