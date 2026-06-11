@@ -225,7 +225,7 @@
   .header,
   .row {
     display: grid;
-    grid-template-columns: 24px 64px 92px minmax(0, 1fr) minmax(96px, 200px) 88px;
+    grid-template-columns: 24px 64px 92px minmax(0, 1fr) minmax(72px, 140px) 88px;
     align-items: center;
     gap: 8px;
     padding: 8px 14px;

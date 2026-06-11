@@ -24,6 +24,7 @@
   import { computeRuleSetUsage, DNSGlobalsEditModal } from '$lib/components/routing/singboxRouter';
   import type { OutboundGroup } from '$lib/components/routing/singboxRouter/outboundOptions';
   import type {
+    CatalogPreset,
     SingboxRouterRule,
     SingboxRouterRuleSet,
     SingboxRouterOutbound,
@@ -34,11 +35,14 @@
   } from '$lib/types';
   import { newDeviceProxyInstance } from '$lib/utils/deviceProxyInstance';
   import { deleteDeviceProxyInstanceWithNotice } from '$lib/utils/deviceProxyDeleteNotice';
+  import { pluralize, SET_WORDS } from '$lib/utils/pluralize';
 
   import StatStrip, { type StatCellData } from './StatStrip.svelte';
   import SidePanel from './SidePanel.svelte';
   import RoutingTable from './RoutingTable.svelte';
   import RuleSetsTable from './RuleSetsTable.svelte';
+  import SbRouterRuleSetCatalogModal from './SbRouterRuleSetCatalogModal.svelte';
+  import { applyCatalogPresetsAsRuleSets } from './rulesetCatalogActions';
   import OutboundsCompact from './OutboundsCompact.svelte';
   import DnsServersCompact from './DnsServersCompact.svelte';
   import DeviceProxyCompact from './DeviceProxyCompact.svelte';
@@ -50,7 +54,8 @@
   import DNSServerEditModal from '$lib/components/routing/singboxRouter/DNSServerEditModal.svelte';
   import DNSRuleEditModal from '$lib/components/routing/singboxRouter/DNSRuleEditModal.svelte';
   import { DNSRewritesList } from '$lib/components/routing/singboxRouter';
-  import { ConfirmModal, Dropdown, type DropdownOption } from '$lib/components/ui';
+  import { ConfirmModal, Dropdown, Button, type DropdownOption } from '$lib/components/ui';
+  import { LayoutGrid } from 'lucide-svelte';
 
   // Store subscriptions
   const storeStatus = singboxRouterStore.status;
@@ -153,6 +158,8 @@
   let rewriteAddMode = $state(false);
   let rsEditTag = $state<string | null>(null);
   let rsAddOpen = $state(false);
+  let rsCatalogOpen = $state(false);
+  let rsCatalogBusy = $state(false);
   let outboundEditTag = $state<string | null>(null);
   let outboundAddOpen = $state(false);
   let dnsServerEditTag = $state<string | null>(null);
@@ -438,6 +445,34 @@
     await singboxRouterStore.loadAll();
   }
 
+  async function handleRsCatalogConfirm(presets: CatalogPreset[]) {
+    if (rsCatalogBusy || presets.length === 0) return;
+    rsCatalogBusy = true;
+    try {
+      const result = await applyCatalogPresetsAsRuleSets(presets, $storeRuleSets);
+      await singboxRouterStore.loadAll();
+
+      if (result.added.length > 0) {
+        notifications.success(`Добавлено ${pluralize(result.added.length, SET_WORDS)} из каталога`);
+      } else if (result.failures.length === 0 && result.emptyPresets.length > 0) {
+        notifications.error('У выбранных сервисов нет sing-box наборов');
+      } else if (result.failures.length === 0) {
+        notifications.info('Выбранные наборы уже есть в конфиге');
+      }
+
+      if (result.failures.length > 0) {
+        const msg = result.failures.map((f) => `${f.tag}: ${f.error}`).join('; ');
+        notifications.error(`Не удалось добавить: ${msg}`);
+      } else if (result.added.length > 0 || result.emptyPresets.length === 0) {
+        rsCatalogOpen = false;
+      }
+    } catch (e) {
+      notifications.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      rsCatalogBusy = false;
+    }
+  }
+
   // Outbound handlers
   async function handleOutboundAddSave(o: SingboxRouterOutbound) {
     await api.singboxRouterAddOutbound(o);
@@ -552,10 +587,18 @@
         section="ruleSets"
         title="Rule-sets"
         count={String($storeRuleSets.length)}
-        actionLabel="+ Набор"
-        actionVariant="filled"
-        onAction={() => (rsAddOpen = true)}
       >
+        {#snippet actions()}
+          <div class="rs-head-actions">
+            <Button variant="secondary" size="sm" onclick={() => (rsCatalogOpen = true)}>
+              {#snippet iconBefore()}
+                <LayoutGrid size={14} aria-hidden="true" />
+              {/snippet}
+              Каталог
+            </Button>
+            <Button variant="primary" size="sm" onclick={() => (rsAddOpen = true)}>+ Набор</Button>
+          </div>
+        {/snippet}
         <div class="panel-cap">наборы доменов и IP, на которые ссылаются правила</div>
         <RuleSetsTable
           bare
@@ -679,6 +722,16 @@
   />
 {/if}
 
+<SbRouterRuleSetCatalogModal
+  open={rsCatalogOpen}
+  existingRuleSetTags={$storeRuleSets.map((rs) => rs.tag)}
+  submitting={rsCatalogBusy}
+  onclose={() => {
+    if (!rsCatalogBusy) rsCatalogOpen = false;
+  }}
+  onconfirm={handleRsCatalogConfirm}
+/>
+
 <!-- RuleSetAddModal: add -->
 {#if rsAddOpen}
   <RuleSetAddModal
@@ -795,6 +848,11 @@
     margin: 0 auto;
   }
   /* Caption внутри SidePanel body — sub-title строкой над контентом */
+  .rs-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   .panel-cap {
     padding: 8px 14px;
     background: var(--bg-tertiary);

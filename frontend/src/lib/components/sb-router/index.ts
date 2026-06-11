@@ -49,6 +49,12 @@ export {
 // F5a — Templates Modal
 export { default as TemplatesModal } from './TemplatesModal.svelte';
 export { default as SbRouterServiceCatalogModal } from './SbRouterServiceCatalogModal.svelte';
+export { default as SbRouterRuleSetCatalogModal } from './SbRouterRuleSetCatalogModal.svelte';
+export {
+  applyCatalogPresetsAsRuleSets,
+  fullyAddedPresetNames,
+  type ApplyRuleSetsFromCatalogResult,
+} from './rulesetCatalogActions';
 export { default as TemplatesFilterChip } from './TemplatesFilterChip.svelte';
 export { default as TemplatesGroup } from './TemplatesGroup.svelte';
 export { default as TemplateServiceTile } from './TemplateServiceTile.svelte';
