@@ -12,6 +12,7 @@
 	import { Save, Trash2 } from 'lucide-svelte';
 	import { Button, Dropdown, Modal, Toggle } from '$lib/components/ui';
 	import { untrack } from 'svelte';
+	import { showOutboundReferencedError } from '$lib/utils/outboundReferenced';
 
 	interface Props {
 		subscription: Subscription;
@@ -114,6 +115,11 @@
 		try {
 			await api.deleteSubscription(subscription.id);
 			goto('/?tab=subscriptions');
+		} catch (e) {
+			const name = subscription.label || subscription.selectorTag || subscription.id;
+			if (!showOutboundReferencedError(e, name, 'Подписка')) {
+				notifications.error(e instanceof Error ? e.message : 'Не удалось удалить подписку');
+			}
 		} finally {
 			deleting = false;
 		}

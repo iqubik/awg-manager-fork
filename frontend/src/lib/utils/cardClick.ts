@@ -9,7 +9,8 @@ const CARD_NESTED_ZONE_SELECTOR =
 export function isCardNestedInteraction(e: Event): boolean {
 	const target = e.target;
 	const currentTarget = e.currentTarget;
-	if (!(target instanceof HTMLElement) || !(currentTarget instanceof HTMLElement)) return false;
+	// SVG icons inside action buttons are SVGElement, not HTMLElement.
+	if (!(target instanceof Element) || !(currentTarget instanceof Element)) return false;
 
 	if (target.closest('button,a,input,select,textarea,label')) return true;
 	if (target.closest(CARD_NESTED_ZONE_SELECTOR)) return true;

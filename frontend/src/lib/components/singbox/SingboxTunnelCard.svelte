@@ -25,6 +25,8 @@
 	import { singboxDelayFromHistory } from '$lib/utils/singboxDelay';
 	import type { SingboxLayoutMode } from '$lib/constants/singboxLayout';
 	import TunnelDiagnosticsModal from '$lib/components/testing/TunnelDiagnosticsModal.svelte';
+	import { notifications } from '$lib/stores/notifications';
+	import { showOutboundReferencedError } from '$lib/utils/outboundReferenced';
 
 	interface Props {
 		tunnel: SingboxTunnel;
@@ -133,6 +135,10 @@
 			const fresh = await api.singboxDeleteTunnel(tunnel.tag);
 			// Instant update — beats waiting for the poll or SSE hint refetch.
 			singboxTunnels.applyMutationResponse(fresh);
+		} catch (e) {
+			if (!showOutboundReferencedError(e, tunnel.tag, 'Туннель')) {
+				notifications.error(e instanceof Error ? e.message : 'Не удалось удалить туннель');
+			}
 		} finally {
 			deleting = false;
 		}

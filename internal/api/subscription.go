@@ -10,6 +10,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/response"
 	"github.com/hoaxisr/awg-manager/internal/singbox/subscription"
+	tunnelservice "github.com/hoaxisr/awg-manager/internal/tunnel/service"
 )
 
 // SingboxPresenceProbe reports whether the managed sing-box binary is
@@ -22,9 +23,11 @@ type SingboxPresenceProbe interface {
 
 // SubscriptionHandler exposes /api/singbox/subscriptions/* endpoints.
 type SubscriptionHandler struct {
-	svc      *subscription.Service
-	presence SingboxPresenceProbe
-	log      *logging.ScopedLogger
+	svc             *subscription.Service
+	presence        SingboxPresenceProbe
+	log             *logging.ScopedLogger
+	deviceProxyRefs tunnelservice.DeviceProxyRefChecker
+	routerRefs      tunnelservice.RouterRefChecker
 	// settings reads the global "create NDMS Proxy for sing-box" flag.
 	// When false, response DTOs surface proxyIndex=-1 so subscription
 	// cards hide t2sN/ProxyN labels and disable speedtest — the NDMS
@@ -52,6 +55,13 @@ func NewSubscriptionHandler(svc *subscription.Service, presence SingboxPresenceP
 // fields. Without this setter, every subscription DTO surfaces the stored
 // ProxyIndex unconditionally.
 func (h *SubscriptionHandler) SetNDMSProxyToggler(s ndmsProxyToggler) { h.settings = s }
+
+// SetOutboundRefCheckers wires device-proxy and router reference guards for
+// subscription deletion (refuse when selector/members are still referenced).
+func (h *SubscriptionHandler) SetOutboundRefCheckers(dp tunnelservice.DeviceProxyRefChecker, r tunnelservice.RouterRefChecker) {
+	h.deviceProxyRefs = dp
+	h.routerRefs = r
+}
 
 // ndmsProxyEnabled reads the toggler; defaults to true when the toggler
 // is not wired (tests, legacy bootstrap paths).
@@ -677,6 +687,25 @@ func (h *SubscriptionHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.URL.Query().Get("id")
+	if id == "" {
+		response.BadRequest(w, "id required")
+		return
+	}
+	if sub, err := h.svc.Get(id); err == nil {
+		tags := make([]string, 0, 1+len(sub.MemberTags))
+		if sub.SelectorTag != "" {
+			tags = append(tags, sub.SelectorTag)
+		}
+		tags = append(tags, sub.MemberTags...)
+		if err := tunnelservice.CheckOutboundTagsReferenced(id, tags, h.deviceProxyRefs, h.routerRefs); err != nil {
+			var refErr tunnelservice.ErrTunnelReferenced
+			if errors.As(err, &refErr) {
+				h.log.Info("subscription-delete", id, "Refused: "+refErr.Error())
+				WriteTunnelReferenced(w, refErr)
+				return
+			}
+		}
+	}
 	if err := h.svc.Delete(r.Context(), id); err != nil {
 		response.InternalError(w, err.Error())
 		return

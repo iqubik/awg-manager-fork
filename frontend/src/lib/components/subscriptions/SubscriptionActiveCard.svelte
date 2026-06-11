@@ -24,6 +24,7 @@
     import type { Subscription, SubscriptionMember } from '$lib/types';
     import { formatBitRate, formatBytes, formatRelativeTime } from '$lib/utils/format';
     import { isCardNestedInteraction } from '$lib/utils/cardClick';
+    import { showOutboundReferencedError } from '$lib/utils/outboundReferenced';
     import SubscriptionMemberPicker from './SubscriptionMemberPicker.svelte';
     import type { SingboxLayoutMode } from '$lib/constants/singboxLayout';
     import TunnelDiagnosticsModal from '$lib/components/testing/TunnelDiagnosticsModal.svelte';
@@ -194,7 +195,12 @@
             await subscriptionsStore.refetch();
             confirmDeleteOpen = false;
         } catch (e) {
-            notifications.error(e instanceof Error ? e.message : 'Не удалось удалить подписку');
+            const name = subscription.label || subscription.selectorTag || subscription.id;
+            if (showOutboundReferencedError(e, name, 'Подписка')) {
+                confirmDeleteOpen = false;
+            } else {
+                notifications.error(e instanceof Error ? e.message : 'Не удалось удалить подписку');
+            }
         } finally {
             deleting = false;
         }

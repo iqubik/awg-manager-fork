@@ -49,6 +49,7 @@
 	import SubscriptionActiveCard from '$lib/components/subscriptions/SubscriptionActiveCard.svelte';
 	import type { ExternalTunnel, Subscription, SubscriptionMember, SystemTunnel, TunnelListItem } from '$lib/types';
 	import { formatBitRate, formatBytes, formatDuration, formatRelativeTime, secondsSince } from '$lib/utils/format';
+	import { showOutboundReferencedError } from '$lib/utils/outboundReferenced';
 	import {
 		awgConnectivityDown,
 		awgListShowsPingButton,
@@ -416,15 +417,14 @@
 		};
 	});
 
-	let unsubSubs: (() => void) | undefined;
-	onMount(() => { unsubSubs = subscriptionsStore.subscribe(() => {}); });
-	onDestroy(() => unsubSubs?.());
-
 	let subscriptionsState = $derived($subscriptionsStore);
 	let subscriptionsList = $derived(subscriptionsState.data ?? []);
 	let subscriptionsInitialLoading = $derived(
 		subscriptionsState.data === null &&
 		(subscriptionsState.status === 'idle' || subscriptionsState.status === 'loading'),
+	);
+	let subscriptionsFetchFailed = $derived(
+		subscriptionsState.data === null && subscriptionsState.status === 'error',
 	);
 	let createModalOpen = $state(false);
 	let wizardPreselect = $state<'choose' | 'single' | 'inline' | 'url'>('choose');
@@ -442,11 +442,19 @@
 	}
 	async function confirmSubscriptionDelete(): Promise<void> {
 		if (!pendingSubscriptionDelete || deletingSubscription) return;
+		const id = pendingSubscriptionDelete;
 		deletingSubscription = true;
 		try {
-			await api.deleteSubscription(pendingSubscriptionDelete);
+			await api.deleteSubscription(id);
 			pendingSubscriptionDelete = null;
 			await subscriptionsStore.refetch();
+		} catch (e) {
+			const name = pendingSubscriptionLabel || id;
+			if (showOutboundReferencedError(e, name, 'Подписка')) {
+				pendingSubscriptionDelete = null;
+			} else {
+				notifications.error(e instanceof Error ? e.message : 'Не удалось удалить подписку');
+			}
 		} finally {
 			deletingSubscription = false;
 		}
@@ -502,9 +510,10 @@
 
 	const subscriptionsActiveCards = $derived(
 		($subscriptionsStore.data ?? [])
-			.filter((s) => s.enabled && (liveActives[s.id] || s.activeMember))
+			// Selector-mode subs ship with activeMember="" — resolve first member instead of hiding the card.
+			.filter((s) => s.enabled && (s.members?.length ?? 0) > 0)
 			.map((s) => {
-				const tag = liveActives[s.id] || s.activeMember;
+				const tag = resolveSubscriptionMemberTag(s, liveActives[s.id] || null);
 				let m = s.members?.find((mm) => mm.tag === tag);
 				if (!m && isMockDevMode && s.members?.length) {
 					const first = s.members[0];
@@ -2121,6 +2130,11 @@
 				<div class="loading-centered">
 					<LoadingSpinner size="md" message="Загружаем подписки..." />
 				</div>
+			{:else if subscriptionsFetchFailed}
+				<EmptyState
+					title="Не удалось загрузить подписки"
+					description={subscriptionsState.error ?? 'Проверьте соединение с роутером и обновите страницу.'}
+				/>
 			{:else}
 				{#if !singboxStatusLoading}
 					<SingboxInstallBanner />

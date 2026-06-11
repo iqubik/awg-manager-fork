@@ -45,25 +45,27 @@ type RouterRefChecker interface {
 	OutboundReferenceLocations(tag string) []string
 }
 
-// checkTunnelReferences returns ErrTunnelReferenced if any checker
-// reports references to the tunnel's awg-{id} tag, nil otherwise.
-// Nil checkers are treated as "no references" (degrades safely
-// when wiring isn't fully done in tests).
-func checkTunnelReferences(tunnelID string, dp DeviceProxyRefChecker, r RouterRefChecker) error {
-	tag := "awg-" + tunnelID
-	refs := ErrTunnelReferenced{TunnelID: tunnelID}
-	refused := false
-	if dp != nil && dp.HasSelectorReference(tag) {
-		refs.DeviceProxy = true
-		refused = true
+// CheckOutboundTagReferences returns ErrTunnelReferenced when tag is still
+// referenced by deviceproxy or sing-box router config. displayID is echoed
+// back in the error for UI (may differ from tag, e.g. AWG tunnel id vs awg-{id}).
+func CheckOutboundTagReferences(tag, displayID string, dp DeviceProxyRefChecker, r RouterRefChecker) error {
+	refs := ErrTunnelReferenced{TunnelID: displayID}
+	if mergeTagReferences(tag, &refs, dp, r) {
+		return refs
 	}
-	if r != nil {
-		if rules := r.RulesReferencing(tag); len(rules) > 0 {
-			refs.RouterRules = rules
-			refused = true
+	return nil
+}
+
+// CheckOutboundTagsReferenced aggregates references across multiple outbound
+// tags (e.g. subscription selector + members) into a single refusal error.
+func CheckOutboundTagsReferenced(displayID string, tags []string, dp DeviceProxyRefChecker, r RouterRefChecker) error {
+	refs := ErrTunnelReferenced{TunnelID: displayID}
+	refused := false
+	for _, tag := range tags {
+		if tag == "" {
+			continue
 		}
-		if locs := r.OutboundReferenceLocations(tag); len(locs) > 0 {
-			refs.RouterOther = locs
+		if mergeTagReferences(tag, &refs, dp, r) {
 			refused = true
 		}
 	}
@@ -71,4 +73,55 @@ func checkTunnelReferences(tunnelID string, dp DeviceProxyRefChecker, r RouterRe
 		return refs
 	}
 	return nil
+}
+
+func mergeTagReferences(tag string, refs *ErrTunnelReferenced, dp DeviceProxyRefChecker, r RouterRefChecker) bool {
+	refused := false
+	if dp != nil && dp.HasSelectorReference(tag) {
+		refs.DeviceProxy = true
+		refused = true
+	}
+	if r != nil {
+		if rules := r.RulesReferencing(tag); len(rules) > 0 {
+			refs.RouterRules = mergeIntSlices(refs.RouterRules, rules)
+			refused = true
+		}
+		if locs := r.OutboundReferenceLocations(tag); len(locs) > 0 {
+			refs.RouterOther = mergeStringSlices(refs.RouterOther, locs)
+			refused = true
+		}
+	}
+	return refused
+}
+
+func mergeIntSlices(a, b []int) []int {
+	seen := make(map[int]struct{}, len(a)+len(b))
+	out := make([]int, 0, len(a)+len(b))
+	for _, v := range append(a, b...) {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+func mergeStringSlices(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, v := range append(a, b...) {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+// checkTunnelReferences returns ErrTunnelReferenced if any checker
+// reports references to the tunnel's awg-{id} tag, nil otherwise.
+func checkTunnelReferences(tunnelID string, dp DeviceProxyRefChecker, r RouterRefChecker) error {
+	return CheckOutboundTagReferences("awg-"+tunnelID, tunnelID, dp, r)
 }

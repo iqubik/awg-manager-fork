@@ -17,6 +17,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/singbox/vlink"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/testing"
+	tunnelservice "github.com/hoaxisr/awg-manager/internal/tunnel/service"
 )
 
 // ── Response DTOs ────────────────────────────────────────────────
@@ -105,14 +106,16 @@ type SingboxControlRequest struct {
 
 // SingboxHandler serves /api/singbox/* routes.
 type SingboxHandler struct {
-	op            *singbox.Operator
-	bus           *events.Bus
-	delayChecker  *singbox.DelayChecker
-	testingSvc    *testing.Service
-	log           *logging.ScopedLogger
-	migrator      *singbox.Migrator
-	settings      ndmsProxyToggler
-	settingsStore *storage.SettingsStore
+	op              *singbox.Operator
+	bus             *events.Bus
+	delayChecker    *singbox.DelayChecker
+	testingSvc      *testing.Service
+	log             *logging.ScopedLogger
+	migrator        *singbox.Migrator
+	settings        ndmsProxyToggler
+	settingsStore   *storage.SettingsStore
+	deviceProxyRefs tunnelservice.DeviceProxyRefChecker
+	routerRefs      tunnelservice.RouterRefChecker
 }
 
 // ndmsProxyToggler — узкий интерфейс для чтения текущего значения
@@ -150,6 +153,13 @@ func (h *SingboxHandler) SetNDMSProxyMigrator(m *singbox.Migrator, settings ndms
 // SetSettingsStore wires global settings for connectivity checks.
 func (h *SingboxHandler) SetSettingsStore(settings *storage.SettingsStore) {
 	h.settingsStore = settings
+}
+
+// SetOutboundRefCheckers wires device-proxy and router reference guards for
+// sing-box tunnel deletion (refuse when tag is still in a composite/rule).
+func (h *SingboxHandler) SetOutboundRefCheckers(dp tunnelservice.DeviceProxyRefChecker, r tunnelservice.RouterRefChecker) {
+	h.deviceProxyRefs = dp
+	h.routerRefs = r
 }
 
 // ToggleNDMSProxyRequest is the body for POST /singbox/ndms-proxy.
@@ -947,6 +957,14 @@ func (h *SingboxHandler) DeleteTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Info("single-remove", tag, "requested via API")
+	if err := tunnelservice.CheckOutboundTagReferences(tag, tag, h.deviceProxyRefs, h.routerRefs); err != nil {
+		var refErr tunnelservice.ErrTunnelReferenced
+		if errors.As(err, &refErr) {
+			h.log.Info("single-remove", tag, "Refused: "+refErr.Error())
+			WriteTunnelReferenced(w, refErr)
+			return
+		}
+	}
 	if err := h.op.RemoveTunnel(r.Context(), tag); err != nil {
 		response.InternalError(w, err.Error())
 		return

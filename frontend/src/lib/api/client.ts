@@ -100,6 +100,7 @@ import type {
 	CatalogPreset,
 } from '$lib/types';
 import { sanitizeDnsServerForApi } from '$lib/utils/dnsServerDetour';
+import { isMockDevMode as envIsMockDevMode } from '$lib/env';
 
 export type TrafficPeriod = '5m' | '10m' | '30m' | '1h' | '3h' | '6h' | '12h' | '24h';
 
@@ -246,18 +247,32 @@ class ApiClient {
 		);
 	}
 
-	async deleteTunnel(id: string): Promise<DeleteResult> {
-		// Direct fetch (not via this.request) so we can inspect HTTP 409
-		// for the structured TunnelReferencedError payload before the
-		// generic error handler swallows it.
-		const url = `${this.baseUrl}/tunnels/delete?id=${encodeURIComponent(id)}`;
+	private throwTunnelReferencedFrom409(body: unknown, fallbackId: string): never {
+		const details: TunnelReferencedError =
+			(body as { details?: TunnelReferencedError })?.details ?? {
+				tunnelId: fallbackId,
+				deviceProxy: false,
+				routerRules: [],
+				routerOther: [],
+			};
+		const err = new Error('tunnel_referenced') as Error & {
+			details: TunnelReferencedError;
+		};
+		err.details = details;
+		throw err;
+	}
+
+	private async fetchDelete<T>(url: string, options: RequestInit, fallbackId: string): Promise<T> {
 		let res: Response;
 		try {
 			res = await fetch(url, {
-				method: 'POST',
+				...options,
 				credentials: 'same-origin',
 				signal: this.abortController.signal,
-				headers: { 'Content-Type': 'application/json' }
+				headers: {
+					'Content-Type': 'application/json',
+					...options.headers,
+				},
 			});
 		} catch (e) {
 			if (e instanceof DOMException && e.name === 'AbortError') throw e;
@@ -266,17 +281,7 @@ class ApiClient {
 		}
 		if (res.status === 409) {
 			const body = await res.json().catch(() => ({}));
-			const details: TunnelReferencedError = body?.details ?? {
-				tunnelId: id,
-				deviceProxy: false,
-				routerRules: [],
-				routerOther: []
-			};
-			const err = new Error('tunnel_referenced') as Error & {
-				details: TunnelReferencedError;
-			};
-			err.details = details;
-			throw err;
+			this.throwTunnelReferencedFrom409(body, fallbackId);
 		}
 		if (res.status === 401) {
 			this.onUnauthorized?.();
@@ -286,9 +291,17 @@ class ApiClient {
 			const text = await res.text().catch(() => '');
 			throw new Error(`Ошибка удаления (${res.status}): ${text.substring(0, 100)}`);
 		}
-		const data = (await res.json()) as ApiResponse<DeleteResult>;
+		const data = (await res.json()) as ApiResponse<T>;
 		if (data.error) throw new Error(data.message || 'Ошибка удаления');
-		return data.data as DeleteResult;
+		return data.data as T;
+	}
+
+	async deleteTunnel(id: string): Promise<DeleteResult> {
+		return this.fetchDelete<DeleteResult>(
+			`${this.baseUrl}/tunnels/delete?id=${encodeURIComponent(id)}`,
+			{ method: 'POST' },
+			id,
+		);
 	}
 
 	async getAWGTags(): Promise<AWGTagInfo[]> {
@@ -1504,7 +1517,7 @@ class ApiClient {
 	}
 
 	private isMockDevMode(): boolean {
-		return isMockDevMode();
+		return envIsMockDevMode();
 	}
 
 	private ensureMockSubscriptionMembers(sub: Subscription): Subscription {
@@ -1689,9 +1702,11 @@ class ApiClient {
 	}
 
 	async singboxDeleteTunnel(tag: string): Promise<SingboxTunnel[]> {
-		return this.request(`/singbox/tunnels?tag=${encodeURIComponent(tag)}`, {
-			method: 'DELETE'
-		});
+		return this.fetchDelete<SingboxTunnel[]>(
+			`${this.baseUrl}/singbox/tunnels?tag=${encodeURIComponent(tag)}`,
+			{ method: 'DELETE' },
+			tag,
+		);
 	}
 
 	async singboxDelayCheck(tag: string): Promise<{ tag: string; delay: number }> {
@@ -2256,8 +2271,11 @@ class ApiClient {
 	}
 
 	async deleteSubscription(id: string): Promise<void> {
-		const url = `/singbox/subscriptions/delete?id=${encodeURIComponent(id)}`;
-		await this.request(url, { method: 'DELETE' });
+		await this.fetchDelete<{ ok: boolean }>(
+			`${this.baseUrl}/singbox/subscriptions/delete?id=${encodeURIComponent(id)}`,
+			{ method: 'DELETE' },
+			id,
+		);
 	}
 
 	async refreshSubscription(id: string): Promise<SubscriptionRefreshResult> {

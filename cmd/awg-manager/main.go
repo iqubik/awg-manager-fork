@@ -1113,6 +1113,7 @@ func main() {
 	tunnelService.SetAWGSyncer(awgoutboundsSvc)
 	tunnelService.SetDeviceProxyRefChecker(deviceProxySvc)
 	tunnelService.SetRouterRefChecker(routerSvc)
+	singboxHandler.SetOutboundRefCheckers(deviceProxySvc, routerSvc)
 	routerStartupLog := logging.NewScopedLogger(loggingService, logging.GroupRouting, logging.SubSingboxRouter)
 	go func() {
 		if err := routerSvc.Reconcile(context.Background()); err != nil {
@@ -1159,6 +1160,7 @@ func main() {
 	subSched.Start(context.Background())
 	subHandler := api.NewSubscriptionHandler(subSvc, singboxOp, loggingService)
 	subHandler.SetNDMSProxyToggler(settingsStore)
+	subHandler.SetOutboundRefCheckers(deviceProxySvc, routerSvc)
 	srv.SetSubscriptionHandler(subHandler)
 	srv.AddShutdownHook(subSched.Stop)
 

@@ -21,6 +21,7 @@
 	import { monitoringStore } from '$lib/stores/monitoring';
 	import { appendPingLog } from '$lib/stores/pingcheck';
 	import { systemInfo } from '$lib/stores/system';
+	import { subscriptionsStore } from '$lib/stores/subscriptions';
 	import { feedTraffic } from '$lib/stores/traffic';
 	import { applyTraffic as singboxApplyTraffic, applyDelay as singboxApplyDelay } from '$lib/stores/singbox';
 	import { singboxRouter } from '$lib/stores/singboxRouter';
@@ -29,6 +30,8 @@
 	import { settings as settingsStore, reloadSettings, usageLevel } from '$lib/stores/settings';
 	import { loadPresetCatalog } from '$lib/stores/presets';
 	import { donateModalOpen, openDonateModal, closeDonateModal } from '$lib/stores/donateModal';
+	import { outboundReferenced } from '$lib/stores/outboundReferenced';
+	import TunnelReferencedModal from '$lib/components/tunnels/TunnelReferencedModal.svelte';
 	import DevelopFeedbackFab from '$lib/components/layout/DevelopFeedbackFab.svelte';
 	import UiElementHider from '$lib/components/layout/UiElementHider.svelte';
 	import {
@@ -64,6 +67,7 @@
 
 	let disconnectSSE: (() => void) | null = null;
 	let unsubSysInfo: (() => void) | null = null;
+	let unsubSubscriptions: (() => void) | null = null;
 
 	const isDevelopChannel = $derived($settingsStore?.updates?.channel === 'develop');
 
@@ -244,11 +248,16 @@
 			if (!unsubSysInfo) {
 				unsubSysInfo = systemInfo.subscribe(() => {});
 			}
+			if (!unsubSubscriptions) {
+				unsubSubscriptions = subscriptionsStore.subscribe(() => {});
+			}
 		} else {
 			healthMonitor.stop();
 			stopSSE();
 			unsubSysInfo?.();
 			unsubSysInfo = null;
+			unsubSubscriptions?.();
+			unsubSubscriptions = null;
 		}
 	});
 
@@ -453,6 +462,14 @@
 			</div>
 		</div>
 	</Modal>
+
+	<TunnelReferencedModal
+		open={$outboundReferenced !== null}
+		details={$outboundReferenced?.details ?? null}
+		tunnelName={$outboundReferenced?.name}
+		entityLabel={$outboundReferenced?.entityLabel}
+		onclose={() => outboundReferenced.close()}
+	/>
 
 	{#if $isAuthenticated && isDevelopChannel}
 		<DevelopFeedbackFab />

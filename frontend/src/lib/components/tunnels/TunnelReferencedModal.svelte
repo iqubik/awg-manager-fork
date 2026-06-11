@@ -7,16 +7,17 @@
 		open: boolean;
 		details: TunnelReferencedError | null;
 		tunnelName?: string;
+		entityLabel?: string;
 		onclose: () => void;
 	}
 
-	let { open, details, tunnelName, onclose }: Props = $props();
+	let { open, details, tunnelName, entityLabel = 'Туннель', onclose }: Props = $props();
 </script>
 
 <Modal {open} title="Удаление невозможно" size="sm" {onclose}>
 	{#if details}
 		<p class="lead">
-			Туннель {#if tunnelName}<strong>{tunnelName}</strong>{/if} используется в других местах конфигурации:
+			{entityLabel} {#if tunnelName}<strong>{tunnelName}</strong>{/if} используется в других местах конфигурации:
 		</p>
 		<ul class="ref-list">
 			{#if details.deviceProxy}

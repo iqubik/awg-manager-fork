@@ -3,6 +3,8 @@
 	import { Modal, Button, Dropdown } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { singboxStatus, singboxTunnels } from '$lib/stores/singbox';
+	import { subscriptionsStore } from '$lib/stores/subscriptions';
+	import { singboxRouter } from '$lib/stores/singboxRouter';
 	import {
 		DEFAULT_SUBSCRIPTION_URLTEST,
 		type SubscriptionMode,
@@ -209,6 +211,13 @@
 						? { url: utUrl, intervalSec: utIntervalSec, toleranceMs: utToleranceMs }
 						: undefined,
 			});
+			// Keep tunnels tab + sb-router wizard in sync: list outbounds are not polled.
+			await subscriptionsStore.refetch();
+			try {
+				singboxRouter.applyOutbounds(await api.singboxRouterListOutbounds());
+			} catch {
+				/* routing UI will refresh on next loadAll */
+			}
 			open = false;
 			reset();
 			goto(`/subscriptions/${sub.id}`);

@@ -152,6 +152,44 @@ func TestCheckTunnelReferences_AllThreeRefs(t *testing.T) {
 	}
 }
 
+func TestCheckOutboundTagReferences_SingboxTag(t *testing.T) {
+	r := &fakeRouterRefs{other: map[string][]string{
+		"my-vless": {`outbounds[0="vpn-default"].outbounds[1]`},
+	}}
+	err := CheckOutboundTagReferences("my-vless", "my-vless", nil, r)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	refErr, ok := err.(ErrTunnelReferenced)
+	if !ok {
+		t.Fatalf("expected ErrTunnelReferenced, got %T", err)
+	}
+	if refErr.TunnelID != "my-vless" {
+		t.Errorf("TunnelID = %q, want my-vless", refErr.TunnelID)
+	}
+}
+
+func TestCheckOutboundTagsReferenced_MergesTags(t *testing.T) {
+	r := &fakeRouterRefs{
+		rules: map[string][]int{"sub-sel": {1}},
+		other: map[string][]string{"sub-m1": {"route.final"}},
+	}
+	err := CheckOutboundTagsReferenced("sub-1", []string{"sub-sel", "sub-m1"}, nil, r)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	refErr, ok := err.(ErrTunnelReferenced)
+	if !ok {
+		t.Fatalf("expected ErrTunnelReferenced, got %T", err)
+	}
+	if len(refErr.RouterRules) != 1 || refErr.RouterRules[0] != 1 {
+		t.Errorf("RouterRules = %v", refErr.RouterRules)
+	}
+	if len(refErr.RouterOther) != 1 || refErr.RouterOther[0] != "route.final" {
+		t.Errorf("RouterOther = %v", refErr.RouterOther)
+	}
+}
+
 func TestDelete_Refused_RouterOther(t *testing.T) {
 	s := &ServiceImpl{
 		routerRefs: &fakeRouterRefs{other: map[string][]string{
