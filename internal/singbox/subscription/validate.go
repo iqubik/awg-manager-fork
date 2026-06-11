@@ -3,8 +3,9 @@ package subscription
 import (
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
+
+	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 )
 
 // DropReason records one outbound that was filtered out of a subscription,
@@ -165,36 +166,20 @@ func isValidUUID(s string) bool {
 	return uuidRe.MatchString(s)
 }
 
-// singboxOutboundIdxRe parses the index from a sing-box check error of
-// the form `initialize outbound[N]: <reason>`. N is the position in the
-// outbounds array as it was POSTed (zero-based).
-var singboxOutboundIdxRe = regexp.MustCompile(`initialize outbound\[(\d+)\]:`)
-
-// singboxDecodeIdxRe parses the index from a decode-phase error of the
-// form `decode config at <path>/40-subscriptions.json: outbounds[N].field:
-// <reason>` (e.g. a bad field value, issue #350). Decode errors are
-// per-file and N indexes THAT file's outbounds array, so the match is
-// anchored on the subscriptions slot filename (orchestrator.KnownSlots) —
-// a decode error in another slot's file must not be isolated here.
-var singboxDecodeIdxRe = regexp.MustCompile(`decode config at \S*/40-subscriptions\.json: outbounds\[(\d+)\][.:]`)
-
-// parseSingboxOutboundIndex extracts the failing outbound index from a
-// sing-box check error message. Returns (-1, false) when the message
-// does not match the known patterns — caller should treat that as a
-// terminal failure (cannot isolate).
-func parseSingboxOutboundIndex(msg string) (int, bool) {
-	m := singboxOutboundIdxRe.FindStringSubmatch(msg)
-	if len(m) != 2 {
-		m = singboxDecodeIdxRe.FindStringSubmatch(msg)
+// subscriptionsOutboundIndex returns the local index of the outbound a
+// sing-box check failure was attributed to, when it belongs to our slot.
+// Attribution happens in orchestrator.CheckMerged — only it knows the
+// snapshot composition (sing-box reports initialize errors with an index
+// into the MERGED outbounds array). An error attributed to another slot's
+// outbound — or not attributed at all — returns false: we cannot
+// self-heal by dropping one of ours.
+func subscriptionsOutboundIndex(res orchestrator.ValidationResult) (int, bool) {
+	for _, e := range res.Errors {
+		if e.OutboundIndex != nil && e.OutboundSlot == orchestrator.SlotSubscriptions {
+			return *e.OutboundIndex, true
+		}
 	}
-	if len(m) != 2 {
-		return -1, false
-	}
-	idx, err := strconv.Atoi(m[1])
-	if err != nil {
-		return -1, false
-	}
-	return idx, true
+	return -1, false
 }
 
 // dropOutboundAndCleanRefs removes the outbound at index `idx` from cfg

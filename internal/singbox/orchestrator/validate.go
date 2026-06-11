@@ -16,6 +16,17 @@ type ValidationError struct {
 	Tag     string // the offending tag value
 	InRule  string // optional: human-readable location (e.g. "rules[3]" or "selector default")
 	Message string
+
+	// OutboundSlot / OutboundIndex attribute a "sing-box check" failure to
+	// a specific outbound: the slot whose file declares it and the index
+	// within THAT file's outbounds array. sing-box reports initialize
+	// errors with an index into the merged outbounds array (config.d files
+	// concatenated in lexical filename order) and decode errors with a
+	// per-file index — checkMergedLocked translates both, because only the
+	// orchestrator knows the snapshot composition. OutboundIndex nil =
+	// error not attributable to a specific outbound.
+	OutboundSlot  Slot
+	OutboundIndex *int
 }
 
 func (e ValidationError) Error() string {

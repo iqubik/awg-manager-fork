@@ -2,10 +2,14 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 )
 
 // SaveDraft writes the slot's JSON to pending/<filename> atomically.
@@ -252,13 +256,89 @@ func (o *Orchestrator) checkMergedLocked(slot Slot, jsonBytes []byte) (Validatio
 		// Sing-box check failure is reported as a ValidationError so callers
 		// can use res.Error() / iterate without distinguishing infra vs
 		// content errors at the type level.
-		return ValidationResult{Errors: []ValidationError{{
+		ve := ValidationError{
 			Slot:    slot,
 			Kind:    "sing-box check",
 			Message: err.Error(),
-		}}}, nil
+		}
+		if s, idx, ok := o.attributeOutboundIndex(err.Error(), tmpdir); ok {
+			ve.OutboundSlot, ve.OutboundIndex = s, &idx
+		}
+		return ValidationResult{Errors: []ValidationError{ve}}, nil
 	}
 	return ValidationResult{}, nil
+}
+
+// sing-box check error shapes attributable to a specific outbound.
+// Initialize-phase indexes the MERGED outbounds array (config.d files
+// concatenated in lexical filename order); decode-phase indexes the
+// outbounds array of the named file only.
+var (
+	initializeOutboundIdxRe = regexp.MustCompile(`initialize outbound\[(\d+)\]:`)
+	decodeOutboundIdxRe     = regexp.MustCompile(`decode config at (\S+): outbounds\[(\d+)\][.:]`)
+)
+
+// attributeOutboundIndex resolves a sing-box check error message to the
+// slot whose file declares the failing outbound and its local index in
+// that file's outbounds array. snapshotDir is the tmpdir that was handed
+// to the validator (still present — caller's defer hasn't run). Returns
+// false when the message matches no known shape or the index fits no
+// snapshot file. Caller MUST hold o.mu.
+func (o *Orchestrator) attributeOutboundIndex(msg, snapshotDir string) (Slot, int, bool) {
+	type snapFile struct {
+		filename  string
+		slot      Slot
+		outbounds int
+	}
+	var files []snapFile
+	for s, m := range o.slots {
+		data, err := os.ReadFile(filepath.Join(snapshotDir, m.Filename))
+		if err != nil {
+			continue // slot not in snapshot
+		}
+		files = append(files, snapFile{filename: m.Filename, slot: s, outbounds: countOutbounds(data)})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].filename < files[j].filename })
+
+	if m := initializeOutboundIdxRe.FindStringSubmatch(msg); len(m) == 2 {
+		n, err := strconv.Atoi(m[1])
+		if err != nil {
+			return "", 0, false
+		}
+		for _, f := range files {
+			if n < f.outbounds {
+				return f.slot, n, true
+			}
+			n -= f.outbounds
+		}
+		return "", 0, false
+	}
+	if m := decodeOutboundIdxRe.FindStringSubmatch(msg); len(m) == 3 {
+		n, err := strconv.Atoi(m[2])
+		if err != nil {
+			return "", 0, false
+		}
+		base := filepath.Base(m[1])
+		for _, f := range files {
+			if f.filename == base && n < f.outbounds {
+				return f.slot, n, true
+			}
+		}
+	}
+	return "", 0, false
+}
+
+// countOutbounds returns len(outbounds) of slot JSON, 0 when the bytes
+// don't parse. An unparseable file cannot produce an `outbounds[N]`-shaped
+// sing-box error anyway (decode fails before indexing into the array).
+func countOutbounds(data []byte) int {
+	var c struct {
+		Outbounds []json.RawMessage `json:"outbounds"`
+	}
+	if err := json.Unmarshal(data, &c); err != nil {
+		return 0
+	}
+	return len(c.Outbounds)
 }
 
 // SaveAndValidate atomically writes jsonBytes to the slot's active path

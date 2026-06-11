@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 )
 
 // Test fixtures use RFC 5737 documentation IPs (192.0.2.x) and
@@ -213,48 +215,38 @@ func TestPreFilterOutbounds_DropsNonObject(t *testing.T) {
 	}
 }
 
-// === sing-box error parsing =============================================
+// === sing-box error attribution ==========================================
+//
+// Index parsing/attribution itself lives in orchestrator.CheckMerged (it
+// knows the snapshot composition) and is tested there; here we only check
+// that flush's helper takes attributed indexes of OUR slot and nothing else.
 
-func TestParseSingboxOutboundIndex_RealMessage(t *testing.T) {
-	// Captured verbatim from sing-box 1.14.0-alpha check output on a
-	// minimal reality-without-utls config.
-	msg := "1 cross-slot validation error(s):\n  - [subscriptions] sing-box check: : initialize outbound[7]: uTLS is required by reality client"
-	idx, ok := parseSingboxOutboundIndex(msg)
-	if !ok {
-		t.Fatalf("expected to parse index from %q", msg)
-	}
-	if idx != 7 {
-		t.Errorf("idx = %d, want 7", idx)
+func TestSubscriptionsOutboundIndex_OwnSlot(t *testing.T) {
+	idx := 7
+	res := orchestrator.ValidationResult{Errors: []orchestrator.ValidationError{{
+		Slot: orchestrator.SlotSubscriptions, Kind: "sing-box check",
+		OutboundSlot: orchestrator.SlotSubscriptions, OutboundIndex: &idx,
+	}}}
+	got, ok := subscriptionsOutboundIndex(res)
+	if !ok || got != 7 {
+		t.Errorf("got (%d, %v), want (7, true)", got, ok)
 	}
 }
 
-func TestParseSingboxOutboundIndex_NoMatch(t *testing.T) {
-	if _, ok := parseSingboxOutboundIndex("some unrelated error"); ok {
-		t.Error("expected no match on unrelated message")
+func TestSubscriptionsOutboundIndex_ForeignSlotOrUnattributed(t *testing.T) {
+	idx := 3
+	foreign := orchestrator.ValidationResult{Errors: []orchestrator.ValidationError{{
+		Slot: orchestrator.SlotSubscriptions, Kind: "sing-box check",
+		OutboundSlot: orchestrator.SlotTunnels, OutboundIndex: &idx,
+	}}}
+	if _, ok := subscriptionsOutboundIndex(foreign); ok {
+		t.Error("index attributed to another slot must not be used")
 	}
-}
-
-func TestParseSingboxOutboundIndex_DecodeError(t *testing.T) {
-	// Captured verbatim from issue #350: decode-phase error (bad field
-	// value), not initialize-phase. The index refers to the outbounds
-	// array of the named slot file.
-	msg := "1 cross-slot validation error(s):\n  - [subscriptions] sing-box check:  (sing-box check failed: FATAL[0000] decode config at /opt/etc/awg-manager/singbox/config.d/.save-check-992106189/40-subscriptions.json: outbounds[462].tls.certificate_public_key_sha256: (illegal base64 data at input byte 4 | json: cannot unmarshal string into Go value of type [][]uint8)\n: exit status 1)"
-	idx, ok := parseSingboxOutboundIndex(msg)
-	if !ok {
-		t.Fatalf("expected to parse index from %q", msg)
-	}
-	if idx != 462 {
-		t.Errorf("idx = %d, want 462", idx)
-	}
-}
-
-func TestParseSingboxOutboundIndex_DecodeErrorOtherSlotFile(t *testing.T) {
-	// A decode error in a different slot file: its index refers to THAT
-	// file's outbounds array, not ours — must not be parsed, otherwise
-	// we would drop an unrelated outbound from our slot.
-	msg := "1 cross-slot validation error(s):\n  - [subscriptions] sing-box check:  (sing-box check failed: FATAL[0000] decode config at /opt/etc/awg-manager/singbox/config.d/.save-check-992106189/20-router.json: outbounds[3].tls.certificate_public_key_sha256: (illegal base64 data at input byte 4 | json: cannot unmarshal string into Go value of type [][]uint8)\n: exit status 1)"
-	if _, ok := parseSingboxOutboundIndex(msg); ok {
-		t.Error("expected no match on decode error in another slot file")
+	unattributed := orchestrator.ValidationResult{Errors: []orchestrator.ValidationError{{
+		Slot: orchestrator.SlotSubscriptions, Kind: "sing-box check", Message: "opaque",
+	}}}
+	if _, ok := subscriptionsOutboundIndex(unattributed); ok {
+		t.Error("unattributed error must not yield an index")
 	}
 }
 

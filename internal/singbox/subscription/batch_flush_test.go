@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
@@ -118,5 +120,78 @@ func TestOperatorAdapter_CommitEmptySlotOnDelete(t *testing.T) {
 	}
 	if got := len(adapter.DeclaredOutboundTags()); got != 0 {
 		t.Errorf("slot must be empty after delete, got %d outbound(s) (config resurrected?)", got)
+	}
+}
+
+// offsetValidator simulates `sing-box check -C`: it walks config files in
+// lexical filename order (sing-box merge order) and FATALs with the index
+// in the MERGED outbounds array while an outbound tagged "bad" is present.
+type offsetValidator struct{}
+
+func (offsetValidator) Validate(_ context.Context, dir string) error {
+	entries, err := os.ReadDir(dir) // ReadDir sorts by filename
+	if err != nil {
+		return err
+	}
+	idx := 0
+	for _, e := range entries {
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return err
+		}
+		var c struct {
+			Outbounds []map[string]any `json:"outbounds"`
+		}
+		if err := json.Unmarshal(data, &c); err != nil {
+			return err
+		}
+		for _, ob := range c.Outbounds {
+			if ob["tag"] == "bad" {
+				return fmt.Errorf("sing-box check failed: FATAL[0000] initialize outbound[%d]: uTLS is required by reality client: exit status 1", idx)
+			}
+			idx++
+		}
+	}
+	return nil
+}
+
+// Issue #350 follow-up: sing-box initialize errors index the MERGED
+// outbounds array, so with outbounds in a lexically-earlier slot (15-awg
+// catalog, sing-box tunnels) the raw index pointed past or at the wrong
+// outbound of our slot — Pass 2 dropped valid servers until out-of-range
+// failed the whole subscription. orchestrator.CheckMerged now attributes
+// the index to (slot, local index); flush must drop exactly the bad one.
+func TestFlush_DropsOutboundByMergedInitializeIndex(t *testing.T) {
+	dir := t.TempDir()
+	orch := orchestrator.New(dir, nil)
+	if err := orch.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	// Two outbounds in 10-tunnels.json — lexically before 40-subscriptions.json,
+	// shifting merged indexes of our outbounds by 2.
+	if err := orch.Register(orchestrator.SlotMeta{
+		Slot: orchestrator.SlotTunnels, Filename: "10-tunnels.json", AlwaysOn: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tunnels := []byte(`{"outbounds":[{"type":"direct","tag":"d1"},{"type":"direct","tag":"d2"}]}`)
+	if err := orch.Save(orchestrator.SlotTunnels, tunnels); err != nil {
+		t.Fatal(err)
+	}
+	orch.SetValidator(offsetValidator{})
+	adapter := NewOperatorAdapter(orch, nil, nil)
+
+	for i, tag := range []string{"s0", "bad", "s2"} {
+		if err := adapter.AddOutbound(tag, validVlessJSON(fmt.Sprintf("192.0.2.%d", i+1))); err != nil {
+			t.Fatalf("AddOutbound %s: %v", tag, err)
+		}
+	}
+	if err := adapter.Reload(context.Background()); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+
+	tags := adapter.DeclaredOutboundTags()
+	if len(tags) != 2 || tags[0] != "s0" || tags[1] != "s2" {
+		t.Errorf("kept tags = %v, want [s0 s2] (only the attributed outbound dropped)", tags)
 	}
 }

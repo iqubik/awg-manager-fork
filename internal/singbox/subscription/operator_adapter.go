@@ -489,10 +489,12 @@ func (a *OperatorAdapter) upsertOutbound(tag string, ob map[string]any) {
 //
 //	Pass 2 (sing-box check, ~100–300ms one-shot)
 //	  orch.CheckMerged runs the daemon's own validator against a tmpdir
-//	  snapshot of all enabled slots with our content overlaid. On error
-//	  with parseable `outbound[INDEX]`, drop that outbound, cascade
-//	  reference cleanup (selectors / urltests / route rules), retry —
-//	  bounded by initial outbound count.
+//	  snapshot of all enabled slots with our content overlaid and
+//	  attributes the failing outbound index to a slot (initialize errors
+//	  index the MERGED outbounds array; decode errors index one file).
+//	  When attributed to OUR slot, drop that outbound, cascade reference
+//	  cleanup (selectors / urltests / route rules), retry — bounded by
+//	  initial outbound count.
 //
 // Finally orch.Save commits the cleaned bytes and SetEnabled flips the
 // slot on. Dropped outbounds are logged so the user (UI / /logs) sees
@@ -530,7 +532,7 @@ func (a *OperatorAdapter) flush() error {
 		if res.Ok() {
 			break
 		}
-		idx, ok := parseSingboxOutboundIndex(res.Error())
+		idx, ok := subscriptionsOutboundIndex(res)
 		if !ok {
 			// Not a sing-box index error. It may be a cross-slot
 			// unknown-outbound: a selector/urltest in our slot referencing a
