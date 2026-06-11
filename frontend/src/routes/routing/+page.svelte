@@ -18,7 +18,7 @@
     import { notifications } from '$lib/stores/notifications';
     import { PageContainer, PageHeader } from '$lib/components/layout';
     import { Search } from 'lucide-svelte';
-    import { Tabs, Button, Modal } from '$lib/components/ui';
+    import { Tabs, Button, Modal, MobileTabRail } from '$lib/components/ui';
     import { RoutingSearch } from '$lib/components/routing';
     import DnsRoutesTab from './DnsRoutesTab.svelte';
     import IpRoutesTab from './IpRoutesTab.svelte';
@@ -29,6 +29,7 @@
     import GeoDataTab from './GeoDataTab.svelte';
     import { isRoutingSubTabVisible, type RoutingSubTab, type UsageLevel } from '$lib/types/usageLevel';
     import { usageLevel } from '$lib/stores/settings';
+    import { readTunnelMobileLayout, subscribeTunnelMobileLayout } from '$lib/constants/singboxLayout';
 
     // Per-section polling stores — subscribe here so all 8 fetch while
     // the routing page is open. Unsubscribed on destroy to stop polling.
@@ -54,6 +55,7 @@
     });
 
     let activeTab = $state<'hrneo' | 'geodata' | 'dns' | 'ip' | 'policy' | 'clientvpn' | 'singbox'>('dns');
+    let isMobileTabs = $state(readTunnelMobileLayout());
 
     let isOS5 = $derived($systemInfo.data?.isOS5 ?? false);
     let hydrarouteInstalled = $derived($routing.hydrarouteStatus?.installed ?? false);
@@ -74,6 +76,10 @@
         if (pendingTab) activeTab = pendingTab as typeof activeTab;
         pendingTab = null;
     }
+
+    onMount(() => subscribeTunnelMobileLayout((mobile) => {
+        isMobileTabs = mobile;
+    }));
 
     // Search → edit rule integration
     let editRuleId = $state('');
@@ -287,13 +293,24 @@
         {/snippet}
     </PageHeader>
 
-    <Tabs
-        tabs={tabItems}
-        active={activeTab}
-        onchange={(id) => requestTab(id)}
-        urlParam="tab"
-        defaultTab="dns"
-    />
+    {#if isMobileTabs}
+        <MobileTabRail
+            tabs={tabItems}
+            active={activeTab}
+            onchange={requestTab}
+            urlParam="tab"
+            defaultTab="dns"
+            ariaLabel="Routing sections"
+        />
+    {:else}
+        <Tabs
+            tabs={tabItems}
+            active={activeTab}
+            onchange={(id) => requestTab(id)}
+            urlParam="tab"
+            defaultTab="dns"
+        />
+    {/if}
 
     {#if activeTab === 'hrneo'}
         <HrNeoTab

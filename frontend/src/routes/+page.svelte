@@ -31,6 +31,7 @@
 		Button,
 		Badge,
 		Tabs,
+		MobileTabRail,
 		Toggle,
 		StatusDot,
 		Stat,
@@ -1545,13 +1546,24 @@
 			description={tunnelSnap.error ?? 'Не удалось получить список туннелей'}
 		/>
 	{:else}
-		<Tabs
-			tabs={tunnelTabs}
-			active={activeTab}
-			onchange={(id) => (activeTab = id as TunnelTab)}
-			urlParam="tab"
-			defaultTab="awg"
-		/>
+		{#if isAwgMobile}
+			<MobileTabRail
+				tabs={tunnelTabs}
+				active={activeTab}
+				onchange={(id) => (activeTab = id as TunnelTab)}
+				urlParam="tab"
+				defaultTab="awg"
+				ariaLabel="Tunnel sections"
+			/>
+		{:else}
+			<Tabs
+				tabs={tunnelTabs}
+				active={activeTab}
+				onchange={(id) => (activeTab = id as TunnelTab)}
+				urlParam="tab"
+				defaultTab="awg"
+			/>
+		{/if}
 
 		{#if activeTab === 'awg'}
 		{#if awgList.length === 0 && systemList.length === 0}
@@ -1689,7 +1701,12 @@
 						sourceRowCount={awgSourceRowCount}
 						showViewToggle={showAwgViewModeSwitch}
 						searchQuery={awgListSearchQuery}
+						sortKey={$awgTunnelTableSort.sortBy}
+						sortAsc={$awgTunnelTableSort.sortAsc}
+						sortOptions={awgSortOptions}
 						onSearchChange={(value) => (awgListSearchQuery = value)}
+						onSortChange={(key) => key === null ? awgTunnelTableSort.setSort(null) : awgTunnelTableSort.setSort(key as AwgTunnelSortKey)}
+						onToggleDir={() => awgTunnelTableSort.toggleDirection()}
 					>
 						{#snippet viewToggle()}
 							<LayoutViewToggle
@@ -2226,7 +2243,12 @@
 								sourceRowCount={singboxSubscriptionsSourceRowCount}
 								showViewToggle={subscriptionsList.length > 0}
 								searchQuery={singboxSubscriptionsSearchQuery}
+								sortKey={$singboxSubscriptionTableSort.sortBy}
+								sortAsc={$singboxSubscriptionTableSort.sortAsc}
+								sortOptions={subscriptionSortOptions}
 								onSearchChange={(value) => (singboxSubscriptionsSearchQuery = value)}
+								onSortChange={(key) => key === null ? singboxSubscriptionTableSort.setSort(null) : singboxSubscriptionTableSort.setSort(key as SubscriptionSortKey)}
+								onToggleDir={() => singboxSubscriptionTableSort.toggleDirection()}
 							>
 								{#snippet viewToggle()}
 									<LayoutViewToggle
@@ -2461,7 +2483,12 @@
 							sourceRowCount={singboxTunnelsSourceRowCount}
 							showViewToggle={singboxTunnelsList.length > 0}
 							searchQuery={singboxTunnelsSearchQuery}
+							sortKey={$singboxTunnelTableSort.sortBy}
+							sortAsc={$singboxTunnelTableSort.sortAsc}
+							sortOptions={singboxTunnelSortOptions}
 							onSearchChange={(value) => (singboxTunnelsSearchQuery = value)}
+							onSortChange={(key) => key === null ? singboxTunnelTableSort.setSort(null) : singboxTunnelTableSort.setSort(key as SingboxTunnelSortKey)}
+							onToggleDir={() => singboxTunnelTableSort.toggleDirection()}
 						>
 							{#snippet viewToggle()}
 								<LayoutViewToggle
@@ -3269,4 +3296,5 @@
 			grid-column: 1 / -1;
 		}
 	}
+
 </style>
