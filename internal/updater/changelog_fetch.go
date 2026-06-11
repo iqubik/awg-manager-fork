@@ -12,14 +12,19 @@ import (
 )
 
 func changelogSourcesForChannel(channel string) (primary, secondary string) {
-	upstream := entwareRepoURL + "/CHANGELOG.md"
 	if channel == channelDevelop {
-		upstream = entwareRepoURL + "/develop/CHANGELOG.md"
+		upstreamDevelop := entwareRepoURL + "/develop/CHANGELOG.md"
+		if strings.TrimSpace(releaseBaseURL) == "" {
+			return upstreamDevelop, ""
+		}
+		return upstreamDevelop, releaseAssetURL("CHANGELOG.md")
 	}
+
+	upstreamStable := entwareRepoURL + "/CHANGELOG.md"
 	if strings.TrimSpace(releaseBaseURL) == "" {
-		return upstream, ""
+		return upstreamStable, ""
 	}
-	return releaseAssetURL("CHANGELOG.md"), upstream
+	return releaseAssetURL("CHANGELOG.md"), upstreamStable
 }
 
 // changelogFetcher pulls the monolithic CHANGELOG.md, parses it, and
@@ -57,14 +62,15 @@ func (c *changelogFetcher) Fetch(ctx context.Context) (map[string]Entry, error) 
 		return entries, nil
 	}
 
-	primaryEntries, primaryErr := c.fetchURL(ctx, c.primary())
-	secondaryURL := c.secondary()
-	if secondaryURL == "" {
-		if primaryErr != nil {
-			return nil, primaryErr
-		}
+	primaryURL, secondaryURL := c.sources()
+
+	primaryEntries, primaryErr := c.fetchURL(ctx, primaryURL)
+	switch {
+	case primaryErr == nil && secondaryURL == "":
 		c.store(primaryEntries)
 		return primaryEntries, nil
+	case primaryErr != nil && secondaryURL == "":
+		return nil, primaryErr
 	}
 
 	secondaryEntries, secondaryErr := c.fetchURL(ctx, secondaryURL)
@@ -101,6 +107,12 @@ func (c *changelogFetcher) SetSources(primaryURL, secondaryURL string) {
 		c.secondaryURL = secondaryURL
 		c.cached = nil
 	}
+}
+
+func (c *changelogFetcher) sources() (string, string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.primaryURL, c.secondaryURL
 }
 
 func (c *changelogFetcher) primary() string {
