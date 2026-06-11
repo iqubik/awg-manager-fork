@@ -1,6 +1,11 @@
 name: "Build"
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - develop
+    paths:
+      - VERSION
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

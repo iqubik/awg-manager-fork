@@ -207,7 +207,7 @@
 	let inlineRxRate = $derived(rxRates.length > 0 ? rxRates[rxRates.length - 1] : 0);
 	let inlineTxRate = $derived(txRates.length > 0 ? txRates[txRates.length - 1] : 0);
 	let mobileEndpointText = $derived(
-		`${showEndpoint ? (serverHost || '—') : '•••••••••'}${serverPort ? `:${serverPort}` : ''}`,
+		`${showEndpoint ? (serverHost || '—') : '•••••••••'}${serverPort ? (showEndpoint ? `:${serverPort}` : ':•••••') : ''}`,
 	);
 	let mobileTrafficText = $derived(
 		`↓ ${formatBitRate(inlineRxRate)} · ↑ ${formatBitRate(inlineTxRate)}`,
@@ -499,7 +499,7 @@
 					<div class="details-dense-col details-dense-col-right">
 						<div class="kv-stacked-stat">
 							<span class="kv-stacked-label">Порт</span>
-							<span class="kv-stacked-value">{serverPort || '—'}</span>
+							<span class="kv-stacked-value">{serverPort ? (showEndpoint ? serverPort : '•••••') : '—'}</span>
 						</div>
 						{#if tunnel.status === 'running'}
 							<div class="kv-stacked-stat">
@@ -538,7 +538,7 @@
 				</div>
 				<div class="kv kv-shrink">
 					<span class="kv-label">Порт</span>
-					<span class="kv-value">{serverPort || '—'}</span>
+					<span class="kv-value">{serverPort ? (showEndpoint ? serverPort : '•••••') : '—'}</span>
 				</div>
 			</div>
 
