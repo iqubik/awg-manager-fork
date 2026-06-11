@@ -131,6 +131,7 @@
     const activeEndpointDisplay = $derived(
         `${showEndpoint ? endpointText : hiddenEndpointText}${activeMember.sni ? ` · SNI ${showEndpoint ? activeMember.sni : '••••••••'}` : ''}`,
     );
+    const activeEndpointSafeTitle = $derived(showEndpoint ? activeEndpointTitle : activeEndpointDisplay);
     const isURLTest = $derived(subscription.mode === 'urltest');
     /** URL feed vs inline server list (wizard: «Подписка» / «Группа серверов»). */
     const isInlineGroup = $derived(subscription.isInline || !subscription.url?.trim());
@@ -319,8 +320,8 @@
                         e.stopPropagation();
                         toggleEndpointVisibility();
                     }}
-                    title={showEndpoint ? 'Скрыть IP' : 'Показать IP'}
-                    aria-label={showEndpoint ? 'Скрыть IP сервера' : 'Показать IP сервера'}
+                    title={showEndpoint ? 'Скрыть endpoint' : 'Показать endpoint'}
+                    aria-label={showEndpoint ? 'Скрыть endpoint сервера' : 'Показать endpoint сервера'}
                 >
                     {#if showEndpoint}
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -488,7 +489,7 @@
                     </TunnelMetaText>
                 </div>
             </td>
-            <td class="tunnel-list-cell tunnel-list-cell--endpoint lc lc-endpoint" data-label="Активный сервер" title={activeEndpointTitle}>
+            <td class="tunnel-list-cell tunnel-list-cell--endpoint lc lc-endpoint" data-label="Активный сервер" title={activeEndpointSafeTitle}>
                 <div class="lc-endpoint-stack">
                     <div class="table-mode-badge-row">
                         <span class="badge mode table-mode-badge">{isURLTest ? 'URLTest' : 'Selector'}</span>
@@ -662,7 +663,7 @@
         </div>
         <div class="mobile-list-fact">
             <span class="mobile-list-fact-label">Endpoint</span>
-            <span class="mobile-list-fact-value mobile-list-fact-value-endpoint" title={activeEndpointTitle}>
+            <span class="mobile-list-fact-value mobile-list-fact-value-endpoint" title={activeEndpointSafeTitle}>
                 <span class="mobile-list-fact-text">{activeEndpointDisplay}</span>
                 <button
                     type="button"
@@ -671,7 +672,7 @@
                         e.stopPropagation();
                         showEndpoint = !showEndpoint;
                     }}
-                    aria-label={showEndpoint ? 'Скрыть IP' : 'Показать IP'}
+                    aria-label={showEndpoint ? 'Скрыть endpoint' : 'Показать endpoint'}
                 >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         {#if showEndpoint}
