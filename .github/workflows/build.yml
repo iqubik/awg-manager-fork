@@ -64,7 +64,7 @@ jobs:
           PREV=""
 
           mkdir -p /tmp/prev-release
-          if gh release download latest --dir /tmp/prev-release --pattern VERSION 2>/dev/null \
+          if gh release download iq-latest --dir /tmp/prev-release --pattern VERSION 2>/dev/null \
             && [[ -f /tmp/prev-release/VERSION ]]; then
             PREV="$(tr -d '[:space:]' < /tmp/prev-release/VERSION)"
             esc="${VERSION//./\\.}"
@@ -287,7 +287,7 @@ jobs:
           go build -o /tmp/changelog-gen ./cmd/changelog-gen
 
           mkdir -p /tmp/prevcl
-          gh release download latest --dir /tmp/prevcl \
+          gh release download iq-latest --dir /tmp/prevcl \
             --pattern CHANGELOG.md --pattern RELEASED_SHA 2>/dev/null || true
 
           START=""
@@ -320,16 +320,17 @@ jobs:
               echo
             } > dist/CHANGELOG.md
           fi
-           printf '%s\n' "$GITHUB_SHA" > dist/RELEASED_SHA
-           echo "=== dist/CHANGELOG.md (head) ==="; head -20 dist/CHANGELOG.md || true
-           if [[ ! -s dist/CHANGELOG.md ]]; then
-             echo "dist/CHANGELOG.md is empty" >&2
-             exit 1
-           fi
+          printf '%s\n' "$GITHUB_SHA" > dist/RELEASED_SHA
+          echo "=== dist/CHANGELOG.md (head) ==="; head -20 dist/CHANGELOG.md || true
+          if [[ ! -s dist/CHANGELOG.md ]]; then
+            echo "dist/CHANGELOG.md is empty" >&2
+            exit 1
+          fi
 
       - name: Publish pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IPK_VERSION: ${{ needs.version.outputs.ipk_version }}
         shell: bash
         run: |
           set -euo pipefail
@@ -339,8 +340,8 @@ jobs:
           cleanup_failed_release() {
             code=$?
             if (( code != 0 )) && (( created_release == 1 )); then
-              echo "Publish failed, deleting partial latest release"
-              gh release delete latest --yes --cleanup-tag || true
+              echo "Publish failed, deleting partial iq-latest release"
+              gh release delete "$RELEASE_TAG" --yes --cleanup-tag || true
             fi
             exit "$code"
           }
@@ -349,18 +350,28 @@ jobs:
 
           shopt -s nullglob
 
-          if gh release view latest >/dev/null 2>&1; then
-            gh release delete latest --yes --cleanup-tag
-          else
-            echo "No previous latest release, creating a fresh one"
+          RELEASE_TAG="iq-latest"
+
+          current_version="$(tr -d '[:space:]' < ./dist/VERSION)"
+          if [[ "$current_version" != "$IPK_VERSION" ]]; then
+            echo "dist/VERSION mismatch: got $current_version, expected $IPK_VERSION" >&2
+            exit 1
           fi
 
-          PREV_TAG=$(gh release list --limit 10 --json tagName --jq '[.[] | select(.tagName != "latest")] | .[0].tagName' 2>/dev/null)
-
-          EXTRA_FLAGS=()
-          if [ -n "${PREV_TAG}" ]; then
-            EXTRA_FLAGS+=("--notes-start-tag" "${PREV_TAG}")
+          ipks=(./dist/awg-manager_*_*-kn.ipk)
+          if (( ${#ipks[@]} == 0 )); then
+            echo "No IPK packages found in ./dist" >&2
+            find ./dist -maxdepth 1 -type f -print
+            exit 1
           fi
+
+          for ipk in ./dist/awg-manager_*_*-kn.ipk; do
+            base="$(basename "$ipk")"
+            if [[ "$base" != awg-manager_"${IPK_VERSION}"_* ]]; then
+              echo "Unexpected IPK version in asset: $base, expected $IPK_VERSION" >&2
+              exit 1
+            fi
+          done
 
           required_files=(
             ./dist/VERSION
@@ -375,13 +386,6 @@ jobs:
             fi
           done
 
-          ipks=(./dist/awg-manager_*_*-kn.ipk)
-          if (( ${#ipks[@]} == 0 )); then
-            echo "No IPK packages found in ./dist" >&2
-            find ./dist -maxdepth 1 -type f -print
-            exit 1
-          fi
-
           files=(./dist/awg-manager_* ./dist/sing-box-* ./dist/VERSION ./dist/CHANGELOG.md ./dist/RELEASED_SHA)
 
           if (( ${#files[@]} == 0 )); then
@@ -389,12 +393,36 @@ jobs:
             exit 1
           fi
 
+          {
+            echo "Development build: ${IPK_VERSION}"
+            echo
+            echo "Commit: ${GITHUB_SHA}"
+            echo
+            echo "## Changelog"
+            echo
+            cat ./dist/CHANGELOG.md
+          } > ./dist/RELEASE_NOTES.md
+
+          echo "Publishing development release"
+          echo "RELEASE_TAG=${RELEASE_TAG}"
+          echo "IPK_VERSION=${IPK_VERSION}"
+          echo "GITHUB_SHA=${GITHUB_SHA}"
+          echo "Assets:"
+          printf ' - %s\n' "${files[@]}"
+          echo "=== RELEASE_NOTES.md head ==="
+          head -80 ./dist/RELEASE_NOTES.md
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release delete "$RELEASE_TAG" --yes --cleanup-tag
+          else
+            echo "No previous ${RELEASE_TAG} release, creating a fresh one"
+          fi
+
           created_release=1
-          gh release create latest "${files[@]}" \
+          gh release create "$RELEASE_TAG" "${files[@]}" \
             --target "${GITHUB_SHA}" \
-            --title "Development build" \
-            --generate-notes \
-            "${EXTRA_FLAGS[@]}" \
+            --title "Development build ${IPK_VERSION}" \
+            --notes-file ./dist/RELEASE_NOTES.md \
             --prerelease
 
           created_release=0
