@@ -128,6 +128,17 @@ func (s *Service) doCheck() {
 	s.syncChangelogSource()
 	info := checkWithDownloader(ctx, s.version, ch, s.downloader)
 
+	s.appLog.Info("check", "", fmt.Sprintf(
+		"Update source: channel=%s source=%s url=%s current=%s latest=%s available=%t error=%s",
+		ch,
+		info.Source,
+		info.SourceURL,
+		info.CurrentVersion,
+		info.LatestVersion,
+		info.Available,
+		info.Error,
+	))
+
 	s.mu.Lock()
 	s.cached = info
 	s.mu.Unlock()

@@ -15,6 +15,9 @@ type UpdateInfo struct {
 	Checking       bool      `json:"checking"`
 	Error          string    `json:"error,omitempty"`
 	Warning        string    `json:"warning,omitempty"`
+	Channel        string    `json:"channel,omitempty"`
+	Source         string    `json:"source,omitempty"`    // "release" | "entware"
+	SourceURL      string    `json:"sourceUrl,omitempty"` // VERSION or Packages.gz URL
 }
 
 var ErrUpgradeInProgress = errors.New("upgrade already in progress")

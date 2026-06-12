@@ -278,6 +278,8 @@ jobs:
 
       - name: Verify localized IPK contents
         shell: bash
+        env:
+          AWG_RELEASE_BASE_URL: ${{ env.AWG_RELEASE_BASE_URL }}
         run: |
           set -euo pipefail
 
@@ -321,6 +323,14 @@ jobs:
             if [[ ! -s "$bin" ]]; then
               echo "Missing extracted awg-manager binary: $bin" >&2
               find data-root -maxdepth 4 -type f -print >&2 || true
+              exit 1
+            fi
+
+            if ! strings "$bin" | grep -F "$AWG_RELEASE_BASE_URL" >/dev/null; then
+              echo "AWG_RELEASE_BASE_URL was not embedded into packaged awg-manager binary" >&2
+              echo "Expected: $AWG_RELEASE_BASE_URL" >&2
+              echo "Known release/url strings:" >&2
+              strings "$bin" | grep -E 'github.com|repo.hoaxisr|releases/download|CHANGELOG|VERSION' >&2 || true
               exit 1
             fi
 
