@@ -330,7 +330,7 @@ func (r *Runner) collectProxyInfo(ctx context.Context, stored *storage.AWGTunnel
 	}
 	targetPrefix := endpointHost + ":" + endpointPort + " "
 
-	for _, line := range strings.Split(string(listData), "\n") {
+	for line := range strings.SplitSeq(string(listData), "\n") {
 		if !strings.HasPrefix(line, targetPrefix) {
 			continue
 		}
@@ -466,7 +466,7 @@ func (r *Runner) collectLogs() []logging.LogEntry {
 // --- Helpers ---
 
 func extractAddr(output, prefix string) string {
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, prefix) {
 			parts := strings.Fields(line)
@@ -479,20 +479,19 @@ func extractAddr(output, prefix string) string {
 }
 
 func extractField(output, field string) string {
-	for _, line := range strings.Split(output, "\n") {
-		if idx := strings.Index(line, field); idx >= 0 {
-			return strings.TrimSpace(line[idx+len(field):])
+	for line := range strings.SplitSeq(output, "\n") {
+		if _, after, ok := strings.Cut(line, field); ok {
+			return strings.TrimSpace(after)
 		}
 	}
 	return ""
 }
 
 func extractTransfer(output, direction string) string {
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if strings.Contains(line, "transfer:") {
 			// "transfer: 1.2 GiB received, 340 MiB sent"
-			parts := strings.Split(line, ",")
-			for _, p := range parts {
+			for p := range strings.SplitSeq(line, ",") {
 				p = strings.TrimSpace(p)
 				if strings.Contains(p, direction) {
 					return strings.TrimSuffix(strings.TrimSuffix(p, " "+direction), "transfer: ")
@@ -504,11 +503,10 @@ func extractTransfer(output, direction string) string {
 }
 
 func extractEndpointIP(awgShow string) string {
-	for _, line := range strings.Split(awgShow, "\n") {
+	for line := range strings.SplitSeq(awgShow, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "endpoint:") {
-			ep := strings.TrimSpace(strings.TrimPrefix(line, "endpoint:"))
-			host, _, err := net.SplitHostPort(ep)
+		if ep, ok := strings.CutPrefix(line, "endpoint:"); ok {
+			host, _, err := net.SplitHostPort(strings.TrimSpace(ep))
 			if err == nil {
 				return host
 			}
@@ -521,7 +519,7 @@ func extractEndpointRoute(routeTable, endpointIP string) string {
 	if endpointIP == "" {
 		return ""
 	}
-	for _, line := range strings.Split(routeTable, "\n") {
+	for line := range strings.SplitSeq(routeTable, "\n") {
 		line = strings.TrimSpace(line)
 		// Match "IP/32 ..." (DHCP) or "IP dev ..." (PPPoE, no /32 suffix)
 		if strings.HasPrefix(line, endpointIP+"/") || strings.HasPrefix(line, endpointIP+" ") {
@@ -532,7 +530,7 @@ func extractEndpointRoute(routeTable, endpointIP string) string {
 }
 
 func extractDefaultRoute(routeTable, ifaceName string) string {
-	for _, line := range strings.Split(routeTable, "\n") {
+	for line := range strings.SplitSeq(routeTable, "\n") {
 		if strings.HasPrefix(line, "default") && strings.Contains(line, ifaceName) {
 			return strings.TrimSpace(line)
 		}
@@ -542,7 +540,7 @@ func extractDefaultRoute(routeTable, ifaceName string) string {
 
 func filterRules(iptablesOutput, ifaceName string) []string {
 	var rules []string
-	for _, line := range strings.Split(iptablesOutput, "\n") {
+	for line := range strings.SplitSeq(iptablesOutput, "\n") {
 		if strings.Contains(line, ifaceName) {
 			rules = append(rules, strings.TrimSpace(line))
 		}
@@ -568,20 +566,20 @@ func formatRouteTable(routes []ndms.Route) string {
 func sanitizeConfig(stored *storage.AWGTunnel) string {
 	var sb strings.Builder
 	sb.WriteString("[Interface]\n")
-	sb.WriteString(fmt.Sprintf("Address = %s\n", stored.Interface.Address))
+	fmt.Fprintf(&sb, "Address = %s\n", stored.Interface.Address)
 	if stored.Interface.MTU > 0 {
-		sb.WriteString(fmt.Sprintf("MTU = %d\n", stored.Interface.MTU))
+		fmt.Fprintf(&sb, "MTU = %d\n", stored.Interface.MTU)
 	}
 	sb.WriteString("PrivateKey = [REDACTED]\n")
 	sb.WriteString("\n[Peer]\n")
-	sb.WriteString(fmt.Sprintf("PublicKey = %s\n", stored.Peer.PublicKey))
+	fmt.Fprintf(&sb, "PublicKey = %s\n", stored.Peer.PublicKey)
 	if stored.Peer.PresharedKey != "" {
 		sb.WriteString("PresharedKey = [REDACTED]\n")
 	}
-	sb.WriteString(fmt.Sprintf("Endpoint = %s\n", stored.Peer.Endpoint))
-	sb.WriteString(fmt.Sprintf("AllowedIPs = %s\n", strings.Join(stored.Peer.AllowedIPs, ", ")))
+	fmt.Fprintf(&sb, "Endpoint = %s\n", stored.Peer.Endpoint)
+	fmt.Fprintf(&sb, "AllowedIPs = %s\n", strings.Join(stored.Peer.AllowedIPs, ", "))
 	if stored.Peer.PersistentKeepalive > 0 {
-		sb.WriteString(fmt.Sprintf("PersistentKeepalive = %d\n", stored.Peer.PersistentKeepalive))
+		fmt.Fprintf(&sb, "PersistentKeepalive = %d\n", stored.Peer.PersistentKeepalive)
 	}
 	return sb.String()
 }
@@ -605,7 +603,7 @@ func (r *Runner) collectAWGProxyModule(ctx context.Context) AWGProxyModule {
 	if listData, err := kmod.ReadProc("/proc/awg_proxy/list"); err == nil {
 		mod.RawList = string(listData)
 		count := 0
-		for _, line := range strings.Split(mod.RawList, "\n") {
+		for line := range strings.SplitSeq(mod.RawList, "\n") {
 			if strings.TrimSpace(line) != "" {
 				count++
 			}
@@ -619,7 +617,7 @@ func (r *Runner) collectAWGProxyModule(ctx context.Context) AWGProxyModule {
 	if result, err := exec.Shell(ctx, "dmesg | grep -i awg_proxy"); err == nil {
 		raw := strings.TrimSpace(result.Stdout)
 		if raw != "" {
-			for _, line := range strings.Split(raw, "\n") {
+			for line := range strings.SplitSeq(raw, "\n") {
 				line = strings.TrimSpace(line)
 				if line != "" {
 					mod.DmesgLines = append(mod.DmesgLines, line)
