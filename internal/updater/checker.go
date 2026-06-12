@@ -30,7 +30,7 @@ const (
 )
 
 var (
-	releaseVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+(?:\+r\d+)?$`)
+	releaseVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+(?:\.\d+)*(?:\+r\d+)?$`)
 
 	// entwareRepoURL is a variable so tests can override it with httptest server URL.
 	entwareRepoURL = defaultEntwareRepoURL

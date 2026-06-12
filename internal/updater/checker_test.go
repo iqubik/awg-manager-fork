@@ -481,6 +481,44 @@ func TestCheck_DevelopWithReleaseBaseURLSameRevisionUpToDate(t *testing.T) {
 	}
 }
 
+func TestCheck_ReleaseBaseURLAcceptsForkFourSegmentVersion(t *testing.T) {
+	oldReleaseBaseURL := releaseBaseURL
+	oldEntwareRepoURL := entwareRepoURL
+	defer func() {
+		releaseBaseURL = oldReleaseBaseURL
+		entwareRepoURL = oldEntwareRepoURL
+	}()
+
+	releaseBaseURL = "https://example.com/releases/download/iq-latest"
+	arch := archSuffix()
+
+	for _, channel := range []string{channelStable, channelDevelop} {
+		var seen downloader.Request
+		dl := &fakeDownloader{
+			readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+				seen = req
+				return []byte("2.12.3.4+r1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			},
+		}
+
+		info := checkWithDownloader(context.Background(), "2.12.3.3.1", channel, dl)
+
+		if seen.URL != releaseBaseURL+"/VERSION" {
+			t.Fatalf("request URL = %q, want %q", seen.URL, releaseBaseURL+"/VERSION")
+		}
+		if !info.Available {
+			t.Fatalf("expected update available, got %+v", info)
+		}
+		if info.LatestVersion != "2.12.3.4+r1" {
+			t.Fatalf("LatestVersion = %q, want 2.12.3.4+r1", info.LatestVersion)
+		}
+		wantURL := releaseBaseURL + "/awg-manager_2.12.3.4+r1_" + arch + "-kn.ipk"
+		if info.DownloadURL != wantURL {
+			t.Fatalf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
+		}
+	}
+}
+
 func TestCheck_StableWithReleaseBaseURLRejectsNonSemverVersion(t *testing.T) {
 	oldReleaseBaseURL := releaseBaseURL
 	oldEntwareRepoURL := entwareRepoURL
