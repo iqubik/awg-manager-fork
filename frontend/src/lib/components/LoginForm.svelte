@@ -22,7 +22,7 @@
 	}
 </script>
 
-<div class="login-container" data-awg-ui-protected>
+<div class="login-container">
 	<div class="login-card">
 		<div class="login-header">
 			<div class="login-brand">

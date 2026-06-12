@@ -174,7 +174,7 @@
 			</a>
 
 			{#if currentVersion || (versionPending && authenticated)}
-				<span class="version-slot" data-awg-ui-protected>
+				<span class="version-slot">
 					{#if currentVersion}
 						{#if hasUpdate && authenticated && !onSettingsPage}
 							<a
@@ -220,13 +220,7 @@
 			<nav class="nav" aria-label="Главная навигация">
 				<LegacyTabs value={currentRoute} onChange={navigate} variant="underline">
 					{#each visibleItems as item (item.section)}
-						{#if item.section === 'settings'}
-							<span class="nav-protected-tab" data-awg-ui-protected>
-								<LegacyTab value={item.href}>{item.label}</LegacyTab>
-							</span>
-						{:else}
-							<LegacyTab value={item.href}>{item.label}</LegacyTab>
-						{/if}
+						<LegacyTab value={item.href}>{item.label}</LegacyTab>
 					{/each}
 				</LegacyTabs>
 			</nav>
@@ -384,7 +378,6 @@
 					href={item.href}
 					class="mobile-nav-link"
 					class:active={item.matches($page.url.pathname)}
-					data-awg-ui-protected={item.section === 'settings' ? true : undefined}
 					onclick={closeMobileMenu}>{prettyMobileLabel(item.label)}</a
 				>
 			{/each}
@@ -433,10 +426,6 @@
 		font-size: 14px;
 		letter-spacing: -0.02em;
 		text-transform: uppercase;
-	}
-
-	.nav-protected-tab {
-		display: contents;
 	}
 
 	.nav {
