@@ -482,3 +482,18 @@ jobs:
             --title "IQ localized development build" \
             --generate-notes \
             --prerelease
+
+          echo "Published release state:"
+          gh release view iq-latest --json isDraft,isPrerelease,tagName,name
+
+          is_draft="$(gh release view iq-latest --json isDraft --jq '.isDraft')"
+          if [[ "$is_draft" == "true" ]]; then
+            echo "Release iq-latest is still draft after publish" >&2
+            exit 1
+          fi
+
+          published_version="$(curl -fsSL "https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest/VERSION" | tr -d '[:space:]')"
+          if [[ "$published_version" != "${{ needs.version.outputs.ipk_version }}" ]]; then
+            echo "Published VERSION mismatch: got ${published_version}, expected ${{ needs.version.outputs.ipk_version }}" >&2
+            exit 1
+          fi

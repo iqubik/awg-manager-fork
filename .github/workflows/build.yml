@@ -518,5 +518,20 @@ jobs:
             --notes-file ./dist/RELEASE_NOTES.md \
             --prerelease
 
+          echo "Published release state:"
+          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName,name
+
+          is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')"
+          if [[ "$is_draft" == "true" ]]; then
+            echo "Release ${RELEASE_TAG} is still draft after publish" >&2
+            exit 1
+          fi
+
+          published_version="$(curl -fsSL "https://github.com/iqubik/awg-manager-fork/releases/download/${RELEASE_TAG}/VERSION" | tr -d '[:space:]')"
+          if [[ "$published_version" != "$IPK_VERSION" ]]; then
+            echo "Published VERSION mismatch: got ${published_version}, expected ${IPK_VERSION}" >&2
+            exit 1
+          fi
+
           created_release=0
           trap - EXIT
