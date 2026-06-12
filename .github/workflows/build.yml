@@ -412,6 +412,7 @@ jobs:
           echo "=== RELEASE_NOTES.md head ==="
           head -80 ./dist/RELEASE_NOTES.md
 
+          echo "Deleting previous ${RELEASE_TAG} release"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release delete "$RELEASE_TAG" --yes --cleanup-tag
           else
