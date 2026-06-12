@@ -39,9 +39,12 @@ echo "Building awg-manager $VERSION for $ARCH ($($GO_CMD version))..."
 
 LD_FLAGS="-s -w -X main.version=${VERSION} -X main.buildArch=${ENTWARE_ARCH}"
 
-if [[ -n "${AWG_RELEASE_BASE_URL:-}" ]]; then
-    LD_FLAGS="${LD_FLAGS} -X github.com/hoaxisr/awg-manager/internal/updater.releaseBaseURL=${AWG_RELEASE_BASE_URL}"
-fi
+DEFAULT_AWG_RELEASE_BASE_URL="https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest"
+EFFECTIVE_AWG_RELEASE_BASE_URL="${AWG_RELEASE_BASE_URL:-$DEFAULT_AWG_RELEASE_BASE_URL}"
+
+echo "Embedding AWG release base URL: ${EFFECTIVE_AWG_RELEASE_BASE_URL}"
+
+LD_FLAGS="${LD_FLAGS} -X github.com/hoaxisr/awg-manager/internal/updater.releaseBaseURL=${EFFECTIVE_AWG_RELEASE_BASE_URL}"
 
 case "$ARCH" in
     mipsle|mipsel)

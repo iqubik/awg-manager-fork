@@ -14,6 +14,7 @@ set "BUILD_MODE=arm"
 :: - "on": Upload and install the built IPK on rax1 (default if ARM64 built)
 :: - "off": Skip upload and installation
 set "UPLOAD_MODE=on"
+set "AWG_RELEASE_BASE_URL=https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest"
 :: ===========================
 
 set "LOGFILE=build.log"
@@ -104,6 +105,8 @@ echo  Building for: %ARCH_DISPLAY% >> "%LOGFILE%"
 echo  Building for: %ARCH_DISPLAY%
 echo  Upload mode: %UPLOAD_MODE% >> "%LOGFILE%"
 echo  Upload mode: %UPLOAD_MODE%
+echo  AWG_RELEASE_BASE_URL: %AWG_RELEASE_BASE_URL% >> "%LOGFILE%"
+echo  AWG_RELEASE_BASE_URL: %AWG_RELEASE_BASE_URL%
 if "%1"=="" (
     echo  (using BUILD_MODE from script) >> "%LOGFILE%"
     echo  (using BUILD_MODE from script)
@@ -132,7 +135,7 @@ if %BUILD_ARM%==1 set /a TOTAL_STEPS+=1
 if %BUILD_MIPSEL%==1 (
     echo [!STEP!/!TOTAL_STEPS!] Building mipsel-3.4... >> "%LOGFILE%"
     echo [!STEP!/!TOTAL_STEPS!] Building mipsel-3.4...
-    "!BASH!" -lc "cd '!UNIX_PROJECT!' && ./scripts/build-ipk.sh mipsel-3.4 2>&1 | tee -a '!LOGFILE!'"
+    "!BASH!" -lc "cd '!UNIX_PROJECT!' && AWG_RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/build-ipk.sh mipsel-3.4 2>&1 | tee -a '!LOGFILE!'"
     if !errorlevel! neq 0 (
         echo ERROR: MIPSEL build failed! >> %LOGFILE%
         echo ERROR: MIPSEL build failed!
@@ -147,7 +150,7 @@ if %BUILD_MIPSEL%==1 (
 if %BUILD_MIPS%==1 (
     echo [!STEP!/!TOTAL_STEPS!] Building mips-3.4... >> "%LOGFILE%"
     echo [!STEP!/!TOTAL_STEPS!] Building mips-3.4...
-    "!BASH!" -lc "cd '!UNIX_PROJECT!' && ./scripts/build-ipk.sh mips-3.4 2>&1 | tee -a '!LOGFILE!'"
+    "!BASH!" -lc "cd '!UNIX_PROJECT!' && AWG_RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/build-ipk.sh mips-3.4 2>&1 | tee -a '!LOGFILE!'"
     if !errorlevel! neq 0 (
         echo ERROR: MIPS build failed! >> %LOGFILE%
         echo ERROR: MIPS build failed!
@@ -162,7 +165,7 @@ if %BUILD_MIPS%==1 (
 if %BUILD_ARM%==1 (
     echo [!STEP!/!TOTAL_STEPS!] Building aarch64-3.10... >> "%LOGFILE%"
     echo [!STEP!/!TOTAL_STEPS!] Building aarch64-3.10...
-    "!BASH!" -lc "cd '!UNIX_PROJECT!' && ./scripts/build-ipk.sh aarch64-3.10 2>&1 | tee -a '!LOGFILE!'"
+    "!BASH!" -lc "cd '!UNIX_PROJECT!' && AWG_RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/build-ipk.sh aarch64-3.10 2>&1 | tee -a '!LOGFILE!'"
     if !errorlevel! neq 0 (
         echo ERROR: ARM64 build failed! >> %LOGFILE%
         echo ERROR: ARM64 build failed!
@@ -193,6 +196,18 @@ echo ======================================== >> %LOGFILE%
 echo ========================================
 dir "!PROJECT!\dist\*.ipk" >> %LOGFILE%
 dir "!PROJECT!\dist\*.ipk"
+
+if %BUILD_ARM%==1 (
+    echo Verifying AWG_RELEASE_BASE_URL inside packaged IPK... >> "%LOGFILE%"
+    echo Verifying AWG_RELEASE_BASE_URL inside packaged IPK...
+    "!BASH!" -lc "cd '!UNIX_PROJECT!' && ipk=$(ls -t dist/awg-manager_*_aarch64-3.10-kn.ipk | head -n1) && tmp=$(mktemp -d) && cp \"$ipk\" \"$tmp/package.ipk\" && cd \"$tmp\" && tar -xzf package.ipk && data_tar=$(ls data.tar.* | head -n1) && mkdir data-root && tar -xzf \"$data_tar\" -C data-root && strings data-root/opt/bin/awg-manager | grep -F '!AWG_RELEASE_BASE_URL!' >/dev/null"
+    if !errorlevel! neq 0 (
+        echo ERROR: AWG_RELEASE_BASE_URL not embedded into packaged IPK! >> "%LOGFILE%"
+        echo ERROR: AWG_RELEASE_BASE_URL not embedded into packaged IPK!
+        pause
+        exit /b 1
+    )
+)
 
 if /i "%UPLOAD_MODE%"=="off" goto :skip_upload
 if %BUILD_ARM%==0 goto :skip_upload

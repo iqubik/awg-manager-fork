@@ -8,6 +8,8 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/updater"
 )
 
+const changelogFetchUnavailableMessage = "Список изменений временно недоступен. Повторите попытку позже."
+
 // ── Response DTOs ────────────────────────────────────────────────
 
 // UpdateInfoData mirrors frontend UpdateInfo.
@@ -176,7 +178,7 @@ func (h *UpdateHandler) Changelog(w http.ResponseWriter, r *http.Request) {
 			response.ErrorWithStatus(
 				w,
 				http.StatusBadGateway,
-				"Список изменений временно недоступен. Повторите попытку позже.",
+				changelogFetchUnavailableMessage,
 				"CHANGELOG_FETCH_FAILED",
 			)
 			return
@@ -191,7 +193,7 @@ func (h *UpdateHandler) Changelog(w http.ResponseWriter, r *http.Request) {
 		response.ErrorWithStatus(
 			w,
 			http.StatusBadGateway,
-			"Список изменений временно недоступен. Повторите попытку позже.",
+			changelogFetchUnavailableMessage,
 			"CHANGELOG_FETCH_FAILED",
 		)
 		return
