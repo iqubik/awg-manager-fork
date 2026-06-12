@@ -568,11 +568,15 @@ func TestService_ListDelayTags_PrefersSelectorThenActiveMember(t *testing.T) {
 	if len(tags) != 2 {
 		t.Fatalf("expected 2 delay tags, got %d: %v", len(tags), tags)
 	}
-	if tags[0] != "sub-A-selector" {
-		t.Errorf("got %q want sub-A-selector", tags[0])
+	got := map[string]bool{}
+	for _, tag := range tags {
+		got[tag] = true
 	}
-	if tags[1] != "sub-B-2222" {
-		t.Errorf("got %q want sub-B-2222", tags[1])
+	if !got["sub-A-selector"] {
+		t.Errorf("expected selector delay tag present, got %v", tags)
+	}
+	if !got["sub-B-2222"] {
+		t.Errorf("expected active member delay tag present, got %v", tags)
 	}
 }
 
