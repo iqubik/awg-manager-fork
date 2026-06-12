@@ -392,24 +392,26 @@ definitions:
   api.ChangelogEntryDTO:
     properties:
       date:
-        example: "2024-01-15"
+        example: "2026-06-12"
         type: string
       groups:
         items:
           $ref: '#/definitions/api.ChangelogGroupDTO'
         type: array
       version:
-        example: 2.5.0
+        example: 2.12.3.10+r2
         type: string
     type: object
   api.ChangelogGroupDTO:
     properties:
       heading:
-        example: Bug Fixes
+        example: Исправлено
         type: string
       items:
         example:
-        - Fixed tunnel restart loop
+        - |-
+          fix(dev): align local build version with VERSION file
+          Комментарий: локальная dev-сборка теперь берёт base VERSION и добавляет +r0 сама.
         items:
           type: string
         type: array

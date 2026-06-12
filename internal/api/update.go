@@ -29,14 +29,14 @@ type UpdateCheckResponse struct {
 
 // ChangelogGroupDTO mirrors frontend ChangelogGroup.
 type ChangelogGroupDTO struct {
-	Heading string   `json:"heading" example:"Bug Fixes"`
-	Items   []string `json:"items" example:"Fixed tunnel restart loop"`
+	Heading string   `json:"heading" example:"Исправлено"`
+	Items   []string `json:"items" example:"fix(dev): align local build version with VERSION file\nКомментарий: локальная dev-сборка теперь берёт base VERSION и добавляет +r0 сама."`
 }
 
 // ChangelogEntryDTO mirrors frontend ChangelogEntry.
 type ChangelogEntryDTO struct {
-	Version string              `json:"version" example:"2.5.0"`
-	Date    string              `json:"date" example:"2024-01-15"`
+	Version string              `json:"version" example:"2.12.3.10+r2"`
+	Date    string              `json:"date" example:"2026-06-12"`
 	Groups  []ChangelogGroupDTO `json:"groups"`
 }
 

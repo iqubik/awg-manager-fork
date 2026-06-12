@@ -234,3 +234,23 @@ func TestParseChangelog_MixedBulletsAndProse(t *testing.T) {
 		t.Errorf("prose item = %q", items[1])
 	}
 }
+
+func TestParseChangelog_IndentedContinuationBelongsToPreviousItem(t *testing.T) {
+	md := `## [2.12.3.10+r1] - 2026-06-12
+
+### Исправлено
+- fix(dev): subject
+  Комментарий: body text
+`
+	got, err := ParseChangelog(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := got["2.12.3.10+r1"].Groups[0].Items
+	if len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[0] != "fix(dev): subject\nКомментарий: body text" {
+		t.Fatalf("item = %q", items[0])
+	}
+}

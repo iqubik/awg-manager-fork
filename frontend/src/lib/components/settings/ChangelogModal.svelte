@@ -103,6 +103,7 @@
 	.modal-body {
 		max-height: 70vh;
 		overflow-y: auto;
+		overflow-x: hidden;
 	}
 	.state-msg {
 		margin: 0;

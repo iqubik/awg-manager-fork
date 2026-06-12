@@ -383,7 +383,7 @@ jobs:
           fi
 
           echo "changelog range: ${START}..${GITHUB_SHA}"
-          git log --format='%s' "${START}..${GITHUB_SHA}" \
+          git log --no-merges --format='%x1e%H%x1f%s%x1f%b' "${START}..${GITHUB_SHA}" \
             | /tmp/changelog-gen --version "$IPK_VERSION" --date "$(date +%F)" > /tmp/delta.md
 
           PREV=/tmp/prevcl/CHANGELOG.md

@@ -58,7 +58,7 @@ func ParseChangelog(md string) (map[string]Entry, error) {
 		}
 	}
 
-	appendLine := func(trimmed string) {
+	appendLine := func(line, trimmed string) {
 		if proseLine.MatchString(trimmed) || hrLine.MatchString(trimmed) {
 			return
 		}
@@ -68,6 +68,11 @@ func ParseChangelog(md string) (map[string]Entry, error) {
 		}
 		if m := itemLine.FindStringSubmatch(trimmed); m != nil {
 			curGroup.Items = append(curGroup.Items, m[1])
+			return
+		}
+		if len(curGroup.Items) > 0 && strings.HasPrefix(line, " ") {
+			last := len(curGroup.Items) - 1
+			curGroup.Items[last] = curGroup.Items[last] + "\n" + trimmed
 			return
 		}
 		curGroup.Items = append(curGroup.Items, trimmed)
@@ -93,7 +98,7 @@ func ParseChangelog(md string) (map[string]Entry, error) {
 			curGroup = &Group{Heading: m[1]}
 			continue
 		}
-		appendLine(trimmed)
+		appendLine(line, trimmed)
 	}
 	flushEntry()
 	return out, nil

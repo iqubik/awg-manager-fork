@@ -2510,6 +2510,82 @@ const mockClientRoutes = [
 	},
 ];
 
+const MOCK_CHANGELOG_ENTRIES = [
+	{
+		version: '2.5.0',
+		date: '2024-01-15',
+		groups: [
+			{
+				heading: 'Исправлено',
+				items: [
+					'fix(dev): align local build version with VERSION file\nКомментарий: локальная dev-сборка теперь берёт base VERSION из файла и сама добавляет +r0, чтобы на устройство всегда ставился ожидаемый IPK.',
+					'fix(changelog): harden persistent accordion state\nКомментарий: initial state теперь сохраняется в localStorage, а первый item инициализируется даже если entries пришли после mount.',
+					'fix(ui): compact changelog modal',
+				],
+			},
+			{
+				heading: 'Добавлено',
+				items: [
+					'feat(changelog): show commit body in release notes\nКомментарий: модалка "Что нового" теперь умеет показывать пояснение из body commit message прямо под заголовком записи.',
+					'feat(mock): richer changelog fixture for accordion testing',
+				],
+			},
+		],
+	},
+	{
+		version: '2.4.9',
+		date: '2024-01-09',
+		groups: [
+			{
+				heading: 'Исправлено',
+				items: [
+					'fix(update): keep changelog fetch errors user-friendly\nКомментарий: ошибки 502 и временная недоступность репозитория теперь показываются понятным текстом вместо сырого ответа сервера.',
+				],
+			},
+			{
+				heading: 'Рефакторинг',
+				items: [
+					'refactor(frontend): split changelog items into title and details\nКомментарий: рендер разделён на компактный заголовок и вторую строку с подробностями без использования {@html}.',
+				],
+			},
+		],
+	},
+	{
+		version: '2.4.8',
+		date: '2024-01-04',
+		groups: [
+			{
+				heading: 'Производительность',
+				items: [
+					'perf(frontend): reduce modal re-renders',
+				],
+			},
+		],
+	},
+];
+
+function buildMockChangelogEntries(url) {
+	const from = (url.searchParams.get('from') || '').trim();
+	const to = (url.searchParams.get('to') || '').trim();
+	if (!to) return MOCK_CHANGELOG_ENTRIES;
+
+	const toIndex = MOCK_CHANGELOG_ENTRIES.findIndex((entry) => entry.version === to);
+	if (toIndex < 0) return MOCK_CHANGELOG_ENTRIES;
+
+	if (!from) {
+		return MOCK_CHANGELOG_ENTRIES.slice(toIndex);
+	}
+
+	const fromIndex = MOCK_CHANGELOG_ENTRIES.findIndex((entry) => entry.version === from);
+	if (fromIndex < 0) {
+		return MOCK_CHANGELOG_ENTRIES.slice(0, toIndex + 1);
+	}
+
+	const start = Math.min(fromIndex, toIndex);
+	const end = Math.max(fromIndex, toIndex);
+	return MOCK_CHANGELOG_ENTRIES.slice(start, end + 1);
+}
+
 // Built on demand in handlers so policy mutations and tunnel status changes
 // stay visible without restarting the mock proxy.
 const LEGACY_POLICY_INTERFACE_FIXTURES = [
@@ -3666,6 +3742,16 @@ const server = http.createServer(async (req, res) => {
 		send(res, 200, {
 			success: true,
 			data: buildDownloadOutbounds(),
+		});
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/system/update/changelog') {
+		send(res, 200, {
+			success: true,
+			data: {
+				entries: buildMockChangelogEntries(url),
+			},
 		});
 		return;
 	}
