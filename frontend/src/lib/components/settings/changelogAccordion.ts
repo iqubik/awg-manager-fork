@@ -1,10 +1,11 @@
 import type { ChangelogEntry } from '$lib/types';
 
-export const CHANGELOG_ACCORDION_STORAGE_KEY = 'awgm:changelog-accordion:v2';
+export const CHANGELOG_ACCORDION_STORAGE_KEY = 'awgm:changelog-accordion:v3';
 
 export type ChangelogAccordionStorage = {
-	schemaVersion: 2;
-	openByKey: Record<string, boolean>;
+	schemaVersion: 3;
+	openItemByKey: Record<string, boolean>;
+	openVersionByKey: Record<string, boolean>;
 };
 
 export function splitChangelogItem(item: string): { title: string; details: string } {
@@ -23,11 +24,24 @@ export function changelogItemKey(version: string, groupTitle: string, title: str
 	return `${version}::${groupTitle}::${title}`;
 }
 
-export function createInitialAccordionState(firstKey: string | null): ChangelogAccordionStorage {
+export function changelogVersionKey(version: string): string {
+	return `version::${version}`;
+}
+
+export function createInitialAccordionState(entries: ChangelogEntry[]): ChangelogAccordionStorage {
+	const firstVersionKey = getFirstChangelogVersionKey(entries);
+	const firstItemKey = getFirstChangelogItemKey(entries);
+
 	return {
-		schemaVersion: 2,
-		openByKey: firstKey ? { [firstKey]: true } : {},
+		schemaVersion: 3,
+		openItemByKey: firstItemKey ? { [firstItemKey]: true } : {},
+		openVersionByKey: firstVersionKey ? { [firstVersionKey]: true } : {},
 	};
+}
+
+export function getFirstChangelogVersionKey(entries: ChangelogEntry[]): string | null {
+	const first = entries[0];
+	return first ? changelogVersionKey(first.version) : null;
 }
 
 export function getFirstChangelogItemKey(entries: ChangelogEntry[]): string | null {
@@ -45,7 +59,7 @@ export function getFirstChangelogItemKey(entries: ChangelogEntry[]): string | nu
 }
 
 export function readChangelogAccordionState(entries: ChangelogEntry[]): ChangelogAccordionStorage {
-	const initial = createInitialAccordionState(getFirstChangelogItemKey(entries));
+	const initial = createInitialAccordionState(entries);
 	if (typeof window === 'undefined') return initial;
 
 	try {
@@ -62,8 +76,9 @@ export function readChangelogAccordionState(entries: ChangelogEntry[]): Changelo
 		}
 
 		return {
-			schemaVersion: 2,
-			openByKey: { ...parsed.openByKey },
+			schemaVersion: 3,
+			openItemByKey: { ...parsed.openItemByKey },
+			openVersionByKey: { ...parsed.openVersionByKey },
 		};
 	} catch {
 		persistChangelogAccordionState(initial);
@@ -84,7 +99,14 @@ export function isChangelogAccordionOpen(
 	state: ChangelogAccordionStorage,
 	itemKey: string,
 ): boolean {
-	return state.openByKey[itemKey] === true;
+	return state.openItemByKey[itemKey] === true;
+}
+
+export function isChangelogVersionOpen(
+	state: ChangelogAccordionStorage,
+	versionKey: string,
+): boolean {
+	return state.openVersionByKey[versionKey] === true;
 }
 
 export function toggleChangelogAccordionState(
@@ -92,10 +114,25 @@ export function toggleChangelogAccordionState(
 	itemKey: string,
 ): ChangelogAccordionStorage {
 	return {
-		schemaVersion: 2,
-		openByKey: {
-			...state.openByKey,
+		schemaVersion: 3,
+		openItemByKey: {
+			...state.openItemByKey,
 			[itemKey]: !isChangelogAccordionOpen(state, itemKey),
+		},
+		openVersionByKey: { ...state.openVersionByKey },
+	};
+}
+
+export function toggleChangelogVersionState(
+	state: ChangelogAccordionStorage,
+	versionKey: string,
+): ChangelogAccordionStorage {
+	return {
+		schemaVersion: 3,
+		openItemByKey: { ...state.openItemByKey },
+		openVersionByKey: {
+			...state.openVersionByKey,
+			[versionKey]: !isChangelogVersionOpen(state, versionKey),
 		},
 	};
 }
@@ -105,11 +142,16 @@ function isChangelogAccordionStorage(value: unknown): value is ChangelogAccordio
 
 	const parsed = value as {
 		schemaVersion?: unknown;
-		openByKey?: unknown;
+		openItemByKey?: unknown;
+		openVersionByKey?: unknown;
 	};
 
-	if (parsed.schemaVersion !== 2) return false;
-	if (!parsed.openByKey || typeof parsed.openByKey !== 'object') return false;
+	if (parsed.schemaVersion !== 3) return false;
+	if (!parsed.openItemByKey || typeof parsed.openItemByKey !== 'object') return false;
+	if (!parsed.openVersionByKey || typeof parsed.openVersionByKey !== 'object') return false;
 
-	return Object.values(parsed.openByKey).every((item) => typeof item === 'boolean');
+	return (
+		Object.values(parsed.openItemByKey).every((item) => typeof item === 'boolean') &&
+		Object.values(parsed.openVersionByKey).every((item) => typeof item === 'boolean')
+	);
 }

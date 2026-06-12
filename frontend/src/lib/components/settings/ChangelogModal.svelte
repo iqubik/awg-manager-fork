@@ -69,21 +69,6 @@
 
 <Modal {open} title="Что нового" size="lg" {onclose}>
 	<div class="modal-body">
-		{#if !pendingUpdate}
-			<div class="changelog-notice" role="status">
-				<p>
-					В данном списке представлены изменения из версий, которые были выпущены и установлены ранее.
-				</p>
-				<p class="changelog-notice-hint">
-					Вы можете проверить, доступно ли обновление, нажав кнопку ниже.
-				</p>
-				{#if oncheckUpdates}
-					<Button variant="secondary" size="sm" onclick={oncheckUpdates}>
-						Проверить обновления
-					</Button>
-				{/if}
-			</div>
-		{/if}
 		{#if loading}
 			<LoadingSpinner />
 		{:else if error}
@@ -112,25 +97,5 @@
 	}
 	.state-error {
 		color: var(--error);
-	}
-	.changelog-notice {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
-		margin-bottom: 0.75rem;
-		border: 1px solid var(--color-warning-border, var(--border));
-		border-radius: var(--radius);
-		background: var(--color-warning-tint, var(--bg-secondary, rgba(234, 179, 8, 0.08)));
-	}
-	.changelog-notice p {
-		margin: 0;
-		font-size: 0.875rem;
-		color: var(--text-secondary);
-		line-height: 1.4;
-	}
-	.changelog-notice-hint {
-		color: var(--text-muted) !important;
 	}
 </style>

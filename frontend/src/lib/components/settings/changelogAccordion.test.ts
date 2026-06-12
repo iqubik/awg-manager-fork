@@ -1,13 +1,16 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChangelogEntry } from '$lib/types';
 import {
 	CHANGELOG_ACCORDION_STORAGE_KEY,
 	changelogItemKey,
+	changelogVersionKey,
 	createInitialAccordionState,
-	getFirstChangelogItemKey,
+	getFirstChangelogVersionKey,
+	isChangelogVersionOpen,
 	readChangelogAccordionState,
 	splitChangelogItem,
 	toggleChangelogAccordionState,
+	toggleChangelogVersionState,
 } from './changelogAccordion';
 
 const sampleEntries: ChangelogEntry[] = [
@@ -43,86 +46,88 @@ describe('changelogAccordion', () => {
 	});
 
 	it('splits item into title and details', () => {
-		expect(
-			splitChangelogItem('fix(dev): subject\n  Комментарий: body text\n\n'),
-		).toEqual({
+		expect(splitChangelogItem('fix(dev): subject\n  Комментарий: body text\n\n')).toEqual({
 			title: 'fix(dev): subject',
 			details: 'Комментарий: body text',
 		});
 	});
 
-	it('opens only the first item in the initial state', () => {
-		const firstKey = getFirstChangelogItemKey(sampleEntries);
-		expect(createInitialAccordionState(firstKey)).toEqual({
-			schemaVersion: 2,
-			openByKey: {
+	it('opens only the first version and first item in the initial state', () => {
+		expect(createInitialAccordionState(sampleEntries)).toEqual({
+			schemaVersion: 3,
+			openItemByKey: {
 				[changelogItemKey('2.12.3.10+r1', 'Исправлено', 'fix(dev): align local build version with VERSION file')]: true,
+			},
+			openVersionByKey: {
+				[changelogVersionKey('2.12.3.10+r1')]: true,
 			},
 		});
 	});
 
-	it('falls back to initial state when storage is empty', () => {
-		expect(readChangelogAccordionState(sampleEntries)).toEqual(
-			createInitialAccordionState(getFirstChangelogItemKey(sampleEntries)),
-		);
+	it('keeps older versions closed by default', () => {
+		const state = createInitialAccordionState(sampleEntries);
+		expect(isChangelogVersionOpen(state, changelogVersionKey('2.12.3.10+r1'))).toBe(true);
+		expect(isChangelogVersionOpen(state, changelogVersionKey('2.12.3.9+r9'))).toBe(false);
 	});
 
-	it('persists initial v2 state when storage is empty', () => {
+	it('persists initial v3 state when storage is empty', () => {
 		const state = readChangelogAccordionState(sampleEntries);
 		expect(JSON.parse(localStorage.getItem(CHANGELOG_ACCORDION_STORAGE_KEY) ?? 'null')).toEqual(state);
 	});
 
-	it('falls back to initial state when storage schema is old', () => {
+	it('resets v2 storage to v3 initial state', () => {
 		localStorage.setItem(
 			CHANGELOG_ACCORDION_STORAGE_KEY,
-			JSON.stringify({ schemaVersion: 1, openByKey: { broken: true } }),
-		);
-		expect(readChangelogAccordionState(sampleEntries)).toEqual(
-			createInitialAccordionState(getFirstChangelogItemKey(sampleEntries)),
-		);
-	});
-
-	it('migrates old storage schema to persisted v2 state', () => {
-		localStorage.setItem(
-			CHANGELOG_ACCORDION_STORAGE_KEY,
-			JSON.stringify({ schemaVersion: 1, openByKey: { broken: true } }),
+			JSON.stringify({ schemaVersion: 2, openByKey: { broken: true } }),
 		);
 
 		const state = readChangelogAccordionState(sampleEntries);
+		expect(state).toEqual(createInitialAccordionState(sampleEntries));
 		expect(JSON.parse(localStorage.getItem(CHANGELOG_ACCORDION_STORAGE_KEY) ?? 'null')).toEqual(state);
 	});
 
-	it('keeps persisted state and does not auto-open unknown items', () => {
-		const persistedKey = changelogItemKey(
-			'2.12.3.9+r9',
-			'Добавлено',
-			'feat(updater): better version labels',
-		);
-		localStorage.setItem(
-			CHANGELOG_ACCORDION_STORAGE_KEY,
-			JSON.stringify({
-				schemaVersion: 2,
-				openByKey: { [persistedKey]: true },
-			}),
-		);
-
-		expect(readChangelogAccordionState(sampleEntries)).toEqual({
-			schemaVersion: 2,
-			openByKey: { [persistedKey]: true },
-		});
-	});
-
-	it('toggles one accordion key without depending on list indexes', () => {
+	it('toggles one item accordion key without depending on list indexes', () => {
 		const itemKey = changelogItemKey(
 			'2.12.3.10+r1',
 			'Исправлено',
 			'fix(ui): compact changelog modal',
 		);
-		const toggled = toggleChangelogAccordionState(
-			createInitialAccordionState(getFirstChangelogItemKey(sampleEntries)),
-			itemKey,
+		const toggled = toggleChangelogAccordionState(createInitialAccordionState(sampleEntries), itemKey);
+
+		expect(toggled.openItemByKey[itemKey]).toBe(true);
+	});
+
+	it('toggles an older version and persists state shape', () => {
+		const versionKey = changelogVersionKey('2.12.3.9+r9');
+		const toggled = toggleChangelogVersionState(createInitialAccordionState(sampleEntries), versionKey);
+		expect(isChangelogVersionOpen(toggled, versionKey)).toBe(true);
+		expect(toggled.openVersionByKey[changelogVersionKey('2.12.3.10+r1')]).toBe(true);
+	});
+
+	it('returns the first changelog version key', () => {
+		expect(getFirstChangelogVersionKey(sampleEntries)).toBe(changelogVersionKey('2.12.3.10+r1'));
+	});
+
+	it('keeps persisted state and does not auto-open new versions', () => {
+		const persistedItemKey = changelogItemKey(
+			'2.12.3.9+r9',
+			'Добавлено',
+			'feat(updater): better version labels',
+		);
+		const persistedVersionKey = changelogVersionKey('2.12.3.9+r9');
+		localStorage.setItem(
+			CHANGELOG_ACCORDION_STORAGE_KEY,
+			JSON.stringify({
+				schemaVersion: 3,
+				openItemByKey: { [persistedItemKey]: true },
+				openVersionByKey: { [persistedVersionKey]: true },
+			}),
 		);
 
-		expect(toggled.openByKey[itemKey]).toBe(true);
+		expect(readChangelogAccordionState(sampleEntries)).toEqual({
+			schemaVersion: 3,
+			openItemByKey: { [persistedItemKey]: true },
+			openVersionByKey: { [persistedVersionKey]: true },
+		});
 	});
 });
