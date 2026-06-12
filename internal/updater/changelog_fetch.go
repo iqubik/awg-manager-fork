@@ -13,10 +13,7 @@ import (
 
 func changelogSourcesForChannel(channel string) (primary, secondary string) {
 	if strings.TrimSpace(releaseBaseURL) != "" {
-		if channel == channelDevelop {
-			return releaseAssetURL("CHANGELOG.md"), entwareRepoURL + "/develop/CHANGELOG.md"
-		}
-		return releaseAssetURL("CHANGELOG.md"), entwareRepoURL + "/CHANGELOG.md"
+		return releaseAssetURL("CHANGELOG.md"), ""
 	}
 
 	if channel == channelDevelop {

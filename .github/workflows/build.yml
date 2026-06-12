@@ -182,10 +182,17 @@ jobs:
           IPK_VERSION="${{ needs.version.outputs.ipk_version }}"
           printf '%s\n' "$IPK_VERSION" > dist/VERSION
 
-          AWG_RELEASE_BASE_URL="https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest" \
-          SKIP_FRONTEND_BUILD=1 ./scripts/build-ipk.sh "$IPK_VERSION" "${{ matrix.arch }}"
+          AWG_RELEASE_BASE_URL="https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest"
+          export AWG_RELEASE_BASE_URL
 
           echo "AWG_RELEASE_BASE_URL=${AWG_RELEASE_BASE_URL}"
+
+          SKIP_FRONTEND_BUILD=1 ./scripts/build-ipk.sh "$IPK_VERSION" "${{ matrix.arch }}"
+
+          if ! strings build/bin/awg-manager | grep -F "$AWG_RELEASE_BASE_URL" >/dev/null; then
+            echo "AWG_RELEASE_BASE_URL was not embedded into awg-manager binary" >&2
+            exit 1
+          fi
 
       - name: Upload result
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -310,6 +317,17 @@ jobs:
 
           PREV=/tmp/prevcl/CHANGELOG.md
           [[ -f "$PREV" ]] || PREV=/dev/null
+
+          if [[ -s "$PREV" ]]; then
+            awk '
+              /^## \[/ {
+                keep = ($0 ~ /^## \[[0-9]+(\.[0-9]+){3,}(\+r[0-9]+)?\]/)
+              }
+              keep { print }
+            ' "$PREV" > /tmp/prevcl/CHANGELOG.fork.md
+            PREV=/tmp/prevcl/CHANGELOG.fork.md
+          fi
+
           if [[ -s /tmp/delta.md ]]; then
             cat /tmp/delta.md "$PREV" > dist/CHANGELOG.md
           elif [[ -s "$PREV" ]]; then

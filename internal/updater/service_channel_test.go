@@ -44,15 +44,15 @@ func TestChangelogSourcesForChannel_PrefersForkReleaseBase(t *testing.T) {
 	if primary != "https://github.example/releases/download/iq-latest/CHANGELOG.md" {
 		t.Fatalf("stable primary = %q", primary)
 	}
-	if secondary != "http://example.test/CHANGELOG.md" {
-		t.Fatalf("stable secondary = %q", secondary)
+	if secondary != "" {
+		t.Fatalf("stable secondary = %q, want empty", secondary)
 	}
 
 	primary, secondary = changelogSourcesForChannel("develop")
 	if primary != "https://github.example/releases/download/iq-latest/CHANGELOG.md" {
 		t.Fatalf("develop primary = %q", primary)
 	}
-	if secondary != "http://example.test/develop/CHANGELOG.md" {
-		t.Fatalf("develop secondary = %q", secondary)
+	if secondary != "" {
+		t.Fatalf("develop secondary = %q, want empty", secondary)
 	}
 }
