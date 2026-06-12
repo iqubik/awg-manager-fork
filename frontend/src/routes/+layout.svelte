@@ -31,6 +31,7 @@
 	import { loadPresetCatalog } from '$lib/stores/presets';
 	import { donateModalOpen, openDonateModal, closeDonateModal } from '$lib/stores/donateModal';
 	import { outboundReferenced } from '$lib/stores/outboundReferenced';
+	import { isStaleAssetError, reloadOnceForStaleAssets } from '$lib/utils/staleAssetReload';
 	import TunnelReferencedModal from '$lib/components/tunnels/TunnelReferencedModal.svelte';
 	import DevelopFeedbackFab from '$lib/components/layout/DevelopFeedbackFab.svelte';
 	import UiElementHider from '$lib/components/layout/UiElementHider.svelte';
@@ -346,12 +347,34 @@
 		void goto('/', { replaceState: true });
 	});
 
-	onMount(async () => {
+	onMount(() => {
+		const onPreloadError = (event: Event) => {
+			event.preventDefault();
+			reloadOnceForStaleAssets('vite:preloadError');
+		};
+
+		const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+			if (!isStaleAssetError(event.reason)) {
+				return;
+			}
+
+			event.preventDefault();
+			reloadOnceForStaleAssets('dynamic import failed');
+		};
+
+		window.addEventListener('vite:preloadError', onPreloadError);
+		window.addEventListener('unhandledrejection', onUnhandledRejection);
+
 		theme.init();
 		compactLayout.init();
 		settingsSectionIconMode.init();
 		serviceLetterIcons.init();
-		await auth.checkStatus();
+		void auth.checkStatus();
+
+		return () => {
+			window.removeEventListener('vite:preloadError', onPreloadError);
+			window.removeEventListener('unhandledrejection', onUnhandledRejection);
+		};
 	});
 
 	onDestroy(() => {
