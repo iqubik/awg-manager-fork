@@ -183,17 +183,52 @@ func (c *changelogFetcher) download(ctx context.Context, url string) (string, er
 		AllowedStatus: []int{http.StatusOK, http.StatusNotFound},
 	})
 	if err != nil {
-		return "", err
+		return "", sanitizeReleaseAssetError(releaseAssetRef{
+			channel: detectReleaseAssetChannel(url),
+			tag:     detectReleaseAssetTag(url),
+			name:    "CHANGELOG.md",
+		}, err)
 	}
 	if meta.StatusCode == http.StatusNotFound {
-		return "", fmt.Errorf("changelog not published yet")
+		return "", fmt.Errorf("release asset CHANGELOG.md not found in %s", detectReleaseAssetTarget(url))
 	}
 	if meta.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("changelog status %d", meta.StatusCode)
 	}
 	trimmed := strings.TrimSpace(string(body))
 	if strings.HasPrefix(trimmed, "<") {
-		return "", fmt.Errorf("changelog source returned html instead of markdown")
+		return "", fmt.Errorf("release asset CHANGELOG.md not found in %s", detectReleaseAssetTarget(url))
 	}
 	return string(body), nil
+}
+
+func detectReleaseAssetChannel(url string) string {
+	if strings.Contains(url, "/download/iq-latest/") {
+		return channelDevelop
+	}
+	return channelStable
+}
+
+func detectReleaseAssetTag(url string) string {
+	if strings.Contains(url, "/download/iq-latest/") {
+		return "iq-latest"
+	}
+	marker := "/download/"
+	idx := strings.Index(url, marker)
+	if idx < 0 {
+		return ""
+	}
+	rest := url[idx+len(marker):]
+	slash := strings.Index(rest, "/")
+	if slash < 0 {
+		return ""
+	}
+	return rest[:slash]
+}
+
+func detectReleaseAssetTarget(url string) string {
+	return releaseAssetDisplayTarget(releaseAssetRef{
+		channel: detectReleaseAssetChannel(url),
+		tag:     detectReleaseAssetTag(url),
+	})
 }

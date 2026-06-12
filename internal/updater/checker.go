@@ -163,15 +163,36 @@ func checkStableReleaseWithDownloader(
 	}
 
 	ipkName := fmt.Sprintf("%s_%s_%s-kn.ipk", pkgName, releaseInfo.Version, archSuffix())
-	downloadURL := releaseInfo.Assets[ipkName]
-	if downloadURL == "" {
-		info.Error = fmt.Sprintf("release channel: missing asset %s in %s", ipkName, releaseInfo.TagName)
+	requiredAssets := []string{"VERSION", "CHANGELOG.md", ipkName}
+	for _, assetName := range requiredAssets {
+		if strings.TrimSpace(releaseInfo.Assets[assetName]) == "" {
+			info.Error = fmt.Sprintf("release channel: incomplete stable release %s: missing %s", releaseInfo.TagName, assetName)
+			return info
+		}
+	}
+
+	version, err := fetchReleaseVersionAssetWithDownloader(ctx, dl, releaseInfo.Assets["VERSION"], releaseAssetRef{
+		channel: channelStable,
+		tag:     releaseInfo.TagName,
+		name:    "VERSION",
+	})
+	if err != nil {
+		info.Error = fmt.Sprintf("release channel: %s", err)
+		return info
+	}
+	if version != releaseInfo.Version {
+		info.Error = fmt.Sprintf(
+			"release channel: VERSION asset mismatch in %s: got %q want %q",
+			releaseInfo.TagName,
+			version,
+			releaseInfo.Version,
+		)
 		return info
 	}
 
 	info.Available = true
 	info.LatestVersion = releaseInfo.Version
-	info.DownloadURL = downloadURL
+	info.DownloadURL = releaseInfo.Assets[ipkName]
 	return info
 }
 
@@ -209,29 +230,68 @@ func checkReleaseWithDownloader(
 }
 
 func fetchLatestReleaseVersionWithDownloader(ctx context.Context, dl Downloader, baseURL string) (string, error) {
+	return fetchReleaseVersionAssetWithDownloader(ctx, dl, releaseAssetURL(baseURL, "VERSION"), releaseAssetRef{
+		channel: channelDevelop,
+		tag:     "iq-latest",
+		name:    "VERSION",
+	})
+}
+
+type releaseAssetRef struct {
+	channel string
+	tag     string
+	name    string
+}
+
+func fetchReleaseVersionAssetWithDownloader(ctx context.Context, dl Downloader, assetURL string, ref releaseAssetRef) (string, error) {
 	body, _, err := dl.ReadAll(ctx, downloader.Request{
 		Purpose:      "awgm-update-check",
-		URL:          releaseAssetURL(baseURL, "VERSION"),
+		URL:          assetURL,
 		Method:       http.MethodGet,
 		Timeout:      repoTimeout,
 		MaxBodyBytes: releaseVersionMaxBytes,
 	})
 	if err != nil {
-		return "", fmt.Errorf("fetch VERSION: %w", err)
+		return "", sanitizeReleaseAssetError(ref, err)
 	}
 
 	version := strings.TrimSpace(string(body))
 	if version == "" {
-		return "", fmt.Errorf("empty VERSION")
+		return "", fmt.Errorf("release asset %s is empty in %s", ref.name, releaseAssetDisplayTarget(ref))
 	}
 	if strings.ContainsAny(version, "\r\n\t /\\") {
-		return "", fmt.Errorf("invalid VERSION %q", version)
+		return "", fmt.Errorf("release asset %s is invalid in %s: %q", ref.name, releaseAssetDisplayTarget(ref), version)
 	}
 	if !releaseVersionPattern.MatchString(version) {
-		return "", fmt.Errorf("invalid VERSION %q", version)
+		return "", fmt.Errorf("release asset %s is invalid in %s: %q", ref.name, releaseAssetDisplayTarget(ref), version)
 	}
 
 	return version, nil
+}
+
+func sanitizeReleaseAssetError(ref releaseAssetRef, err error) error {
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		return fmt.Errorf("release asset %s not found in %s", ref.name, releaseAssetDisplayTarget(ref))
+	}
+
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "<!doctype html") || strings.Contains(lower, "<html") ||
+		strings.Contains(lower, "status 404") || strings.Contains(lower, "not found") {
+		return fmt.Errorf("release asset %s not found in %s", ref.name, releaseAssetDisplayTarget(ref))
+	}
+
+	return fmt.Errorf("fetch %s: %s", ref.name, msg)
+}
+
+func releaseAssetDisplayTarget(ref releaseAssetRef) string {
+	if ref.channel == channelDevelop || strings.EqualFold(ref.tag, "iq-latest") {
+		return "iq-latest"
+	}
+	if strings.TrimSpace(ref.tag) != "" {
+		return ref.tag
+	}
+	return "release"
 }
 
 func releaseAssetURL(baseURL, filename string) string {

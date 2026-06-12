@@ -125,3 +125,38 @@ func TestChangelogSources_StableUsesHighestStableReleaseAsset(t *testing.T) {
 		t.Fatalf("stable secondary = %q, want empty", secondary)
 	}
 }
+
+func TestResolveChangelogSources_StableMissingAssetReturnsShortError(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	oldFetcher := stableReleaseResolver.fetch
+	oldTTL := stableReleaseResolver.ttl
+	stableReleaseResolver.Clear()
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	releaseBaseURL = ""
+	stableReleaseResolver.ttl = time.Hour
+	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
+		return stableReleaseInfo{
+			RepoURL: repoURL,
+			APIURL:  "https://api.github.com/repos/example/repo/releases?per_page=100",
+			TagName: "v2.13.0.1",
+			Version: "2.13.0.1",
+			Assets:  map[string]string{},
+		}, nil
+	}
+	t.Cleanup(func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+		stableReleaseResolver.fetch = oldFetcher
+		stableReleaseResolver.ttl = oldTTL
+		stableReleaseResolver.Clear()
+	})
+
+	_, _, err := resolveChangelogSourcesForChannel(context.Background(), nil, channelStable)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := err.Error(); got != "missing asset CHANGELOG.md in v2.13.0.1" {
+		t.Fatalf("error = %q", got)
+	}
+}

@@ -2,8 +2,11 @@ package updater
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
+
+	"github.com/hoaxisr/awg-manager/internal/downloader"
 )
 
 func TestServiceCheckNow_ClearsStableReleaseResolverCache(t *testing.T) {
@@ -25,6 +28,8 @@ func TestServiceCheckNow_ClearsStableReleaseResolverCache(t *testing.T) {
 			TagName: "v2.13.0.1",
 			Version: "2.13.0.1",
 			Assets: map[string]string{
+				"VERSION":      "https://github.com/example/repo/releases/download/v2.13.0.1/VERSION",
+				"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md",
 				"awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk": "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk",
 			},
 		}, nil
@@ -45,14 +50,23 @@ func TestServiceCheckNow_ClearsStableReleaseResolverCache(t *testing.T) {
 		TagName: "v2.12.4",
 		Version: "2.12.4",
 		Assets: map[string]string{
+			"VERSION":      "https://github.com/example/repo/releases/download/v2.12.4/VERSION",
+			"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.12.4/CHANGELOG.md",
 			"awg-manager_2.12.4_" + archSuffix() + "-kn.ipk": "https://github.com/example/repo/releases/download/v2.12.4/awg-manager_2.12.4_" + archSuffix() + "-kn.ipk",
 		},
 	})
 
 	svc := &Service{
-		version:    "2.12.4",
-		downloader: &fakeDownloader{},
-		changelog:  newChangelogFetcher("http://example.test/CHANGELOG.md", "", time.Minute, &fakeDownloader{}),
+		version: "2.12.4",
+		downloader: &fakeDownloader{
+			readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+				if req.URL == "https://github.com/example/repo/releases/download/v2.13.0.1/VERSION" {
+					return []byte("2.13.0.1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+				}
+				return []byte("## [2.13.0.1] - 2026-06-12\n\n### Fixed\n- item\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			},
+		},
+		changelog: newChangelogFetcher("http://example.test/CHANGELOG.md", "", time.Minute, &fakeDownloader{}),
 	}
 
 	info := svc.CheckNow(context.Background())

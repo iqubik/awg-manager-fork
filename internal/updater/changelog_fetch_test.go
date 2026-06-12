@@ -2,11 +2,14 @@ package updater
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/hoaxisr/awg-manager/internal/downloader"
 )
 
 func TestFetchChangelog_CachesAcrossCalls(t *testing.T) {
@@ -127,7 +130,23 @@ func TestFetchChangelog_RejectsHTML(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected html rejection error")
 	}
-	if got := err.Error(); got != "changelog source returned html instead of markdown" {
+	if got := err.Error(); got != "release asset CHANGELOG.md not found in release" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestFetchChangelog_MissingIqLatestAssetReturnsShortError(t *testing.T) {
+	c := newChangelogFetcher("https://github.com/example/repo/releases/download/iq-latest/CHANGELOG.md", "", 10*time.Minute, &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			return nil, downloader.ResponseMeta{}, fmt.Errorf("download via direct: status 404: <!DOCTYPE html><html><body>Not Found</body></html>")
+		},
+	})
+
+	_, err := c.Fetch(context.Background())
+	if err == nil {
+		t.Fatal("expected missing asset error")
+	}
+	if got := err.Error(); got != "release asset CHANGELOG.md not found in iq-latest" {
 		t.Fatalf("error = %q", got)
 	}
 }

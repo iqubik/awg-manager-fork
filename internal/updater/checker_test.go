@@ -2,6 +2,7 @@ package updater
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -419,12 +420,24 @@ func TestCheck_StableUsesHighestSemverTagNotLatestDownload(t *testing.T) {
 			TagName: "v2.13.0.1",
 			Version: "2.13.0.1",
 			Assets: map[string]string{
+				"VERSION":      "https://github.com/example/repo/releases/download/v2.13.0.1/VERSION",
+				"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md",
 				"awg-manager_2.13.0.1_" + arch + "-kn.ipk": "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + arch + "-kn.ipk",
 			},
 		}, nil
 	}
 
-	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, nil)
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			if req.URL == "https://github.com/example/repo/releases/download/v2.13.0.1/VERSION" {
+				return []byte("2.13.0.1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			}
+			t.Fatalf("unexpected URL %q", req.URL)
+			return nil, downloader.ResponseMeta{}, nil
+		},
+	}
+
+	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, dl)
 
 	if !info.Available {
 		t.Fatalf("expected update available, got %+v", info)
@@ -541,6 +554,159 @@ func TestCheck_DevelopUsesIqLatestVersionAsset(t *testing.T) {
 	}
 	if info.Available {
 		t.Fatalf("expected no update, got %+v", info)
+	}
+}
+
+func TestCheck_StableMissingChangelogDoesNotOfferUpdate(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	oldFetcher := stableReleaseResolver.fetch
+	oldTTL := stableReleaseResolver.ttl
+	defer func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+		stableReleaseResolver.fetch = oldFetcher
+		stableReleaseResolver.ttl = oldTTL
+		stableReleaseResolver.Clear()
+	}()
+
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	stableReleaseResolver.ttl = time.Hour
+	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
+		return stableReleaseInfo{
+			RepoURL: repoURL,
+			APIURL:  "https://api.github.com/repos/example/repo/releases?per_page=100",
+			TagName: "v2.13.0.1",
+			Version: "2.13.0.1",
+			Assets: map[string]string{
+				"VERSION": "https://github.com/example/repo/releases/download/v2.13.0.1/VERSION",
+				"awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk": "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk",
+			},
+		}, nil
+	}
+
+	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, &fakeDownloader{})
+
+	if info.Available {
+		t.Fatalf("expected no update, got %+v", info)
+	}
+	if !strings.Contains(info.Error, "incomplete stable release v2.13.0.1: missing CHANGELOG.md") {
+		t.Fatalf("error = %q", info.Error)
+	}
+}
+
+func TestCheck_StableMissingVersionDoesNotOfferUpdate(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	oldFetcher := stableReleaseResolver.fetch
+	oldTTL := stableReleaseResolver.ttl
+	defer func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+		stableReleaseResolver.fetch = oldFetcher
+		stableReleaseResolver.ttl = oldTTL
+		stableReleaseResolver.Clear()
+	}()
+
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	stableReleaseResolver.ttl = time.Hour
+	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
+		return stableReleaseInfo{
+			RepoURL: repoURL,
+			APIURL:  "https://api.github.com/repos/example/repo/releases?per_page=100",
+			TagName: "v2.13.0.1",
+			Version: "2.13.0.1",
+			Assets: map[string]string{
+				"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md",
+				"awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk": "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk",
+			},
+		}, nil
+	}
+
+	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, &fakeDownloader{})
+
+	if info.Available {
+		t.Fatalf("expected no update, got %+v", info)
+	}
+	if !strings.Contains(info.Error, "incomplete stable release v2.13.0.1: missing VERSION") {
+		t.Fatalf("error = %q", info.Error)
+	}
+}
+
+func TestCheck_StableVersionAssetMismatchReturnsError(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	oldFetcher := stableReleaseResolver.fetch
+	oldTTL := stableReleaseResolver.ttl
+	defer func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+		stableReleaseResolver.fetch = oldFetcher
+		stableReleaseResolver.ttl = oldTTL
+		stableReleaseResolver.Clear()
+	}()
+
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	stableReleaseResolver.ttl = time.Hour
+	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
+		return stableReleaseInfo{
+			RepoURL: repoURL,
+			APIURL:  "https://api.github.com/repos/example/repo/releases?per_page=100",
+			TagName: "v2.13.0.1",
+			Version: "2.13.0.1",
+			Assets: map[string]string{
+				"VERSION":      "https://github.com/example/repo/releases/download/v2.13.0.1/VERSION",
+				"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md",
+				"awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk": "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk",
+			},
+		}, nil
+	}
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			if strings.HasSuffix(req.URL, "/VERSION") {
+				return []byte("2.13.0.9\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			}
+			t.Fatalf("unexpected URL %q", req.URL)
+			return nil, downloader.ResponseMeta{}, nil
+		},
+	}
+
+	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, dl)
+
+	if info.Available {
+		t.Fatalf("expected no update, got %+v", info)
+	}
+	if !strings.Contains(info.Error, `VERSION asset mismatch in v2.13.0.1: got "2.13.0.9" want "2.13.0.1"`) {
+		t.Fatalf("error = %q", info.Error)
+	}
+}
+
+func TestCheck_DevelopMissingVersionDoesNotLeakHTML(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	defer func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+	}()
+
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	releaseBaseURL = ""
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			return nil, downloader.ResponseMeta{}, fmt.Errorf("download via direct: status 404: <!DOCTYPE html><html><head>githubassets</head></html>")
+		},
+	}
+
+	info := checkWithDownloader(context.Background(), "2.12.4", channelDevelop, dl)
+
+	if info.Available {
+		t.Fatalf("expected no update, got %+v", info)
+	}
+	if !strings.Contains(info.Error, "release asset VERSION not found in iq-latest") {
+		t.Fatalf("error = %q", info.Error)
+	}
+	if strings.Contains(strings.ToLower(info.Error), "<!doctype html") || strings.Contains(strings.ToLower(info.Error), "githubassets") {
+		t.Fatalf("error leaks html: %q", info.Error)
 	}
 }
 
@@ -669,7 +835,10 @@ func TestCheck_StableIgnoresLowerDevelopRevisionFromReleaseChannel(t *testing.T)
 			APIURL:  "https://api.github.com/repos/example/repo/releases?per_page=100",
 			TagName: "v2.12.3.14",
 			Version: "2.12.3.14",
-			Assets:  map[string]string{},
+			Assets: map[string]string{
+				"VERSION":      "https://github.com/example/repo/releases/download/v2.12.3.14/VERSION",
+				"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.12.3.14/CHANGELOG.md",
+			},
 		}, nil
 	}
 
