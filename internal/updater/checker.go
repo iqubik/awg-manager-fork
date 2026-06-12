@@ -35,9 +35,13 @@ var (
 	// entwareRepoURL is a variable so tests can override it with httptest server URL.
 	entwareRepoURL = defaultEntwareRepoURL
 
-	// releaseBaseURL is optionally injected at build time for fork-specific
-	// release channels, for example:
-	// https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest
+	// releaseRepoURL is optionally injected at build time for fork-specific
+	// GitHub releases repository, for example:
+	// https://github.com/iqubik/awg-manager-fork/releases
+	releaseRepoURL = ""
+
+	// releaseBaseURL is a legacy exact asset base override kept for backward
+	// compatibility with localized/dev builds that explicitly pin iq-latest.
 	releaseBaseURL = ""
 )
 
@@ -50,10 +54,37 @@ func channelBaseURL(channel string) string {
 	return entwareRepoURL
 }
 
+func normalizedReleaseRepoURL() string {
+	if trimmed := strings.TrimRight(strings.TrimSpace(releaseRepoURL), "/"); trimmed != "" {
+		return trimmed
+	}
+
+	trimmedBase := strings.TrimRight(strings.TrimSpace(releaseBaseURL), "/")
+	switch {
+	case strings.HasSuffix(trimmedBase, "/download/iq-latest"):
+		return strings.TrimSuffix(trimmedBase, "/download/iq-latest")
+	case strings.HasSuffix(trimmedBase, "/latest/download"):
+		return strings.TrimSuffix(trimmedBase, "/latest/download")
+	default:
+		return ""
+	}
+}
+
+func releaseBaseURLForChannel(channel string) string {
+	if repoURL := normalizedReleaseRepoURL(); repoURL != "" {
+		if channel == channelDevelop {
+			return repoURL + "/download/iq-latest"
+		}
+		return repoURL + "/latest/download"
+	}
+
+	return strings.TrimRight(strings.TrimSpace(releaseBaseURL), "/")
+}
+
 // versionComparator выбирает сравнялку версий по каналу: develop учитывает
 // build-revision (+rN), stable — нет (как было).
 func versionComparator(channel string) func(a, b string) int {
-	if channel == channelDevelop || (channel == channelStable && strings.TrimSpace(releaseBaseURL) != "") {
+	if channel == channelDevelop {
 		return semver.CompareWithRevision
 	}
 	return semver.Compare
@@ -75,10 +106,10 @@ func checkWithDownloader(ctx context.Context, currentVersion, channel string, dl
 
 	cmp := versionComparator(channel)
 
-	if strings.TrimSpace(releaseBaseURL) != "" {
+	if baseURL := releaseBaseURLForChannel(channel); baseURL != "" {
 		info.Source = "release"
-		info.SourceURL = releaseAssetURL("VERSION")
-		return checkReleaseWithDownloader(ctx, info, currentVersion, dl, cmp)
+		info.SourceURL = releaseAssetURL(baseURL, "VERSION")
+		return checkReleaseWithDownloader(ctx, info, currentVersion, dl, cmp, baseURL)
 	}
 
 	base := channelBaseURL(channel)
@@ -109,12 +140,13 @@ func checkReleaseWithDownloader(
 	currentVersion string,
 	dl Downloader,
 	cmp func(a, b string) int,
+	baseURL string,
 ) *UpdateInfo {
 	if dl == nil {
 		dl = newDefaultDownloader()
 	}
 
-	latest, err := fetchLatestReleaseVersionWithDownloader(ctx, dl)
+	latest, err := fetchLatestReleaseVersionWithDownloader(ctx, dl, baseURL)
 	if err != nil {
 		info.Error = fmt.Sprintf("release channel: %s", err)
 		return info
@@ -126,7 +158,7 @@ func checkReleaseWithDownloader(
 
 	info.Available = true
 	info.LatestVersion = latest
-	info.DownloadURL = releaseAssetURL(fmt.Sprintf(
+	info.DownloadURL = releaseAssetURL(baseURL, fmt.Sprintf(
 		"%s_%s_%s-kn.ipk",
 		pkgName,
 		latest,
@@ -135,10 +167,10 @@ func checkReleaseWithDownloader(
 	return info
 }
 
-func fetchLatestReleaseVersionWithDownloader(ctx context.Context, dl Downloader) (string, error) {
+func fetchLatestReleaseVersionWithDownloader(ctx context.Context, dl Downloader, baseURL string) (string, error) {
 	body, _, err := dl.ReadAll(ctx, downloader.Request{
 		Purpose:      "awgm-update-check",
-		URL:          releaseAssetURL("VERSION"),
+		URL:          releaseAssetURL(baseURL, "VERSION"),
 		Method:       http.MethodGet,
 		Timeout:      repoTimeout,
 		MaxBodyBytes: releaseVersionMaxBytes,
@@ -161,8 +193,8 @@ func fetchLatestReleaseVersionWithDownloader(ctx context.Context, dl Downloader)
 	return version, nil
 }
 
-func releaseAssetURL(filename string) string {
-	return strings.TrimRight(releaseBaseURL, "/") + "/" + filename
+func releaseAssetURL(baseURL, filename string) string {
+	return strings.TrimRight(baseURL, "/") + "/" + filename
 }
 
 // Upgrade downloads the IPK from downloadURL and launches opkg install in a

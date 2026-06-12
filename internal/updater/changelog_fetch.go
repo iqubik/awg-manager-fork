@@ -3,17 +3,17 @@ package updater
 import (
 	"context"
 	"fmt"
-	"sync"
-	"time"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/downloader"
 )
 
 func changelogSourcesForChannel(channel string) (primary, secondary string) {
-	if strings.TrimSpace(releaseBaseURL) != "" {
-		return releaseAssetURL("CHANGELOG.md"), ""
+	if baseURL := releaseBaseURLForChannel(channel); baseURL != "" {
+		return releaseAssetURL(baseURL, "CHANGELOG.md"), ""
 	}
 
 	if channel == channelDevelop {
@@ -28,8 +28,8 @@ func changelogSourcesForChannel(channel string) (primary, secondary string) {
 type changelogFetcher struct {
 	primaryURL   string
 	secondaryURL string
-	ttl        time.Duration
-	downloader Downloader
+	ttl          time.Duration
+	downloader   Downloader
 
 	fetchMu sync.Mutex
 	mu      sync.RWMutex

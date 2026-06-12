@@ -4,11 +4,14 @@ import "testing"
 
 func TestChangelogSourcesForChannel_DefaultsToUpstream(t *testing.T) {
 	oldEntwareRepoURL := entwareRepoURL
+	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	entwareRepoURL = "http://example.test"
+	releaseRepoURL = ""
 	releaseBaseURL = ""
 	t.Cleanup(func() {
 		entwareRepoURL = oldEntwareRepoURL
+		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
 	})
 
@@ -30,18 +33,21 @@ func TestChangelogSourcesForChannel_DefaultsToUpstream(t *testing.T) {
 	}
 }
 
-func TestChangelogSourcesForChannel_PrefersForkReleaseBase(t *testing.T) {
+func TestChangelogSourcesForChannel_UsesForkReleaseRepoByChannel(t *testing.T) {
 	oldEntwareRepoURL := entwareRepoURL
+	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	entwareRepoURL = "http://example.test"
-	releaseBaseURL = "https://github.example/releases/download/iq-latest"
+	releaseRepoURL = "https://github.example/releases"
+	releaseBaseURL = ""
 	t.Cleanup(func() {
 		entwareRepoURL = oldEntwareRepoURL
+		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
 	})
 
 	primary, secondary := changelogSourcesForChannel("stable")
-	if primary != "https://github.example/releases/download/iq-latest/CHANGELOG.md" {
+	if primary != "https://github.example/releases/latest/download/CHANGELOG.md" {
 		t.Fatalf("stable primary = %q", primary)
 	}
 	if secondary != "" {
@@ -54,5 +60,29 @@ func TestChangelogSourcesForChannel_PrefersForkReleaseBase(t *testing.T) {
 	}
 	if secondary != "" {
 		t.Fatalf("develop secondary = %q, want empty", secondary)
+	}
+}
+
+func TestChangelogSourcesForChannel_LegacyReleaseBaseInfersStableLatest(t *testing.T) {
+	oldEntwareRepoURL := entwareRepoURL
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	entwareRepoURL = "http://example.test"
+	releaseRepoURL = ""
+	releaseBaseURL = "https://github.example/releases/download/iq-latest"
+	t.Cleanup(func() {
+		entwareRepoURL = oldEntwareRepoURL
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+	})
+
+	primary, _ := changelogSourcesForChannel("stable")
+	if primary != "https://github.example/releases/latest/download/CHANGELOG.md" {
+		t.Fatalf("stable primary = %q", primary)
+	}
+
+	primary, _ = changelogSourcesForChannel("develop")
+	if primary != "https://github.example/releases/download/iq-latest/CHANGELOG.md" {
+		t.Fatalf("develop primary = %q", primary)
 	}
 }

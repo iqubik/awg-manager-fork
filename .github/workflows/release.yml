@@ -63,12 +63,14 @@ jobs:
       - name: Build .ipk
         env:
           IPK_VERSION: ${{ needs.version.outputs.version }}
+          AWG_RELEASE_REPO_URL: https://github.com/iqubik/awg-manager-fork/releases
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           echo "$IPK_VERSION" > dist/VERSION
-          SKIP_FRONTEND_BUILD=1 ./scripts/build-ipk.sh "$IPK_VERSION" "${{ matrix.arch }}"
+          SKIP_FRONTEND_BUILD=1 AWG_RELEASE_REPO_URL="$AWG_RELEASE_REPO_URL" \
+            ./scripts/build-ipk.sh "$IPK_VERSION" "${{ matrix.arch }}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

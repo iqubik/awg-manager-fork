@@ -39,12 +39,17 @@ echo "Building awg-manager $VERSION for $ARCH ($($GO_CMD version))..."
 
 LD_FLAGS="-s -w -X main.version=${VERSION} -X main.buildArch=${ENTWARE_ARCH}"
 
-DEFAULT_AWG_RELEASE_BASE_URL="https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest"
-EFFECTIVE_AWG_RELEASE_BASE_URL="${AWG_RELEASE_BASE_URL:-$DEFAULT_AWG_RELEASE_BASE_URL}"
+DEFAULT_AWG_RELEASE_REPO_URL="https://github.com/iqubik/awg-manager-fork/releases"
+EFFECTIVE_AWG_RELEASE_REPO_URL="${AWG_RELEASE_REPO_URL:-$DEFAULT_AWG_RELEASE_REPO_URL}"
+EFFECTIVE_AWG_RELEASE_BASE_URL="${AWG_RELEASE_BASE_URL:-}"
 
-echo "Embedding AWG release base URL: ${EFFECTIVE_AWG_RELEASE_BASE_URL}"
+echo "Embedding AWG release repo URL: ${EFFECTIVE_AWG_RELEASE_REPO_URL}"
+LD_FLAGS="${LD_FLAGS} -X github.com/hoaxisr/awg-manager/internal/updater.releaseRepoURL=${EFFECTIVE_AWG_RELEASE_REPO_URL}"
 
-LD_FLAGS="${LD_FLAGS} -X github.com/hoaxisr/awg-manager/internal/updater.releaseBaseURL=${EFFECTIVE_AWG_RELEASE_BASE_URL}"
+if [[ -n "$EFFECTIVE_AWG_RELEASE_BASE_URL" ]]; then
+    echo "Embedding legacy AWG release base URL override: ${EFFECTIVE_AWG_RELEASE_BASE_URL}"
+    LD_FLAGS="${LD_FLAGS} -X github.com/hoaxisr/awg-manager/internal/updater.releaseBaseURL=${EFFECTIVE_AWG_RELEASE_BASE_URL}"
+fi
 
 case "$ARCH" in
     mipsle|mipsel)
