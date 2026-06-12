@@ -353,8 +353,6 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    needs:
-      - build
 
     steps:
       - name: Checkout
