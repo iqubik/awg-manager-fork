@@ -18,6 +18,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/pingcheck"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/sys/exec"
+	"github.com/hoaxisr/awg-manager/internal/sys/kmod"
 	"github.com/hoaxisr/awg-manager/internal/sys/osdetect"
 	"github.com/hoaxisr/awg-manager/internal/sys/routerinfo"
 	"github.com/hoaxisr/awg-manager/internal/tunnel"
@@ -314,7 +315,9 @@ func (r *Runner) collectProxyInfo(ctx context.Context, stored *storage.AWGTunnel
 	pi.Loaded = true
 	pi.Version = strings.TrimSpace(string(versionData))
 
-	listData, err := os.ReadFile("/proc/awg_proxy/list")
+	// kmod.ReadProc, not os.ReadFile — the list is truncated to 512
+	// bytes on chunked reads with kmod < 1.1.11 (issue #362).
+	listData, err := kmod.ReadProc("/proc/awg_proxy/list")
 	if err != nil {
 		return pi
 	}
@@ -598,7 +601,8 @@ func (r *Runner) collectAWGProxyModule(ctx context.Context) AWGProxyModule {
 	}
 
 	// /proc/awg_proxy/list → RawList + EndpointCount
-	if listData, err := os.ReadFile("/proc/awg_proxy/list"); err == nil {
+	// (kmod.ReadProc — see issue #362, 512-byte truncation on os.ReadFile)
+	if listData, err := kmod.ReadProc("/proc/awg_proxy/list"); err == nil {
 		mod.RawList = string(listData)
 		count := 0
 		for _, line := range strings.Split(mod.RawList, "\n") {

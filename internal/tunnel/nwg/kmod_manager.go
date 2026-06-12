@@ -22,7 +22,7 @@ import (
 const (
 	awgProxyDir         = "/opt/etc/awg-manager/modules"
 	defaultKoPath       = awgProxyDir + "/awg_proxy.ko"
-	expectedKmodVersion = "1.1.10" // minimum required awg_proxy.ko version (issue #234)
+	expectedKmodVersion = "1.1.11" // minimum required awg_proxy.ko version (issue #362)
 )
 
 // KmodManager manages the awg_proxy.ko kernel module for NativeWG tunnels.
@@ -34,7 +34,8 @@ type KmodManager struct {
 
 	// procWriteFn / procReadFn isolate /proc/awg_proxy/* I/O so unit
 	// tests can stub them without touching a real procfs. Default:
-	// os.WriteFile / os.ReadFile.
+	// os.WriteFile / kmod.ReadProc (NOT os.ReadFile — its 512-byte
+	// first chunk truncates the list on kmod < 1.1.11, issue #362).
 	procWriteFn func(path string, data []byte) error
 	procReadFn  func(path string) ([]byte, error)
 }
@@ -71,7 +72,7 @@ func NewKmodManager(appLogger logging.AppLogger) *KmodManager {
 		tunnels:     make(map[string]kmodEntry),
 		appLog:      logging.NewScopedLogger(appLogger, logging.GroupTunnel, logging.SubKmod),
 		procWriteFn: func(path string, data []byte) error { return os.WriteFile(path, data, 0) },
-		procReadFn:  os.ReadFile,
+		procReadFn:  kmod.ReadProc,
 	}
 }
 

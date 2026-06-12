@@ -14,6 +14,7 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 #include <linux/uaccess.h>
 #include <linux/inet.h>
 #include <linux/version.h>
@@ -132,44 +133,48 @@ static const struct file_operations proc_del_ops = {
 
 /*
  * /proc/awg_proxy/list - read active proxy list (includes listen_port)
+ *
+ * seq_file/single_open: the old raw read handler returned EOF on any
+ * read with *ppos > 0, so readers using small buffers (Go os.ReadFile
+ * starts at 512 bytes) silently got a truncated list once 7+ slots /
+ * grown traffic counters pushed the output past the first chunk
+ * (issue #362). seq_file serves partial reads from one consistent
+ * snapshot per open.
  */
-static ssize_t proc_list_read(struct file *file, char __user *buf,
-			      size_t count, loff_t *ppos)
+static int proc_list_show(struct seq_file *m, void *v)
 {
 	char *kbuf;
 	int len;
-	ssize_t ret;
-
-	if (*ppos > 0)
-		return 0;
 
 	kbuf = kmalloc(4096, GFP_KERNEL);
 	if (!kbuf)
 		return -ENOMEM;
 
 	len = awg_proxy_list(kbuf, 4096);
-
-	if ((size_t)len > count)
-		len = count;
-	if (copy_to_user(buf, kbuf, len)) {
-		kfree(kbuf);
-		return -EFAULT;
-	}
-
-	*ppos += len;
-	ret = len;
+	seq_write(m, kbuf, len);
 	kfree(kbuf);
-	return ret;
+	return 0;
+}
+
+static int proc_list_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, proc_list_show, NULL);
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
 static const struct proc_ops proc_list_ops = {
-	.proc_read = proc_list_read,
+	.proc_open    = proc_list_open,
+	.proc_read    = seq_read,
+	.proc_lseek   = seq_lseek,
+	.proc_release = single_release,
 };
 #else
 static const struct file_operations proc_list_ops = {
-	.owner = THIS_MODULE,
-	.read  = proc_list_read,
+	.owner   = THIS_MODULE,
+	.open    = proc_list_open,
+	.read    = seq_read,
+	.llseek  = seq_lseek,
+	.release = single_release,
 };
 #endif
 
