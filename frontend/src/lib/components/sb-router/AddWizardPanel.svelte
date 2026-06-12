@@ -228,7 +228,7 @@
   <div class="wizard" bind:this={wizardEl}>
     <div class="bc">
       <button type="button" class="bc-back" onclick={closeAddWizard}>
-        <ArrowLeft size={12} /> Маршрутизация
+        <ArrowLeft size={12} /> Правила
       </button>
       <span class="bc-sep">/</span>
       <span class="bc-current">{isEditMode ? 'Редактирование' : 'Новое правило'}</span>

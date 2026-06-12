@@ -48,11 +48,29 @@
 		};
 	}
 
+	function handlePlainEnter(e: KeyboardEvent): void {
+		if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) {
+			return;
+		}
+		if (!textareaRef) return;
+
+		const start = textareaRef.selectionStart;
+		const end = textareaRef.selectionEnd;
+		e.preventDefault();
+		const pos = start + 1;
+		restoreSelection = { start: pos, end: pos };
+		value = value.slice(0, start) + '\n' + value.slice(end);
+	}
+
 	function onKeydown(e: KeyboardEvent): void {
-		if (disabled || indentMode !== 'json') return;
-		const ctx = keyContext();
-		if (!ctx) return;
-		handleJsonEditorKeydown(e, ctx);
+		if (disabled || composing) return;
+		if (indentMode === 'json') {
+			const ctx = keyContext();
+			if (!ctx) return;
+			handleJsonEditorKeydown(e, ctx);
+			return;
+		}
+		handlePlainEnter(e);
 	}
 
 	let highlightHtml = $derived(highlight(value));
@@ -65,41 +83,58 @@
 		back.style.paddingBottom = gh > 0 ? `${gh}px` : '';
 	}
 
-	function syncScroll(): void {
-		syncGutter();
-		if (textareaRef && back) {
-			back.scrollTop = textareaRef.scrollTop;
-			back.scrollLeft = textareaRef.scrollLeft;
-		}
+	function syncScrollPositions(): void {
+		if (!textareaRef || !back) return;
+		back.scrollTop = textareaRef.scrollTop;
+		back.scrollLeft = textareaRef.scrollLeft;
+	}
+
+	function onTextareaScroll(): void {
+		// Only mirror scroll offsets — never reflow the highlight layer here (pre-wrap
+		// would reflow and make the caret appear to lag behind while scrolling).
+		syncScrollPositions();
 		onscroll?.();
 	}
 
 	function reapplySelectionAndScroll(): void {
-		if (!textareaRef || composing) return;
-		const start = restoreSelection?.start ?? textareaRef.selectionStart;
-		const end = restoreSelection?.end ?? textareaRef.selectionEnd;
+		if (!textareaRef || composing || restoreSelection === null) return;
+		const { start, end } = restoreSelection;
 		restoreSelection = null;
-		// Re-apply selection so the browser scrolls the caret into view (native Enter on
-		// the last visible line otherwise leaves the caret painted above the fold).
+		// Re-apply selection after bind:value so the browser scrolls the caret into view.
 		textareaRef.setSelectionRange(start, end);
-		syncScroll();
+		syncScrollPositions();
 	}
+
+	// Update highlight and restore scroll in the same turn (avoids one-frame desync on input).
+	$effect(() => {
+		const html = highlightHtml;
+		const ta = textareaRef;
+		const el = back;
+		if (!el || !ta) return;
+		const scrollTop = ta.scrollTop;
+		const scrollLeft = ta.scrollLeft;
+		el.innerHTML = html;
+		el.scrollTop = scrollTop;
+		el.scrollLeft = scrollLeft;
+	});
 
 	$effect(() => {
 		value;
+		if (restoreSelection === null) return;
 		void tick().then(reapplySelectionAndScroll);
 	});
 
 	$effect(() => {
 		if (!textareaRef || typeof ResizeObserver === 'undefined') return;
-		const ro = new ResizeObserver(() => syncScroll());
+		const ro = new ResizeObserver(() => syncGutter());
+		syncGutter();
 		ro.observe(textareaRef);
 		return () => ro.disconnect();
 	});
 </script>
 
 <div class="shl-stack" class:shl-wrap-pre={wrap === 'pre'} class:shl-wrap-pre-wrap={wrap === 'pre-wrap'}>
-	<div class="shl-back" aria-hidden="true" bind:this={back}>{@html highlightHtml}</div>
+	<div class="shl-back" aria-hidden="true" bind:this={back}></div>
 	<textarea
 		class="shl-ta {className}"
 		bind:this={textareaRef}
@@ -114,10 +149,13 @@
 		oncompositionstart={() => (composing = true)}
 		oncompositionend={() => {
 			composing = false;
-			reapplySelectionAndScroll();
+			syncScrollPositions();
 		}}
-		onscroll={syncScroll}
-		oninput={syncScroll}
+		onscroll={onTextareaScroll}
+		oninput={() => {
+			syncGutter();
+			syncScrollPositions();
+		}}
 	></textarea>
 </div>
 
@@ -152,6 +190,7 @@
 		margin: 0;
 		padding: 0;
 		border: none;
+		overflow-anchor: none;
 		font-family: inherit;
 		font-size: inherit;
 		font-weight: 400;
@@ -183,7 +222,7 @@
 	.shl-wrap-pre-wrap .shl-back,
 	.shl-wrap-pre-wrap .shl-ta {
 		white-space: pre-wrap;
-		overflow-wrap: break-word;
+		overflow-wrap: anywhere;
 		word-break: normal;
 	}
 
@@ -234,6 +273,7 @@
 	.shl-ta {
 		margin: 0;
 		padding: 0;
+		overflow-anchor: none;
 		position: relative;
 		z-index: 1;
 		height: 100%;

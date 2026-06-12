@@ -1,6 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 
+vi.mock('$app/navigation', () => ({
+  goto: vi.fn((url: string, opts?: { replaceState?: boolean }) => {
+    if (opts?.replaceState) {
+      window.history.replaceState({}, '', url);
+    } else {
+      window.history.pushState({}, '', url);
+    }
+    return Promise.resolve();
+  }),
+}));
+
 function resetEnv(url: string) {
   window.history.replaceState({}, '', url);
   vi.resetModules();
@@ -20,14 +31,19 @@ describe('addWizardStore', () => {
     expect(c.rulesList).toBe('');
   });
 
-  it('openAddWizard sets URL ?add=1 + open=true', async () => {
+  it('openAddWizard sets URL ?add=1&tab=singbox + open=true (push)', async () => {
+    resetEnv('/routing?tab=ip');
     const m = await import('./addWizardStore');
     m.openAddWizard();
     expect(get(m.addWizardOpen)).toBe(true);
-    expect(window.location.search).toContain('add=1');
+    const sp = new URL(window.location.href).searchParams;
+    expect(sp.get('add')).toBe('1');
+    expect(sp.get('tab')).toBe('singbox');
+    expect(window.history.length).toBeGreaterThan(1);
   });
 
-  it('closeAddWizard removes URL + clears all state', async () => {
+  it('closeAddWizard removes add from URL + clears all state', async () => {
+    resetEnv('/routing?tab=singbox');
     const m = await import('./addWizardStore');
     m.openAddWizard();
     m.setOutboundCategory('tunnel');
@@ -38,7 +54,21 @@ describe('addWizardStore', () => {
     expect(get(m.wizardOutboundCategory)).toBe(null);
     expect(get(m.wizardTunnelTags)).toEqual([]);
     expect(get(m.wizardCustom).rulesList).toBe('');
-    expect(window.location.search).not.toContain('add=1');
+    expect(new URL(window.location.href).searchParams.get('add')).toBeNull();
+    expect(new URL(window.location.href).searchParams.get('tab')).toBe('singbox');
+  });
+
+  it('popstate without ?add= closes wizard overlay', async () => {
+    resetEnv('/routing?tab=singbox&add=1');
+    const m = await import('./addWizardStore');
+    m.openAddWizard();
+    expect(get(m.addWizardOpen)).toBe(true);
+    // jsdom не меняет location на history.back() — эмулируем URL после «назад».
+    window.history.replaceState({}, '', '/routing?tab=singbox');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(get(m.addWizardOpen)).toBe(false);
+    expect(new URL(window.location.href).searchParams.get('tab')).toBe('singbox');
+    expect(new URL(window.location.href).searchParams.get('add')).toBeNull();
   });
 
   it('setOutboundCategory updates', async () => {

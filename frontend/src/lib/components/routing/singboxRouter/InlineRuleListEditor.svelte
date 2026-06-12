@@ -167,7 +167,7 @@ geosite:xai`;
 				bind:value={value}
 				bind:textareaRef={rulesListTextarea}
 				highlight={highlightInlineRuleListContent}
-				wrap="pre"
+				wrap="pre-wrap"
 				class="rules-list-ta"
 				placeholder={RULES_LIST_PLACEHOLDER}
 				onscroll={syncRulesListLineNumbersScroll}

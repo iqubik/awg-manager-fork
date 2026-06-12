@@ -1,4 +1,5 @@
-import { writable, type Readable, type Writable } from 'svelte/store';
+import { get, writable, type Readable, type Writable } from 'svelte/store';
+import { goto } from '$app/navigation';
 import { closeTrace } from './traceStore';
 import { clearSelection } from './templatesStore';
 import type { WizardEditMode } from './ruleWizardPrefill';
@@ -33,9 +34,9 @@ export const wizardExistingInlineRuleSetTag: Readable<string | null> = {
 };
 export const wizardWasInlineText: Readable<boolean> = { subscribe: wasInlineTextW.subscribe };
 
-function setUrl(open: boolean) {
-  if (typeof window === 'undefined') return;
+function wizardUrl(open: boolean): string {
   const url = new URL(window.location.href);
+  url.searchParams.set('tab', 'singbox');
   if (open) {
     url.searchParams.set('add', '1');
     url.searchParams.delete('trace');
@@ -44,7 +45,17 @@ function setUrl(open: boolean) {
     url.searchParams.delete('add');
     url.searchParams.delete('edit');
   }
-  window.history.replaceState({}, '', url);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function pushWizardUrl(): void {
+  if (typeof window === 'undefined') return;
+  void goto(wizardUrl(true), { keepFocus: true, noScroll: true });
+}
+
+function replaceWizardUrlClosed(): void {
+  if (typeof window === 'undefined') return;
+  void goto(wizardUrl(false), { replaceState: true, keepFocus: true, noScroll: true });
 }
 
 function clearEditState(): void {
@@ -54,11 +65,29 @@ function clearEditState(): void {
   wasInlineTextW.set(false);
 }
 
+function resetWizardOnly(): void {
+  openW.set(false);
+  categoryW.set(null);
+  tunnelW.set([]);
+  customW.set(emptyCustom());
+  clearEditState();
+  clearSelection();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('popstate', () => {
+    const sp = new URL(window.location.href).searchParams;
+    if (sp.get('add') !== '1' && get(openW)) {
+      resetWizardOnly();
+    }
+  });
+}
+
 export function openAddWizard(): void {
   closeTrace();
   clearEditState();
   openW.set(true);
-  setUrl(true);
+  pushWizardUrl();
 }
 
 export function openEditWizard(
@@ -81,18 +110,14 @@ export function openEditWizard(
   tunnelW.set([...prefill.tunnelTags]);
   customW.set({ rulesList: prefill.rulesList });
   openW.set(true);
-  setUrl(true);
+  pushWizardUrl();
 }
 
 export function closeAddWizard(): void {
-  openW.set(false);
-  categoryW.set(null);
-  tunnelW.set([]);
-  customW.set(emptyCustom());
-  clearEditState();
-  // Иначе selection из edit-prefill утекает в следующий «+ Правило».
-  clearSelection();
-  setUrl(false);
+  const wasOpen = get(openW);
+  resetWizardOnly();
+  if (!wasOpen || typeof window === 'undefined') return;
+  replaceWizardUrlClosed();
 }
 
 export function setOutboundCategory(c: OutboundCategory | null): void {
