@@ -17,8 +17,6 @@ set "UPLOAD_MODE=on"
 set "AWG_RELEASE_BASE_URL=https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest"
 :: ===========================
 
-set "LOGFILE=build.log"
-
 :: Parse architecture argument (overrides BUILD_MODE if provided)
 set "ARCH=%1"
 if "%ARCH%"=="" set "ARCH=%BUILD_MODE%"
@@ -27,8 +25,8 @@ set "UPLOAD_ARG=%2"
 if not "%UPLOAD_ARG%"=="" set "UPLOAD_MODE=%UPLOAD_ARG%"
 
 if /i not "%UPLOAD_MODE%"=="on" if /i not "%UPLOAD_MODE%"=="off" (
-    echo ERROR: Invalid UPLOAD_MODE '%UPLOAD_MODE%'. Use 'on' or 'off'. >> %LOGFILE%
-    echo Usage: %0 [mipsel^|mips^|arm^|all] [on^|off] >> %LOGFILE%
+    echo ERROR: Invalid UPLOAD_MODE '%UPLOAD_MODE%'. Use 'on' or 'off'.
+    echo Usage: %0 [mipsel^|mips^|arm^|all] [on^|off]
     pause
     exit /b 1
 )
@@ -57,8 +55,8 @@ if /i "%ARCH%"=="all" (
     set "BUILD_ARM=1"
     set "ARCH_DISPLAY=aarch64"
 ) else (
-    echo ERROR: Invalid BUILD_MODE or argument '%ARCH%'. Use 'mipsel', 'mips', 'arm'/'aarch64', or 'all'. >> %LOGFILE%
-    echo Usage: %0 [mipsel^|mips^|arm^|all] or edit BUILD_MODE in script. >> %LOGFILE%
+    echo ERROR: Invalid BUILD_MODE or argument '%ARCH%'. Use 'mipsel', 'mips', 'arm'/'aarch64', or 'all'.
+    echo Usage: %0 [mipsel^|mips^|arm^|all] or edit BUILD_MODE in script.
     pause
     exit /b 1
 )
@@ -93,7 +91,21 @@ set "PROJECT=%~dp0..\.."
 pushd "%PROJECT%"
 set "PROJECT=%CD%"
 popd
+set /p BASE_VERSION=<"%PROJECT%\VERSION"
+if "%BASE_VERSION%"=="" (
+    echo ERROR: Failed to read VERSION from %PROJECT%\VERSION
+    pause
+    exit /b 1
+)
+set "IPK_VERSION=%BASE_VERSION%"
 set "LOGFILE=%PROJECT%\build.log"
+
+type nul > "%LOGFILE%"
+if errorlevel 1 (
+    echo ERROR: Failed to create log file: %LOGFILE%
+    pause
+    exit /b 1
+)
 
 echo ======================================== >> "%LOGFILE%"
 echo ======================================== 
@@ -107,6 +119,8 @@ echo  Upload mode: %UPLOAD_MODE% >> "%LOGFILE%"
 echo  Upload mode: %UPLOAD_MODE%
 echo  AWG_RELEASE_BASE_URL: %AWG_RELEASE_BASE_URL% >> "%LOGFILE%"
 echo  AWG_RELEASE_BASE_URL: %AWG_RELEASE_BASE_URL%
+echo  Log file: %LOGFILE% >> "%LOGFILE%"
+echo  Log file: %LOGFILE%
 if "%1"=="" (
     echo  (using BUILD_MODE from script) >> "%LOGFILE%"
     echo  (using BUILD_MODE from script)
@@ -118,12 +132,20 @@ echo ======================================== >> "%LOGFILE%"
 echo ========================================
 echo. >> "%LOGFILE%"
 echo.
-echo Starting build at %DATE% %TIME% > "%LOGFILE%"
+echo Starting build at %DATE% %TIME% >> "%LOGFILE%"
 
 :: Преобразование в Unix-путь для Git Bash
 set "UNIX_PROJECT=%PROJECT:\=/%"
 set "UNIX_PROJECT=/%UNIX_PROJECT::=%"
 set "UNIX_PROJECT=%UNIX_PROJECT://=/%"
+set "UNIX_LOGFILE=%LOGFILE:\=/%"
+set "UNIX_LOGFILE=/%UNIX_LOGFILE::=%"
+set "UNIX_LOGFILE=%UNIX_LOGFILE://=/%"
+
+echo BASE_VERSION: %BASE_VERSION% >> "%LOGFILE%"
+echo BASE_VERSION: %BASE_VERSION%
+echo IPK_VERSION: %IPK_VERSION% >> "%LOGFILE%"
+echo IPK_VERSION: %IPK_VERSION%
 
 :: Сборка
 set "STEP=1"
@@ -133,19 +155,9 @@ if %BUILD_MIPS%==1 set /a TOTAL_STEPS+=1
 if %BUILD_ARM%==1 set /a TOTAL_STEPS+=1
 
 if %BUILD_MIPSEL%==1 (
-    echo [!STEP!/!TOTAL_STEPS!] Refreshing sing-box metadata for mipsel-3.4... >> "%LOGFILE%"
-    echo [!STEP!/!TOTAL_STEPS!] Refreshing sing-box metadata for mipsel-3.4...
-    "!BASH!" -lc "cd '!UNIX_PROJECT!' && RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/update-singbox-embedded.sh mipsel-3.4 2>&1 | tee -a '!LOGFILE!'"
-    if !errorlevel! neq 0 (
-        echo ERROR: Failed to refresh sing-box embedded metadata for mipsel-3.4! >> "%LOGFILE%"
-        echo ERROR: Failed to refresh sing-box embedded metadata for mipsel-3.4!
-        echo Build/update sing-box artifact first or use CI release assets. >> "%LOGFILE%"
-        pause
-        exit /b !errorlevel!
-    )
     echo [!STEP!/!TOTAL_STEPS!] Building mipsel-3.4... >> "%LOGFILE%"
     echo [!STEP!/!TOTAL_STEPS!] Building mipsel-3.4...
-    "!BASH!" -lc "cd '!UNIX_PROJECT!' && AWG_RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/build-ipk.sh mipsel-3.4 2>&1 | tee -a '!LOGFILE!'"
+    "!BASH!" -lc "set -e; cd '!UNIX_PROJECT!' && AWG_RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/build-ipk.sh '!IPK_VERSION!' mipsel-3.4 2>&1 | tee -a '!UNIX_LOGFILE!'"
     if !errorlevel! neq 0 (
         echo ERROR: MIPSEL build failed! >> %LOGFILE%
         echo ERROR: MIPSEL build failed!
@@ -158,19 +170,9 @@ if %BUILD_MIPSEL%==1 (
 )
 
 if %BUILD_MIPS%==1 (
-    echo [!STEP!/!TOTAL_STEPS!] Refreshing sing-box metadata for mips-3.4... >> "%LOGFILE%"
-    echo [!STEP!/!TOTAL_STEPS!] Refreshing sing-box metadata for mips-3.4...
-    "!BASH!" -lc "cd '!UNIX_PROJECT!' && RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/update-singbox-embedded.sh mips-3.4 2>&1 | tee -a '!LOGFILE!'"
-    if !errorlevel! neq 0 (
-        echo ERROR: Failed to refresh sing-box embedded metadata for mips-3.4! >> "%LOGFILE%"
-        echo ERROR: Failed to refresh sing-box embedded metadata for mips-3.4!
-        echo Build/update sing-box artifact first or use CI release assets. >> "%LOGFILE%"
-        pause
-        exit /b !errorlevel!
-    )
     echo [!STEP!/!TOTAL_STEPS!] Building mips-3.4... >> "%LOGFILE%"
     echo [!STEP!/!TOTAL_STEPS!] Building mips-3.4...
-    "!BASH!" -lc "cd '!UNIX_PROJECT!' && AWG_RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/build-ipk.sh mips-3.4 2>&1 | tee -a '!LOGFILE!'"
+    "!BASH!" -lc "set -e; cd '!UNIX_PROJECT!' && AWG_RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/build-ipk.sh '!IPK_VERSION!' mips-3.4 2>&1 | tee -a '!UNIX_LOGFILE!'"
     if !errorlevel! neq 0 (
         echo ERROR: MIPS build failed! >> %LOGFILE%
         echo ERROR: MIPS build failed!
@@ -183,26 +185,9 @@ if %BUILD_MIPS%==1 (
 )
 
 if %BUILD_ARM%==1 (
-    echo [!STEP!/!TOTAL_STEPS!] Refreshing sing-box metadata for aarch64-3.10... >> "%LOGFILE%"
-    echo [!STEP!/!TOTAL_STEPS!] Refreshing sing-box metadata for aarch64-3.10...
-    "!BASH!" -lc "cd '!UNIX_PROJECT!' && RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/update-singbox-embedded.sh aarch64-3.10 2>&1 | tee -a '!LOGFILE!'"
-    if !errorlevel! neq 0 (
-        echo ERROR: Failed to refresh sing-box embedded metadata for aarch64-3.10! >> "%LOGFILE%"
-        echo ERROR: Failed to refresh sing-box embedded metadata for aarch64-3.10!
-        echo Build/update sing-box artifact first or use CI release assets. >> "%LOGFILE%"
-        pause
-        exit /b !errorlevel!
-    )
-    "!BASH!" -lc "cd '!UNIX_PROJECT!' && grep -F 'aarch64-3.10' internal/singbox/installer/embedded.go >/dev/null && grep -F '!AWG_RELEASE_BASE_URL!' internal/singbox/installer/embedded.go >/dev/null"
-    if !errorlevel! neq 0 (
-        echo ERROR: embedded.go sanity-check failed for aarch64-3.10! >> "%LOGFILE%"
-        echo ERROR: embedded.go sanity-check failed for aarch64-3.10!
-        pause
-        exit /b 1
-    )
     echo [!STEP!/!TOTAL_STEPS!] Building aarch64-3.10... >> "%LOGFILE%"
     echo [!STEP!/!TOTAL_STEPS!] Building aarch64-3.10...
-    "!BASH!" -lc "cd '!UNIX_PROJECT!' && AWG_RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/build-ipk.sh aarch64-3.10 2>&1 | tee -a '!LOGFILE!'"
+    "!BASH!" -lc "set -e; cd '!UNIX_PROJECT!' && AWG_RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/build-ipk.sh '!IPK_VERSION!' aarch64-3.10 2>&1 | tee -a '!UNIX_LOGFILE!'"
     if !errorlevel! neq 0 (
         echo ERROR: ARM64 build failed! >> %LOGFILE%
         echo ERROR: ARM64 build failed!
@@ -237,7 +222,7 @@ dir "!PROJECT!\dist\*.ipk"
 if %BUILD_ARM%==1 (
     echo Verifying AWG_RELEASE_BASE_URL inside packaged IPK... >> "%LOGFILE%"
     echo Verifying AWG_RELEASE_BASE_URL inside packaged IPK...
-    "!BASH!" -lc "set -e; cd '!UNIX_PROJECT!'; ipk=$(ls -t dist/awg-manager_*_aarch64-3.10-kn.ipk | head -n1); tmp=$(mktemp -d); cp \"$ipk\" \"$tmp/package.ipk\"; cd \"$tmp\"; tar -xzf package.ipk; data_tar=$(ls data.tar.* | head -n1); mkdir data-root; tar -xzf \"$data_tar\" -C data-root; bin=data-root/opt/bin/awg-manager; test -s \"$bin\"; grep -aF '!AWG_RELEASE_BASE_URL!' \"$bin\" >/dev/null"
+    "!BASH!" -lc "cd '!UNIX_PROJECT!' && bash ./scripts/dev/verify-awg-ipk-url.sh aarch64-3.10 '!AWG_RELEASE_BASE_URL!' 2>&1 | tee -a '!UNIX_LOGFILE!'"
     if !errorlevel! neq 0 (
         echo ERROR: AWG_RELEASE_BASE_URL not embedded into packaged IPK! >> "%LOGFILE%"
         echo ERROR: AWG_RELEASE_BASE_URL not embedded into packaged IPK!
@@ -257,52 +242,32 @@ echo  Uploading and installing on rax1
 echo ======================================== >> %LOGFILE%
 echo ========================================
 
-:: Find the latest aarch64 IPK
-echo Finding latest aarch64 IPK in dist\ >> %LOGFILE%
-echo Finding latest aarch64 IPK in dist\
-set "LATEST_IPK="
-for /f "delims=" %%f in ('dir /b /o-d "!PROJECT!\dist\awg-manager*aarch64*.ipk" 2^>nul') do (
-    set "LATEST_IPK=%%f"
-    goto :found_ipk
-)
-:found_ipk
-if not defined LATEST_IPK (
-    echo ERROR: No aarch64 IPK found in dist\ >> %LOGFILE%
-    echo ERROR: No aarch64 IPK found in dist\
+set "INSTALL_IPK=awg-manager_%IPK_VERSION%_aarch64-3.10-kn.ipk"
+if not exist "!PROJECT!\dist\!INSTALL_IPK!" (
+    echo ERROR: Expected IPK not found: !INSTALL_IPK! >> %LOGFILE%
+    echo ERROR: Expected IPK not found: !INSTALL_IPK!
     pause
     exit /b 1
 )
 
-echo Found latest IPK: %LATEST_IPK% >> %LOGFILE%
-echo Found latest IPK: %LATEST_IPK%
+echo Install IPK: !INSTALL_IPK! >> %LOGFILE%
+echo Install IPK: !INSTALL_IPK!
 
 :: Upload to rax1
-echo Uploading %LATEST_IPK% to rax1:/opt/tmp/... >> %LOGFILE%
-echo Uploading %LATEST_IPK% to rax1:/opt/tmp/...
-"!BASH!" -c "cat '!UNIX_PROJECT!/dist/%LATEST_IPK%' | ssh rax1 'cat > /opt/tmp/%LATEST_IPK%' 2>&1 | tee -a '!LOGFILE!'"
+echo Uploading !INSTALL_IPK! to rax1:/opt/tmp/... >> %LOGFILE%
+echo Uploading !INSTALL_IPK! to rax1:/opt/tmp/...
+"!BASH!" -lc "cd '!UNIX_PROJECT!' && bash ./scripts/dev/upload-install-ipk.sh '!INSTALL_IPK!' '!AWG_RELEASE_BASE_URL!' 2>&1 | tee -a '!UNIX_LOGFILE!'"
 if !errorlevel! neq 0 (
-    echo ERROR: Upload failed for %LATEST_IPK% >> %LOGFILE%
-    echo ERROR: Upload failed for %LATEST_IPK%
+    echo ERROR: Upload failed for !INSTALL_IPK! >> %LOGFILE%
+    echo ERROR: Upload failed for !INSTALL_IPK!
     pause
     exit /b 1
 )
 echo Upload successful >> %LOGFILE%
 echo Upload successful
-echo Verifying uploaded file size... >> %LOGFILE%
-"!BASH!" -c "ssh rax1 'ls -l /opt/tmp/%LATEST_IPK%' 2>&1 | tee -a '!LOGFILE!'"
 
-:: Install on rax1
-echo Installing %LATEST_IPK% on rax1... >> %LOGFILE%
-echo Installing %LATEST_IPK% on rax1...
-"!BASH!" -c "ssh rax1 'opkg install /opt/tmp/%LATEST_IPK%' 2>&1 | tee -a '!LOGFILE!'"
-if !errorlevel! neq 0 (
-    echo ERROR: Install failed for %LATEST_IPK% >> %LOGFILE%
-    echo ERROR: Install failed for %LATEST_IPK%
-    pause
-    exit /b 1
-)
-echo Install successful: %LATEST_IPK% >> %LOGFILE%
-echo Install successful: %LATEST_IPK%
+echo Install successful: !INSTALL_IPK! >> %LOGFILE%
+echo Install successful: !INSTALL_IPK!
 
 echo. >> %LOGFILE%
 echo.
