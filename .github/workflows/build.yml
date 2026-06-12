@@ -427,22 +427,20 @@ jobs:
         run: |
           set -euo pipefail
 
+          RELEASE_TAG="iq-latest"
           created_release=0
 
           cleanup_failed_release() {
             code=$?
             if (( code != 0 )) && (( created_release == 1 )); then
-              echo "Publish failed, deleting partial iq-latest release"
+              echo "Publish failed, deleting partial ${RELEASE_TAG} release"
+              gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName,name,url || true
               gh release delete "$RELEASE_TAG" --yes --cleanup-tag || true
             fi
             exit "$code"
           }
 
           trap cleanup_failed_release EXIT
-
-          shopt -s nullglob
-
-          RELEASE_TAG="iq-latest"
 
           current_version="$(tr -d '[:space:]' < ./dist/VERSION)"
           if [[ "$current_version" != "$IPK_VERSION" ]]; then
@@ -518,8 +516,8 @@ jobs:
             --notes-file ./dist/RELEASE_NOTES.md \
             --prerelease
 
-          echo "Published release state:"
-          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName,name
+           echo "Published release state:"
+           gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName,name,url,assets
 
           is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')"
           if [[ "$is_draft" == "true" ]]; then
@@ -527,9 +525,33 @@ jobs:
             exit 1
           fi
 
-          published_version="$(curl -fsSL "https://github.com/iqubik/awg-manager-fork/releases/download/${RELEASE_TAG}/VERSION" | tr -d '[:space:]')"
+          published_dir="$(mktemp -d)"
+
+          published_version=""
+          for attempt in {1..10}; do
+            rm -f "${published_dir}/VERSION"
+
+            if gh release download "$RELEASE_TAG" \
+                --pattern VERSION \
+                --dir "$published_dir" >/dev/null 2>&1 \
+            && [[ -s "${published_dir}/VERSION" ]]; then
+              published_version="$(tr -d '[:space:]' < "${published_dir}/VERSION")"
+              break
+            fi
+
+            echo "VERSION asset is not available yet, retry ${attempt}/10"
+            sleep 3
+          done
+
+          if [[ -z "$published_version" ]]; then
+            echo "Published VERSION asset is not available for ${RELEASE_TAG}" >&2
+            gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName,name,url,assets || true
+            exit 1
+          fi
+
           if [[ "$published_version" != "$IPK_VERSION" ]]; then
             echo "Published VERSION mismatch: got ${published_version}, expected ${IPK_VERSION}" >&2
+            gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName,name,url,assets || true
             exit 1
           fi
 
