@@ -133,6 +133,16 @@ if %BUILD_MIPS%==1 set /a TOTAL_STEPS+=1
 if %BUILD_ARM%==1 set /a TOTAL_STEPS+=1
 
 if %BUILD_MIPSEL%==1 (
+    echo [!STEP!/!TOTAL_STEPS!] Refreshing sing-box metadata for mipsel-3.4... >> "%LOGFILE%"
+    echo [!STEP!/!TOTAL_STEPS!] Refreshing sing-box metadata for mipsel-3.4...
+    "!BASH!" -lc "cd '!UNIX_PROJECT!' && RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/update-singbox-embedded.sh mipsel-3.4 2>&1 | tee -a '!LOGFILE!'"
+    if !errorlevel! neq 0 (
+        echo ERROR: Failed to refresh sing-box embedded metadata for mipsel-3.4! >> "%LOGFILE%"
+        echo ERROR: Failed to refresh sing-box embedded metadata for mipsel-3.4!
+        echo Build/update sing-box artifact first or use CI release assets. >> "%LOGFILE%"
+        pause
+        exit /b !errorlevel!
+    )
     echo [!STEP!/!TOTAL_STEPS!] Building mipsel-3.4... >> "%LOGFILE%"
     echo [!STEP!/!TOTAL_STEPS!] Building mipsel-3.4...
     "!BASH!" -lc "cd '!UNIX_PROJECT!' && AWG_RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/build-ipk.sh mipsel-3.4 2>&1 | tee -a '!LOGFILE!'"
@@ -148,6 +158,16 @@ if %BUILD_MIPSEL%==1 (
 )
 
 if %BUILD_MIPS%==1 (
+    echo [!STEP!/!TOTAL_STEPS!] Refreshing sing-box metadata for mips-3.4... >> "%LOGFILE%"
+    echo [!STEP!/!TOTAL_STEPS!] Refreshing sing-box metadata for mips-3.4...
+    "!BASH!" -lc "cd '!UNIX_PROJECT!' && RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/update-singbox-embedded.sh mips-3.4 2>&1 | tee -a '!LOGFILE!'"
+    if !errorlevel! neq 0 (
+        echo ERROR: Failed to refresh sing-box embedded metadata for mips-3.4! >> "%LOGFILE%"
+        echo ERROR: Failed to refresh sing-box embedded metadata for mips-3.4!
+        echo Build/update sing-box artifact first or use CI release assets. >> "%LOGFILE%"
+        pause
+        exit /b !errorlevel!
+    )
     echo [!STEP!/!TOTAL_STEPS!] Building mips-3.4... >> "%LOGFILE%"
     echo [!STEP!/!TOTAL_STEPS!] Building mips-3.4...
     "!BASH!" -lc "cd '!UNIX_PROJECT!' && AWG_RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/build-ipk.sh mips-3.4 2>&1 | tee -a '!LOGFILE!'"
@@ -163,6 +183,23 @@ if %BUILD_MIPS%==1 (
 )
 
 if %BUILD_ARM%==1 (
+    echo [!STEP!/!TOTAL_STEPS!] Refreshing sing-box metadata for aarch64-3.10... >> "%LOGFILE%"
+    echo [!STEP!/!TOTAL_STEPS!] Refreshing sing-box metadata for aarch64-3.10...
+    "!BASH!" -lc "cd '!UNIX_PROJECT!' && RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/update-singbox-embedded.sh aarch64-3.10 2>&1 | tee -a '!LOGFILE!'"
+    if !errorlevel! neq 0 (
+        echo ERROR: Failed to refresh sing-box embedded metadata for aarch64-3.10! >> "%LOGFILE%"
+        echo ERROR: Failed to refresh sing-box embedded metadata for aarch64-3.10!
+        echo Build/update sing-box artifact first or use CI release assets. >> "%LOGFILE%"
+        pause
+        exit /b !errorlevel!
+    )
+    "!BASH!" -lc "cd '!UNIX_PROJECT!' && grep -F 'aarch64-3.10' internal/singbox/installer/embedded.go >/dev/null && grep -F '!AWG_RELEASE_BASE_URL!' internal/singbox/installer/embedded.go >/dev/null"
+    if !errorlevel! neq 0 (
+        echo ERROR: embedded.go sanity-check failed for aarch64-3.10! >> "%LOGFILE%"
+        echo ERROR: embedded.go sanity-check failed for aarch64-3.10!
+        pause
+        exit /b 1
+    )
     echo [!STEP!/!TOTAL_STEPS!] Building aarch64-3.10... >> "%LOGFILE%"
     echo [!STEP!/!TOTAL_STEPS!] Building aarch64-3.10...
     "!BASH!" -lc "cd '!UNIX_PROJECT!' && AWG_RELEASE_BASE_URL='!AWG_RELEASE_BASE_URL!' ./scripts/build-ipk.sh aarch64-3.10 2>&1 | tee -a '!LOGFILE!'"
@@ -200,7 +237,7 @@ dir "!PROJECT!\dist\*.ipk"
 if %BUILD_ARM%==1 (
     echo Verifying AWG_RELEASE_BASE_URL inside packaged IPK... >> "%LOGFILE%"
     echo Verifying AWG_RELEASE_BASE_URL inside packaged IPK...
-    "!BASH!" -lc "cd '!UNIX_PROJECT!' && ipk=$(ls -t dist/awg-manager_*_aarch64-3.10-kn.ipk | head -n1) && tmp=$(mktemp -d) && cp \"$ipk\" \"$tmp/package.ipk\" && cd \"$tmp\" && tar -xzf package.ipk && data_tar=$(ls data.tar.* | head -n1) && mkdir data-root && tar -xzf \"$data_tar\" -C data-root && strings data-root/opt/bin/awg-manager | grep -F '!AWG_RELEASE_BASE_URL!' >/dev/null"
+    "!BASH!" -lc "set -e; cd '!UNIX_PROJECT!'; ipk=$(ls -t dist/awg-manager_*_aarch64-3.10-kn.ipk | head -n1); tmp=$(mktemp -d); cp \"$ipk\" \"$tmp/package.ipk\"; cd \"$tmp\"; tar -xzf package.ipk; data_tar=$(ls data.tar.* | head -n1); mkdir data-root; tar -xzf \"$data_tar\" -C data-root; bin=data-root/opt/bin/awg-manager; test -s \"$bin\"; grep -aF '!AWG_RELEASE_BASE_URL!' \"$bin\" >/dev/null"
     if !errorlevel! neq 0 (
         echo ERROR: AWG_RELEASE_BASE_URL not embedded into packaged IPK! >> "%LOGFILE%"
         echo ERROR: AWG_RELEASE_BASE_URL not embedded into packaged IPK!
