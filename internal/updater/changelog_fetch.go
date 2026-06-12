@@ -12,19 +12,17 @@ import (
 )
 
 func changelogSourcesForChannel(channel string) (primary, secondary string) {
-	if channel == channelDevelop {
-		upstreamDevelop := entwareRepoURL + "/develop/CHANGELOG.md"
-		if strings.TrimSpace(releaseBaseURL) == "" {
-			return upstreamDevelop, ""
+	if strings.TrimSpace(releaseBaseURL) != "" {
+		if channel == channelDevelop {
+			return releaseAssetURL("CHANGELOG.md"), entwareRepoURL + "/develop/CHANGELOG.md"
 		}
-		return upstreamDevelop, releaseAssetURL("CHANGELOG.md")
+		return releaseAssetURL("CHANGELOG.md"), entwareRepoURL + "/CHANGELOG.md"
 	}
 
-	upstreamStable := entwareRepoURL + "/CHANGELOG.md"
-	if strings.TrimSpace(releaseBaseURL) == "" {
-		return upstreamStable, ""
+	if channel == channelDevelop {
+		return entwareRepoURL + "/develop/CHANGELOG.md", ""
 	}
-	return releaseAssetURL("CHANGELOG.md"), upstreamStable
+	return entwareRepoURL + "/CHANGELOG.md", ""
 }
 
 // changelogFetcher pulls the monolithic CHANGELOG.md, parses it, and

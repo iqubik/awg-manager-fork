@@ -251,6 +251,7 @@ func TestCheck_DevelopDetectsNewerRevision(t *testing.T) {
 		entwareRepoURL = oldEntwareRepoURL
 	}()
 
+	releaseBaseURL = ""
 	arch := archSuffix()
 	archDir := archSuffixToRepoDir(arch)
 	ipk := "awg-manager_2.11.2+r71_" + arch + "-kn.ipk"
@@ -293,6 +294,7 @@ func TestCheck_DevelopSameRevisionUpToDate(t *testing.T) {
 		entwareRepoURL = oldEntwareRepoURL
 	}()
 
+	releaseBaseURL = ""
 	arch := archSuffix()
 	archDir := archSuffixToRepoDir(arch)
 	ipk := "awg-manager_2.11.2+r70_" + arch + "-kn.ipk"
@@ -414,6 +416,68 @@ func TestCheck_StableWithReleaseBaseURLRejectsInvalidVersion(t *testing.T) {
 	}
 	if !strings.Contains(info.Error, "invalid VERSION") {
 		t.Fatalf("error = %q, want invalid VERSION", info.Error)
+	}
+}
+
+func TestCheck_DevelopWithReleaseBaseURLUsesVersionAsset(t *testing.T) {
+	oldReleaseBaseURL := releaseBaseURL
+	oldEntwareRepoURL := entwareRepoURL
+	defer func() {
+		releaseBaseURL = oldReleaseBaseURL
+		entwareRepoURL = oldEntwareRepoURL
+	}()
+
+	releaseBaseURL = "https://example.com/releases/download/iq-latest"
+	arch := archSuffix()
+
+	var seen downloader.Request
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			seen = req
+			return []byte("2.11.2+r71\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+		},
+	}
+
+	info := checkWithDownloader(context.Background(), "2.11.2+r70", channelDevelop, dl)
+
+	if seen.URL != releaseBaseURL+"/VERSION" {
+		t.Fatalf("request URL = %q, want %q", seen.URL, releaseBaseURL+"/VERSION")
+	}
+	if !info.Available {
+		t.Fatalf("expected update available, got %+v", info)
+	}
+	if info.LatestVersion != "2.11.2+r71" {
+		t.Fatalf("LatestVersion = %q, want 2.11.2+r71", info.LatestVersion)
+	}
+	wantURL := releaseBaseURL + "/awg-manager_2.11.2+r71_" + arch + "-kn.ipk"
+	if info.DownloadURL != wantURL {
+		t.Fatalf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
+	}
+}
+
+func TestCheck_DevelopWithReleaseBaseURLSameRevisionUpToDate(t *testing.T) {
+	oldReleaseBaseURL := releaseBaseURL
+	oldEntwareRepoURL := entwareRepoURL
+	defer func() {
+		releaseBaseURL = oldReleaseBaseURL
+		entwareRepoURL = oldEntwareRepoURL
+	}()
+
+	releaseBaseURL = "https://example.com/releases/download/iq-latest"
+
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			return []byte("2.11.2+r70\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+		},
+	}
+
+	info := checkWithDownloader(context.Background(), "2.11.2+r70", channelDevelop, dl)
+
+	if info.Available {
+		t.Fatal("expected Available=false: same revision")
+	}
+	if info.DownloadURL != "" {
+		t.Errorf("DownloadURL = %q, want empty", info.DownloadURL)
 	}
 }
 

@@ -182,7 +182,10 @@ jobs:
           IPK_VERSION="${{ needs.version.outputs.ipk_version }}"
           printf '%s\n' "$IPK_VERSION" > dist/VERSION
 
+          AWG_RELEASE_BASE_URL="https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest" \
           SKIP_FRONTEND_BUILD=1 ./scripts/build-ipk.sh "$IPK_VERSION" "${{ matrix.arch }}"
+
+          echo "AWG_RELEASE_BASE_URL=${AWG_RELEASE_BASE_URL}"
 
       - name: Upload result
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

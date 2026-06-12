@@ -74,7 +74,7 @@ func checkWithDownloader(ctx context.Context, currentVersion, channel string, dl
 
 	cmp := versionComparator(channel)
 
-	if channel == channelStable && strings.TrimSpace(releaseBaseURL) != "" {
+	if strings.TrimSpace(releaseBaseURL) != "" {
 		return checkReleaseWithDownloader(ctx, info, currentVersion, dl, cmp)
 	}
 
