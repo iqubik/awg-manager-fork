@@ -187,14 +187,12 @@ func normalizeStableReleaseTag(tag string) (string, bool) {
 		return "", false
 	}
 
-	normalized := strings.TrimPrefix(trimmed, "v")
-	if normalized == "" {
+	if !strings.HasPrefix(trimmed, "v") {
 		return "", false
 	}
-
 	if !releaseStableTagPattern.MatchString(trimmed) {
 		return "", false
 	}
 
-	return normalized, true
+	return strings.TrimPrefix(trimmed, "v"), true
 }

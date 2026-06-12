@@ -490,6 +490,44 @@ func TestFetchHighestStableReleaseWithDownloader_SelectsHighestStableSemver(t *t
 	}
 }
 
+func TestFetchHighestStableRelease_IgnoresBareNumericDuplicateTag(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	defer func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+	}()
+
+	var seen downloader.Request
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			seen = req
+			return []byte(`[
+				{"tag_name":"2.13.0.1","draft":false,"prerelease":false,"assets":[]},
+				{"tag_name":"v2.13.0.1","draft":false,"prerelease":false,"assets":[
+					{"name":"VERSION","browser_download_url":"https://github.com/example/repo/releases/download/v2.13.0.1/VERSION"},
+					{"name":"CHANGELOG.md","browser_download_url":"https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md"},
+					{"name":"awg-manager_2.13.0.1_aarch64-3.10-kn.ipk","browser_download_url":"https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_aarch64-3.10-kn.ipk"}
+				]}
+			]`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+		},
+	}
+
+	info, err := fetchHighestStableReleaseWithDownloader(context.Background(), dl, "https://github.com/example/repo/releases")
+	if err != nil {
+		t.Fatalf("fetchHighestStableReleaseWithDownloader: %v", err)
+	}
+	if seen.URL != "https://api.github.com/repos/example/repo/releases?per_page=100" {
+		t.Fatalf("request URL = %q", seen.URL)
+	}
+	if info.TagName != "v2.13.0.1" {
+		t.Fatalf("TagName = %q, want v2.13.0.1", info.TagName)
+	}
+	if info.Version != "2.13.0.1" {
+		t.Fatalf("Version = %q, want 2.13.0.1", info.Version)
+	}
+}
+
 func TestCheck_DevelopWithReleaseBaseURLUsesVersionAsset(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
