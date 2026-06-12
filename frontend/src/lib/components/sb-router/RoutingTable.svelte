@@ -179,14 +179,10 @@
       <div class="mobile-route-target">
         <Badge variant={row.actionVariant} size="sm" mono>{row.actionLabel}</Badge>
         <span class="mobile-route-arrow">→</span>
-        {#if row.outboundKind === 'none'}
-          <span class="dash">—</span>
-        {:else if row.outboundKind === 'direct'}
-          <Badge variant="muted" mono size="sm">direct</Badge>
-        {:else if row.outboundKind === 'reject'}
-          <Badge variant="error" mono size="sm">reject</Badge>
+        {#if row.outboundDisplay}
+          <OutboundTile outbound={row.outboundDisplay} size="compact" />
         {:else}
-          <Badge variant={row.outboundVariant} mono size="sm" title={row.outbound}>{row.outboundLabel}</Badge>
+          <span class="dash">—</span>
         {/if}
       </div>
       <div class="outbound-cell">
