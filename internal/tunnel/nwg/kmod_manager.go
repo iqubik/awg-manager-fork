@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -277,7 +278,7 @@ var listenPortRe = regexp.MustCompile(`listen=127\.0\.0\.1:(\d+)`)
 
 func countProxySlotsList(data string) int {
 	count := 0
-	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "(") {
 			continue
@@ -293,11 +294,9 @@ func countProxySlotsList(data string) int {
 // a slot listening on 127.0.0.1:listenPort.
 func hasSlotListeningInList(data string, listenPort int) bool {
 	want := fmt.Sprintf("listen=127.0.0.1:%d", listenPort)
-	for _, line := range strings.Split(data, "\n") {
-		for _, field := range strings.Fields(line) {
-			if field == want {
-				return true
-			}
+	for line := range strings.SplitSeq(data, "\n") {
+		if slices.Contains(strings.Fields(line), want) {
+			return true
 		}
 	}
 	return false
@@ -313,7 +312,7 @@ func (km *KmodManager) readListenPortLocked(endpointIP string, endpointPort int)
 
 	// Each line: "IP:PORT listen=127.0.0.1:LPORT rx=... tx=..."
 	target := fmt.Sprintf("%s:%d ", endpointIP, endpointPort)
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if !strings.HasPrefix(line, target) {
 			continue
 		}
