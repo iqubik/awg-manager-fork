@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/downloader"
 )
@@ -70,6 +71,7 @@ func TestCheck_UpdateAvailable(t *testing.T) {
 		entwareRepoURL = oldEntwareRepoURL
 	}()
 
+	releaseRepoURL = ""
 	arch := archSuffix()
 	ipkName := "awg-manager_9.9.9_" + arch + "-kn.ipk"
 	body := "Package: awg-manager\nVersion: 9.9.9\nFilename: " + ipkName + "\n"
@@ -105,6 +107,7 @@ func TestCheck_PicksHighestOfMultipleBlocks(t *testing.T) {
 		entwareRepoURL = oldEntwareRepoURL
 	}()
 
+	releaseRepoURL = ""
 	arch := archSuffix()
 	body := `Package: awg-manager
 Version: 2.6.5
@@ -141,6 +144,7 @@ func TestCheck_AlreadyUpToDate(t *testing.T) {
 		entwareRepoURL = oldEntwareRepoURL
 	}()
 
+	releaseRepoURL = ""
 	arch := archSuffix()
 	body := "Package: awg-manager\nVersion: 2.3.11\nFilename: awg-manager_2.3.11_" + arch + "-kn.ipk\n"
 
@@ -167,6 +171,7 @@ func TestCheck_BuildRevisionSameAsRepoRelease(t *testing.T) {
 		entwareRepoURL = oldEntwareRepoURL
 	}()
 
+	releaseRepoURL = ""
 	arch := archSuffix()
 	body := "Package: awg-manager\nVersion: 2.11.2\nFilename: awg-manager_2.11.2_" + arch + "-kn.ipk\n"
 
@@ -193,6 +198,7 @@ func TestCheck_NewerThanRepo(t *testing.T) {
 		entwareRepoURL = oldEntwareRepoURL
 	}()
 
+	releaseRepoURL = ""
 	arch := archSuffix()
 	body := "Package: awg-manager\nVersion: 2.3.10\nFilename: awg-manager_2.3.10_" + arch + "-kn.ipk\n"
 
@@ -216,6 +222,7 @@ func TestCheck_PackageMissing(t *testing.T) {
 		entwareRepoURL = oldEntwareRepoURL
 	}()
 
+	releaseRepoURL = ""
 	body := "Package: curl\nVersion: 8.0.1\nFilename: curl_8.0.1.ipk\n"
 
 	srv := newMockEntwareServer(t, body, http.StatusOK)
@@ -241,6 +248,7 @@ func TestCheck_HTTPError(t *testing.T) {
 		entwareRepoURL = oldEntwareRepoURL
 	}()
 
+	releaseRepoURL = ""
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("internal error"))
@@ -381,70 +389,91 @@ func TestCheck_StableWithoutReleaseBaseURLUsesPackagesIndex(t *testing.T) {
 	}
 }
 
-func TestCheck_StableWithReleaseRepoURLUsesLatestReleaseVersionAsset(t *testing.T) {
+func TestCheck_StableUsesHighestSemverTagNotLatestDownload(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	oldEntwareRepoURL := entwareRepoURL
+	oldFetcher := stableReleaseResolver.fetch
+	oldTTL := stableReleaseResolver.ttl
 	defer func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
 		entwareRepoURL = oldEntwareRepoURL
+		stableReleaseResolver.fetch = oldFetcher
+		stableReleaseResolver.ttl = oldTTL
+		stableReleaseResolver.Clear()
 	}()
 
-	releaseRepoURL = "https://example.com/releases"
+	releaseRepoURL = "https://github.com/example/repo/releases"
 	releaseBaseURL = ""
 	arch := archSuffix()
 
-	var seen downloader.Request
-	dl := &fakeDownloader{
-		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
-			seen = req
-			return []byte("2.13.0.1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
-		},
+	stableReleaseResolver.ttl = time.Hour
+	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
+		if repoURL != "https://github.com/example/repo/releases" {
+			t.Fatalf("repoURL = %q", repoURL)
+		}
+		return stableReleaseInfo{
+			RepoURL: repoURL,
+			APIURL:  "https://api.github.com/repos/example/repo/releases?per_page=100",
+			TagName: "v2.13.0.1",
+			Version: "2.13.0.1",
+			Assets: map[string]string{
+				"awg-manager_2.13.0.1_" + arch + "-kn.ipk": "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + arch + "-kn.ipk",
+			},
+		}, nil
 	}
 
-	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, dl)
+	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, nil)
 
-	if seen.URL != "https://example.com/releases/latest/download/VERSION" {
-		t.Fatalf("request URL = %q", seen.URL)
-	}
 	if !info.Available {
 		t.Fatalf("expected update available, got %+v", info)
 	}
 	if info.LatestVersion != "2.13.0.1" {
 		t.Fatalf("LatestVersion = %q, want 2.13.0.1", info.LatestVersion)
 	}
-	wantURL := "https://example.com/releases/latest/download/awg-manager_2.13.0.1_" + arch + "-kn.ipk"
+	if info.SourceURL != "https://api.github.com/repos/example/repo/releases?per_page=100" {
+		t.Fatalf("SourceURL = %q", info.SourceURL)
+	}
+	wantURL := "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + arch + "-kn.ipk"
 	if info.DownloadURL != wantURL {
 		t.Fatalf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
 	}
 }
 
-func TestCheck_StableWithReleaseRepoURLRejectsInvalidVersion(t *testing.T) {
+func TestFetchHighestStableReleaseWithDownloader_SelectsHighestStableSemver(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
-	oldEntwareRepoURL := entwareRepoURL
 	defer func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
-		entwareRepoURL = oldEntwareRepoURL
 	}()
 
-	releaseRepoURL = "https://example.com/releases"
-	releaseBaseURL = ""
+	var seen downloader.Request
 	dl := &fakeDownloader{
 		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
-			return []byte("2.11.6 bad\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			seen = req
+			return []byte(`[
+				{"tag_name":"v2.13.0.1","draft":false,"prerelease":false,"assets":[{"name":"CHANGELOG.md","browser_download_url":"https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md"}]},
+				{"tag_name":"v2.12.4","draft":false,"prerelease":false,"assets":[]},
+				{"tag_name":"v2.14.0-beta","draft":false,"prerelease":true,"assets":[]},
+				{"tag_name":"iq-latest","draft":false,"prerelease":true,"assets":[]}
+			]`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 		},
 	}
 
-	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, dl)
-
-	if info.Available {
-		t.Fatalf("expected no update on invalid VERSION, got %+v", info)
+	info, err := fetchHighestStableReleaseWithDownloader(context.Background(), dl, "https://github.com/example/repo/releases")
+	if err != nil {
+		t.Fatalf("fetchHighestStableReleaseWithDownloader: %v", err)
 	}
-	if !strings.Contains(info.Error, "invalid VERSION") {
-		t.Fatalf("error = %q, want invalid VERSION", info.Error)
+	if seen.URL != "https://api.github.com/repos/example/repo/releases?per_page=100" {
+		t.Fatalf("request URL = %q", seen.URL)
+	}
+	if info.TagName != "v2.13.0.1" {
+		t.Fatalf("TagName = %q", info.TagName)
+	}
+	if info.Version != "2.13.0.1" {
+		t.Fatalf("Version = %q", info.Version)
 	}
 }
 
@@ -484,6 +513,34 @@ func TestCheck_DevelopWithReleaseBaseURLUsesVersionAsset(t *testing.T) {
 	wantURL := releaseBaseURL + "/awg-manager_2.11.2+r71_" + arch + "-kn.ipk"
 	if info.DownloadURL != wantURL {
 		t.Fatalf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
+	}
+}
+
+func TestCheck_DevelopUsesIqLatestVersionAsset(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	defer func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+	}()
+
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	releaseBaseURL = ""
+	var seen downloader.Request
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			seen = req
+			return []byte("2.12.3.14+r1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+		},
+	}
+
+	info := checkWithDownloader(context.Background(), "2.12.4", channelDevelop, dl)
+
+	if seen.URL != "https://github.com/example/repo/releases/download/iq-latest/VERSION" {
+		t.Fatalf("request URL = %q", seen.URL)
+	}
+	if info.Available {
+		t.Fatalf("expected no update, got %+v", info)
 	}
 }
 
@@ -532,8 +589,7 @@ func TestCheck_ReleaseChannelsAcceptForkFourSegmentVersion(t *testing.T) {
 		channel string
 		baseURL string
 	}{
-		{channel: channelStable, baseURL: "https://example.com/releases/latest/download"},
-		{channel: channelDevelop, baseURL: "https://example.com/releases/download/iq-latest"},
+		{channel: channelDevelop, baseURL: "https://github.com/example/repo/releases/download/iq-latest"},
 	} {
 		var seen downloader.Request
 		dl := &fakeDownloader{
@@ -543,7 +599,7 @@ func TestCheck_ReleaseChannelsAcceptForkFourSegmentVersion(t *testing.T) {
 			},
 		}
 
-		releaseRepoURL = "https://example.com/releases"
+		releaseRepoURL = "https://github.com/example/repo/releases"
 		releaseBaseURL = ""
 		info := checkWithDownloader(context.Background(), "2.12.3.3.1", tc.channel, dl)
 
@@ -563,31 +619,29 @@ func TestCheck_ReleaseChannelsAcceptForkFourSegmentVersion(t *testing.T) {
 	}
 }
 
-func TestCheck_StableWithReleaseRepoURLRejectsNonSemverVersion(t *testing.T) {
+func TestFetchHighestStableReleaseWithDownloader_RejectsWhenNoStableReleaseExists(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
-	oldEntwareRepoURL := entwareRepoURL
 	defer func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
-		entwareRepoURL = oldEntwareRepoURL
 	}()
 
-	releaseRepoURL = "https://example.com/releases"
-	releaseBaseURL = ""
 	dl := &fakeDownloader{
 		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
-			return []byte("abc\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			return []byte(`[
+				{"tag_name":"iq-latest","draft":false,"prerelease":true,"assets":[]},
+				{"tag_name":"v2.14.0-beta","draft":false,"prerelease":true,"assets":[]}
+			]`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 		},
 	}
 
-	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, dl)
-
-	if info.Available {
-		t.Fatalf("expected no update on non-semver VERSION, got %+v", info)
+	_, err := fetchHighestStableReleaseWithDownloader(context.Background(), dl, "https://github.com/example/repo/releases")
+	if err == nil {
+		t.Fatal("expected error when no stable releases exist")
 	}
-	if !strings.Contains(info.Error, "invalid VERSION") {
-		t.Fatalf("error = %q, want invalid VERSION", info.Error)
+	if !strings.Contains(err.Error(), "no stable release found") {
+		t.Fatalf("error = %q", err)
 	}
 }
 
@@ -595,25 +649,31 @@ func TestCheck_StableIgnoresLowerDevelopRevisionFromReleaseChannel(t *testing.T)
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	oldEntwareRepoURL := entwareRepoURL
+	oldFetcher := stableReleaseResolver.fetch
+	oldTTL := stableReleaseResolver.ttl
 	defer func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
 		entwareRepoURL = oldEntwareRepoURL
+		stableReleaseResolver.fetch = oldFetcher
+		stableReleaseResolver.ttl = oldTTL
+		stableReleaseResolver.Clear()
 	}()
 
-	releaseRepoURL = "https://example.com/releases"
+	releaseRepoURL = "https://github.com/example/repo/releases"
 	releaseBaseURL = ""
-
-	dl := &fakeDownloader{
-		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
-			if req.URL != "https://example.com/releases/latest/download/VERSION" {
-				t.Fatalf("request URL = %q", req.URL)
-			}
-			return []byte("2.12.3.14+r1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
-		},
+	stableReleaseResolver.ttl = time.Hour
+	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
+		return stableReleaseInfo{
+			RepoURL: repoURL,
+			APIURL:  "https://api.github.com/repos/example/repo/releases?per_page=100",
+			TagName: "v2.12.3.14",
+			Version: "2.12.3.14",
+			Assets:  map[string]string{},
+		}, nil
 	}
 
-	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, dl)
+	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, nil)
 
 	if info.Available {
 		t.Fatalf("expected no update, got %+v", info)

@@ -1,6 +1,10 @@
 package updater
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+)
 
 func TestChangelogSourcesForChannel_DefaultsToUpstream(t *testing.T) {
 	oldEntwareRepoURL := entwareRepoURL
@@ -33,12 +37,12 @@ func TestChangelogSourcesForChannel_DefaultsToUpstream(t *testing.T) {
 	}
 }
 
-func TestChangelogSourcesForChannel_UsesForkReleaseRepoByChannel(t *testing.T) {
+func TestChangelogSourcesForChannel_DevelopUsesIqLatestAsset(t *testing.T) {
 	oldEntwareRepoURL := entwareRepoURL
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	entwareRepoURL = "http://example.test"
-	releaseRepoURL = "https://github.example/releases"
+	releaseRepoURL = "https://github.com/example/repo/releases"
 	releaseBaseURL = ""
 	t.Cleanup(func() {
 		entwareRepoURL = oldEntwareRepoURL
@@ -46,16 +50,8 @@ func TestChangelogSourcesForChannel_UsesForkReleaseRepoByChannel(t *testing.T) {
 		releaseBaseURL = oldReleaseBaseURL
 	})
 
-	primary, secondary := changelogSourcesForChannel("stable")
-	if primary != "https://github.example/releases/latest/download/CHANGELOG.md" {
-		t.Fatalf("stable primary = %q", primary)
-	}
-	if secondary != "" {
-		t.Fatalf("stable secondary = %q, want empty", secondary)
-	}
-
-	primary, secondary = changelogSourcesForChannel("develop")
-	if primary != "https://github.example/releases/download/iq-latest/CHANGELOG.md" {
+	primary, secondary := changelogSourcesForChannel("develop")
+	if primary != "https://github.com/example/repo/releases/download/iq-latest/CHANGELOG.md" {
 		t.Fatalf("develop primary = %q", primary)
 	}
 	if secondary != "" {
@@ -63,7 +59,7 @@ func TestChangelogSourcesForChannel_UsesForkReleaseRepoByChannel(t *testing.T) {
 	}
 }
 
-func TestChangelogSourcesForChannel_LegacyReleaseBaseInfersStableLatest(t *testing.T) {
+func TestChangelogSourcesForChannel_LegacyReleaseBaseStaysOnIqLatest(t *testing.T) {
 	oldEntwareRepoURL := entwareRepoURL
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
@@ -77,12 +73,55 @@ func TestChangelogSourcesForChannel_LegacyReleaseBaseInfersStableLatest(t *testi
 	})
 
 	primary, _ := changelogSourcesForChannel("stable")
-	if primary != "https://github.example/releases/latest/download/CHANGELOG.md" {
+	if primary != "http://example.test/CHANGELOG.md" {
 		t.Fatalf("stable primary = %q", primary)
 	}
 
 	primary, _ = changelogSourcesForChannel("develop")
 	if primary != "https://github.example/releases/download/iq-latest/CHANGELOG.md" {
 		t.Fatalf("develop primary = %q", primary)
+	}
+}
+
+func TestChangelogSources_StableUsesHighestStableReleaseAsset(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	oldFetcher := stableReleaseResolver.fetch
+	oldTTL := stableReleaseResolver.ttl
+	stableReleaseResolver.Clear()
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	releaseBaseURL = ""
+	stableReleaseResolver.ttl = time.Hour
+	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
+		if repoURL != "https://github.com/example/repo/releases" {
+			t.Fatalf("repoURL = %q", repoURL)
+		}
+		return stableReleaseInfo{
+			RepoURL: repoURL,
+			APIURL:  "https://api.github.com/repos/example/repo/releases?per_page=100",
+			TagName: "v2.13.0.1",
+			Version: "2.13.0.1",
+			Assets: map[string]string{
+				"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md",
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+		stableReleaseResolver.fetch = oldFetcher
+		stableReleaseResolver.ttl = oldTTL
+		stableReleaseResolver.Clear()
+	})
+
+	primary, secondary, err := resolveChangelogSourcesForChannel(context.Background(), nil, channelStable)
+	if err != nil {
+		t.Fatalf("resolveChangelogSourcesForChannel: %v", err)
+	}
+	if primary != "https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md" {
+		t.Fatalf("stable primary = %q", primary)
+	}
+	if secondary != "" {
+		t.Fatalf("stable secondary = %q, want empty", secondary)
 	}
 }

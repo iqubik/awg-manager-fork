@@ -22,6 +22,25 @@ func changelogSourcesForChannel(channel string) (primary, secondary string) {
 	return entwareRepoURL + "/CHANGELOG.md", ""
 }
 
+func resolveChangelogSourcesForChannel(ctx context.Context, dl Downloader, channel string) (primary, secondary string, err error) {
+	if channel == channelStable {
+		if repoURL := normalizedReleaseRepoURL(); repoURL != "" {
+			info, err := stableReleaseResolver.ResolveStable(ctx, dl, repoURL)
+			if err != nil {
+				return "", "", err
+			}
+			changelogURL := info.Assets["CHANGELOG.md"]
+			if changelogURL == "" {
+				return "", "", fmt.Errorf("missing asset CHANGELOG.md in %s", info.TagName)
+			}
+			return changelogURL, "", nil
+		}
+	}
+
+	primary, secondary = changelogSourcesForChannel(channel)
+	return primary, secondary, nil
+}
+
 // changelogFetcher pulls the monolithic CHANGELOG.md, parses it, and
 // serves cached results. Single-flight via fetchMu so a slow HTTP call
 // converges to one real request under concurrent load.

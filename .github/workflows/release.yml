@@ -159,9 +159,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p /tmp/release-assets
+          printf '%s\n' "$VERSION" > /tmp/release-assets/VERSION
+          cp CHANGELOG.md /tmp/release-assets/CHANGELOG.md
           # Auto-detect prerelease by suffix (rc/alpha/beta/dev).
           extra=()
           if [[ "$TAG" =~ -(rc|beta|alpha|dev) ]]; then
@@ -169,7 +173,8 @@ jobs:
           fi
           gh release create "$TAG" \
             ./dist/awg-manager_*.ipk \
-            CHANGELOG.md VERSION \
+            /tmp/release-assets/CHANGELOG.md \
+            /tmp/release-assets/VERSION \
             --title "$TAG" \
             --notes-file /tmp/notes.md \
             "${extra[@]}"

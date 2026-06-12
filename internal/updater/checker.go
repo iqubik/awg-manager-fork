@@ -30,7 +30,8 @@ const (
 )
 
 var (
-	releaseVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+(?:\.\d+)*(?:\+r\d+)?$`)
+	releaseVersionPattern   = regexp.MustCompile(`^\d+\.\d+\.\d+(?:\.\d+)*(?:\+r\d+)?$`)
+	releaseStableTagPattern = regexp.MustCompile(`^v?\d+\.\d+\.\d+(?:\.\d+)*$`)
 
 	// entwareRepoURL is a variable so tests can override it with httptest server URL.
 	entwareRepoURL = defaultEntwareRepoURL
@@ -71,11 +72,12 @@ func normalizedReleaseRepoURL() string {
 }
 
 func releaseBaseURLForChannel(channel string) string {
+	if channel == channelStable {
+		return ""
+	}
+
 	if repoURL := normalizedReleaseRepoURL(); repoURL != "" {
-		if channel == channelDevelop {
-			return repoURL + "/download/iq-latest"
-		}
-		return repoURL + "/latest/download"
+		return repoURL + "/download/iq-latest"
 	}
 
 	return strings.TrimRight(strings.TrimSpace(releaseBaseURL), "/")
@@ -106,6 +108,13 @@ func checkWithDownloader(ctx context.Context, currentVersion, channel string, dl
 
 	cmp := versionComparator(channel)
 
+	if channel == channelStable {
+		if repoURL := normalizedReleaseRepoURL(); repoURL != "" {
+			info.Source = "release"
+			return checkStableReleaseWithDownloader(ctx, info, currentVersion, dl, repoURL)
+		}
+	}
+
 	if baseURL := releaseBaseURLForChannel(channel); baseURL != "" {
 		info.Source = "release"
 		info.SourceURL = releaseAssetURL(baseURL, "VERSION")
@@ -131,6 +140,38 @@ func checkWithDownloader(ctx context.Context, currentVersion, channel string, dl
 	info.Available = true
 	info.LatestVersion = pkg.Version
 	info.DownloadURL = fmt.Sprintf("%s/%s/%s", base, archDir, pkg.Filename)
+	return info
+}
+
+func checkStableReleaseWithDownloader(
+	ctx context.Context,
+	info *UpdateInfo,
+	currentVersion string,
+	dl Downloader,
+	repoURL string,
+) *UpdateInfo {
+	releaseInfo, err := stableReleaseResolver.ResolveStable(ctx, dl, repoURL)
+	if err != nil {
+		info.Error = fmt.Sprintf("release channel: %s", err)
+		return info
+	}
+
+	info.SourceURL = releaseInfo.APIURL
+
+	if semver.Compare(currentVersion, releaseInfo.Version) >= 0 {
+		return info
+	}
+
+	ipkName := fmt.Sprintf("%s_%s_%s-kn.ipk", pkgName, releaseInfo.Version, archSuffix())
+	downloadURL := releaseInfo.Assets[ipkName]
+	if downloadURL == "" {
+		info.Error = fmt.Sprintf("release channel: missing asset %s in %s", ipkName, releaseInfo.TagName)
+		return info
+	}
+
+	info.Available = true
+	info.LatestVersion = releaseInfo.Version
+	info.DownloadURL = downloadURL
 	return info
 }
 
