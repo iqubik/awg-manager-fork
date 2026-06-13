@@ -166,7 +166,7 @@ func checkStableReleaseWithDownloader(
 	requiredAssets := []string{"VERSION", "CHANGELOG.md", ipkName}
 	for _, assetName := range requiredAssets {
 		if strings.TrimSpace(releaseInfo.Assets[assetName]) == "" {
-			info.Error = fmt.Sprintf("release channel: incomplete stable release %s: missing %s", releaseInfo.TagName, assetName)
+			info.Error = fmt.Sprintf("release channel: stable release %s is incomplete: missing %s", releaseInfo.TagName, assetName)
 			return info
 		}
 	}

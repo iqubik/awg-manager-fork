@@ -24,7 +24,7 @@ func TestServiceCheckNow_ClearsStableReleaseResolverCache(t *testing.T) {
 		fetchCalls++
 		return stableReleaseInfo{
 			RepoURL: repoURL,
-			APIURL:  "https://api.github.com/repos/example/repo/releases?per_page=100",
+			APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1",
 			TagName: "v2.13.0.1",
 			Version: "2.13.0.1",
 			Assets: map[string]string{
@@ -46,7 +46,7 @@ func TestServiceCheckNow_ClearsStableReleaseResolverCache(t *testing.T) {
 	// Seed cache with stale-but-valid data; CheckNow must still force resolver refresh.
 	stableReleaseResolver.store(stableReleaseInfo{
 		RepoURL: "https://github.com/example/repo/releases",
-		APIURL:  "https://api.github.com/repos/example/repo/releases?per_page=100",
+		APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1",
 		TagName: "v2.12.4",
 		Version: "2.12.4",
 		Assets: map[string]string{

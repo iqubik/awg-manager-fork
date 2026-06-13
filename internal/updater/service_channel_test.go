@@ -83,7 +83,7 @@ func TestChangelogSourcesForChannel_LegacyReleaseBaseStaysOnIqLatest(t *testing.
 	}
 }
 
-func TestChangelogSources_StableUsesHighestStableReleaseAsset(t *testing.T) {
+func TestChangelogSources_StableUsesHighestGitTagReleaseAsset(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	oldFetcher := stableReleaseResolver.fetch
@@ -98,7 +98,7 @@ func TestChangelogSources_StableUsesHighestStableReleaseAsset(t *testing.T) {
 		}
 		return stableReleaseInfo{
 			RepoURL: repoURL,
-			APIURL:  "https://api.github.com/repos/example/repo/releases?per_page=100",
+			APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1",
 			TagName: "v2.13.0.1",
 			Version: "2.13.0.1",
 			Assets: map[string]string{
@@ -138,7 +138,7 @@ func TestResolveChangelogSources_StableMissingAssetReturnsShortError(t *testing.
 	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
 		return stableReleaseInfo{
 			RepoURL: repoURL,
-			APIURL:  "https://api.github.com/repos/example/repo/releases?per_page=100",
+			APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1",
 			TagName: "v2.13.0.1",
 			Version: "2.13.0.1",
 			Assets:  map[string]string{},
