@@ -87,7 +87,8 @@ jobs:
           trap 'rm -rf "$workdir"' EXIT
           cp "$ipk" "$workdir/pkg.ipk"
           cd "$workdir"
-          ar x pkg.ipk
+          tar -xzf pkg.ipk
+          test -f data.tar.gz
           tar -xzf data.tar.gz
           strings ./opt/bin/awg-manager | grep -F "$AWG_RELEASE_REPO_URL"
 

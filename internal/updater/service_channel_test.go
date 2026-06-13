@@ -160,12 +160,12 @@ func TestStableManualRelease_ChangelogUsesAllReleaseBodiesWhenNoChangelogAsset(t
 						]
 					},
 					{
-						"tag_name":"2.12.9",
-						"html_url":"https://github.com/example/repo/releases/tag/2.12.9",
+						"tag_name":"v2.12.9",
+						"html_url":"https://github.com/example/repo/releases/tag/v2.12.9",
 						"body":"AWG Manager 2.12.9\n\n- Previous stable fixes",
 						"published_at":"2026-05-30T10:00:00Z",
 						"assets":[
-							{"name":"awg-manager_2.12.9_aarch64-3.10-kn.ipk","browser_download_url":"https://github.com/example/repo/releases/download/2.12.9/awg-manager_2.12.9_aarch64-3.10-kn.ipk"}
+							{"name":"awg-manager_2.12.9_aarch64-3.10-kn.ipk","browser_download_url":"https://github.com/example/repo/releases/download/v2.12.9/awg-manager_2.12.9_aarch64-3.10-kn.ipk"}
 						]
 					}
 				]`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil

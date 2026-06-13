@@ -341,6 +341,9 @@ func fetchStableReleaseEntriesWithDownloader(ctx context.Context, dl Downloader,
 		if release.Draft || release.Prerelease {
 			continue
 		}
+		if _, ok := normalizeStableReleaseTag(strings.TrimSpace(release.TagName)); !ok {
+			continue
+		}
 		info, err := stableReleaseInfoFromGitHubRelease(repoURL, fmt.Sprintf("%s/releases/%d", apiBaseURL, idx), release)
 		if err != nil {
 			continue
