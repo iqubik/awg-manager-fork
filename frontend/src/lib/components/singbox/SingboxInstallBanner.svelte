@@ -44,9 +44,9 @@
 	const STORAGE_KEY = 'awgm:singbox-banner-dismissed';
 
 	// Signature changes when install/proxyComponent/features state
-	// changes. Include version + required SHA in the update prompt so a
-	// same-version binary rebuild asks again if an older prompt was
-	// dismissed.
+	// changes. Keep custom-build separate from updateAvailable: a
+	// same-version author build must not reuse the old "checksum update"
+	// prompt semantics.
 	let signature = $derived.by(() => {
 		const s = $singboxStatus.data;
 		if (!s) return '';
@@ -55,11 +55,14 @@
 		}
 		if (!s.installed) return 'not-installed';
 		if (!s.proxyComponent) return 'no-proxy-component';
-		if (s.installState === 'outdated_no_space') {
+		if (s.updateAvailable && s.installState === 'outdated_no_space') {
 			return `outdated-no-space:${s.currentVersion ?? 'unknown'}:${s.requiredVersion ?? 'unknown'}:${s.requiredBytes ?? 0}:${s.freeBytes ?? 0}`;
 		}
 		if (s.updateAvailable) {
 			return `update-available:${s.currentVersion ?? 'unknown'}:${s.requiredVersion ?? 'unknown'}:${s.requiredSha256 ?? 'unknown'}`;
+		}
+		if (s.customBuild) {
+			return `custom-build:${s.currentVersion ?? 'unknown'}:${s.currentSha256 ?? 'unknown'}`;
 		}
 		// NaiveProxy requires the with_naive_outbound build tag. When
 		// the installed binary lacks it, naive outbounds silently fail
@@ -207,6 +210,17 @@
 		{#if error}
 			<div class="error">{error}</div>
 		{/if}
+	</div>
+{:else if visible && issue === 'custom-build'}
+	<div class="banner">
+		<div class="text">
+			<strong>Установлена отличающаяся сборка sing-box</strong>
+			<span>
+				Версия <code>{$singboxStatus.data?.currentVersion ?? $singboxStatus.data?.version ?? '—'}</code>
+				уже подходит для работы. Автообновление managed-сборки не требуется.
+			</span>
+		</div>
+		<IconButton ariaLabel="Скрыть" onclick={dismiss}>&times;</IconButton>
 	</div>
 {:else if visible && issue === 'missing-no-space'}
 	<div class="banner banner-error" role="alert">

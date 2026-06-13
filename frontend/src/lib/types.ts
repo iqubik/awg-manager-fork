@@ -1182,7 +1182,13 @@ export interface SingboxStatus {
 	currentSha256?: string;
 	/** SHA256 of the sing-box binary pinned to this awg-manager build. */
 	requiredSha256?: string;
-	/** True when the installed sing-box version or SHA256 differs from the pinned binary. */
+	/** True when the installed sing-box version matches the pinned version. */
+	versionMatchesRequired?: boolean;
+	/** True when the installed sing-box SHA256 matches the pinned binary. */
+	checksumMatchesRequired?: boolean;
+	/** True for same-version custom builds and newer external builds. */
+	customBuild?: boolean;
+	/** True only when the installed sing-box version is older than the pinned binary. */
 	updateAvailable: boolean;
 	/**
 	 * Классификация состояния installation: 'installed' | 'missing' |

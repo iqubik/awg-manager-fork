@@ -3674,12 +3674,18 @@ definitions:
     type: object
   api.SingboxStatusData:
     properties:
+      checksumMatchesRequired:
+        example: true
+        type: boolean
       currentSha256:
         example: 76e67bb07b5c2bf4cef108c2f21a5ffaa684d124c21ffe220fc89b39cf1de934
         type: string
       currentVersion:
         example: 1.13.11
         type: string
+      customBuild:
+        example: false
+        type: boolean
       features:
         example:
         - with_quic
@@ -3728,6 +3734,9 @@ definitions:
       version:
         example: 1.9.3
         type: string
+      versionMatchesRequired:
+        example: true
+        type: boolean
     type: object
   api.SingboxStatusResponse:
     properties:

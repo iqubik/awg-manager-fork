@@ -43,6 +43,7 @@
 	const singboxInstalled = $derived(singboxStatus?.installed ?? false);
 	const singboxRunning = $derived(singboxStatus?.running ?? false);
 	const singboxNeedsUpdate = $derived(singboxStatus?.updateAvailable ?? false);
+	const singboxCustomBuild = $derived(singboxStatus?.customBuild ?? false);
 	const hydraInstalled = $derived(hydraStatus?.installed ?? false);
 	const hydraRunning = $derived(hydraStatus?.running ?? false);
 	const hydraProcessState = $derived(
@@ -146,6 +147,10 @@
 							{#if singboxNeedsUpdate}
 								<span class="setting-description warning">
 									Требуется обновление: {singboxStatus.currentVersion ?? '—'} → {singboxStatus.requiredVersion}
+								</span>
+							{:else if singboxCustomBuild}
+								<span class="setting-description">
+									Установлена отличающаяся сборка sing-box {singboxStatus.currentVersion ?? singboxStatus.version ?? '—'}
 								</span>
 							{/if}
 							{#if singboxFatalLines}

@@ -87,7 +87,13 @@ type Status struct {
 	CurrentSHA256 string `json:"currentSha256,omitempty"`
 	// RequiredSHA256 is the checksum this awg-manager build is pinned to.
 	RequiredSHA256 string `json:"requiredSha256,omitempty"`
-	// UpdateAvailable is true when version or SHA256 differs from the pinned binary.
+	// VersionMatchesRequired is true when currentVersion == requiredVersion.
+	VersionMatchesRequired bool `json:"versionMatchesRequired"`
+	// ChecksumMatchesRequired is true when currentSHA256 == requiredSHA256.
+	ChecksumMatchesRequired bool `json:"checksumMatchesRequired"`
+	// CustomBuild is true for same-version different-SHA builds and newer external builds.
+	CustomBuild bool `json:"customBuild"`
+	// UpdateAvailable is true only when the installed version is older than the pinned one.
 	UpdateAvailable bool `json:"updateAvailable"`
 	// InstallState классифицирует состояние managed binary относительно
 	// pin-версии и доступного места. UI рендерит на его основе.
