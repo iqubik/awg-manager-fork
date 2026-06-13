@@ -2,7 +2,7 @@
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { usageLevel } from '$lib/stores/settings';
-	import { Modal, Button } from '$lib/components/ui';
+	import { Modal, Button, SegmentedControl } from '$lib/components/ui';
 	import ChangelogModal from './ChangelogModal.svelte';
 	import DownloadErrorNotice from '$lib/components/downloads/DownloadErrorNotice.svelte';
 	import { downloadErrorToText } from '$lib/utils/downloadError';
@@ -10,9 +10,19 @@
 
 	interface Props {
 		updateInfo: UpdateInfo | null;
+		currentChannel?: 'stable' | 'develop';
+		saving?: boolean;
+		showChannelSwitch?: boolean;
+		onRequestChannel?: (channel: 'stable' | 'develop') => void;
 	}
 
-	let { updateInfo = $bindable() }: Props = $props();
+	let {
+		updateInfo = $bindable(),
+		currentChannel = 'stable',
+		saving = false,
+		showChannelSwitch = false,
+		onRequestChannel,
+	}: Props = $props();
 
 	let checking = $state(false);
 	let upgrading = $state(false);
@@ -35,6 +45,11 @@
 		if (updateInfo.sourceUrl) parts.push(`URL: ${updateInfo.sourceUrl}`);
 		return parts.join(' · ');
 	});
+	const channelDescription = $derived(
+		currentChannel === 'develop'
+			? 'Свежие сборки из ветки разработки, могут быть нестабильны.'
+			: 'Стабильные релизы из GitHub Release.'
+	);
 
 	async function checkForUpdates() {
 		if (checking) return;
@@ -135,6 +150,24 @@
 			</span>
 		{/if}
 	</div>
+	{#if showChannelSwitch}
+		<div class="update-channel">
+			<span class="update-channel-label">Канал обновлений</span>
+			<SegmentedControl
+				value={currentChannel}
+				options={[
+					{ value: 'stable', label: 'Стабильный' },
+					{ value: 'develop', label: 'Разработка' },
+				] satisfies Array<{ value: 'stable' | 'develop'; label: string }>}
+				ariaLabel="Канал обновлений"
+				disabled={saving || upgrading || checking}
+				onchange={(channel) => onRequestChannel?.(channel)}
+			/>
+			<span class="setting-description update-channel-description">
+				{channelDescription}
+			</span>
+		</div>
+	{/if}
 	<div class="update-actions">
 		{#if upgrading}
 			<div class="update-spinner"></div>
@@ -205,8 +238,8 @@
 <style>
 	.update-row.setting-row {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: center;
+		grid-template-columns: minmax(0, 1fr);
+		align-items: start;
 		gap: 0.75rem;
 	}
 
@@ -214,47 +247,44 @@
 		min-width: 0;
 	}
 
-	.update-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		flex-shrink: 0;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-	}
-
-	@media (max-width: 860px) {
-		.update-row.setting-row {
-			grid-template-columns: 1fr;
-			align-items: start;
-		}
-
-		.update-actions {
-			justify-content: stretch;
-			width: 100%;
-			display: grid;
-			grid-template-columns: repeat(2, minmax(0, 1fr));
-			gap: 0.5rem;
-		}
-
-		.update-actions :global(button) {
-			width: 100%;
-		}
-	}
-
-	/* Keep the update card readable in the narrow settings column:
-		status takes its own row, actions are arranged below. */
-	.update-row.setting-row {
+	.update-channel {
+		display: grid;
 		grid-template-columns: minmax(0, 1fr);
-		align-items: start;
+		gap: 0.4rem;
+		padding-top: 0.1rem;
+	}
+
+	.update-channel-label {
+		font-weight: 600;
+		font-size: 0.875rem;
+		color: var(--text-primary);
+	}
+
+	.update-channel-description {
+		line-height: 1.4;
+	}
+
+	.update-channel :global(.segmented-control) {
+		width: 100%;
 	}
 
 	.update-actions {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.5rem;
 		justify-content: stretch;
 		width: 100%;
 		flex-shrink: 1;
+	}
+
+	@media (max-width: 860px) {
+		.update-actions {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		.update-actions :global(button) {
+			width: 100%;
+		}
 	}
 
 	.update-actions :global(button) {
@@ -273,9 +303,27 @@
 	}
 
 	@media (min-width: 641px) {
+		.update-channel :global(.segmented-control) {
+			display: flex;
+			width: 100%;
+			max-width: none;
+			justify-self: stretch;
+		}
+
+		.update-channel :global(.segmented-control-btn) {
+			flex: 1 1 50%;
+			min-width: 0;
+		}
+
 		.update-actions {
 			justify-self: end;
 			max-width: 28rem;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.update-actions {
+			grid-template-columns: 1fr;
 		}
 	}
 

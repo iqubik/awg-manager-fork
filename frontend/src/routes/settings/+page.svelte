@@ -8,7 +8,7 @@
 	import { singboxStatus } from "$lib/stores/singbox";
 	import { hydrarouteStatus } from "$lib/stores/hydraroute";
 	import { PageContainer, PageHeader, LoadingSpinner } from "$lib/components/layout";
-	import { Toggle, Modal, Button, ConfirmModal, SegmentedControl } from "$lib/components/ui";
+import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	import {
 		SystemInfoGrid,
 		LoggingSettings,
@@ -703,7 +703,13 @@ $effect(() => {
 				<div id="awgm-update" class="settings-block">
 					<div class="card settings-highlight-target" class:highlighted={$settingsUpdateHighlight}>
 						<SettingsSectionLabel label="Обновление AWGM" icon={CircleArrowDown} tone="green" header />
-						<UpdateSection bind:updateInfo />
+						<UpdateSection
+							bind:updateInfo
+							currentChannel={settings.updates.channel}
+							{saving}
+							showChannelSwitch={isUpdateChannelSwitchVisible(settings.usageLevel)}
+							onRequestChannel={requestChannel}
+						/>
 					</div>
 				</div>
 
@@ -773,26 +779,6 @@ $effect(() => {
 							onToggle={toggleDnsAutoRefresh}
 							onSave={saveDnsRouteSettings}
 						/>
-					{/if}
-					{#if isUpdateChannelSwitchVisible(settings.usageLevel)}
-						<div class="setting-row">
-							<div class="flex flex-col gap-1">
-								<span class="font-medium">Канал обновлений</span>
-								<span class="setting-description">
-									Ветка develop — свежие, потенциально нестабильные сборки из ветки разработки.
-								</span>
-							</div>
-							<SegmentedControl
-								value={settings.updates.channel}
-								options={[
-									{ value: 'stable', label: 'Стабильный' },
-									{ value: 'develop', label: 'Разработка' },
-								] satisfies Array<{ value: 'stable' | 'develop'; label: string }>}
-								ariaLabel="Канал обновлений"
-								disabled={saving}
-								onchange={(channel) => requestChannel(channel)}
-							/>
-						</div>
 					{/if}
 					{#if showDownloadRouteDetails}
 						<div class="settings-highlight-target" class:highlighted={highlightDownloads}>
