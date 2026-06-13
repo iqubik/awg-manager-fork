@@ -166,14 +166,41 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          awk -v hdr="## [$VERSION] - " '
-            index($0, hdr) == 1     { capture=1; next }
-            capture && index($0, "## [") == 1 { exit }
-            capture                  { print }
-          ' CHANGELOG.md | sed -E '1{/^$/d;}' | sed -E '${/^$/d;}' > /tmp/notes.md
-          if [[ ! -s /tmp/notes.md ]]; then
+          extract_section() {
+            local version="$1"
+            awk -v hdr="## [$version] - " '
+              index($0, hdr) == 1 { capture=1; next }
+              capture && index($0, "## [") == 1 { exit }
+              capture { print }
+            ' CHANGELOG.md | sed -E '1{/^$/d;}' | sed -E '${/^$/d;}'
+          }
+
+          notes="$(extract_section "$VERSION")"
+          used="$VERSION"
+
+          if [[ -z "$notes" && "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.[0-9]+$ ]]; then
+            base="${BASH_REMATCH[1]}"
+            notes="$(extract_section "$base")"
+            used="$base"
+          fi
+
+          if [[ -z "$notes" ]]; then
             echo "No CHANGELOG section for $VERSION" >&2
+            echo "Available sections:" >&2
+            grep -E '^## \[[^]]+\] - ' CHANGELOG.md >&2 || true
             exit 1
+          fi
+
+          if [[ "$used" != "$VERSION" ]]; then
+            {
+              echo "Stable release: $VERSION"
+              echo
+              echo "Based on changelog section: $used"
+              echo
+              printf '%s\n' "$notes"
+            } > /tmp/notes.md
+          else
+            printf '%s\n' "$notes" > /tmp/notes.md
           fi
       - name: Create GitHub release
         env:
