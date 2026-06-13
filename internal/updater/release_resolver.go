@@ -22,10 +22,14 @@ type githubMatchingRef struct {
 }
 
 type githubRelease struct {
-	TagName    string `json:"tag_name"`
-	Draft      bool   `json:"draft"`
-	Prerelease bool   `json:"prerelease"`
-	Assets     []struct {
+	TagName     string    `json:"tag_name"`
+	HTMLURL     string    `json:"html_url"`
+	Body        string    `json:"body"`
+	Draft       bool      `json:"draft"`
+	Prerelease  bool      `json:"prerelease"`
+	PublishedAt time.Time `json:"published_at"`
+	CreatedAt   time.Time `json:"created_at"`
+	Assets      []struct {
 		Name               string `json:"name"`
 		BrowserDownloadURL string `json:"browser_download_url"`
 	} `json:"assets"`
@@ -37,11 +41,48 @@ type stableTagCandidate struct {
 }
 
 type stableReleaseInfo struct {
-	RepoURL string
-	APIURL  string
-	TagName string
-	Version string
-	Assets  map[string]string
+	RepoURL     string
+	APIURL      string
+	HTMLURL     string
+	TagName     string
+	Version     string
+	Body        string
+	PublishedAt time.Time
+	CreatedAt   time.Time
+	Assets      map[string]string
+}
+
+func stableReleaseInfoFromGitHubRelease(repoURL, apiURL string, release githubRelease) (stableReleaseInfo, error) {
+	tagName := strings.TrimSpace(release.TagName)
+	version, ok := normalizeStableLatestReleaseTag(tagName)
+	if !ok {
+		return stableReleaseInfo{}, fmt.Errorf("stable latest release has non-canonical tag %q", tagName)
+	}
+
+	selectedAssets := make(map[string]string, len(release.Assets))
+	for _, asset := range release.Assets {
+		if strings.TrimSpace(asset.Name) == "" || strings.TrimSpace(asset.BrowserDownloadURL) == "" {
+			continue
+		}
+		selectedAssets[asset.Name] = asset.BrowserDownloadURL
+	}
+
+	htmlURL := strings.TrimSpace(release.HTMLURL)
+	if htmlURL == "" {
+		htmlURL = strings.TrimRight(repoURL, "/") + "/tag/" + tagName
+	}
+
+	return stableReleaseInfo{
+		RepoURL:     repoURL,
+		APIURL:      apiURL,
+		HTMLURL:     htmlURL,
+		TagName:     tagName,
+		Version:     version,
+		Body:        strings.TrimSpace(release.Body),
+		PublishedAt: release.PublishedAt,
+		CreatedAt:   release.CreatedAt,
+		Assets:      selectedAssets,
+	}, nil
 }
 
 type releaseResolver struct {
@@ -55,7 +96,7 @@ type releaseResolver struct {
 func newReleaseResolver(ttl time.Duration) *releaseResolver {
 	return &releaseResolver{
 		ttl:   ttl,
-		fetch: fetchHighestStableReleaseWithDownloader,
+		fetch: fetchLatestStableReleaseMetadataWithDownloader,
 	}
 }
 
@@ -103,6 +144,64 @@ func (r *releaseResolver) store(info stableReleaseInfo) {
 var stableReleaseResolver = newReleaseResolver(10 * time.Minute)
 var resolveStableReleaseForAssetsFunc = resolveStableReleaseForAssets
 var resolveStableReleaseForUpdateFunc = resolveStableReleaseForUpdate
+
+func fetchLatestStableReleaseMetadataWithDownloader(
+	ctx context.Context,
+	dl Downloader,
+	repoURL string,
+) (stableReleaseInfo, error) {
+	if dl == nil {
+		dl = newDefaultDownloader()
+	}
+
+	apiBaseURL, err := githubRepoAPIBaseURL(repoURL)
+	if err != nil {
+		return stableReleaseInfo{}, err
+	}
+
+	releaseAPIURL := apiBaseURL + "/releases/latest"
+	body, meta, err := dl.ReadAll(ctx, downloader.Request{
+		Purpose:       "awgm-update-check",
+		URL:           releaseAPIURL,
+		Method:        http.MethodGet,
+		Timeout:       repoTimeout,
+		MaxBodyBytes:  releasesMaxBytes,
+		AllowedStatus: []int{http.StatusOK, http.StatusNotFound},
+	})
+	if err != nil {
+		return stableReleaseInfo{}, fmt.Errorf("fetch stable latest release: %w", err)
+	}
+	if meta.StatusCode == http.StatusNotFound {
+		return stableReleaseInfo{}, fmt.Errorf("stable latest release is not published")
+	}
+	if meta.StatusCode != http.StatusOK {
+		return stableReleaseInfo{}, fmt.Errorf("fetch stable latest release: status %d", meta.StatusCode)
+	}
+
+	var release githubRelease
+	if err := json.Unmarshal(body, &release); err != nil {
+		return stableReleaseInfo{}, fmt.Errorf("decode stable latest release: %w", err)
+	}
+	if release.Draft {
+		return stableReleaseInfo{}, fmt.Errorf("stable latest release is draft")
+	}
+	if release.Prerelease {
+		return stableReleaseInfo{}, fmt.Errorf("stable latest release is prerelease")
+	}
+
+	return stableReleaseInfoFromGitHubRelease(repoURL, releaseAPIURL, release)
+}
+
+func (info stableReleaseInfo) publishedDate() string {
+	ts := info.PublishedAt
+	if ts.IsZero() {
+		ts = info.CreatedAt
+	}
+	if ts.IsZero() {
+		return ""
+	}
+	return ts.UTC().Format("2006-01-02")
+}
 
 func fetchHighestStableReleaseWithDownloader(
 	ctx context.Context,
@@ -345,4 +444,28 @@ func normalizeStableReleaseTag(tag string) (string, bool) {
 	}
 
 	return strings.TrimPrefix(trimmed, "v"), true
+}
+
+func normalizeStableLatestReleaseTag(tag string) (string, bool) {
+	trimmed := strings.TrimSpace(tag)
+	if trimmed == "" || strings.EqualFold(trimmed, "iq-latest") {
+		return "", false
+	}
+
+	lower := strings.ToLower(trimmed)
+	for _, marker := range []string{"alpha", "beta", "rc", "dev"} {
+		if strings.Contains(lower, marker) {
+			return "", false
+		}
+	}
+
+	if strings.HasPrefix(trimmed, "v") {
+		trimmed = strings.TrimPrefix(trimmed, "v")
+	}
+
+	if !releaseVersionPattern.MatchString(trimmed) {
+		return "", false
+	}
+
+	return trimmed, true
 }

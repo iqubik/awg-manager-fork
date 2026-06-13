@@ -2,13 +2,17 @@ package updater
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/downloader"
+	"github.com/hoaxisr/awg-manager/internal/sys/semver"
 )
 
 func changelogSourcesForChannel(channel string) (primary, secondary string) {
@@ -24,13 +28,49 @@ func changelogSourcesForChannel(channel string) (primary, secondary string) {
 
 func resolveChangelogSourcesForChannel(ctx context.Context, dl Downloader, channel string) (primary, secondary string, err error) {
 	if channel == channelStable {
-		if baseURL := releaseBaseURLForChannel(channelStable); baseURL != "" {
-			return releaseAssetURL(baseURL, "CHANGELOG.md"), "", nil
+		if source, err := resolveStableChangelogSource(ctx, dl); err != nil {
+			return "", "", err
+		} else if source != nil {
+			return source.primaryURL, source.secondaryURL, nil
 		}
 	}
 
 	primary, secondary = changelogSourcesForChannel(channel)
 	return primary, secondary, nil
+}
+
+type resolvedChangelogSource struct {
+	primaryURL   string
+	secondaryURL string
+	resolve      func(context.Context) (map[string]Entry, error)
+}
+
+func resolveStableChangelogSource(ctx context.Context, dl Downloader) (*resolvedChangelogSource, error) {
+	baseURL := releaseBaseURLForChannel(channelStable)
+	if baseURL == "" {
+		return nil, nil
+	}
+
+	changelogURL := releaseAssetURL(baseURL, "CHANGELOG.md")
+	if err := ensureStableLatestAssetExists(ctx, dl, changelogURL, "CHANGELOG.md"); err == nil {
+		return &resolvedChangelogSource{primaryURL: changelogURL}, nil
+	}
+
+	repoURL := normalizedReleaseRepoURL()
+	info, err := stableReleaseResolver.ResolveStable(ctx, dl, repoURL)
+	if err != nil {
+		return nil, err
+	}
+	if assetURL := strings.TrimSpace(info.Assets["CHANGELOG.md"]); assetURL != "" {
+		return &resolvedChangelogSource{primaryURL: assetURL}, nil
+	}
+
+	return &resolvedChangelogSource{
+		primaryURL: info.HTMLURL,
+		resolve: func(ctx context.Context) (map[string]Entry, error) {
+			return fetchStableReleaseEntriesWithDownloader(ctx, dl, repoURL)
+		},
+	}, nil
 }
 
 // changelogFetcher pulls the monolithic CHANGELOG.md, parses it, and
@@ -39,6 +79,7 @@ func resolveChangelogSourcesForChannel(ctx context.Context, dl Downloader, chann
 type changelogFetcher struct {
 	primaryURL   string
 	secondaryURL string
+	resolve      func(context.Context) (map[string]Entry, error)
 	ttl          time.Duration
 	downloader   Downloader
 
@@ -65,6 +106,14 @@ func (c *changelogFetcher) Fetch(ctx context.Context) (map[string]Entry, error) 
 	// Re-check after acquiring the mutex — another goroutine may have
 	// populated the cache while we waited.
 	if entries, ok := c.peek(); ok {
+		return entries, nil
+	}
+
+	if entries, err, ok := c.fetchResolved(ctx); ok {
+		if err != nil {
+			return nil, err
+		}
+		c.store(entries)
 		return entries, nil
 	}
 
@@ -108,17 +157,42 @@ func (c *changelogFetcher) Invalidate() {
 func (c *changelogFetcher) SetSources(primaryURL, secondaryURL string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.primaryURL != primaryURL || c.secondaryURL != secondaryURL {
+	if c.primaryURL != primaryURL || c.secondaryURL != secondaryURL || c.resolve != nil {
 		c.primaryURL = primaryURL
 		c.secondaryURL = secondaryURL
+		c.resolve = nil
 		c.cached = nil
 	}
+}
+
+func (c *changelogFetcher) SetResolvedSources(primaryURL, secondaryURL string, resolve func(context.Context) (map[string]Entry, error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.primaryURL = primaryURL
+	c.secondaryURL = secondaryURL
+	c.resolve = resolve
+	c.cached = nil
 }
 
 func (c *changelogFetcher) sources() (string, string) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.primaryURL, c.secondaryURL
+}
+
+func (c *changelogFetcher) fetchResolved(ctx context.Context) (map[string]Entry, error, bool) {
+	c.mu.RLock()
+	resolve := c.resolve
+	c.mu.RUnlock()
+	if resolve == nil {
+		return nil, nil, false
+	}
+
+	entries, err := resolve(ctx)
+	if err != nil {
+		return nil, err, true
+	}
+	return entries, nil, true
 }
 
 func (c *changelogFetcher) primary() string {
@@ -223,4 +297,105 @@ func detectReleaseAssetTarget(url string) string {
 		channel: detectReleaseAssetChannel(url),
 		tag:     detectReleaseAssetTag(url),
 	})
+}
+
+var htmlTagPattern = regexp.MustCompile(`(?s)<[^>]*>`)
+var releaseBodyParagraphSplitPattern = regexp.MustCompile(`\n\s*\n+`)
+
+func fetchStableReleaseEntriesWithDownloader(ctx context.Context, dl Downloader, repoURL string) (map[string]Entry, error) {
+	if dl == nil {
+		dl = newDefaultDownloader()
+	}
+
+	apiBaseURL, err := githubRepoAPIBaseURL(repoURL)
+	if err != nil {
+		return nil, err
+	}
+
+	releasesAPIURL := apiBaseURL + "/releases?per_page=100"
+	body, meta, err := dl.ReadAll(ctx, downloader.Request{
+		Purpose:       "awgm-changelog",
+		URL:           releasesAPIURL,
+		Method:        http.MethodGet,
+		Timeout:       repoTimeout,
+		MaxBodyBytes:  releasesMaxBytes,
+		AllowedStatus: []int{http.StatusOK, http.StatusNotFound},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("fetch stable releases: %w", err)
+	}
+	if meta.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("stable releases list is not published")
+	}
+	if meta.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch stable releases: status %d", meta.StatusCode)
+	}
+
+	var releases []githubRelease
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return nil, fmt.Errorf("decode stable releases: %w", err)
+	}
+
+	candidates := make([]stableReleaseInfo, 0, len(releases))
+	for idx, release := range releases {
+		if release.Draft || release.Prerelease {
+			continue
+		}
+		info, err := stableReleaseInfoFromGitHubRelease(repoURL, fmt.Sprintf("%s/releases/%d", apiBaseURL, idx), release)
+		if err != nil {
+			continue
+		}
+		candidates = append(candidates, info)
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return semver.Compare(candidates[i].Version, candidates[j].Version) > 0
+	})
+
+	entries := make(map[string]Entry, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Version == "" {
+			continue
+		}
+		if _, exists := entries[candidate.Version]; exists {
+			continue
+		}
+		entries[candidate.Version] = stableReleaseBodyEntry(candidate)
+	}
+	return entries, nil
+}
+
+func stableReleaseBodyEntry(info stableReleaseInfo) Entry {
+	body := strings.TrimSpace(info.Body)
+	body = htmlTagPattern.ReplaceAllString(body, "")
+	paragraphs := splitReleaseBodyParagraphs(body)
+
+	entry := Entry{
+		Version: info.Version,
+		Date:    info.publishedDate(),
+	}
+	if len(paragraphs) > 0 {
+		entry.Groups = []Group{{
+			Heading: "",
+			Items:   paragraphs,
+		}}
+	}
+	return entry
+}
+
+func splitReleaseBodyParagraphs(body string) []string {
+	if strings.TrimSpace(body) == "" {
+		return nil
+	}
+
+	chunks := releaseBodyParagraphSplitPattern.Split(body, -1)
+	paragraphs := make([]string, 0, len(chunks))
+	for _, chunk := range chunks {
+		chunk = strings.TrimSpace(chunk)
+		if chunk == "" {
+			continue
+		}
+		paragraphs = append(paragraphs, chunk)
+	}
+	return paragraphs
 }

@@ -65,6 +65,26 @@ func (s *Service) SetDownloader(dl Downloader) {
 
 func (s *Service) syncChangelogSource(ctx context.Context) error {
 	ch := s.channel()
+	if ch == channelStable {
+		if source, err := resolveStableChangelogSource(ctx, s.downloader); err != nil {
+			repoURL := normalizedReleaseRepoURL()
+			return fmt.Errorf("resolve changelog source: channel=%s repoURL=%s: %w", ch, repoURL, err)
+		} else if source != nil {
+			if source.resolve != nil {
+				s.changelog.SetResolvedSources(source.primaryURL, source.secondaryURL, source.resolve)
+			} else {
+				s.changelog.SetSources(source.primaryURL, source.secondaryURL)
+			}
+			s.appLog.Debug("changelog", "", fmt.Sprintf(
+				"Resolved changelog source: channel=%s primary=%s secondary=%s",
+				ch,
+				source.primaryURL,
+				source.secondaryURL,
+			))
+			return nil
+		}
+	}
+
 	primary, secondary, err := resolveChangelogSourcesForChannel(ctx, s.downloader, ch)
 	if err != nil {
 		repoURL := normalizedReleaseRepoURL()

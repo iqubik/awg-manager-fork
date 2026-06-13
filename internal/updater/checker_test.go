@@ -410,8 +410,6 @@ func TestCheck_StableUsesLatestReleaseDownloadWithoutGitHubAPI(t *testing.T) {
 			switch req.URL {
 			case "https://github.com/example/repo/releases/latest/download/VERSION":
 				return []byte("2.13.0.1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
-			case "https://github.com/example/repo/releases/latest/download/CHANGELOG.md":
-				return []byte("## [2.13.0.1] - 2026-06-12\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 			case "https://github.com/example/repo/releases/latest/download/awg-manager_2.13.0.1_" + arch + "-kn.ipk":
 				return nil, downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 			default:
@@ -439,8 +437,8 @@ func TestCheck_StableUsesLatestReleaseDownloadWithoutGitHubAPI(t *testing.T) {
 	if info.DownloadURL != wantURL {
 		t.Fatalf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
 	}
-	if len(seen) != 3 {
-		t.Fatalf("seen = %v, want 3 direct latest calls", seen)
+	if len(seen) != 2 {
+		t.Fatalf("seen = %v, want 2 direct latest calls", seen)
 	}
 }
 
@@ -463,10 +461,6 @@ func TestCheck_StableChangelogHead405FallsBackToGet(t *testing.T) {
 			switch {
 			case req.URL == "https://github.com/example/repo/releases/latest/download/VERSION":
 				return []byte("2.13.0.1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
-			case req.Method == http.MethodHead && req.URL == "https://github.com/example/repo/releases/latest/download/CHANGELOG.md":
-				return nil, downloader.ResponseMeta{StatusCode: http.StatusMethodNotAllowed}, nil
-			case req.Method == http.MethodGet && req.URL == "https://github.com/example/repo/releases/latest/download/CHANGELOG.md":
-				return []byte("## [2.13.0.1] - 2026-06-12\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 			case req.Method == http.MethodHead && req.URL == "https://github.com/example/repo/releases/latest/download/awg-manager_2.13.0.1_"+arch+"-kn.ipk":
 				return nil, downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 			default:
@@ -481,8 +475,8 @@ func TestCheck_StableChangelogHead405FallsBackToGet(t *testing.T) {
 	if !info.Available {
 		t.Fatalf("expected update available, got %+v", info)
 	}
-	if len(seen) != 4 {
-		t.Fatalf("seen = %v, want 4 requests", seen)
+	if len(seen) != 2 {
+		t.Fatalf("seen = %v, want 2 requests", seen)
 	}
 }
 
@@ -663,7 +657,7 @@ func TestCheck_DevelopUsesIqLatestVersionAsset(t *testing.T) {
 	}
 }
 
-func TestCheck_StableMissingChangelogDoesNotOfferUpdate(t *testing.T) {
+func TestCheck_StableMissingChangelogAssetStillOffersUpdate(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	defer func() {
@@ -677,8 +671,8 @@ func TestCheck_StableMissingChangelogDoesNotOfferUpdate(t *testing.T) {
 			switch req.URL {
 			case "https://github.com/example/repo/releases/latest/download/VERSION":
 				return []byte("2.13.0.1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
-			case "https://github.com/example/repo/releases/latest/download/CHANGELOG.md":
-				return nil, downloader.ResponseMeta{StatusCode: http.StatusNotFound}, nil
+			case "https://github.com/example/repo/releases/latest/download/awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk":
+				return nil, downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 			default:
 				t.Fatalf("unexpected URL %q", req.URL)
 				return nil, downloader.ResponseMeta{}, nil
@@ -688,11 +682,11 @@ func TestCheck_StableMissingChangelogDoesNotOfferUpdate(t *testing.T) {
 
 	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, dl)
 
-	if info.Available {
-		t.Fatalf("expected no update, got %+v", info)
+	if !info.Available {
+		t.Fatalf("expected update available, got %+v", info)
 	}
-	if !strings.Contains(info.Error, "release asset CHANGELOG.md not found in latest") {
-		t.Fatalf("error = %q", info.Error)
+	if info.Error != "" {
+		t.Fatalf("error = %q, want empty", info.Error)
 	}
 }
 
@@ -831,20 +825,38 @@ func TestResolveStableReleaseForAssets_FallsBackWhenHighestMissingChangelog(t *t
 	}
 }
 
-func TestCheck_StableMissingVersionDoesNotOfferUpdate(t *testing.T) {
+func TestCheck_StableManualRelease_BareNumericTag_UsesTagNameAndIPKAsset(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	defer func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
+		stableReleaseResolver.Clear()
 	}()
 
 	releaseRepoURL = "https://github.com/example/repo/releases"
+	stableReleaseResolver.Clear()
+	arch := archSuffix()
+	var seen []string
+	releaseJSON := fmt.Sprintf(`{
+					"tag_name":"2.13.0.1",
+					"html_url":"https://github.com/example/repo/releases/tag/2.13.0.1",
+					"body":"Manual stable release",
+					"published_at":"2026-06-12T10:00:00Z",
+					"assets":[
+						{"name":"awg-manager_2.13.0.1_%s-kn.ipk","browser_download_url":"https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_%s-kn.ipk"},
+						{"name":"awg-manager_2.13.0.1_mipsel-3.4-kn.ipk","browser_download_url":"https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_mipsel-3.4-kn.ipk"},
+						{"name":"awg-manager_2.13.0.1_mips-3.4-kn.ipk","browser_download_url":"https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_mips-3.4-kn.ipk"}
+					]
+				}`, arch, arch)
 	dl := &fakeDownloader{
 		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			seen = append(seen, req.URL)
 			switch req.URL {
 			case "https://github.com/example/repo/releases/latest/download/VERSION":
 				return nil, downloader.ResponseMeta{}, fmt.Errorf("download via direct: status 404")
+			case "https://api.github.com/repos/example/repo/releases/latest":
+				return []byte(releaseJSON), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 			default:
 				t.Fatalf("unexpected URL %q", req.URL)
 				return nil, downloader.ResponseMeta{}, nil
@@ -852,13 +864,74 @@ func TestCheck_StableMissingVersionDoesNotOfferUpdate(t *testing.T) {
 		},
 	}
 
-	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, dl)
+	info := checkWithDownloader(context.Background(), "2.12.10+r4", channelStable, dl)
 
-	if info.Available {
-		t.Fatalf("expected no update, got %+v", info)
+	if !info.Available {
+		t.Fatalf("expected update available, got %+v", info)
 	}
-	if !strings.Contains(info.Error, "release asset VERSION not found in latest") {
-		t.Fatalf("error = %q", info.Error)
+	if info.LatestVersion != "2.13.0.1" {
+		t.Fatalf("LatestVersion = %q", info.LatestVersion)
+	}
+	wantURL := "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + arch + "-kn.ipk"
+	if info.DownloadURL != wantURL {
+		t.Fatalf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
+	}
+	if info.SourceURL != "https://github.com/example/repo/releases/tag/2.13.0.1" {
+		t.Fatalf("SourceURL = %q", info.SourceURL)
+	}
+	for _, url := range seen {
+		if strings.Contains(url, "/git/matching-refs/tags/v") {
+			t.Fatalf("unexpected tag scan URL %q", url)
+		}
+	}
+}
+
+func TestCheck_StableManualRelease_VPrefixedTag_StillWorks(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	defer func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+		stableReleaseResolver.Clear()
+	}()
+
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	stableReleaseResolver.Clear()
+	arch := archSuffix()
+	releaseJSON := fmt.Sprintf(`{
+					"tag_name":"v2.13.0.1",
+					"html_url":"https://github.com/example/repo/releases/tag/v2.13.0.1",
+					"body":"Manual stable release",
+					"published_at":"2026-06-12T10:00:00Z",
+					"assets":[
+						{"name":"awg-manager_2.13.0.1_%s-kn.ipk","browser_download_url":"https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_%s-kn.ipk"}
+					]
+				}`, arch, arch)
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			switch req.URL {
+			case "https://github.com/example/repo/releases/latest/download/VERSION":
+				return nil, downloader.ResponseMeta{}, fmt.Errorf("download via direct: status 404")
+			case "https://api.github.com/repos/example/repo/releases/latest":
+				return []byte(releaseJSON), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			default:
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
+			}
+		},
+	}
+
+	info := checkWithDownloader(context.Background(), "2.12.10+r4", channelStable, dl)
+
+	if !info.Available {
+		t.Fatalf("expected update available, got %+v", info)
+	}
+	if info.LatestVersion != "2.13.0.1" {
+		t.Fatalf("LatestVersion = %q", info.LatestVersion)
+	}
+	wantURL := "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + arch + "-kn.ipk"
+	if info.DownloadURL != wantURL {
+		t.Fatalf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
 	}
 }
 
@@ -938,6 +1011,78 @@ func TestCheck_StableInvalidVersionAssetReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(info.Error, `release asset VERSION is invalid in latest: "oops"`) {
 		t.Fatalf("error = %q", info.Error)
+	}
+}
+
+func TestCheck_StableManualRelease_MissingArchAssetReturnsShortError(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	defer func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+		stableReleaseResolver.Clear()
+	}()
+
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	stableReleaseResolver.Clear()
+	arch := archSuffix()
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			switch req.URL {
+			case "https://github.com/example/repo/releases/latest/download/VERSION":
+				return nil, downloader.ResponseMeta{}, fmt.Errorf("download via direct: status 404")
+			case "https://api.github.com/repos/example/repo/releases/latest":
+				return []byte(`{
+					"tag_name":"v2.13.0.1",
+					"html_url":"https://github.com/example/repo/releases/tag/v2.13.0.1",
+					"body":"Manual stable release",
+					"published_at":"2026-06-12T10:00:00Z",
+					"assets":[
+						{"name":"awg-manager_2.13.0.1_missing-arch-kn.ipk","browser_download_url":"https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_missing-arch-kn.ipk"}
+					]
+				}`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			default:
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
+			}
+		},
+	}
+
+	info := checkWithDownloader(context.Background(), "2.12.10+r4", channelStable, dl)
+
+	if info.Available {
+		t.Fatalf("expected no update, got %+v", info)
+	}
+	if !strings.Contains(info.Error, "stable release v2.13.0.1 is missing asset awg-manager_2.13.0.1_"+arch+"-kn.ipk") {
+		t.Fatalf("error = %q", info.Error)
+	}
+}
+
+func TestNormalizeStableLatestReleaseTag_AcceptsBareAndVPrefixedNumericTags(t *testing.T) {
+	cases := []struct {
+		tag  string
+		want string
+	}{
+		{tag: "2.13.0.1", want: "2.13.0.1"},
+		{tag: "v2.13.0.1", want: "2.13.0.1"},
+	}
+
+	for _, tc := range cases {
+		got, ok := normalizeStableLatestReleaseTag(tc.tag)
+		if !ok {
+			t.Fatalf("normalizeStableLatestReleaseTag(%q) rejected", tc.tag)
+		}
+		if got != tc.want {
+			t.Fatalf("normalizeStableLatestReleaseTag(%q) = %q, want %q", tc.tag, got, tc.want)
+		}
+	}
+}
+
+func TestNormalizeStableLatestReleaseTag_RejectsIqLatestAndPrereleaseNames(t *testing.T) {
+	for _, tag := range []string{"iq-latest", "2.13.0.1-beta", "2.13.0.1-rc1", "2.13.0.1-dev"} {
+		if got, ok := normalizeStableLatestReleaseTag(tag); ok {
+			t.Fatalf("normalizeStableLatestReleaseTag(%q) = %q, want reject", tag, got)
+		}
 	}
 }
 

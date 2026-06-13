@@ -242,6 +242,7 @@
 		font-size: 0.875rem;
 		color: var(--text-primary);
 		line-height: 1.45;
+		white-space: pre-line;
 	}
 	.group-intro p:last-child {
 		margin-bottom: 0;

@@ -150,3 +150,32 @@ func TestFetchChangelog_MissingIqLatestAssetReturnsShortError(t *testing.T) {
 		t.Fatalf("error = %q", got)
 	}
 }
+
+func TestStableReleaseBodyEntry_PreservesReleaseBodyAsParagraphs(t *testing.T) {
+	entry := stableReleaseBodyEntry(stableReleaseInfo{
+		Version: "2.13.0.1",
+		Body:    "AWG Manager 2.13.0.1\n\nБольшой релиз...\n\n- пункт 1\n- пункт 2",
+	})
+
+	if entry.Version != "2.13.0.1" {
+		t.Fatalf("Version = %q", entry.Version)
+	}
+	if len(entry.Groups) != 1 {
+		t.Fatalf("Groups = %+v", entry.Groups)
+	}
+	if entry.Groups[0].Heading != "" {
+		t.Fatalf("Heading = %q, want empty", entry.Groups[0].Heading)
+	}
+	if len(entry.Groups[0].Items) != 3 {
+		t.Fatalf("Items = %+v", entry.Groups[0].Items)
+	}
+	if entry.Groups[0].Items[0] != "AWG Manager 2.13.0.1" {
+		t.Fatalf("first item = %q", entry.Groups[0].Items[0])
+	}
+	if entry.Groups[0].Items[1] != "Большой релиз..." {
+		t.Fatalf("second item = %q", entry.Groups[0].Items[1])
+	}
+	if entry.Groups[0].Items[2] != "- пункт 1\n- пункт 2" {
+		t.Fatalf("third item = %q", entry.Groups[0].Items[2])
+	}
+}

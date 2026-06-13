@@ -160,6 +160,9 @@ func checkStableLatestReleaseWithDownloader(
 		name:    "VERSION",
 	})
 	if err != nil {
+		if isMissingReleaseAssetError(err, "VERSION") {
+			return checkStableManualLatestReleaseWithDownloader(ctx, info, currentVersion, dl)
+		}
 		info.Error = fmt.Sprintf("release channel: %s", err)
 		return info
 	}
@@ -168,11 +171,6 @@ func checkStableLatestReleaseWithDownloader(
 		return info
 	}
 
-	changelogURL := releaseAssetURL(baseURL, "CHANGELOG.md")
-	if err := ensureStableLatestAssetExists(ctx, dl, changelogURL, "CHANGELOG.md"); err != nil {
-		info.Error = fmt.Sprintf("release channel: %s", err)
-		return info
-	}
 	ipkURL := releaseAssetURL(baseURL, fmt.Sprintf("%s_%s_%s-kn.ipk", pkgName, latest, archSuffix()))
 	_, meta, err := dl.ReadAll(ctx, downloader.Request{
 		Purpose:       "awgm-update-check",
@@ -201,7 +199,44 @@ func checkStableLatestReleaseWithDownloader(
 	return info
 }
 
+func checkStableManualLatestReleaseWithDownloader(
+	ctx context.Context,
+	info *UpdateInfo,
+	currentVersion string,
+	dl Downloader,
+) *UpdateInfo {
+	repoURL := normalizedReleaseRepoURL()
+	releaseInfo, err := stableReleaseResolver.ResolveStable(ctx, dl, repoURL)
+	if err != nil {
+		info.Error = fmt.Sprintf("release channel: %s", err)
+		return info
+	}
+
+	if releaseInfo.HTMLURL != "" {
+		info.SourceURL = releaseInfo.HTMLURL
+	}
+
+	if semver.Compare(currentVersion, releaseInfo.Version) >= 0 {
+		return info
+	}
+
+	assetName := fmt.Sprintf("%s_%s_%s-kn.ipk", pkgName, releaseInfo.Version, archSuffix())
+	downloadURL := strings.TrimSpace(releaseInfo.Assets[assetName])
+	if downloadURL == "" {
+		info.Error = fmt.Sprintf("release channel: stable release %s is missing asset %s", releaseInfo.TagName, assetName)
+		return info
+	}
+
+	info.Available = true
+	info.LatestVersion = releaseInfo.Version
+	info.DownloadURL = downloadURL
+	return info
+}
+
 func ensureStableLatestAssetExists(ctx context.Context, dl Downloader, assetURL, assetName string) error {
+	if dl == nil {
+		dl = newDefaultDownloader()
+	}
 	_, meta, err := dl.ReadAll(ctx, downloader.Request{
 		Purpose:       "awgm-update-check",
 		URL:           assetURL,
@@ -332,6 +367,14 @@ func sanitizeReleaseAssetError(ref releaseAssetRef, err error) error {
 	}
 
 	return fmt.Errorf("fetch %s: %s", ref.name, msg)
+}
+
+func isMissingReleaseAssetError(err error, assetName string) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "release asset "+assetName+" not found in ")
 }
 
 func releaseAssetDisplayTarget(ref releaseAssetRef) string {
