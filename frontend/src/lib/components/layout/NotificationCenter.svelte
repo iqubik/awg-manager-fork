@@ -9,6 +9,7 @@
 		type DayBucket,
 	} from '$lib/stores/notificationCenter';
 	import { formatTime } from '$lib/utils/format';
+	import { goto } from '$app/navigation';
 
 	interface Props {
 		authenticated: boolean;
@@ -47,7 +48,7 @@
 		notificationCenter.markRead(e.id);
 		if (e.action) {
 			open = false;
-			window.location.href = e.action.href;
+			goto(e.action.href);
 		}
 	}
 </script>
@@ -231,6 +232,9 @@
 	.notif-remove {
 		flex-shrink: 0;
 		width: 28px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		background: none;
 		border: none;
 		color: var(--color-text-muted);
