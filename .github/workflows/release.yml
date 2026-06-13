@@ -72,6 +72,25 @@ jobs:
           SKIP_FRONTEND_BUILD=1 AWG_RELEASE_REPO_URL="$AWG_RELEASE_REPO_URL" \
             ./scripts/build-ipk.sh "$IPK_VERSION" "${{ matrix.arch }}"
 
+      - name: Verify embedded release URL
+        env:
+          IPK_VERSION: ${{ needs.version.outputs.version }}
+          AWG_RELEASE_REPO_URL: https://github.com/iqubik/awg-manager-fork/releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f build/bin/awg-manager
+          strings build/bin/awg-manager | grep -F "$AWG_RELEASE_REPO_URL"
+
+          ipk="dist/awg-manager_${IPK_VERSION}_${{ matrix.arch }}-kn.ipk"
+          workdir="$(mktemp -d)"
+          trap 'rm -rf "$workdir"' EXIT
+          cp "$ipk" "$workdir/pkg.ipk"
+          cd "$workdir"
+          ar x pkg.ipk
+          tar -xzf data.tar.gz
+          strings ./opt/bin/awg-manager | grep -F "$AWG_RELEASE_REPO_URL"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -178,3 +197,29 @@ jobs:
             --title "$TAG" \
             --notes-file /tmp/notes.md \
             "${extra[@]}"
+
+      - name: Verify published release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --json isDraft,isPrerelease,tagName,name,url,assets
+
+          checkdir="$(mktemp -d)"
+          trap 'rm -rf "$checkdir"' EXIT
+
+          gh release download "$TAG" --pattern VERSION --dir "$checkdir"
+          gh release download "$TAG" --pattern CHANGELOG.md --dir "$checkdir"
+          gh release download "$TAG" --pattern "awg-manager_${VERSION}_mipsel-3.4-kn.ipk" --dir "$checkdir"
+          gh release download "$TAG" --pattern "awg-manager_${VERSION}_mips-3.4-kn.ipk" --dir "$checkdir"
+          gh release download "$TAG" --pattern "awg-manager_${VERSION}_aarch64-3.10-kn.ipk" --dir "$checkdir"
+
+          test -f "$checkdir/VERSION"
+          test -f "$checkdir/CHANGELOG.md"
+          test -f "$checkdir/awg-manager_${VERSION}_mipsel-3.4-kn.ipk"
+          test -f "$checkdir/awg-manager_${VERSION}_mips-3.4-kn.ipk"
+          test -f "$checkdir/awg-manager_${VERSION}_aarch64-3.10-kn.ipk"
+          test "$(tr -d '\r\n' < "$checkdir/VERSION")" = "$VERSION"

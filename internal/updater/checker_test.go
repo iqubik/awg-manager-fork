@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/downloader"
 )
@@ -390,50 +389,38 @@ func TestCheck_StableWithoutReleaseBaseURLUsesPackagesIndex(t *testing.T) {
 	}
 }
 
-func TestCheck_StableUsesHighestSemverTagNotLatestDownload(t *testing.T) {
+func TestCheck_StableUsesLatestReleaseDownloadWithoutGitHubAPI(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	oldEntwareRepoURL := entwareRepoURL
-	oldFetcher := stableReleaseResolver.fetch
-	oldTTL := stableReleaseResolver.ttl
 	defer func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
 		entwareRepoURL = oldEntwareRepoURL
-		stableReleaseResolver.fetch = oldFetcher
-		stableReleaseResolver.ttl = oldTTL
-		stableReleaseResolver.Clear()
 	}()
 
 	releaseRepoURL = "https://github.com/example/repo/releases"
 	releaseBaseURL = ""
 	arch := archSuffix()
 
-	stableReleaseResolver.ttl = time.Hour
-	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
-		if repoURL != "https://github.com/example/repo/releases" {
-			t.Fatalf("repoURL = %q", repoURL)
-		}
-		return stableReleaseInfo{
-			RepoURL: repoURL,
-			APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1",
-			TagName: "v2.13.0.1",
-			Version: "2.13.0.1",
-			Assets: map[string]string{
-				"VERSION":      "https://github.com/example/repo/releases/download/v2.13.0.1/VERSION",
-				"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md",
-				"awg-manager_2.13.0.1_" + arch + "-kn.ipk": "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + arch + "-kn.ipk",
-			},
-		}, nil
-	}
-
+	var seen []string
 	dl := &fakeDownloader{
 		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
-			if req.URL == "https://github.com/example/repo/releases/download/v2.13.0.1/VERSION" {
+			seen = append(seen, req.URL)
+			switch req.URL {
+			case "https://github.com/example/repo/releases/latest/download/VERSION":
 				return []byte("2.13.0.1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case "https://github.com/example/repo/releases/latest/download/CHANGELOG.md":
+				return []byte("## [2.13.0.1] - 2026-06-12\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case "https://github.com/example/repo/releases/latest/download/awg-manager_2.13.0.1_" + arch + "-kn.ipk":
+				return nil, downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			default:
+				if strings.Contains(req.URL, "api.github.com") {
+					t.Fatalf("unexpected GitHub API call %q", req.URL)
+				}
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
 			}
-			t.Fatalf("unexpected URL %q", req.URL)
-			return nil, downloader.ResponseMeta{}, nil
 		},
 	}
 
@@ -445,12 +432,57 @@ func TestCheck_StableUsesHighestSemverTagNotLatestDownload(t *testing.T) {
 	if info.LatestVersion != "2.13.0.1" {
 		t.Fatalf("LatestVersion = %q, want 2.13.0.1", info.LatestVersion)
 	}
-	if info.SourceURL != "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1" {
+	if info.SourceURL != "https://github.com/example/repo/releases/latest/download/VERSION" {
 		t.Fatalf("SourceURL = %q", info.SourceURL)
 	}
-	wantURL := "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + arch + "-kn.ipk"
+	wantURL := "https://github.com/example/repo/releases/latest/download/awg-manager_2.13.0.1_" + arch + "-kn.ipk"
 	if info.DownloadURL != wantURL {
 		t.Fatalf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
+	}
+	if len(seen) != 3 {
+		t.Fatalf("seen = %v, want 3 direct latest calls", seen)
+	}
+}
+
+func TestCheck_StableChangelogHead405FallsBackToGet(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	defer func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+	}()
+
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	releaseBaseURL = ""
+	arch := archSuffix()
+
+	var seen []string
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			seen = append(seen, req.Method+" "+req.URL)
+			switch {
+			case req.URL == "https://github.com/example/repo/releases/latest/download/VERSION":
+				return []byte("2.13.0.1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case req.Method == http.MethodHead && req.URL == "https://github.com/example/repo/releases/latest/download/CHANGELOG.md":
+				return nil, downloader.ResponseMeta{StatusCode: http.StatusMethodNotAllowed}, nil
+			case req.Method == http.MethodGet && req.URL == "https://github.com/example/repo/releases/latest/download/CHANGELOG.md":
+				return []byte("## [2.13.0.1] - 2026-06-12\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case req.Method == http.MethodHead && req.URL == "https://github.com/example/repo/releases/latest/download/awg-manager_2.13.0.1_"+arch+"-kn.ipk":
+				return nil, downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			default:
+				t.Fatalf("unexpected request %s %q", req.Method, req.URL)
+				return nil, downloader.ResponseMeta{}, nil
+			}
+		},
+	}
+
+	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, dl)
+
+	if !info.Available {
+		t.Fatalf("expected update available, got %+v", info)
+	}
+	if len(seen) != 4 {
+		t.Fatalf("seen = %v, want 4 requests", seen)
 	}
 }
 
@@ -634,52 +666,101 @@ func TestCheck_DevelopUsesIqLatestVersionAsset(t *testing.T) {
 func TestCheck_StableMissingChangelogDoesNotOfferUpdate(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
-	oldFetcher := stableReleaseResolver.fetch
-	oldTTL := stableReleaseResolver.ttl
 	defer func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
-		stableReleaseResolver.fetch = oldFetcher
-		stableReleaseResolver.ttl = oldTTL
-		stableReleaseResolver.Clear()
 	}()
 
 	releaseRepoURL = "https://github.com/example/repo/releases"
-	stableReleaseResolver.ttl = time.Hour
-	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
-		return stableReleaseInfo{
-			RepoURL: repoURL,
-			APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1",
-			TagName: "v2.13.0.1",
-			Version: "2.13.0.1",
-			Assets: map[string]string{
-				"VERSION": "https://github.com/example/repo/releases/download/v2.13.0.1/VERSION",
-				"awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk": "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk",
-			},
-		}, nil
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			switch req.URL {
+			case "https://github.com/example/repo/releases/latest/download/VERSION":
+				return []byte("2.13.0.1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case "https://github.com/example/repo/releases/latest/download/CHANGELOG.md":
+				return nil, downloader.ResponseMeta{StatusCode: http.StatusNotFound}, nil
+			default:
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
+			}
+		},
 	}
 
-	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, &fakeDownloader{})
+	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, dl)
 
 	if info.Available {
 		t.Fatalf("expected no update, got %+v", info)
 	}
-	if !strings.Contains(info.Error, "stable release v2.13.0.1 is incomplete: missing CHANGELOG.md") {
+	if !strings.Contains(info.Error, "release asset CHANGELOG.md not found in latest") {
 		t.Fatalf("error = %q", info.Error)
 	}
 }
 
-func TestStableResolver_DoesNotFallbackWhenHighestTagReleaseMissing(t *testing.T) {
+func TestStableResolver_FallsBackToNextPublishedStableRelease(t *testing.T) {
 	dl := &fakeDownloader{
 		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
 			switch req.URL {
 			case "https://api.github.com/repos/example/repo/git/matching-refs/tags/v":
 				return []byte(`[
-					{"ref":"refs/tags/v2.12.9"},
-					{"ref":"refs/tags/v2.13.0.1"}
+					{"ref":"refs/tags/v2.13.0"},
+					{"ref":"refs/tags/v2.12.3"}
+				]`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case "https://api.github.com/repos/example/repo/releases/tags/v2.13.0":
+				return nil, downloader.ResponseMeta{StatusCode: http.StatusNotFound}, nil
+			case "https://api.github.com/repos/example/repo/releases/tags/v2.12.3":
+				return []byte(`{
+					"tag_name":"v2.12.3",
+					"draft":false,
+					"prerelease":false,
+					"assets":[
+						{"name":"VERSION","browser_download_url":"https://github.com/example/repo/releases/download/v2.12.3/VERSION"}
+					]
+				}`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			default:
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
+			}
+		},
+	}
+
+	info, err := fetchHighestStableReleaseWithDownloader(context.Background(), dl, "https://github.com/example/repo/releases")
+	if err != nil {
+		t.Fatalf("fetchHighestStableReleaseWithDownloader: %v", err)
+	}
+	if info.TagName != "v2.12.3" {
+		t.Fatalf("TagName = %q, want v2.12.3", info.TagName)
+	}
+	if info.Version != "2.12.3" {
+		t.Fatalf("Version = %q, want 2.12.3", info.Version)
+	}
+}
+
+func TestStableResolver_AllCandidatesBrokenReturnsReasons(t *testing.T) {
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			switch req.URL {
+			case "https://api.github.com/repos/example/repo/git/matching-refs/tags/v":
+				return []byte(`[
+					{"ref":"refs/tags/v2.13.0.1"},
+					{"ref":"refs/tags/v2.13.0"},
+					{"ref":"refs/tags/v2.12.9"}
 				]`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 			case "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1":
 				return nil, downloader.ResponseMeta{StatusCode: http.StatusNotFound}, nil
+			case "https://api.github.com/repos/example/repo/releases/tags/v2.13.0":
+				return []byte(`{
+					"tag_name":"v2.13.0",
+					"draft":true,
+					"prerelease":false,
+					"assets":[{"name":"VERSION","browser_download_url":"https://example.test/VERSION"}]
+				}`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case "https://api.github.com/repos/example/repo/releases/tags/v2.12.9":
+				return []byte(`{
+					"tag_name":"v2.12.9",
+					"draft":false,
+					"prerelease":false,
+					"assets":[]
+				}`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 			default:
 				t.Fatalf("unexpected URL %q", req.URL)
 				return nil, downloader.ResponseMeta{}, nil
@@ -691,81 +772,159 @@ func TestStableResolver_DoesNotFallbackWhenHighestTagReleaseMissing(t *testing.T
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if got := err.Error(); got != "stable release v2.13.0.1 is not published" {
-		t.Fatalf("error = %q", got)
+	got := err.Error()
+	for _, want := range []string{
+		"no published stable release found for https://github.com/example/repo/releases",
+		"v2.13.0.1: release not published",
+		"v2.13.0: draft release",
+		"v2.12.9: no assets",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("error %q does not contain %q", got, want)
+		}
+	}
+}
+
+func TestResolveStableReleaseForAssets_FallsBackWhenHighestMissingChangelog(t *testing.T) {
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			switch req.URL {
+			case "https://api.github.com/repos/example/repo/git/matching-refs/tags/v":
+				return []byte(`[
+					{"ref":"refs/tags/v2.13.0"},
+					{"ref":"refs/tags/v2.12.11"}
+				]`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case "https://api.github.com/repos/example/repo/releases/tags/v2.13.0":
+				return []byte(`{
+					"tag_name":"v2.13.0",
+					"draft":false,
+					"prerelease":false,
+					"assets":[
+						{"name":"VERSION","browser_download_url":"https://github.com/example/repo/releases/download/v2.13.0/VERSION"}
+					]
+				}`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case "https://api.github.com/repos/example/repo/releases/tags/v2.12.11":
+				return []byte(`{
+					"tag_name":"v2.12.11",
+					"draft":false,
+					"prerelease":false,
+					"assets":[
+						{"name":"CHANGELOG.md","browser_download_url":"https://github.com/example/repo/releases/download/v2.12.11/CHANGELOG.md"}
+					]
+				}`), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			default:
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
+			}
+		},
+	}
+
+	info, err := resolveStableReleaseForAssets(context.Background(), dl, "https://github.com/example/repo/releases", []string{"CHANGELOG.md"})
+	if err != nil {
+		t.Fatalf("resolveStableReleaseForAssets: %v", err)
+	}
+	if info.TagName != "v2.12.11" {
+		t.Fatalf("TagName = %q, want v2.12.11", info.TagName)
+	}
+	if info.Assets["CHANGELOG.md"] == "" {
+		t.Fatal("expected CHANGELOG.md asset")
 	}
 }
 
 func TestCheck_StableMissingVersionDoesNotOfferUpdate(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
-	oldFetcher := stableReleaseResolver.fetch
-	oldTTL := stableReleaseResolver.ttl
 	defer func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
-		stableReleaseResolver.fetch = oldFetcher
-		stableReleaseResolver.ttl = oldTTL
-		stableReleaseResolver.Clear()
 	}()
 
 	releaseRepoURL = "https://github.com/example/repo/releases"
-	stableReleaseResolver.ttl = time.Hour
-	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
-		return stableReleaseInfo{
-			RepoURL: repoURL,
-			APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1",
-			TagName: "v2.13.0.1",
-			Version: "2.13.0.1",
-			Assets: map[string]string{
-				"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md",
-				"awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk": "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk",
-			},
-		}, nil
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			switch req.URL {
+			case "https://github.com/example/repo/releases/latest/download/VERSION":
+				return nil, downloader.ResponseMeta{}, fmt.Errorf("download via direct: status 404")
+			default:
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
+			}
+		},
 	}
 
-	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, &fakeDownloader{})
+	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, dl)
 
 	if info.Available {
 		t.Fatalf("expected no update, got %+v", info)
 	}
-	if !strings.Contains(info.Error, "stable release v2.13.0.1 is incomplete: missing VERSION") {
+	if !strings.Contains(info.Error, "release asset VERSION not found in latest") {
 		t.Fatalf("error = %q", info.Error)
 	}
 }
 
-func TestCheck_StableVersionAssetMismatchReturnsError(t *testing.T) {
+func TestCheck_StableDirectLatestUpdateUsesVersionedLatestIPK(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
-	oldFetcher := stableReleaseResolver.fetch
-	oldTTL := stableReleaseResolver.ttl
+	oldEntwareRepoURL := entwareRepoURL
 	defer func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
-		stableReleaseResolver.fetch = oldFetcher
-		stableReleaseResolver.ttl = oldTTL
-		stableReleaseResolver.Clear()
+		entwareRepoURL = oldEntwareRepoURL
 	}()
 
 	releaseRepoURL = "https://github.com/example/repo/releases"
-	stableReleaseResolver.ttl = time.Hour
-	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
-		return stableReleaseInfo{
-			RepoURL: repoURL,
-			APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1",
-			TagName: "v2.13.0.1",
-			Version: "2.13.0.1",
-			Assets: map[string]string{
-				"VERSION":      "https://github.com/example/repo/releases/download/v2.13.0.1/VERSION",
-				"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md",
-				"awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk": "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk",
-			},
-		}, nil
-	}
+	releaseBaseURL = ""
+	arch := archSuffix()
+
 	dl := &fakeDownloader{
 		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
-			if strings.HasSuffix(req.URL, "/VERSION") {
-				return []byte("2.13.0.9\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			switch req.URL {
+			case "https://github.com/example/repo/releases/latest/download/VERSION":
+				return []byte("2.12.11\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case "https://github.com/example/repo/releases/latest/download/CHANGELOG.md":
+				return []byte("## [2.12.11] - 2026-06-12\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case "https://github.com/example/repo/releases/latest/download/awg-manager_2.12.11_" + arch + "-kn.ipk":
+				return nil, downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			default:
+				if strings.Contains(req.URL, "api.github.com") {
+					t.Fatalf("unexpected GitHub API call %q", req.URL)
+				}
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
+			}
+		},
+	}
+
+	info := checkWithDownloader(context.Background(), "2.12.10+r1", channelStable, dl)
+
+	if !info.Available {
+		t.Fatalf("expected update available, got %+v", info)
+	}
+	if info.LatestVersion != "2.12.11" {
+		t.Fatalf("LatestVersion = %q, want 2.12.11", info.LatestVersion)
+	}
+	wantURL := "https://github.com/example/repo/releases/latest/download/awg-manager_2.12.11_" + arch + "-kn.ipk"
+	if info.DownloadURL != wantURL {
+		t.Fatalf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
+	}
+	if info.Error != "" {
+		t.Fatalf("Error = %q, want empty", info.Error)
+	}
+}
+
+func TestCheck_StableInvalidVersionAssetReturnsError(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	defer func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+	}()
+
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			if req.URL == "https://github.com/example/repo/releases/latest/download/VERSION" {
+				return []byte("oops\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 			}
 			t.Fatalf("unexpected URL %q", req.URL)
 			return nil, downloader.ResponseMeta{}, nil
@@ -777,7 +936,7 @@ func TestCheck_StableVersionAssetMismatchReturnsError(t *testing.T) {
 	if info.Available {
 		t.Fatalf("expected no update, got %+v", info)
 	}
-	if !strings.Contains(info.Error, `VERSION asset mismatch in v2.13.0.1: got "2.13.0.9" want "2.13.0.1"`) {
+	if !strings.Contains(info.Error, `release asset VERSION is invalid in latest: "oops"`) {
 		t.Fatalf("error = %q", info.Error)
 	}
 }
@@ -814,38 +973,26 @@ func TestCheck_DevelopMissingVersionDoesNotLeakHTML(t *testing.T) {
 func TestCheck_StableCurrentDevelopBuildSeesHigherStableTag(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
-	oldFetcher := stableReleaseResolver.fetch
-	oldTTL := stableReleaseResolver.ttl
 	defer func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
-		stableReleaseResolver.fetch = oldFetcher
-		stableReleaseResolver.ttl = oldTTL
-		stableReleaseResolver.Clear()
 	}()
 
 	releaseRepoURL = "https://github.com/example/repo/releases"
-	stableReleaseResolver.ttl = time.Hour
-	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
-		return stableReleaseInfo{
-			RepoURL: repoURL,
-			APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1",
-			TagName: "v2.13.0.1",
-			Version: "2.13.0.1",
-			Assets: map[string]string{
-				"VERSION":      "https://github.com/example/repo/releases/download/v2.13.0.1/VERSION",
-				"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md",
-				"awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk": "https://github.com/example/repo/releases/download/v2.13.0.1/awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk",
-			},
-		}, nil
-	}
+	arch := archSuffix()
 	dl := &fakeDownloader{
 		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
-			if strings.HasSuffix(req.URL, "/VERSION") {
+			switch req.URL {
+			case "https://github.com/example/repo/releases/latest/download/VERSION":
 				return []byte("2.13.0.1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case "https://github.com/example/repo/releases/latest/download/CHANGELOG.md":
+				return []byte("## [2.13.0.1] - 2026-06-12\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case "https://github.com/example/repo/releases/latest/download/awg-manager_2.13.0.1_" + arch + "-kn.ipk":
+				return nil, downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			default:
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
 			}
-			t.Fatalf("unexpected URL %q", req.URL)
-			return nil, downloader.ResponseMeta{}, nil
 		},
 	}
 
@@ -964,34 +1111,27 @@ func TestCheck_StableIgnoresLowerDevelopRevisionFromReleaseChannel(t *testing.T)
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	oldEntwareRepoURL := entwareRepoURL
-	oldFetcher := stableReleaseResolver.fetch
-	oldTTL := stableReleaseResolver.ttl
 	defer func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
 		entwareRepoURL = oldEntwareRepoURL
-		stableReleaseResolver.fetch = oldFetcher
-		stableReleaseResolver.ttl = oldTTL
-		stableReleaseResolver.Clear()
 	}()
 
 	releaseRepoURL = "https://github.com/example/repo/releases"
 	releaseBaseURL = ""
-	stableReleaseResolver.ttl = time.Hour
-	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
-		return stableReleaseInfo{
-			RepoURL: repoURL,
-			APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.12.3.14",
-			TagName: "v2.12.3.14",
-			Version: "2.12.3.14",
-			Assets: map[string]string{
-				"VERSION":      "https://github.com/example/repo/releases/download/v2.12.3.14/VERSION",
-				"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.12.3.14/CHANGELOG.md",
-			},
-		}, nil
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			switch req.URL {
+			case "https://github.com/example/repo/releases/latest/download/VERSION":
+				return []byte("2.12.3.14\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			default:
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
+			}
+		},
 	}
 
-	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, nil)
+	info := checkWithDownloader(context.Background(), "2.12.4", channelStable, dl)
 
 	if info.Available {
 		t.Fatalf("expected no update, got %+v", info)

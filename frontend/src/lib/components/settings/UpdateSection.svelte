@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
+	import { usageLevel } from '$lib/stores/settings';
 	import { Modal, Button } from '$lib/components/ui';
 	import ChangelogModal from './ChangelogModal.svelte';
 	import DownloadErrorNotice from '$lib/components/downloads/DownloadErrorNotice.svelte';
@@ -24,6 +25,16 @@
 	const manualCheckLabel = $derived(
 		checking ? 'Проверка...' : updateInfo?.available ? 'Проверить ещё' : 'Проверить'
 	);
+	const showUpdateDiagnostics = $derived($usageLevel !== 'basic');
+	const updateDiagnostics = $derived.by(() => {
+		if (!updateInfo || !showUpdateDiagnostics) return '';
+
+		const parts: string[] = [];
+		if (updateInfo.channel) parts.push(`Канал: ${updateInfo.channel}`);
+		if (updateInfo.source) parts.push(`Источник: ${updateInfo.source}`);
+		if (updateInfo.sourceUrl) parts.push(`URL: ${updateInfo.sourceUrl}`);
+		return parts.join(' · ');
+	});
 
 	async function checkForUpdates() {
 		if (checking) return;
@@ -108,6 +119,11 @@
 			<div class="update-error-notice">
 				<DownloadErrorNotice error={updateInfo.error} hideSettingsLink />
 			</div>
+			{#if updateDiagnostics}
+				<span class="setting-description update-diagnostics">
+					{updateDiagnostics}
+				</span>
+			{/if}
 		{:else}
 			<span class="setting-description">
 				Установлена последняя версия
@@ -279,6 +295,12 @@
 	.update-status {
 		color: var(--accent) !important;
 	}
+
+	.update-diagnostics {
+		color: var(--text-muted, var(--text-secondary));
+		word-break: break-word;
+	}
+
 	.update-spinner {
 		width: 20px;
 		height: 20px;

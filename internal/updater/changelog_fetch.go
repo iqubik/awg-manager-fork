@@ -24,16 +24,8 @@ func changelogSourcesForChannel(channel string) (primary, secondary string) {
 
 func resolveChangelogSourcesForChannel(ctx context.Context, dl Downloader, channel string) (primary, secondary string, err error) {
 	if channel == channelStable {
-		if repoURL := normalizedReleaseRepoURL(); repoURL != "" {
-			info, err := stableReleaseResolver.ResolveStable(ctx, dl, repoURL)
-			if err != nil {
-				return "", "", err
-			}
-			changelogURL := info.Assets["CHANGELOG.md"]
-			if changelogURL == "" {
-				return "", "", fmt.Errorf("missing asset CHANGELOG.md in %s", info.TagName)
-			}
-			return changelogURL, "", nil
+		if baseURL := releaseBaseURLForChannel(channelStable); baseURL != "" {
+			return releaseAssetURL(baseURL, "CHANGELOG.md"), "", nil
 		}
 	}
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,11 @@ type githubRelease struct {
 		Name               string `json:"name"`
 		BrowserDownloadURL string `json:"browser_download_url"`
 	} `json:"assets"`
+}
+
+type stableTagCandidate struct {
+	TagName string
+	Version string
 }
 
 type stableReleaseInfo struct {
@@ -95,11 +101,54 @@ func (r *releaseResolver) store(info stableReleaseInfo) {
 }
 
 var stableReleaseResolver = newReleaseResolver(10 * time.Minute)
+var resolveStableReleaseForAssetsFunc = resolveStableReleaseForAssets
+var resolveStableReleaseForUpdateFunc = resolveStableReleaseForUpdate
 
 func fetchHighestStableReleaseWithDownloader(
 	ctx context.Context,
 	dl Downloader,
 	repoURL string,
+) (stableReleaseInfo, error) {
+	return resolveStableReleaseWithRequiredAssets(ctx, dl, repoURL, func(candidate stableTagCandidate) []string {
+		return nil
+	})
+}
+
+func resolveStableReleaseForAssets(
+	ctx context.Context,
+	dl Downloader,
+	repoURL string,
+	requiredAssets []string,
+) (stableReleaseInfo, error) {
+	return resolveStableReleaseWithRequiredAssets(ctx, dl, repoURL, func(candidate stableTagCandidate) []string {
+		return requiredAssets
+	})
+}
+
+func resolveStableReleaseForUpdate(
+	ctx context.Context,
+	dl Downloader,
+	repoURL string,
+	arch string,
+) (stableReleaseInfo, string, error) {
+	info, err := resolveStableReleaseWithRequiredAssets(ctx, dl, repoURL, func(candidate stableTagCandidate) []string {
+		return []string{
+			"VERSION",
+			"CHANGELOG.md",
+			fmt.Sprintf("%s_%s_%s-kn.ipk", pkgName, candidate.Version, arch),
+		}
+	})
+	if err != nil {
+		return stableReleaseInfo{}, "", err
+	}
+	return info, fmt.Sprintf("%s_%s_%s-kn.ipk", pkgName, info.Version, arch), nil
+}
+
+func resolveStableReleaseWithRequiredAssets(
+	ctx context.Context,
+	dl Downloader,
+	repoURL string,
+	requiredAssetsFor func(candidate stableTagCandidate) []string,
 ) (stableReleaseInfo, error) {
 	if dl == nil {
 		dl = newDefaultDownloader()
@@ -127,56 +176,40 @@ func fetchHighestStableReleaseWithDownloader(
 		return stableReleaseInfo{}, fmt.Errorf("decode git tags api: %w", err)
 	}
 
-	selectedTag, selectedVersion := selectHighestStableTag(refs)
-	if selectedVersion == "" {
+	candidates := collectStableTagCandidates(refs)
+	if len(candidates) == 0 {
 		return stableReleaseInfo{}, fmt.Errorf("no stable tag found in %s", tagsURL)
 	}
 
-	releaseAPIURL := apiBaseURL + "/releases/tags/" + selectedTag
-	body, meta, err := dl.ReadAll(ctx, downloader.Request{
-		Purpose:       "awgm-update-check",
-		URL:           releaseAPIURL,
-		Method:        http.MethodGet,
-		Timeout:       repoTimeout,
-		MaxBodyBytes:  releasesMaxBytes,
-		AllowedStatus: []int{http.StatusOK, http.StatusNotFound},
-	})
-	if err != nil {
-		return stableReleaseInfo{}, fmt.Errorf("fetch stable release %s: %w", selectedTag, err)
-	}
-	if meta.StatusCode == http.StatusNotFound {
-		return stableReleaseInfo{}, fmt.Errorf("stable release %s is not published", selectedTag)
-	}
-	if meta.StatusCode != http.StatusOK {
-		return stableReleaseInfo{}, fmt.Errorf("fetch stable release %s: status %d", selectedTag, meta.StatusCode)
-	}
-
-	var release githubRelease
-	if err := json.Unmarshal(body, &release); err != nil {
-		return stableReleaseInfo{}, fmt.Errorf("decode stable release %s: %w", selectedTag, err)
-	}
-	if strings.TrimSpace(release.TagName) != selectedTag {
-		return stableReleaseInfo{}, fmt.Errorf("stable release %s returned tag %q", selectedTag, strings.TrimSpace(release.TagName))
-	}
-	if release.Draft || release.Prerelease {
-		return stableReleaseInfo{}, fmt.Errorf("stable release %s is not published", selectedTag)
-	}
-
-	selectedAssets := make(map[string]string, len(release.Assets))
-	for _, asset := range release.Assets {
-		if strings.TrimSpace(asset.Name) == "" || strings.TrimSpace(asset.BrowserDownloadURL) == "" {
+	var reasons []string
+	for _, candidate := range candidates {
+		requiredAssets := requiredAssetsFor(candidate)
+		info, reason, err := fetchStableReleaseCandidate(ctx, dl, repoURL, apiBaseURL, candidate, requiredAssets)
+		if err != nil {
+			return stableReleaseInfo{}, err
+		}
+		if reason != "" {
+			reasons = append(reasons, reason)
 			continue
 		}
-		selectedAssets[asset.Name] = asset.BrowserDownloadURL
+		return info, nil
 	}
 
-	return stableReleaseInfo{
-		RepoURL: repoURL,
-		APIURL:  releaseAPIURL,
-		TagName: selectedTag,
-		Version: selectedVersion,
-		Assets:  selectedAssets,
-	}, nil
+	if len(reasons) == 0 {
+		return stableReleaseInfo{}, fmt.Errorf("no published stable release found for %s", repoURL)
+	}
+
+	topRequiredAssets := requiredAssetsFor(candidates[0])
+	if len(topRequiredAssets) == 0 {
+		return stableReleaseInfo{}, fmt.Errorf("no published stable release found for %s: %s", repoURL, strings.Join(reasons, "; "))
+	}
+
+	return stableReleaseInfo{}, fmt.Errorf(
+		"no stable release with assets [%s] found for %s: %s",
+		strings.Join(topRequiredAssets, ", "),
+		repoURL,
+		strings.Join(reasons, "; "),
+	)
 }
 
 func githubRepoAPIBaseURL(repoURL string) (string, error) {
@@ -197,6 +230,15 @@ func githubRepoAPIBaseURL(repoURL string) (string, error) {
 }
 
 func selectHighestStableTag(refs []githubMatchingRef) (tag string, version string) {
+	candidates := collectStableTagCandidates(refs)
+	if len(candidates) == 0 {
+		return "", ""
+	}
+	return candidates[0].TagName, candidates[0].Version
+}
+
+func collectStableTagCandidates(refs []githubMatchingRef) []stableTagCandidate {
+	candidates := make([]stableTagCandidate, 0, len(refs))
 	for _, ref := range refs {
 		tagName := strings.TrimSpace(ref.Ref)
 		tagName = strings.TrimPrefix(tagName, "refs/tags/")
@@ -204,12 +246,89 @@ func selectHighestStableTag(refs []githubMatchingRef) (tag string, version strin
 		if !ok {
 			continue
 		}
-		if version == "" || semver.Compare(normalizedVersion, version) > 0 {
-			tag = tagName
-			version = normalizedVersion
+		candidates = append(candidates, stableTagCandidate{
+			TagName: tagName,
+			Version: normalizedVersion,
+		})
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return semver.Compare(candidates[i].Version, candidates[j].Version) > 0
+	})
+
+	return candidates
+}
+
+func fetchStableReleaseCandidate(
+	ctx context.Context,
+	dl Downloader,
+	repoURL string,
+	apiBaseURL string,
+	candidate stableTagCandidate,
+	requiredAssets []string,
+) (stableReleaseInfo, string, error) {
+	releaseAPIURL := apiBaseURL + "/releases/tags/" + candidate.TagName
+	body, meta, err := dl.ReadAll(ctx, downloader.Request{
+		Purpose:       "awgm-update-check",
+		URL:           releaseAPIURL,
+		Method:        http.MethodGet,
+		Timeout:       repoTimeout,
+		MaxBodyBytes:  releasesMaxBytes,
+		AllowedStatus: []int{http.StatusOK, http.StatusNotFound},
+	})
+	if err != nil {
+		return stableReleaseInfo{}, "", fmt.Errorf("fetch stable release %s: %w", candidate.TagName, err)
+	}
+	if meta.StatusCode == http.StatusNotFound {
+		return stableReleaseInfo{}, fmt.Sprintf("%s: release not published", candidate.TagName), nil
+	}
+	if meta.StatusCode != http.StatusOK {
+		return stableReleaseInfo{}, "", fmt.Errorf("fetch stable release %s: status %d", candidate.TagName, meta.StatusCode)
+	}
+
+	var release githubRelease
+	if err := json.Unmarshal(body, &release); err != nil {
+		return stableReleaseInfo{}, "", fmt.Errorf("decode stable release %s: %w", candidate.TagName, err)
+	}
+	if strings.TrimSpace(release.TagName) != candidate.TagName {
+		return stableReleaseInfo{}, fmt.Sprintf("%s: tag mismatch %q", candidate.TagName, strings.TrimSpace(release.TagName)), nil
+	}
+	if release.Draft {
+		return stableReleaseInfo{}, fmt.Sprintf("%s: draft release", candidate.TagName), nil
+	}
+	if release.Prerelease {
+		return stableReleaseInfo{}, fmt.Sprintf("%s: prerelease", candidate.TagName), nil
+	}
+
+	selectedAssets := make(map[string]string, len(release.Assets))
+	for _, asset := range release.Assets {
+		if strings.TrimSpace(asset.Name) == "" || strings.TrimSpace(asset.BrowserDownloadURL) == "" {
+			continue
+		}
+		selectedAssets[asset.Name] = asset.BrowserDownloadURL
+	}
+	if len(selectedAssets) == 0 {
+		return stableReleaseInfo{}, fmt.Sprintf("%s: no assets", candidate.TagName), nil
+	}
+	if len(requiredAssets) > 0 {
+		missingAssets := make([]string, 0, len(requiredAssets))
+		for _, assetName := range requiredAssets {
+			if strings.TrimSpace(selectedAssets[assetName]) == "" {
+				missingAssets = append(missingAssets, assetName)
+			}
+		}
+		if len(missingAssets) > 0 {
+			return stableReleaseInfo{}, fmt.Sprintf("%s: missing assets [%s]", candidate.TagName, strings.Join(missingAssets, ", ")), nil
 		}
 	}
-	return tag, version
+
+	return stableReleaseInfo{
+		RepoURL: repoURL,
+		APIURL:  releaseAPIURL,
+		TagName: candidate.TagName,
+		Version: candidate.Version,
+		Assets:  selectedAssets,
+	}, "", nil
 }
 
 func normalizeStableReleaseTag(tag string) (string, bool) {

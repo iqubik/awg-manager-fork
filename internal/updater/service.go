@@ -67,9 +67,16 @@ func (s *Service) syncChangelogSource(ctx context.Context) error {
 	ch := s.channel()
 	primary, secondary, err := resolveChangelogSourcesForChannel(ctx, s.downloader, ch)
 	if err != nil {
-		return err
+		repoURL := normalizedReleaseRepoURL()
+		return fmt.Errorf("resolve changelog source: channel=%s repoURL=%s: %w", ch, repoURL, err)
 	}
 	s.changelog.SetSources(primary, secondary)
+	s.appLog.Debug("changelog", "", fmt.Sprintf(
+		"Resolved changelog source: channel=%s primary=%s secondary=%s",
+		ch,
+		primary,
+		secondary,
+	))
 	return nil
 }
 

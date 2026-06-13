@@ -9,7 +9,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/downloader"
 )
 
-func TestServiceCheckNow_ClearsStableReleaseResolverCache(t *testing.T) {
+func TestServiceCheckNow_StableUsesDirectLatestWithoutResolver(t *testing.T) {
 	oldFetcher := stableReleaseResolver.fetch
 	oldTTL := stableReleaseResolver.ttl
 	oldRepoURL := releaseRepoURL
@@ -43,7 +43,7 @@ func TestServiceCheckNow_ClearsStableReleaseResolverCache(t *testing.T) {
 		releaseBaseURL = oldBaseURL
 	})
 
-	// Seed cache with stale-but-valid data; CheckNow must still force resolver refresh.
+	// Seed cache with stale-but-valid data; direct latest path should ignore it.
 	stableReleaseResolver.store(stableReleaseInfo{
 		RepoURL: "https://github.com/example/repo/releases",
 		APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1",
@@ -60,10 +60,17 @@ func TestServiceCheckNow_ClearsStableReleaseResolverCache(t *testing.T) {
 		version: "2.12.4",
 		downloader: &fakeDownloader{
 			readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
-				if req.URL == "https://github.com/example/repo/releases/download/v2.13.0.1/VERSION" {
+				switch req.URL {
+				case "https://github.com/example/repo/releases/latest/download/VERSION":
 					return []byte("2.13.0.1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+				case "https://github.com/example/repo/releases/latest/download/CHANGELOG.md":
+					return []byte("## [2.13.0.1] - 2026-06-12\n\n### Fixed\n- item\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+				case "https://github.com/example/repo/releases/latest/download/awg-manager_2.13.0.1_" + archSuffix() + "-kn.ipk":
+					return nil, downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+				default:
+					t.Fatalf("unexpected URL %q", req.URL)
+					return nil, downloader.ResponseMeta{}, nil
 				}
-				return []byte("## [2.13.0.1] - 2026-06-12\n\n### Fixed\n- item\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 			},
 		},
 		changelog: newChangelogFetcher("http://example.test/CHANGELOG.md", "", time.Minute, &fakeDownloader{}),
@@ -71,8 +78,8 @@ func TestServiceCheckNow_ClearsStableReleaseResolverCache(t *testing.T) {
 
 	info := svc.CheckNow(context.Background())
 
-	if fetchCalls != 1 {
-		t.Fatalf("fetchCalls = %d, want 1", fetchCalls)
+	if fetchCalls != 0 {
+		t.Fatalf("fetchCalls = %d, want 0", fetchCalls)
 	}
 	if !info.Available {
 		t.Fatalf("expected update available, got %+v", info)

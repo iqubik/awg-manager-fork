@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	defaultEntwareRepoURL = "http://repo.hoaxisr.ru"
-	repoTimeout           = 30 * time.Second
-	downloadTimeout       = 5 * time.Minute
-	downloadDir           = "/opt/tmp"
-	pkgName               = "awg-manager"
+	defaultEntwareRepoURL  = "http://repo.hoaxisr.ru"
+	repoTimeout            = 30 * time.Second
+	downloadTimeout        = 5 * time.Minute
+	downloadDir            = "/opt/tmp"
+	pkgName                = "awg-manager"
+	changelogProbeMaxBytes = 64 << 10
 )
 
 const (
@@ -73,6 +74,9 @@ func normalizedReleaseRepoURL() string {
 
 func releaseBaseURLForChannel(channel string) string {
 	if channel == channelStable {
+		if repoURL := strings.TrimRight(strings.TrimSpace(releaseRepoURL), "/"); repoURL != "" {
+			return repoURL + "/latest/download"
+		}
 		return ""
 	}
 
@@ -108,16 +112,12 @@ func checkWithDownloader(ctx context.Context, currentVersion, channel string, dl
 
 	cmp := versionComparator(channel)
 
-	if channel == channelStable {
-		if repoURL := normalizedReleaseRepoURL(); repoURL != "" {
-			info.Source = "release"
-			return checkStableReleaseWithDownloader(ctx, info, currentVersion, dl, repoURL)
-		}
-	}
-
 	if baseURL := releaseBaseURLForChannel(channel); baseURL != "" {
 		info.Source = "release"
 		info.SourceURL = releaseAssetURL(baseURL, "VERSION")
+		if channel == channelStable {
+			return checkStableLatestReleaseWithDownloader(ctx, info, currentVersion, dl, baseURL)
+		}
 		return checkReleaseWithDownloader(ctx, info, currentVersion, dl, cmp, baseURL)
 	}
 
@@ -143,57 +143,107 @@ func checkWithDownloader(ctx context.Context, currentVersion, channel string, dl
 	return info
 }
 
-func checkStableReleaseWithDownloader(
+func checkStableLatestReleaseWithDownloader(
 	ctx context.Context,
 	info *UpdateInfo,
 	currentVersion string,
 	dl Downloader,
-	repoURL string,
+	baseURL string,
 ) *UpdateInfo {
-	releaseInfo, err := stableReleaseResolver.ResolveStable(ctx, dl, repoURL)
-	if err != nil {
-		info.Error = fmt.Sprintf("release channel: %s", err)
-		return info
+	if dl == nil {
+		dl = newDefaultDownloader()
 	}
 
-	info.SourceURL = releaseInfo.APIURL
-
-	if semver.Compare(currentVersion, releaseInfo.Version) >= 0 {
-		return info
-	}
-
-	ipkName := fmt.Sprintf("%s_%s_%s-kn.ipk", pkgName, releaseInfo.Version, archSuffix())
-	requiredAssets := []string{"VERSION", "CHANGELOG.md", ipkName}
-	for _, assetName := range requiredAssets {
-		if strings.TrimSpace(releaseInfo.Assets[assetName]) == "" {
-			info.Error = fmt.Sprintf("release channel: stable release %s is incomplete: missing %s", releaseInfo.TagName, assetName)
-			return info
-		}
-	}
-
-	version, err := fetchReleaseVersionAssetWithDownloader(ctx, dl, releaseInfo.Assets["VERSION"], releaseAssetRef{
+	latest, err := fetchReleaseVersionAssetWithDownloader(ctx, dl, releaseAssetURL(baseURL, "VERSION"), releaseAssetRef{
 		channel: channelStable,
-		tag:     releaseInfo.TagName,
+		tag:     "latest",
 		name:    "VERSION",
 	})
 	if err != nil {
 		info.Error = fmt.Sprintf("release channel: %s", err)
 		return info
 	}
-	if version != releaseInfo.Version {
-		info.Error = fmt.Sprintf(
-			"release channel: VERSION asset mismatch in %s: got %q want %q",
-			releaseInfo.TagName,
-			version,
-			releaseInfo.Version,
-		)
+
+	if semver.Compare(currentVersion, latest) >= 0 {
+		return info
+	}
+
+	changelogURL := releaseAssetURL(baseURL, "CHANGELOG.md")
+	if err := ensureStableLatestAssetExists(ctx, dl, changelogURL, "CHANGELOG.md"); err != nil {
+		info.Error = fmt.Sprintf("release channel: %s", err)
+		return info
+	}
+	ipkURL := releaseAssetURL(baseURL, fmt.Sprintf("%s_%s_%s-kn.ipk", pkgName, latest, archSuffix()))
+	_, meta, err := dl.ReadAll(ctx, downloader.Request{
+		Purpose:       "awgm-update-check",
+		URL:           ipkURL,
+		Method:        http.MethodHead,
+		Timeout:       repoTimeout,
+		MaxBodyBytes:  1,
+		AllowedStatus: []int{http.StatusOK, http.StatusNotFound, http.StatusMethodNotAllowed},
+	})
+	if err != nil {
+		info.Error = fmt.Sprintf("release channel: %s", err)
+		return info
+	}
+	if meta.StatusCode == http.StatusNotFound {
+		info.Error = fmt.Sprintf("release channel: release asset %s not found in latest", path.Base(ipkURL))
+		return info
+	}
+	if meta.StatusCode != http.StatusOK && meta.StatusCode != http.StatusMethodNotAllowed {
+		info.Error = fmt.Sprintf("release channel: fetch %s: status %d", path.Base(ipkURL), meta.StatusCode)
 		return info
 	}
 
 	info.Available = true
-	info.LatestVersion = releaseInfo.Version
-	info.DownloadURL = releaseInfo.Assets[ipkName]
+	info.LatestVersion = latest
+	info.DownloadURL = ipkURL
 	return info
+}
+
+func ensureStableLatestAssetExists(ctx context.Context, dl Downloader, assetURL, assetName string) error {
+	_, meta, err := dl.ReadAll(ctx, downloader.Request{
+		Purpose:       "awgm-update-check",
+		URL:           assetURL,
+		Method:        http.MethodHead,
+		Timeout:       repoTimeout,
+		MaxBodyBytes:  1,
+		AllowedStatus: []int{http.StatusOK, http.StatusNotFound, http.StatusMethodNotAllowed},
+	})
+	if err != nil {
+		return err
+	}
+	switch meta.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("release asset %s not found in latest", assetName)
+	case http.StatusMethodNotAllowed:
+		_, meta, err = dl.ReadAll(ctx, downloader.Request{
+			Purpose:       "awgm-update-check",
+			URL:           assetURL,
+			Method:        http.MethodGet,
+			Timeout:       repoTimeout,
+			MaxBodyBytes:  changelogProbeMaxBytes,
+			AllowedStatus: []int{http.StatusOK, http.StatusNotFound},
+		})
+		if err != nil {
+			return sanitizeReleaseAssetError(releaseAssetRef{
+				channel: channelStable,
+				tag:     "latest",
+				name:    assetName,
+			}, err)
+		}
+		if meta.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("release asset %s not found in latest", assetName)
+		}
+		if meta.StatusCode != http.StatusOK {
+			return fmt.Errorf("fetch %s: status %d", assetName, meta.StatusCode)
+		}
+		return nil
+	default:
+		return fmt.Errorf("fetch %s: status %d", assetName, meta.StatusCode)
+	}
 }
 
 func checkReleaseWithDownloader(

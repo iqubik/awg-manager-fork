@@ -2,8 +2,12 @@ package updater
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
+
+	"github.com/hoaxisr/awg-manager/internal/downloader"
+	"github.com/hoaxisr/awg-manager/internal/logging"
 )
 
 func TestChangelogSourcesForChannel_DefaultsToUpstream(t *testing.T) {
@@ -83,42 +87,21 @@ func TestChangelogSourcesForChannel_LegacyReleaseBaseStaysOnIqLatest(t *testing.
 	}
 }
 
-func TestChangelogSources_StableUsesHighestGitTagReleaseAsset(t *testing.T) {
+func TestChangelogSources_StableUsesLatestReleaseAsset(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
-	oldFetcher := stableReleaseResolver.fetch
-	oldTTL := stableReleaseResolver.ttl
-	stableReleaseResolver.Clear()
 	releaseRepoURL = "https://github.com/example/repo/releases"
 	releaseBaseURL = ""
-	stableReleaseResolver.ttl = time.Hour
-	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
-		if repoURL != "https://github.com/example/repo/releases" {
-			t.Fatalf("repoURL = %q", repoURL)
-		}
-		return stableReleaseInfo{
-			RepoURL: repoURL,
-			APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1",
-			TagName: "v2.13.0.1",
-			Version: "2.13.0.1",
-			Assets: map[string]string{
-				"CHANGELOG.md": "https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md",
-			},
-		}, nil
-	}
 	t.Cleanup(func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
-		stableReleaseResolver.fetch = oldFetcher
-		stableReleaseResolver.ttl = oldTTL
-		stableReleaseResolver.Clear()
 	})
 
 	primary, secondary, err := resolveChangelogSourcesForChannel(context.Background(), nil, channelStable)
 	if err != nil {
 		t.Fatalf("resolveChangelogSourcesForChannel: %v", err)
 	}
-	if primary != "https://github.com/example/repo/releases/download/v2.13.0.1/CHANGELOG.md" {
+	if primary != "https://github.com/example/repo/releases/latest/download/CHANGELOG.md" {
 		t.Fatalf("stable primary = %q", primary)
 	}
 	if secondary != "" {
@@ -126,37 +109,39 @@ func TestChangelogSources_StableUsesHighestGitTagReleaseAsset(t *testing.T) {
 	}
 }
 
-func TestResolveChangelogSources_StableMissingAssetReturnsShortError(t *testing.T) {
+func TestGetChangelogMinor_StableSourceDoesNotDependOnRevisionSuffix(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
-	oldFetcher := stableReleaseResolver.fetch
-	oldTTL := stableReleaseResolver.ttl
-	stableReleaseResolver.Clear()
 	releaseRepoURL = "https://github.com/example/repo/releases"
 	releaseBaseURL = ""
-	stableReleaseResolver.ttl = time.Hour
-	stableReleaseResolver.fetch = func(_ context.Context, _ Downloader, repoURL string) (stableReleaseInfo, error) {
-		return stableReleaseInfo{
-			RepoURL: repoURL,
-			APIURL:  "https://api.github.com/repos/example/repo/releases/tags/v2.13.0.1",
-			TagName: "v2.13.0.1",
-			Version: "2.13.0.1",
-			Assets:  map[string]string{},
-		}, nil
-	}
 	t.Cleanup(func() {
 		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
-		stableReleaseResolver.fetch = oldFetcher
-		stableReleaseResolver.ttl = oldTTL
-		stableReleaseResolver.Clear()
 	})
 
-	_, _, err := resolveChangelogSourcesForChannel(context.Background(), nil, channelStable)
-	if err == nil {
-		t.Fatal("expected error")
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			if req.URL != "https://github.com/example/repo/releases/latest/download/CHANGELOG.md" {
+				t.Fatalf("unexpected URL %q", req.URL)
+			}
+			return []byte("## [2.12.10] - 2026-06-12\n\n### Fixed\n- item\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+		},
 	}
-	if got := err.Error(); got != "missing asset CHANGELOG.md in v2.13.0.1" {
-		t.Fatalf("error = %q", got)
+
+	svc := &Service{
+		version:    "2.12.10+r1",
+		appLog:     logging.NewScopedLogger(nil, "", ""),
+		downloader: dl,
+		changelog:  newChangelogFetcher("", "", time.Minute, dl),
+	}
+
+	if _, err := svc.GetChangelogMinor(context.Background(), "2.12.10+r1"); err != nil {
+		t.Fatalf("GetChangelogMinor(+r1): %v", err)
+	}
+	if _, err := svc.GetChangelogMinor(context.Background(), "2.12.10"); err != nil {
+		t.Fatalf("GetChangelogMinor(base): %v", err)
+	}
+	if primary := svc.changelog.primary(); primary != "https://github.com/example/repo/releases/latest/download/CHANGELOG.md" {
+		t.Fatalf("primary = %q", primary)
 	}
 }
