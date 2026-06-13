@@ -1,4 +1,5 @@
 import { writable, derived } from 'svelte/store';
+import { browser } from '$app/environment';
 
 export type CenterType = 'error' | 'warning';
 
@@ -32,24 +33,34 @@ const MAX_ENTRIES = 100;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const COALESCE_WINDOW_MS = 5 * 60 * 1000;
 
-function hasStorage(): boolean {
-  return typeof localStorage !== 'undefined';
+function isCenterEntry(v: unknown): v is CenterEntry {
+  if (!v || typeof v !== 'object') return false;
+  const e = v as Record<string, unknown>;
+  return (
+    typeof e.id === 'string' &&
+    (e.type === 'error' || e.type === 'warning') &&
+    typeof e.message === 'string' &&
+    typeof e.firstTs === 'number' &&
+    typeof e.lastTs === 'number' &&
+    typeof e.count === 'number' &&
+    typeof e.read === 'boolean'
+  );
 }
 
 function loadStored(): CenterEntry[] {
-  if (!hasStorage()) return [];
+  if (!browser) return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as CenterEntry[]) : [];
+    return Array.isArray(parsed) ? parsed.filter(isCenterEntry) : [];
   } catch {
     return [];
   }
 }
 
 function writeStored(entries: CenterEntry[]): void {
-  if (!hasStorage()) return;
+  if (!browser) return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
   } catch {
@@ -59,7 +70,10 @@ function writeStored(entries: CenterEntry[]): void {
 
 /** Keep newest MAX_ENTRIES and drop anything older than RETENTION_MS relative to `now`. */
 function prune(entries: CenterEntry[], now: number): CenterEntry[] {
-  return entries.filter((e) => now - e.lastTs < RETENTION_MS).slice(0, MAX_ENTRIES);
+  return entries
+    .filter((e) => now - e.lastTs < RETENTION_MS)
+    .sort((a, b) => b.lastTs - a.lastTs)
+    .slice(0, MAX_ENTRIES);
 }
 
 /** Bucket a timestamp by calendar day relative to `now` (local time). */
