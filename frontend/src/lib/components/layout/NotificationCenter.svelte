@@ -29,7 +29,7 @@
 	const groups = $derived.by(() => {
 		const now = Date.now();
 		const buckets: Record<DayBucket, CenterEntry[]> = { today: [], yesterday: [], earlier: [] };
-		for (const e of $notificationCenter) buckets[dayBucket(e.firstTs, now)].push(e);
+		for (const e of $notificationCenter) buckets[dayBucket(e.lastTs, now)].push(e);
 		return buckets;
 	});
 
@@ -38,7 +38,7 @@
 	}
 
 	function meta(e: CenterEntry): string {
-		const parts = [clock(e.firstTs)];
+		const parts = [clock(e.lastTs)];
 		if (e.count > 1) parts.push(`×${e.count}`);
 		if (e.action) parts.push(e.action.label);
 		return parts.join(' · ');
