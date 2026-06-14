@@ -22,7 +22,7 @@ export const FATAL_HINT_PATTERNS: FatalHintPattern[] = [
 			'Для этого в SSH выполните killall sing-box',
 	},
 	{
-		match: /rule-set[\s\S]*no such file/i,
+		match: /rule-set[^\n]*no such file/i,
 		hint:
 			'Не найден локальный файл набора правил (.srs). Набор удалён или путь неверный — ' +
 			'пересоздайте или удалите этот rule-set.',
