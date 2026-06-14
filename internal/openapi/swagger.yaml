@@ -7887,8 +7887,9 @@ paths:
       - managed
   /monitoring/history:
     get:
-      description: Returns up to `limit` (default 60) most-recent samples for a single
-        (target, tunnelId) pair, oldest-first.
+      description: Returns up to `limit` (default 1440) most-recent samples for a
+        single (target, tunnelId) pair, oldest-first. The retained window is 24 hours
+        at a 60-second interval.
       parameters:
       - description: Target identifier
         in: query
@@ -7900,7 +7901,7 @@ paths:
         name: tunnelId
         required: true
         type: string
-      - description: Max samples to return (default 60)
+      - description: Max samples to return (default 1440, clamped to 24 hours)
         in: query
         name: limit
         type: integer

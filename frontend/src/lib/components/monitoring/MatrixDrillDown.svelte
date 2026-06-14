@@ -3,6 +3,12 @@
 	import { api } from '$lib/api/client';
 	import { LoadingSpinner } from '$lib/components/layout';
 	import { getCachedHistory, setCachedHistory } from '$lib/stores/monitoring';
+	import {
+		MONITORING_HISTORY_CAPACITY,
+		MONITORING_HISTORY_HOURS,
+		MONITORING_RECENT_ROWS,
+		MONITORING_SPARKLINE_POINTS,
+	} from '$lib/constants/monitoring';
 	import type { MonitoringTarget, MonitoringTunnel, MonitoringSample } from '$lib/types';
 	import Sparkline from './Sparkline.svelte';
 
@@ -16,9 +22,21 @@
 
 	let samples = $state<MonitoringSample[]>([]);
 	let loading = $state(true);
+	const historyLimit = MONITORING_HISTORY_CAPACITY;
+
+	function downsamplePoints(points: MonitoringSample[], maxPoints: number): MonitoringSample[] {
+		if (points.length <= maxPoints) return points;
+		const step = points.length / maxPoints;
+		const sampled: MonitoringSample[] = [];
+		for (let i = 0; i < maxPoints; i++) {
+			const idx = Math.min(points.length - 1, Math.floor(i * step));
+			sampled.push(points[idx]);
+		}
+		return sampled;
+	}
 
 	onMount(async () => {
-		const cached = getCachedHistory(target.id, tunnel.id);
+		const cached = getCachedHistory(target.id, tunnel.id, historyLimit);
 		if (cached) {
 			samples = cached;
 			loading = false;
@@ -27,10 +45,10 @@
 			const fresh = await api.getMonitoringHistory({
 				target: target.id,
 				tunnelId: tunnel.id,
-				limit: 60,
+				limit: historyLimit,
 			});
 			samples = fresh;
-			setCachedHistory(target.id, tunnel.id, fresh);
+			setCachedHistory(target.id, tunnel.id, fresh, historyLimit);
 		} catch {
 			// Keep cached samples if any; otherwise stay empty.
 		} finally {
@@ -59,40 +77,41 @@
 		};
 	});
 
-	const recent = $derived([...samples].reverse().slice(0, 10));
+	const sparklinePoints = $derived(downsamplePoints(samples, MONITORING_SPARKLINE_POINTS));
+	const recent = $derived([...samples].reverse().slice(0, MONITORING_RECENT_ROWS));
 </script>
 
 <div class="drill">
 	{#if loading && samples.length === 0}
 		<div class="loading"><LoadingSpinner /></div>
 	{:else}
-		<Sparkline points={samples} width={420} height={100} />
+		<Sparkline points={sparklinePoints} width={420} height={100} />
 
 		<div class="stats">
 			<div class="stat">
 				<span class="stat-value">{stats.avg !== null ? `${stats.avg}ms` : '—'}</span>
-				<span class="stat-label">Avg</span>
+				<span class="stat-label">Среднее</span>
 			</div>
 			<div class="stat">
 				<span class="stat-value">{stats.min !== null ? `${stats.min}ms` : '—'}</span>
-				<span class="stat-label">Min</span>
+				<span class="stat-label">Минимум</span>
 			</div>
 			<div class="stat">
 				<span class="stat-value">{stats.max !== null ? `${stats.max}ms` : '—'}</span>
-				<span class="stat-label">Max</span>
+				<span class="stat-label">Максимум</span>
 			</div>
 			<div class="stat">
 				<span class="stat-value">{stats.lossPct}%</span>
-				<span class="stat-label">Loss</span>
+				<span class="stat-label">Потери</span>
 			</div>
 		</div>
 
-		<h4 class="recent-title">Последние замеры</h4>
+		<h4 class="recent-title">Последние {MONITORING_RECENT_ROWS} замеров</h4>
 		<table class="recent">
 			<thead>
 				<tr>
 					<th>Время</th>
-					<th>Latency</th>
+					<th>Задержка</th>
 					<th>Статус</th>
 				</tr>
 			</thead>
@@ -101,13 +120,13 @@
 					<tr>
 						<td class="ts">{new Date(s.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
 						<td class="lat">{s.ok && s.latencyMs !== null ? `${s.latencyMs}ms` : '—'}</td>
-						<td class="status" class:ok={s.ok} class:fail={!s.ok}>{s.ok ? 'OK' : 'FAIL'}</td>
+						<td class="status" class:ok={s.ok} class:fail={!s.ok}>{s.ok ? 'ОК' : 'СБОЙ'}</td>
 					</tr>
 				{/each}
 			</tbody>
 		</table>
 
-		<small class="footer">Окно: 1 час · до 60 точек · обновляется каждые 60 секунд</small>
+		<small class="footer">Окно: {MONITORING_HISTORY_HOURS} часа · до {MONITORING_HISTORY_CAPACITY} точек · шаг 60 секунд</small>
 	{/if}
 </div>
 

@@ -58,7 +58,6 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 		Lock,
 		CloudDownload,
 		ScrollText,
-		Activity,
 		Wrench,
 		Power,
 	} from "lucide-svelte";
@@ -66,8 +65,6 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 
 	const expandUsageLevel = $derived($page.url.searchParams.has('mode'));
 	const highlightFeedbackFab = $derived($page.url.searchParams.has('feedbackFab'));
-	const defaultPingTarget = "8.8.8.8";
-	const defaultConnectivityCheckUrl = "https://connectivitycheck.gstatic.com/generate_204";
 	const highlightDownloads = $derived($page.url.searchParams.get('highlight') === 'downloads');
 
 	let systemInfo: SystemInfo | null = $state(null);
@@ -479,29 +476,6 @@ $effect(() => {
 		}
 	}
 
-	async function savePingTargetsSettings() {
-		if (!settings) return;
-		saving = true;
-		try {
-			settings = await api.updateSettings({
-				pingCheck: {
-					...settings.pingCheck,
-					defaults: {
-						...settings.pingCheck.defaults,
-						target: settings.pingCheck.defaults.target,
-					},
-				},
-				connectivityCheckUrl: settings.connectivityCheckUrl,
-			});
-			setGlobalSettings(settings);
-			notifications.success("Цели проверки пинга сохранены");
-		} catch (e) {
-			notifications.error(e instanceof Error ? e.message : "Ошибка сохранения целей проверки");
-		} finally {
-			saving = false;
-		}
-	}
-
 	async function toggleUpdateCheck(enabled: boolean) {
 		if (!settings) return;
 		saving = true;
@@ -811,40 +785,16 @@ $effect(() => {
 				{#if $usageLevel === "expert"}
 				<div class="settings-block">
 					<div class="card">
-					<SettingsSectionLabel label="Проверка пинга" icon={Activity} tone="teal" header />
+					<SettingsSectionLabel label="Мониторинг" icon={CircleArrowDown} tone="teal" header />
 					<div class="setting-row ping-target-setting">
 						<div class="flex flex-col gap-1">
-							<span class="font-medium">Цели проверки</span>
+							<span class="font-medium">Настройки мониторинга перенесены</span>
 							<span class="setting-description">
-								ICMP target используется как глобальный адрес для ping-check. HTTP URL вызывается через туннель для проверки доступности и задержки.
+								Планирование, цели проверки и исключения туннелей теперь находятся в разделе «Мониторинг» → «Настройки».
 							</span>
 						</div>
-						<div class="ping-target-controls">
-							<label class="ping-target-field">
-								<span>ICMP target</span>
-								<input
-									type="text"
-									class="settings-text-input"
-									bind:value={settings.pingCheck.defaults.target}
-									placeholder={defaultPingTarget}
-									disabled={saving}
-								/>
-							</label>
-							<label class="ping-target-field">
-								<span>HTTP URL проверки</span>
-								<input
-									type="url"
-									class="settings-text-input"
-									bind:value={settings.connectivityCheckUrl}
-									placeholder={defaultConnectivityCheckUrl}
-									disabled={saving}
-								/>
-							</label>
-							<div class="ping-target-action">
-								<Button variant="secondary" size="md" onclick={savePingTargetsSettings} disabled={saving}>
-									Сохранить
-								</Button>
-							</div>
+						<div class="ping-target-action">
+							<a class="settings-link-button" href="/monitoring">Открыть мониторинг</a>
 						</div>
 					</div>
 					</div>
@@ -1137,32 +1087,6 @@ $effect(() => {
 		align-items: start;
 	}
 
-	.ping-target-controls {
-		display: grid;
-		grid-template-columns: minmax(8rem, 0.78fr) minmax(16rem, 1.22fr) 7.5rem;
-		gap: 0.5rem 0.625rem;
-		width: 100%;
-		min-width: 0;
-		align-items: end;
-	}
-
-	.ping-target-field {
-		display: grid;
-		gap: 0.25rem;
-		min-width: 0;
-	}
-
-	.ping-target-field > span {
-		color: var(--color-text-secondary);
-		font-size: 0.75rem;
-		font-weight: 600;
-	}
-
-	.ping-target-field input {
-		min-width: 0;
-	}
-
-	.settings-text-input,
 	.api-key-input {
 		width: 100%;
 		max-width: none;
@@ -1176,14 +1100,29 @@ $effect(() => {
 		min-width: 0;
 	}
 
-	.ping-target-action :global(.btn) {
+	.settings-link-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		width: 100%;
 		min-width: 7.5rem;
 		height: 32px;
 		min-height: 32px;
 		max-height: 32px;
 		box-sizing: border-box;
-		padding-block: 0;
+		padding: 0 0.85rem;
+		border-radius: 0.75rem;
+		border: 1px solid var(--color-border);
+		background: var(--color-bg-secondary);
+		color: var(--color-text-primary);
+		text-decoration: none;
+		font-weight: 600;
+		transition: background var(--t-fast) ease, border-color var(--t-fast) ease;
+	}
+
+	.settings-link-button:hover {
+		background: var(--color-bg-hover);
+		border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
 	}
 
 	.api-key-input {
@@ -1230,25 +1169,7 @@ $effect(() => {
 			text-overflow: clip;
 		}
 
-		.ping-target-controls {
-			grid-template-rows: auto 32px;
-			align-items: stretch;
-		}
-
-		.ping-target-field {
-			display: contents;
-		}
-
-		.ping-target-field > span {
-			grid-row: 1;
-		}
-
-		.ping-target-field > input {
-			grid-row: 2;
-		}
-
 		.ping-target-action {
-			grid-row: 2;
 			align-self: stretch;
 		}
 
@@ -1289,15 +1210,11 @@ $effect(() => {
 			align-items: stretch;
 		}
 
-		.ping-target-controls {
-			grid-template-columns: minmax(0, 1fr);
-		}
-
 		.ping-target-action {
 			justify-content: stretch;
 		}
 
-		.ping-target-action :global(.btn) {
+		.settings-link-button {
 			width: 100%;
 		}
 

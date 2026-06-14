@@ -2,20 +2,27 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
+	import { Settings2 } from 'lucide-svelte';
 	import { api } from '$lib/api/client';
-	import { monitoringStore } from '$lib/stores/monitoring';
+	import { setSettings as setGlobalSettings } from '$lib/stores/settings';
+	import { clearHistoryCache, monitoringStore } from '$lib/stores/monitoring';
 	import { PageContainer, PageHeader, LoadingSpinner, EmptyState } from '$lib/components/layout';
-	import { SideDrawer } from '$lib/components/ui';
+	import { SideDrawer, Button } from '$lib/components/ui';
 	import { MatrixGrid, MatrixStatusStrip, MatrixDrillDown } from '$lib/components/monitoring';
 	import { KernelPingCheckModal, NativeWGPingCheckModal } from '$lib/components/pingcheck';
 	import { notifications } from '$lib/stores/notifications';
+	import {
+		MONITORING_AUTO_REFRESH_MS,
+		MONITORING_HISTORY_HOURS,
+		MONITORING_HISTORY_CAPACITY,
+	} from '$lib/constants/monitoring';
 	import type { MonitoringTarget, MonitoringTunnel, AWGTunnel, NativePingCheckStatus, Settings } from '$lib/types';
 
 	let drawerOpen = $state(false);
+	let planningOpen = $state(false);
 	let drawerTarget = $state<MonitoringTarget | null>(null);
 	let drawerTunnel = $state<MonitoringTunnel | null>(null);
 	let refreshing = $state(false);
-	const AUTO_REFRESH_MS = 60_000;
 	let nowTs = $state(Date.now());
 	let lastRefreshTs = $state(0);
 	let lastFetchedAtTs = $state(0);
@@ -25,6 +32,7 @@
 	let autoPressResetTimer: ReturnType<typeof setTimeout> | null = null;
 	let autoPressActive = $state(false);
 	let settings = $state<Settings | null>(null);
+	let saving = $state(false);
 	let excludedTunnelIds = $state<Set<string>>(new Set());
 	let excludedTunnelNames = $state<Record<string, string>>({});
 	let excludedNamesReady = $state(false);
@@ -55,6 +63,8 @@
 	let pingNativeStatus = $state<NativePingCheckStatus | null>(null);
 	let pingOpenKernel = $state(false);
 	let pingOpenNative = $state(false);
+	const defaultPingTarget = '8.8.8.8';
+	const defaultConnectivityCheckUrl = 'https://connectivitycheck.gstatic.com/generate_204';
 
 	function normalizeExcludedTunnelId(raw: string): string {
 		let id = (raw ?? '').trim();
@@ -117,7 +127,7 @@
 			if (autoRefreshTimeout) clearTimeout(autoRefreshTimeout);
 			autoRefreshTimeout = setTimeout(() => {
 				triggerAutoRefresh();
-			}, AUTO_REFRESH_MS);
+			}, MONITORING_AUTO_REFRESH_MS);
 			return;
 		}
 		refreshing = true;
@@ -140,11 +150,11 @@
 			}
 		} finally {
 			lastRefreshTs = Date.now();
-			nextAutoRefreshTs = lastRefreshTs + AUTO_REFRESH_MS;
+			nextAutoRefreshTs = lastRefreshTs + MONITORING_AUTO_REFRESH_MS;
 			if (autoRefreshTimeout) clearTimeout(autoRefreshTimeout);
 			autoRefreshTimeout = setTimeout(() => {
 				triggerAutoRefresh();
-			}, AUTO_REFRESH_MS);
+			}, MONITORING_AUTO_REFRESH_MS);
 			refreshing = false;
 		}
 	}
@@ -261,6 +271,31 @@
 		drawerOpen = false;
 	}
 
+	async function saveMonitoringTargetsSettings() {
+		if (!settings) return;
+		saving = true;
+		try {
+			settings = await api.updateSettings({
+				pingCheck: {
+					...settings.pingCheck,
+					defaults: {
+						...settings.pingCheck.defaults,
+						target: settings.pingCheck.defaults.target,
+					},
+				},
+				connectivityCheckUrl: settings.connectivityCheckUrl,
+			});
+			setGlobalSettings(settings);
+			clearHistoryCache();
+			await refresh(true);
+			notifications.success('Цели мониторинга сохранены');
+		} catch (e) {
+			notifications.error(e instanceof Error ? e.message : 'Не удалось сохранить цели мониторинга');
+		} finally {
+			saving = false;
+		}
+	}
+
 	// React to ?pingcheck=<id> — fetch tunnel, decide which drawer to open.
 	// Sole owner of pingOpen*/pingTunnelId state — closing flows through goto()
 	// (URL change), and this effect resets state. Mutating state outside this
@@ -339,6 +374,18 @@
 			{/if}
 			<button
 				type="button"
+				class="planning-btn"
+				onclick={() => (planningOpen = true)}
+				aria-label="Открыть настройки мониторинга"
+				title="Настройки"
+			>
+				<span class="planning-icon" aria-hidden="true">
+					<Settings2 size={14} strokeWidth={2} />
+				</span>
+				<span>Настройки</span>
+			</button>
+			<button
+				type="button"
 				class="refresh-btn timer-enabled"
 				class:auto-press={autoPressActive}
 				onclick={() => triggerRefresh(true)}
@@ -385,7 +432,7 @@
 	{:else}
 		<EmptyState
 			title="Нет данных мониторинга"
-			description="Запустите хотя бы один туннель и подождите ~60 секунд для первого тика probe scheduler'а."
+			description="Запустите хотя бы один туннель и подождите около 60 секунд для первого цикла мониторинга."
 		/>
 	{/if}
 
@@ -396,6 +443,90 @@
 	>
 		{#if drawerTarget && drawerTunnel}
 			<MatrixDrillDown target={drawerTarget} tunnel={drawerTunnel} onClose={closeDrawer} />
+		{/if}
+	</SideDrawer>
+
+	<SideDrawer
+		open={planningOpen}
+		onClose={() => (planningOpen = false)}
+		title="Настройки мониторинга"
+		width={460}
+	>
+		{#if settings}
+			<div class="planning-drawer">
+				<section class="planning-section">
+					<h4>Расписание</h4>
+					<div class="planning-grid">
+						<div class="planning-stat">
+							<span class="planning-stat-label">Окно истории</span>
+							<strong>{MONITORING_HISTORY_HOURS} часа</strong>
+						</div>
+						<div class="planning-stat">
+							<span class="planning-stat-label">Шаг замера</span>
+							<strong>60 секунд</strong>
+						</div>
+						<div class="planning-stat">
+							<span class="planning-stat-label">Объём истории</span>
+							<strong>{MONITORING_HISTORY_CAPACITY} точек</strong>
+						</div>
+						<div class="planning-stat">
+							<span class="planning-stat-label">Обновление матрицы</span>
+							<strong>Каждые 60 секунд</strong>
+						</div>
+					</div>
+				</section>
+
+				<section class="planning-section">
+					<h4>Цели проверки</h4>
+					<p class="planning-copy">ICMP target используется для глобального ping-check. HTTP URL вызывается через туннель для проверки доступности и задержки.</p>
+					<label class="planning-field">
+						<span>ICMP target</span>
+						<input
+							type="text"
+							class="planning-input"
+							bind:value={settings.pingCheck.defaults.target}
+							placeholder={defaultPingTarget}
+							disabled={saving}
+						/>
+					</label>
+					<label class="planning-field">
+						<span>HTTP URL проверки</span>
+						<input
+							type="url"
+							class="planning-input"
+							bind:value={settings.connectivityCheckUrl}
+							placeholder={defaultConnectivityCheckUrl}
+							disabled={saving}
+						/>
+					</label>
+					<div class="planning-actions">
+						<Button variant="secondary" size="md" onclick={saveMonitoringTargetsSettings} disabled={saving}>
+							Сохранить
+						</Button>
+					</div>
+				</section>
+
+				<section class="planning-section">
+					<h4>Исключённые туннели</h4>
+					<p class="planning-copy">Исключённые туннели скрываются из матрицы и пропускаются планировщиком мониторинга.</p>
+					{#if excludedTunnelLabels.length > 0}
+						<div class="planning-chip-list">
+							{#each excludedTunnelLabels as item}
+								<button
+									type="button"
+									class="excluded-chip"
+									onclick={() => toggleTunnelExcluded(item.id, false)}
+									title="Вернуть в мониторинг"
+								>
+									{item.name}
+								</button>
+							{/each}
+						</div>
+					{:else}
+						<p class="planning-empty">Нет исключённых туннелей.</p>
+					{/if}
+				</section>
+			</div>
 		{/if}
 	</SideDrawer>
 
@@ -441,6 +572,32 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 0.5rem;
+	}
+
+	.planning-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4rem;
+		height: 28px;
+		padding: 0 0.625rem;
+		border-radius: 6px;
+		border: 1px solid var(--color-border);
+		background: transparent;
+		color: var(--color-text-muted);
+		font-size: 0.8125rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all var(--t-fast) ease;
+	}
+
+	.planning-btn:hover {
+		color: var(--color-accent);
+		background: var(--color-bg-hover);
+	}
+
+	.planning-icon {
+		flex: 0 0 auto;
 	}
 
 	.stale-badge {
@@ -529,6 +686,89 @@
 		height: 14px;
 	}
 
+	.planning-drawer {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.planning-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.625rem;
+		padding-bottom: 0.75rem;
+		border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+	}
+
+	.planning-section:last-child {
+		border-bottom: 0;
+		padding-bottom: 0;
+	}
+
+	.planning-section h4 {
+		margin: 0;
+		font-size: 0.95rem;
+		font-weight: 600;
+	}
+
+	.planning-copy,
+	.planning-empty {
+		margin: 0;
+		font-size: 0.875rem;
+		line-height: 1.45;
+		color: var(--color-text-muted);
+	}
+
+	.planning-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.625rem;
+	}
+
+	.planning-stat {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		padding: 0.75rem;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-secondary);
+	}
+
+	.planning-stat-label {
+		font-size: 0.72rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--color-text-muted);
+	}
+
+	.planning-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		font-size: 0.875rem;
+	}
+
+	.planning-input {
+		width: 100%;
+		padding: 0.7rem 0.85rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--color-border);
+		background: var(--color-bg-secondary);
+		color: var(--color-text-primary);
+	}
+
+	.planning-actions {
+		display: flex;
+		justify-content: flex-start;
+	}
+
+	.planning-chip-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.375rem;
+	}
+
 	.excluded-strip {
 		display: flex;
 		flex-wrap: wrap;
@@ -573,5 +813,11 @@
 	@keyframes pulse {
 		0%, 100% { opacity: 1; }
 		50% { opacity: 0.4; }
+	}
+
+	@media (max-width: 640px) {
+		.planning-grid {
+			grid-template-columns: 1fr;
+		}
 	}
 </style>

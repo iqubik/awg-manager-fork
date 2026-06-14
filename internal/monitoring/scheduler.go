@@ -143,7 +143,7 @@ type Scheduler struct {
 func NewScheduler(deps SchedulerDeps, history *History) *Scheduler {
 	return &Scheduler{
 		deps:         deps,
-		interval:     60 * time.Second,
+		interval:     MonitoringSampleInterval,
 		probeTimeout: 5 * time.Second,
 		workerLimit:  10,
 		history:      history,

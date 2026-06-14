@@ -13,10 +13,6 @@ type Sample struct {
 	OK        bool      `json:"ok"`
 }
 
-// HistoryCapacity is the per-(target, tunnel) ring buffer size — 1 hour at
-// the 60-second probe interval.
-const HistoryCapacity = 60
-
 // History stores per-(targetID, tunnelID) sample ring buffers.
 type History struct {
 	mu       sync.RWMutex
@@ -24,11 +20,12 @@ type History struct {
 	capacity int
 }
 
-// NewHistory builds a History at the default capacity (60).
+// NewHistory builds a History at the default capacity (24 hours at the
+// 60-second probe interval).
 func NewHistory() *History {
 	return &History{
 		buffers:  make(map[string][]Sample),
-		capacity: HistoryCapacity,
+		capacity: MonitoringHistoryCapacity,
 	}
 }
 

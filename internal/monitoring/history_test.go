@@ -32,16 +32,18 @@ func TestHistory_AppendAndGet(t *testing.T) {
 
 func TestHistory_RingCapacity(t *testing.T) {
 	h := NewHistory()
-	for i := 0; i < HistoryCapacity+25; i++ {
+	for i := 0; i < MonitoringHistoryCapacity+25; i++ {
 		h.Append("tgt", "tn", mkSample(i, true))
 	}
 	got := h.Get("tgt", "tn", 0)
-	if len(got) != HistoryCapacity {
-		t.Errorf("expected capacity %d, got %d", HistoryCapacity, len(got))
+	if len(got) != MonitoringHistoryCapacity {
+		t.Errorf("expected capacity %d, got %d", MonitoringHistoryCapacity, len(got))
 	}
-	// Oldest should now be HistoryCapacity-th sample (i=25).
-	if got[0].LatencyMs == nil || *got[0].LatencyMs != 25 {
-		t.Errorf("oldest after rollover should be 25, got %+v", got[0])
+	overflow := 25
+	wantOldest := overflow
+	// Oldest should now be the first sample after the overflow.
+	if got[0].LatencyMs == nil || *got[0].LatencyMs != wantOldest {
+		t.Errorf("oldest after rollover should be %d, got %+v", wantOldest, got[0])
 	}
 }
 

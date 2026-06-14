@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { onDestroy } from 'svelte';
 	import type { SystemInfo } from '$lib/types';
 	import type { UsageLevel } from '$lib/types/usageLevel';
 	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
@@ -71,6 +72,15 @@
 			minute: '2-digit',
 		});
 	});
+	let nowMs = $state(Date.now());
+	let refreshTimer: ReturnType<typeof setInterval> | null = null;
+	const refreshProgress = $derived.by(() => {
+		if (!lastUpdated || autoRefreshMs <= 0) return 0;
+		const updatedMs = new Date(lastUpdated).getTime();
+		if (Number.isNaN(updatedMs)) return 0;
+		const elapsed = Math.max(0, nowMs - updatedMs);
+		return Math.min(1, elapsed / autoRefreshMs);
+	});
 
 	let collapsed = $state(false);
 
@@ -90,6 +100,26 @@
 	$effect(() => {
 		if (!browser) return;
 		localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		if (autoRefreshMs <= 0 || !lastUpdated) {
+			if (refreshTimer) {
+				clearInterval(refreshTimer);
+				refreshTimer = null;
+			}
+			return;
+		}
+		nowMs = Date.now();
+		if (refreshTimer) clearInterval(refreshTimer);
+		refreshTimer = setInterval(() => {
+			nowMs = Date.now();
+		}, 250);
+	});
+
+	onDestroy(() => {
+		if (refreshTimer) clearInterval(refreshTimer);
 	});
 
 	const isBasic = $derived(usageLevel === 'basic');
@@ -126,16 +156,23 @@
 							<button
 								type="button"
 								class="updated-at updated-at-button"
+								class:updated-at-loading={refreshing}
 								title="Обновить информацию о системе"
 								aria-label="Обновить информацию о системе"
 								disabled={refreshing}
 								onclick={() => onrefresh()}
+								style={`--updated-progress:${refreshProgress * 360}deg; --updated-progress-alpha:${0.4 + refreshProgress * 0.6};`}
 							>
 								<span class="live-dot" class:live-dot-loading={refreshing}></span>
 								{updatedLabel}
 							</button>
 						{:else}
-							<span class="updated-at" title="Последнее обновление">
+							<span
+								class="updated-at"
+								class:updated-at-loading={refreshing}
+								title="Последнее обновление"
+								style={`--updated-progress:${refreshProgress * 360}deg; --updated-progress-alpha:${0.4 + refreshProgress * 0.6};`}
+							>
 								<span class="live-dot" class:live-dot-loading={refreshing}></span>
 								{updatedLabel}
 							</span>
@@ -202,7 +239,7 @@
 	{/if}
 	<div class="setting-row">
 		<span class="info-key">Сообщество</span>
-		<a class="info-link" href="https://t.me/awgmanager" target="_blank" rel="noopener noreferrer">Telegram →</a>
+		<span class="detail-muted-block">Заглушка</span>
 	</div>
 	{#if isExpert && details}
 		<details class="more-box" bind:open={detailsOpen}>
@@ -359,39 +396,74 @@
 	}
 
 	.updated-at {
+		--updated-pill-color: var(--color-success);
+		--updated-pill-tint: var(--color-success-tint);
+		--updated-progress: 0deg;
+		--updated-progress-alpha: 0.28;
+		position: relative;
 		display: inline-flex;
 		align-items: center;
 		gap: 0.375rem;
+		padding: 0.26rem 0.6rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid color-mix(in srgb, var(--updated-pill-color) 34%, var(--color-border));
+		background: color-mix(in srgb, var(--updated-pill-tint) 18%, var(--color-bg-secondary));
 		font-family: var(--font-mono);
 		font-size: 0.6875rem;
 		color: var(--color-text-muted);
 		white-space: nowrap;
-	}
-
-	.updated-at-button {
-		padding: 0.25rem 0.375rem;
-		margin: -0.25rem -0.375rem;
-		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
-		background: transparent;
-		cursor: pointer;
+		overflow: hidden;
 		transition:
 			color var(--t-fast) ease,
 			background var(--t-fast) ease,
 			border-color var(--t-fast) ease,
-			box-shadow var(--t-fast) ease;
+			box-shadow var(--t-fast) ease,
+			transform var(--t-fast) ease;
+	}
+
+	.updated-at::before {
+		content: '';
+		position: absolute;
+		inset: -1px;
+		border-radius: inherit;
+		padding: 2px;
+		background:
+			conic-gradient(
+				from -90deg,
+				color-mix(in srgb, var(--updated-pill-color) calc(var(--updated-progress-alpha) * 100%), transparent) 0deg,
+				color-mix(in srgb, var(--updated-pill-color) calc(var(--updated-progress-alpha) * 100%), transparent) var(--updated-progress),
+				color-mix(in srgb, var(--updated-pill-color) 0%, transparent) var(--updated-progress),
+				color-mix(in srgb, var(--updated-pill-color) 0%, transparent) 360deg
+			);
+		-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+		mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+		-webkit-mask-composite: xor;
+		mask-composite: exclude;
+		opacity: 0.95;
+		pointer-events: none;
+		transition: background 0.25s linear, opacity 0.25s ease;
+	}
+
+	.updated-at-loading {
+		--updated-pill-color: var(--color-warning, var(--color-accent));
+		--updated-pill-tint: color-mix(in srgb, var(--color-warning, var(--color-accent)) 20%, transparent);
+	}
+
+	.updated-at-button {
+		cursor: pointer;
 	}
 
 	.updated-at-button:hover:not(:disabled) {
 		color: var(--color-text-secondary);
-		background: color-mix(in srgb, var(--color-bg-tertiary) 65%, transparent);
-		border-color: color-mix(in srgb, var(--color-border) 75%, transparent);
+		background: color-mix(in srgb, var(--updated-pill-tint) 28%, var(--color-bg-hover));
+		border-color: color-mix(in srgb, var(--updated-pill-color) 48%, var(--color-border));
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--updated-pill-color) 16%, transparent);
 	}
 
 	.updated-at-button:focus-visible {
 		outline: none;
-		border-color: var(--color-accent);
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 28%, transparent);
+		border-color: color-mix(in srgb, var(--updated-pill-color) 62%, var(--color-border));
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--updated-pill-color) 24%, transparent);
 	}
 
 	.updated-at-button:disabled {
@@ -446,16 +518,6 @@
 
 	.muted-inline {
 		color: var(--color-text-muted);
-	}
-
-	.info-link {
-		font-size: 0.8125rem;
-		color: var(--color-accent);
-		text-decoration: none;
-	}
-
-	.info-link:hover {
-		text-decoration: underline;
 	}
 
 	.more-box {

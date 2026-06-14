@@ -29,18 +29,18 @@ type MonitoringTunnelDTO struct {
 
 // MonitoringCellDTO mirrors frontend MonitoringCell.
 type MonitoringCellDTO struct {
-	TargetID        string  `json:"targetId" example:"target_google"`
-	TunnelID        string  `json:"tunnelId" example:"tun_abc123"`
-	LatencyMs       *int    `json:"latencyMs" swaggertype:"integer" example:"42"`
-	OK              bool    `json:"ok" example:"true"`
+	TargetID         string `json:"targetId" example:"target_google"`
+	TunnelID         string `json:"tunnelId" example:"tun_abc123"`
+	LatencyMs        *int   `json:"latencyMs" swaggertype:"integer" example:"42"`
+	OK               bool   `json:"ok" example:"true"`
 	ActiveForRestart bool   `json:"activeForRestart" example:"false"`
-	IsSelf          bool    `json:"isSelf" example:"false"`
-	Ts              string  `json:"ts" example:"2024-01-15T10:30:00Z"`
+	IsSelf           bool   `json:"isSelf" example:"false"`
+	Ts               string `json:"ts" example:"2024-01-15T10:30:00Z"`
 }
 
 // MonitoringSnapshotResponse is the envelope for GET /monitoring/matrix.
 type MonitoringSnapshotResponse struct {
-	Success bool                  `json:"success" example:"true"`
+	Success bool                   `json:"success" example:"true"`
 	Data    MonitoringSnapshotData `json:"data"`
 }
 
@@ -105,18 +105,18 @@ func (h *MonitoringHandler) GetMatrix(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, snap)
 }
 
-// GetHistory returns up to limit (default 60) most-recent samples for
+// GetHistory returns up to limit (default 1440) most-recent samples for
 // (target, tunnelId).
 // GET /api/monitoring/history?target=<id>&tunnelId=<id>&limit=<n>
 //
 //	@Summary		Get monitoring history
-//	@Description	Returns up to `limit` (default 60) most-recent samples for a single (target, tunnelId) pair, oldest-first.
+//	@Description	Returns up to `limit` (default 1440) most-recent samples for a single (target, tunnelId) pair, oldest-first. The retained window is 24 hours at a 60-second interval.
 //	@Tags			monitoring
 //	@Produce		json
 //	@Security		CookieAuth
 //	@Param			target		query		string	true	"Target identifier"
 //	@Param			tunnelId	query		string	true	"Tunnel identifier"
-//	@Param			limit		query		int		false	"Max samples to return (default 60)"
+//	@Param			limit		query		int		false	"Max samples to return (default 1440, clamped to 24 hours)"
 //	@Success		200			{object}	MonitoringHistoryResponse
 //	@Failure		400			{object}	APIErrorEnvelope
 //	@Failure		405			{object}	APIErrorEnvelope
@@ -137,11 +137,17 @@ func (h *MonitoringHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, "target and tunnelId are required", "INVALID_PARAMS")
 		return
 	}
-	limit := 60
+	limit := monitoring.MonitoringHistoryCapacity
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if v, err := strconv.Atoi(l); err == nil && v > 0 {
 			limit = v
 		}
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > monitoring.MonitoringHistoryCapacity {
+		limit = monitoring.MonitoringHistoryCapacity
 	}
 	samples := h.svc.History(target, tunnelID, limit)
 	if samples == nil {
