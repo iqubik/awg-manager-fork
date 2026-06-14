@@ -422,6 +422,46 @@ func TestScheduler_RunOnce_SingboxDelayErrorMarksCellNotOK(t *testing.T) {
 	}
 }
 
+func TestScheduler_RunProbeCell_SingboxSubscriptionSkipsDelayProbe(t *testing.T) {
+	clashDelay := &fakeSingboxDelay{delay: 87}
+	sched := NewScheduler(SchedulerDeps{
+		Prober:       &fakeProber{ok: true, latency: 14},
+		SingboxDelay: clashDelay,
+	}, NewHistory(nil))
+
+	target := Target{
+		ID:   "cf-1.1.1.1",
+		Host: "1.1.1.1",
+		URL:  "https://1.1.1.1/",
+	}
+
+	latency, ok := sched.runProbeCell(context.Background(), target, Tunnel{
+		ID:           "sub-member",
+		Source:       "singbox",
+		SingboxTag:   "sub-member",
+		Subscription: true,
+	}, false)
+	if ok || latency != 0 {
+		t.Fatalf("subscription sing-box row must skip active delay probe, got latency=%d ok=%v", latency, ok)
+	}
+	if clashDelay.calls.Load() != 0 {
+		t.Fatalf("subscription sing-box row must not call TestDelay, got %d calls", clashDelay.calls.Load())
+	}
+
+	latency, ok = sched.runProbeCell(context.Background(), target, Tunnel{
+		ID:           "plain-singbox",
+		Source:       "singbox",
+		SingboxTag:   "plain-singbox",
+		Subscription: false,
+	}, false)
+	if !ok || latency != 87 {
+		t.Fatalf("regular sing-box row should use TestDelay, got latency=%d ok=%v", latency, ok)
+	}
+	if clashDelay.calls.Load() != 1 {
+		t.Fatalf("regular sing-box row should call TestDelay once, got %d calls", clashDelay.calls.Load())
+	}
+}
+
 func TestScheduler_AugmentSingboxClashData_PopulatesUrltestMembers(t *testing.T) {
 	s := NewScheduler(SchedulerDeps{
 		Composites: &fakeComposites{items: []CompositeOutboundInfo{
