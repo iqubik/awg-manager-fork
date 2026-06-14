@@ -66,6 +66,8 @@
 </div>
 
 {#if settings.dnsRoute.autoRefreshEnabled}
+	<div class="dns-route-divider" aria-hidden="true"></div>
+
 	<div class="settings-panel">
 		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<label class="form-label">
@@ -132,9 +134,22 @@
 			</div>
 		{/if}
 	</div>
+
+	<div class="dns-route-divider dns-route-divider--after-panel" aria-hidden="true"></div>
 {/if}
 
 <style>
+	.dns-route-divider {
+		height: 1px;
+		width: 100%;
+		margin: 0.65rem 0 0.75rem;
+		background: color-mix(in srgb, var(--border) 55%, transparent);
+	}
+
+	.dns-route-divider--after-panel {
+		margin: 0.75rem 0 0.65rem;
+	}
+
 	.settings-panel {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
