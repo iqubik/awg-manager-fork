@@ -1351,6 +1351,8 @@ export interface SingboxRouterStatus {
 	outboundCompositeCount: number;
 	final: string;
 	issues?: SingboxRouterIssue[];
+	/** Последняя fatal-причина sing-box; непусто только при «СБОЙ» (enabled && !active). */
+	lastError?: string;
 }
 
 /**
