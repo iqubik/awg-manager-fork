@@ -10,6 +10,10 @@
     helpTitle?: string;
     helpText?: string;
     helpItems?: string[];
+    /** Когда задан — у ячейки появляется кнопка-действие, вызывающая onClick. */
+    onClick?: () => void;
+    /** Подпись кнопки-действия (по умолчанию «подробнее»). */
+    actionLabel?: string;
   }
 </script>
 
@@ -100,6 +104,12 @@
       <div class="cell">
         <div class="label">{cell.label}</div>
         <div class="value" style:color={colorFor(cell.tone)}>{cell.value}</div>
+
+        {#if cell.onClick}
+          <button type="button" class="cell-action" onclick={cell.onClick}>
+            {cell.actionLabel ?? 'подробнее'}
+          </button>
+        {/if}
 
         {#if cell.helpText}
           <button
@@ -217,6 +227,23 @@
   .help-btn:focus-visible {
     color: var(--text-primary);
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    outline: none;
+  }
+  .cell-action {
+    align-self: flex-start;
+    margin-top: 0.15rem;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--color-error, #dc2626);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .cell-action:hover,
+  .cell-action:focus-visible {
+    color: color-mix(in srgb, var(--color-error, #dc2626) 80%, var(--text-primary));
     outline: none;
   }
   .stat-tooltip {
