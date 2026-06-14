@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from "$app/environment";
 	import { onMount } from "svelte";
 	import { get } from "svelte/store";
 	import { afterNavigate } from "$app/navigation";
@@ -63,6 +64,11 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	} from "lucide-svelte";
 	import { downloadErrorToText } from "$lib/utils/downloadError";
 
+	const DOWNLOADS_EXPANDED_KEY = 'awgm_settings_downloads_expanded_v1';
+	const LOGGING_EXPANDED_KEY = 'awgm_settings_logging_expanded_v1';
+	const ADVANCED_EXPANDED_KEY = 'awgm_settings_advanced_expanded_v1';
+	const ACTIONS_EXPANDED_KEY = 'awgm_settings_actions_expanded_v1';
+
 	const expandUsageLevel = $derived($page.url.searchParams.has('mode'));
 	const highlightFeedbackFab = $derived($page.url.searchParams.has('feedbackFab'));
 	const highlightDownloads = $derived($page.url.searchParams.get('highlight') === 'downloads');
@@ -79,6 +85,10 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	const downloadRouteLabel = $derived(resolveDownloadRouteLabel(settings, $downloadOutbounds));
 	const visibleDownloadRouteLabel = $derived(showDownloadRouteDetails ? downloadRouteLabel : '');
 	let updateInfo: UpdateInfo | null = $state(null);
+	let downloadsExpanded = $state(true);
+	let loggingExpanded = $state(true);
+	let advancedExpanded = $state(true);
+	let actionsExpanded = $state(true);
 	let restarting = $state(false);
 	let restartConfirmOpen = $state(false);
 	let hydraBusy = $state(false);
@@ -112,6 +122,13 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	const hydraStatusError = $derived($hydrarouteStatus.error);
 	const hydraInstalled = $derived(hydraStatusValue?.installed ?? false);
 	const hydraRunning = $derived(hydraStatusValue?.running ?? false);
+	const downloadsMeta = $derived(settings ? `Автопроверка: ${settings.updates.checkEnabled ? 'вкл' : 'выкл'}` : '');
+	const actionsMeta = $derived.by(() => {
+		const parts = ['AWGM'];
+		if (singboxInstalled && showSingboxIntegration) parts.push('Sing-box');
+		if (hydraInstalled && showHydraIntegration) parts.push('HydraRoute');
+		return parts.join(' · ');
+	});
 
 	function handleNDMSProxyToggleClick(next: boolean) {
 		// next — желаемое состояние после клика. Открываем confirm-modal
@@ -320,10 +337,52 @@ onMount(() => {
 	};
 });
 
+if (browser) {
+	const savedDownloads = localStorage.getItem(DOWNLOADS_EXPANDED_KEY);
+	if (savedDownloads !== null) {
+		downloadsExpanded = savedDownloads === '1';
+	}
+
+	const savedLogging = localStorage.getItem(LOGGING_EXPANDED_KEY);
+	if (savedLogging !== null) {
+		loggingExpanded = savedLogging === '1';
+	}
+
+	const savedAdvanced = localStorage.getItem(ADVANCED_EXPANDED_KEY);
+	if (savedAdvanced !== null) {
+		advancedExpanded = savedAdvanced === '1';
+	}
+
+	const savedActions = localStorage.getItem(ACTIONS_EXPANDED_KEY);
+	if (savedActions !== null) {
+		actionsExpanded = savedActions === '1';
+	}
+}
+
 $effect(() => {
 	if (showDownloadRouteDetails) {
 		void ensureDownloadOutboundsLoaded();
 	}
+});
+
+$effect(() => {
+	if (!browser) return;
+	localStorage.setItem(DOWNLOADS_EXPANDED_KEY, downloadsExpanded ? '1' : '0');
+});
+
+$effect(() => {
+	if (!browser) return;
+	localStorage.setItem(LOGGING_EXPANDED_KEY, loggingExpanded ? '1' : '0');
+});
+
+$effect(() => {
+	if (!browser) return;
+	localStorage.setItem(ADVANCED_EXPANDED_KEY, advancedExpanded ? '1' : '0');
+});
+
+$effect(() => {
+	if (!browser) return;
+	localStorage.setItem(ACTIONS_EXPANDED_KEY, actionsExpanded ? '1' : '0');
 });
 
 	async function toggleAuth(enabled: boolean) {
@@ -734,51 +793,106 @@ $effect(() => {
 
 				<div class="settings-block">
 					<div class="card">
-					<SettingsSectionLabel label="Загрузки и обновления" icon={CloudDownload} tone="orange" header />
-					<div class="setting-row toggle-inline-row">
-						<div class="flex flex-col gap-1">
-							<span class="font-medium">Автопроверка обновлений</span>
-							<span class="setting-description">Проверять наличие новых версий раз в сутки.</span>
-						</div>
-						<Toggle
-							checked={settings.updates.checkEnabled}
-							onchange={toggleUpdateCheck}
-							disabled={saving}
-						/>
-					</div>
-					{#if systemInfo.isOS5 && showDnsRouteCard}
-						<DnsRouteSettings
-							bind:settings
-							{saving}
-							onToggle={toggleDnsAutoRefresh}
-							onSave={saveDnsRouteSettings}
-						/>
-					{/if}
-					{#if showDownloadRouteDetails}
-						<div class="settings-highlight-target" class:highlighted={highlightDownloads}>
-							<DownloadSettings
-								bind:settings
-								{saving}
-								outbounds={$downloadOutbounds}
-								loading={$downloadOutboundsLoading}
-								error={$downloadOutboundsError}
-								onRefresh={refreshDownloadOutbounds}
-								onSelectRoute={selectDownloadRoute}
-							/>
-						</div>
-					{/if}
+						<button
+							type="button"
+							class="settings-card-toggle"
+							aria-expanded={downloadsExpanded}
+							aria-controls="downloads-card-body"
+							onclick={() => (downloadsExpanded = !downloadsExpanded)}
+						>
+							<span class="settings-card-toggle-label">
+								<SettingsSectionLabel label="Загрузки и обновления" icon={CloudDownload} tone="orange" inline />
+							</span>
+							<span class="settings-card-toggle-meta">
+								<span class="settings-card-meta-text">{downloadsMeta}</span>
+								<svg
+									class="settings-card-chevron"
+									class:open={downloadsExpanded}
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									aria-hidden="true"
+								>
+									<polyline points="6 9 12 15 18 9" />
+								</svg>
+							</span>
+						</button>
+						{#if downloadsExpanded}
+							<div id="downloads-card-body" class="settings-card-body">
+								<div class="setting-row toggle-inline-row">
+									<div class="flex flex-col gap-1">
+										<span class="font-medium">Автопроверка обновлений</span>
+										<span class="setting-description">Проверять наличие новых версий раз в сутки.</span>
+									</div>
+									<Toggle
+										checked={settings.updates.checkEnabled}
+										onchange={toggleUpdateCheck}
+										disabled={saving}
+									/>
+								</div>
+								{#if systemInfo.isOS5 && showDnsRouteCard}
+									<DnsRouteSettings
+										bind:settings
+										{saving}
+										onToggle={toggleDnsAutoRefresh}
+										onSave={saveDnsRouteSettings}
+									/>
+								{/if}
+								{#if showDownloadRouteDetails}
+									<div class="settings-highlight-target" class:highlighted={highlightDownloads}>
+										<DownloadSettings
+											bind:settings
+											{saving}
+											outbounds={$downloadOutbounds}
+											loading={$downloadOutboundsLoading}
+											error={$downloadOutboundsError}
+											onRefresh={refreshDownloadOutbounds}
+											onSelectRoute={selectDownloadRoute}
+										/>
+									</div>
+								{/if}
+							</div>
+						{/if}
 					</div>
 				</div>
 
 				<div class="settings-block">
 					<div class="card">
-					<SettingsSectionLabel label="Логирование" icon={ScrollText} tone="slate" header />
-					<LoggingSettings
-						bind:settings
-						{saving}
-						onToggle={toggleLogging}
-						onSave={saveLoggingSettings}
-					/>
+						<button
+							type="button"
+							class="settings-card-toggle"
+							aria-expanded={loggingExpanded}
+							aria-controls="logging-card-body"
+							onclick={() => (loggingExpanded = !loggingExpanded)}
+						>
+							<span class="settings-card-toggle-label">
+								<SettingsSectionLabel label="Логирование" icon={ScrollText} tone="slate" inline />
+							</span>
+							<span class="settings-card-toggle-meta">
+								<svg
+									class="settings-card-chevron"
+									class:open={loggingExpanded}
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									aria-hidden="true"
+								>
+									<polyline points="6 9 12 15 18 9" />
+								</svg>
+							</span>
+						</button>
+						{#if loggingExpanded}
+							<div id="logging-card-body" class="settings-card-body">
+								<LoggingSettings
+									bind:settings
+									{saving}
+									onToggle={toggleLogging}
+									onSave={saveLoggingSettings}
+								/>
+							</div>
+						{/if}
 					</div>
 				</div>
 
@@ -787,7 +901,7 @@ $effect(() => {
 					<div class="card">
 					<SettingsSectionLabel label="Мониторинг" icon={CircleArrowDown} tone="teal" header />
 					<div class="setting-row ping-target-setting">
-						<div class="flex flex-col gap-1">
+						<div class="flex flex-col gap-1 ping-target-copy">
 							<span class="font-medium">Настройки мониторинга перенесены</span>
 							<span class="setting-description">
 								Планирование, цели проверки и исключения туннелей теперь находятся в разделе «Мониторинг» → «Настройки».
@@ -806,71 +920,98 @@ $effect(() => {
 						class="card settings-highlight-target"
 						class:highlighted={highlightFeedbackFab}
 					>
-					<SettingsSectionLabel label="Расширенные" icon={Wrench} tone="indigo" header />
-					<div class="setting-row api-key-setting">
-						<div class="flex flex-col gap-1">
-							<span class="font-medium">API Key</span>
-							<span class="setting-description">
-								API ключ для доступа к&nbsp;<code>{origin}/api/</code>, если включена авторизация. Передавайте в заголовке <code>Authorization: Bearer &lt;ключ&gt;</code>.
+						<button
+							type="button"
+							class="settings-card-toggle"
+							aria-expanded={advancedExpanded}
+							aria-controls="advanced-card-body"
+							onclick={() => (advancedExpanded = !advancedExpanded)}
+						>
+							<span class="settings-card-toggle-label">
+								<SettingsSectionLabel label="Расширенные" icon={Wrench} tone="indigo" inline />
 							</span>
-						</div>
-						<div class="api-key-controls">
-							<input
-								type="text"
-								class="api-key-input"
-								value={settings.apiKey ?? ""}
-								readonly
-								placeholder="не сгенерирован"
-								onclick={copyApiKey}
-								title={settings.apiKey?.trim()
-									? "Нажмите, чтобы скопировать в буфер обмена"
-									: "Сначала нажмите «Сгенерировать»"}
-							/>
-							<div class="api-key-action">
-								<Button variant="secondary" size="md" onclick={generateApiKey} disabled={saving}>
-									Сгенерировать
-								</Button>
-							</div>
-						</div>
-					</div>
-					{#if settings.updates.channel === 'develop'}
-					<div class="setting-row toggle-inline-row">
-						<div class="flex flex-col gap-1">
-							<span class="font-medium">Кнопка обратной связи</span>
-							<span class="setting-description">
-								Плавающая кнопка «!» в правом нижнем углу на канале разработки.
-								Помогает быстро сообщить об ошибке или предложить улучшение.
+							<span class="settings-card-toggle-meta">
+								<svg
+									class="settings-card-chevron"
+									class:open={advancedExpanded}
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									aria-hidden="true"
+								>
+									<polyline points="6 9 12 15 18 9" />
+								</svg>
 							</span>
-						</div>
-						<Toggle
-							checked={$developFeedbackFabVisible}
-							onchange={(v) => developFeedbackFabVisible.set(v)}
-						/>
-					</div>
-					{/if}
-					{#if singboxInstalled && showSingboxIntegration}
-						<div class="setting-row toggle-inline-row">
-							<div class="flex flex-col gap-1">
-								<span class="font-medium">NDMS Proxy для sing-box туннелей</span>
-								<span class="setting-description">
-									{#if ndmsProxyEnabled}
-										Если включено — для каждого туннеля sing-box создаётся интерфейс ProxyX в роутере.
-										<br>
-										Необходимо, если используете NDMS-маршрутизацию (Access Policy, политики роутера) для sing-box.
-									{:else}
-										Выключено — sing-box работает только через свою маршрутизацию. ProxyX-интерфейсы не создаются
-										(решает проблему зависания роутера при потере WAN).
-									{/if}
-								</span>
+						</button>
+						{#if advancedExpanded}
+							<div id="advanced-card-body" class="settings-card-body">
+								<div class="setting-row api-key-setting">
+									<div class="flex flex-col gap-1">
+										<span class="font-medium">API Key</span>
+										<span class="setting-description">
+											API ключ для доступа к&nbsp;<code>{origin}/api/</code>, если включена авторизация. Передавайте в заголовке <code>Authorization: Bearer &lt;ключ&gt;</code>.
+										</span>
+									</div>
+									<div class="api-key-controls">
+										<input
+											type="text"
+											class="api-key-input"
+											value={settings.apiKey ?? ""}
+											readonly
+											placeholder="не сгенерирован"
+											onclick={copyApiKey}
+											title={settings.apiKey?.trim()
+												? "Нажмите, чтобы скопировать в буфер обмена"
+												: "Сначала нажмите «Сгенерировать»"}
+										/>
+										<div class="api-key-action">
+											<Button variant="secondary" size="md" onclick={generateApiKey} disabled={saving}>
+												Сгенерировать
+											</Button>
+										</div>
+									</div>
+								</div>
+								{#if settings.updates.channel === 'develop'}
+									<div class="setting-row toggle-inline-row">
+										<div class="flex flex-col gap-1">
+											<span class="font-medium">Кнопка обратной связи</span>
+											<span class="setting-description">
+												Плавающая кнопка «!» в правом нижнем углу на канале разработки.
+												Помогает быстро сообщить об ошибке или предложить улучшение.
+											</span>
+										</div>
+										<Toggle
+											checked={$developFeedbackFabVisible}
+											onchange={(v) => developFeedbackFabVisible.set(v)}
+										/>
+									</div>
+								{/if}
+								{#if singboxInstalled && showSingboxIntegration}
+									<div class="setting-row toggle-inline-row">
+										<div class="flex flex-col gap-1">
+											<span class="font-medium">NDMS Proxy для sing-box туннелей</span>
+											<span class="setting-description">
+												{#if ndmsProxyEnabled}
+													Если включено — для каждого туннеля sing-box создаётся интерфейс ProxyX в роутере.
+													<br>
+													Необходимо, если используете NDMS-маршрутизацию (Access Policy, политики роутера) для sing-box.
+												{:else}
+													Выключено — sing-box работает только через свою маршрутизацию. ProxyX-интерфейсы не создаются
+													(решает проблему зависания роутера при потере WAN).
+												{/if}
+											</span>
+										</div>
+										<Toggle
+											checked={ndmsProxyEnabled}
+											controlled
+											disabled={ndmsProxyBusy}
+											onchange={handleNDMSProxyToggleClick}
+										/>
+									</div>
+								{/if}
 							</div>
-							<Toggle
-								checked={ndmsProxyEnabled}
-								controlled
-								disabled={ndmsProxyBusy}
-								onchange={handleNDMSProxyToggleClick}
-							/>
-						</div>
-					{/if}
+						{/if}
 					</div>
 				</div>
 
@@ -883,69 +1024,97 @@ $effect(() => {
 
 		<div class="settings-block" id="settings-actions">
 			<div class="card actions-card">
-			<SettingsSectionLabel label="Действия" icon={Power} tone="red" header />
-			<div class="setting-row">
-				<div class="flex flex-col gap-1">
-					<span class="font-medium">Перезапуск AWGM</span>
-					<span class="setting-description">Туннели продолжат работать</span>
-				</div>
-				<Button
-					variant="secondary"
-					size="sm"
-					onclick={() => (restartConfirmOpen = true)}
-					loading={restarting}
+				<button
+					type="button"
+					class="settings-card-toggle"
+					aria-expanded={actionsExpanded}
+					aria-controls="actions-card-body"
+					onclick={() => (actionsExpanded = !actionsExpanded)}
 				>
-					{restarting ? "Перезапуск..." : "Перезапустить"}
-				</Button>
-			</div>
+					<span class="settings-card-toggle-label">
+						<SettingsSectionLabel label="Действия" icon={Power} tone="red" inline />
+					</span>
+					<span class="settings-card-toggle-meta">
+						<span class="settings-card-meta-text">{actionsMeta}</span>
+						<svg
+							class="settings-card-chevron"
+							class:open={actionsExpanded}
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							aria-hidden="true"
+						>
+							<polyline points="6 9 12 15 18 9" />
+						</svg>
+					</span>
+				</button>
+				{#if actionsExpanded}
+					<div id="actions-card-body" class="settings-card-body">
+						<div class="setting-row">
+							<div class="flex flex-col gap-1">
+								<span class="font-medium">Перезапуск AWGM</span>
+								<span class="setting-description">Туннели продолжат работать</span>
+							</div>
+							<Button
+								variant="secondary"
+								size="sm"
+								onclick={() => (restartConfirmOpen = true)}
+								loading={restarting}
+							>
+								{restarting ? "Перезапуск..." : "Перезапустить"}
+							</Button>
+						</div>
 
-			{#if singboxInstalled && showSingboxIntegration}
-				<div class="setting-row">
-					<div class="flex flex-col gap-1">
-						<span class="font-medium">Sing-box</span>
-						<span class="setting-description">
-							{singboxRunning ? "Процесс работает" : "Процесс остановлен"}
-						</span>
-					</div>
-					<div class="action-buttons">
-						{#if singboxRunning}
-							<span title={singboxStatusValue?.updateAvailable ? `Сначала обновите sing-box до ${singboxStatusValue.requiredVersion}` : ''}>
-								<Button
-									variant="secondary"
-									size="sm"
-									onclick={() => controlSingbox('restart')}
-									loading={singboxBusy}
-									disabled={singboxStatusValue?.updateAvailable ?? false}
-								>
-									Перезапустить
-								</Button>
-							</span>
-							<Button variant="danger" size="sm" onclick={() => controlSingbox('stop')} loading={singboxBusy}>Остановить</Button>
-						{:else}
-							<Button variant="success" size="sm" onclick={() => controlSingbox('start')} loading={singboxBusy}>Запустить</Button>
+						{#if singboxInstalled && showSingboxIntegration}
+							<div class="setting-row">
+								<div class="flex flex-col gap-1">
+									<span class="font-medium">Sing-box</span>
+									<span class="setting-description">
+										{singboxRunning ? "Процесс работает" : "Процесс остановлен"}
+									</span>
+								</div>
+								<div class="action-buttons">
+									{#if singboxRunning}
+										<span title={singboxStatusValue?.updateAvailable ? `Сначала обновите sing-box до ${singboxStatusValue.requiredVersion}` : ''}>
+											<Button
+												variant="secondary"
+												size="sm"
+												onclick={() => controlSingbox('restart')}
+												loading={singboxBusy}
+												disabled={singboxStatusValue?.updateAvailable ?? false}
+											>
+												Перезапустить
+											</Button>
+										</span>
+										<Button variant="danger" size="sm" onclick={() => controlSingbox('stop')} loading={singboxBusy}>Остановить</Button>
+									{:else}
+										<Button variant="success" size="sm" onclick={() => controlSingbox('start')} loading={singboxBusy}>Запустить</Button>
+									{/if}
+								</div>
+							</div>
+						{/if}
+
+						{#if hydraInstalled && showHydraIntegration}
+							<div class="setting-row">
+								<div class="flex flex-col gap-1">
+									<span class="font-medium">HydraRoute Neo</span>
+									<span class="setting-description">
+										{hydraRunning ? "Демон работает" : "Демон остановлен"}
+									</span>
+								</div>
+								<div class="action-buttons">
+									{#if hydraRunning}
+										<Button variant="secondary" size="sm" onclick={() => controlHydra('restart')} loading={hydraBusy}>Перезапустить</Button>
+										<Button variant="danger" size="sm" onclick={() => controlHydra('stop')} loading={hydraBusy}>Остановить</Button>
+									{:else}
+										<Button variant="success" size="sm" onclick={() => controlHydra('start')} loading={hydraBusy}>Запустить</Button>
+									{/if}
+								</div>
+							</div>
 						{/if}
 					</div>
-				</div>
-			{/if}
-
-			{#if hydraInstalled && showHydraIntegration}
-				<div class="setting-row">
-					<div class="flex flex-col gap-1">
-						<span class="font-medium">HydraRoute Neo</span>
-						<span class="setting-description">
-							{hydraRunning ? "Демон работает" : "Демон остановлен"}
-						</span>
-					</div>
-					<div class="action-buttons">
-						{#if hydraRunning}
-							<Button variant="secondary" size="sm" onclick={() => controlHydra('restart')} loading={hydraBusy}>Перезапустить</Button>
-							<Button variant="danger" size="sm" onclick={() => controlHydra('stop')} loading={hydraBusy}>Остановить</Button>
-						{:else}
-							<Button variant="success" size="sm" onclick={() => controlHydra('start')} loading={hydraBusy}>Запустить</Button>
-						{/if}
-					</div>
-				</div>
-			{/if}
+				{/if}
 			</div>
 		</div>
 
@@ -1042,8 +1211,68 @@ $effect(() => {
 		overflow: visible;
 	}
 
-	.actions-card > .setting-row {
+	.actions-card .settings-card-body > .setting-row {
 		align-items: center;
+	}
+
+	.settings-card-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.875rem;
+		width: 100%;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.settings-card-toggle:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+		outline-offset: 0.25rem;
+		border-radius: 0.75rem;
+	}
+
+	.settings-card-toggle-label,
+	.settings-card-toggle-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.625rem;
+		min-width: 0;
+	}
+
+	.settings-card-toggle-label {
+		flex: 1 1 auto;
+	}
+
+	.settings-card-toggle-meta {
+		flex: 0 0 auto;
+		color: var(--color-text-secondary);
+	}
+
+	.settings-card-meta-text {
+		max-width: 12rem;
+		font-size: 0.75rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.settings-card-chevron {
+		width: 1rem;
+		height: 1rem;
+		flex-shrink: 0;
+		transition: transform var(--t-normal) ease;
+	}
+
+	.settings-card-chevron.open {
+		transform: rotate(180deg);
+	}
+
+	.settings-card-body {
+		margin-top: 0.75rem;
 	}
 
 	.action-buttons {
@@ -1055,7 +1284,7 @@ $effect(() => {
 	}
 
 	@media (min-width: 641px) {
-		.actions-card > .setting-row > :global(.btn),
+		.actions-card .settings-card-body > .setting-row > :global(.btn),
 		.action-buttons :global(.btn) {
 			width: 7.5rem;
 			min-width: 7.5rem;
@@ -1068,6 +1297,12 @@ $effect(() => {
 		.action-buttons > span :global(.btn) {
 			width: 7.5rem;
 			min-width: 7.5rem;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.settings-card-meta-text {
+			max-width: 8.5rem;
 		}
 	}
 
@@ -1087,6 +1322,10 @@ $effect(() => {
 		align-items: start;
 	}
 
+	.ping-target-copy {
+		min-width: 0;
+	}
+
 	.api-key-input {
 		width: 100%;
 		max-width: none;
@@ -1094,8 +1333,8 @@ $effect(() => {
 
 	.ping-target-action {
 		display: flex;
-		align-items: stretch;
-		justify-content: stretch;
+		align-items: flex-start;
+		justify-content: flex-start;
 		align-self: end;
 		min-width: 0;
 	}
@@ -1104,7 +1343,7 @@ $effect(() => {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 100%;
+		width: auto;
 		min-width: 7.5rem;
 		height: 32px;
 		min-height: 32px;
@@ -1163,6 +1402,10 @@ $effect(() => {
 			gap: 0.25rem;
 		}
 
+		.ping-target-setting {
+			gap: 0.875rem;
+		}
+
 		.ping-target-setting .setting-description {
 			white-space: normal;
 			overflow: visible;
@@ -1170,9 +1413,9 @@ $effect(() => {
 		}
 
 		.ping-target-action {
-			align-self: stretch;
+			align-self: start;
 		}
-
+		
 		.api-key-setting {
 			display: grid;
 			grid-template-columns: minmax(0, 1fr);
@@ -1243,26 +1486,26 @@ $effect(() => {
 			min-width: 0;
 		}
 
-		.actions-card > .setting-row:has(.action-buttons) {
+		.actions-card .settings-card-body > .setting-row:has(.action-buttons) {
 			flex-direction: column;
 			align-items: stretch;
 			flex-wrap: nowrap;
 			gap: 0.625rem;
 		}
 
-		.actions-card > .setting-row:has(.action-buttons) > *:first-child {
+		.actions-card .settings-card-body > .setting-row:has(.action-buttons) > *:first-child {
 			flex: initial;
 			width: 100%;
 		}
 
-		.actions-card > .setting-row {
+		.actions-card .settings-card-body > .setting-row {
 			flex-direction: row;
 			align-items: center;
 			flex-wrap: nowrap;
 			gap: 0.75rem;
 		}
 
-		.actions-card > .setting-row > *:first-child {
+		.actions-card .settings-card-body > .setting-row > *:first-child {
 			flex: 1 1 auto;
 			min-width: 0;
 		}
@@ -1276,7 +1519,7 @@ $effect(() => {
 			gap: 0.5rem;
 		}
 
-		.actions-card > .setting-row > :global(.btn) {
+		.actions-card .settings-card-body > .setting-row > :global(.btn) {
 			width: min(50%, 10rem);
 			min-width: 0;
 			margin-left: auto;

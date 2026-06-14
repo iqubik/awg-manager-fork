@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { Button, SegmentedControl, Toggle } from '$lib/components/ui';
 	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
 	import { compactLayout } from '$lib/stores/compactLayout';
@@ -19,6 +20,7 @@
 	import { Palette } from 'lucide-svelte';
 
 	const PRESET_ORDER: ThemePreset[] = ['legacy', 'neo', 'mint', 'custom'];
+	const APPEARANCE_EXPANDED_KEY = 'awgm_settings_appearance_expanded_v1';
 	const LEGACY_MODE_OPTIONS: Array<{ value: ThemeModePreference; label: string }> = [
 		{ value: 'system', label: 'Системная' },
 		{ value: 'dark', label: 'Тёмная' },
@@ -37,7 +39,8 @@
 		{ value: 'none', label: SETTINGS_SECTION_ICON_MODE_LABELS.none },
 	];
 
-	let expanded = $state(false);
+	let appearanceExpanded = $state(true);
+	let schemeExpanded = $state(false);
 	const compactForced = $derived($usageLevel === 'basic');
 	const compactChecked = $derived(compactForced || $compactLayout);
 
@@ -62,30 +65,37 @@
 	function updateCustomColor(key: keyof ThemeCustomPalette, value: string): void {
 		theme.updateCustom({ [key]: value });
 	}
+
+	if (browser) {
+		const saved = localStorage.getItem(APPEARANCE_EXPANDED_KEY);
+		if (saved !== null) {
+			appearanceExpanded = saved === '1';
+		}
+	}
+
+	$effect(() => {
+		if (!browser) return;
+		localStorage.setItem(APPEARANCE_EXPANDED_KEY, appearanceExpanded ? '1' : '0');
+	});
 </script>
 
 <div class="settings-block">
 	<div class="card">
-	<SettingsSectionLabel label="Внешний вид" icon={Palette} tone="pink" header />
-	<div class="setting-row">
 		<button
 			type="button"
-			class="collapsible-header scheme-toggle"
-			aria-expanded={expanded}
-			aria-controls="theme-scheme-body"
-			onclick={() => (expanded = !expanded)}
+			class="appearance-toggle"
+			aria-expanded={appearanceExpanded}
+			aria-controls="appearance-card-body"
+			onclick={() => (appearanceExpanded = !appearanceExpanded)}
 		>
-			<div class="flex flex-col gap-1">
-				<span class="font-medium">Цветовая схема</span>
-				<span class="setting-description">
-					Применяется сразу и сохраняется локально в этом браузере.
-				</span>
-			</div>
-			<span class="header-meta">
+			<span class="appearance-toggle-label">
+				<SettingsSectionLabel label="Внешний вид" icon={Palette} tone="pink" inline />
+			</span>
+			<span class="appearance-toggle-meta">
 				<span class="current-theme">{currentThemeLabel}</span>
 				<svg
 					class="chevron"
-					class:open={expanded}
+					class:open={appearanceExpanded}
 					viewBox="0 0 24 24"
 					fill="none"
 					stroke="currentColor"
@@ -96,10 +106,42 @@
 				</svg>
 			</span>
 		</button>
-	</div>
 
-	{#if expanded}
-		<div id="theme-scheme-body" class="collapsible-body">
+	{#if appearanceExpanded}
+		<div id="appearance-card-body" class="appearance-body">
+			<div class="setting-row">
+				<button
+					type="button"
+					class="collapsible-header scheme-toggle"
+					aria-expanded={schemeExpanded}
+					aria-controls="theme-scheme-body"
+					onclick={() => (schemeExpanded = !schemeExpanded)}
+				>
+					<div class="flex flex-col gap-1">
+						<span class="font-medium">Цветовая схема</span>
+						<span class="setting-description">
+							Применяется сразу и сохраняется локально в этом браузере.
+						</span>
+					</div>
+					<span class="header-meta">
+						<span class="current-theme">{currentThemeLabel}</span>
+						<svg
+							class="chevron"
+							class:open={schemeExpanded}
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							aria-hidden="true"
+						>
+							<polyline points="6 9 12 15 18 9" />
+						</svg>
+					</span>
+				</button>
+			</div>
+
+		{#if schemeExpanded}
+			<div id="theme-scheme-body" class="collapsible-body">
 			<div class="theme-grid" role="radiogroup" aria-label="Цветовая схема">
 				{#each PRESET_ORDER as preset (preset)}
 					{@const selected = $theme.preset === preset}
@@ -204,8 +246,8 @@
 					</div>
 				</div>
 			{/if}
-		</div>
-	{/if}
+			</div>
+		{/if}
 
 	<div class="setting-row icon-mode-row">
 		<div class="flex flex-col gap-1">
@@ -238,10 +280,50 @@
 			onchange={(enabled) => compactLayout.setEnabled(enabled)}
 		/>
 	</div>
+		</div>
+	{/if}
 	</div>
 </div>
 
 <style>
+	.appearance-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		min-width: 0;
+		gap: 0.75rem;
+		margin-bottom: 0.75rem;
+		padding-bottom: 0.625rem;
+		border: 0;
+		border-bottom: 1px solid var(--color-border);
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.appearance-toggle-label {
+		min-width: 0;
+		flex: 1 1 auto;
+	}
+
+	.appearance-toggle-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		min-width: 0;
+		max-width: min(42vw, 18rem);
+		color: var(--color-text-muted);
+		font-size: 0.8125rem;
+	}
+
+	.appearance-body {
+		display: flex;
+		flex-direction: column;
+	}
+
 	.compact-layout-row {
 		align-items: center;
 	}
@@ -265,6 +347,14 @@
 	}
 
 	@media (max-width: 640px) {
+		.appearance-toggle {
+			align-items: flex-start;
+		}
+
+		.appearance-toggle-meta {
+			max-width: min(50vw, 11rem);
+		}
+
 		.compact-layout-row {
 			flex-direction: row;
 			align-items: center;
@@ -309,6 +399,7 @@
 		flex: 1 1 auto;
 	}
 
+	.appearance-toggle:focus-visible,
 	.collapsible-header:focus-visible {
 		outline: 2px solid var(--color-accent);
 		outline-offset: 2px;

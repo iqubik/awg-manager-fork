@@ -153,6 +153,9 @@
 	{#if showChannelSwitch}
 		<div class="update-channel">
 			<span class="update-channel-label">Канал обновлений</span>
+			<span class="setting-description update-channel-description">
+				{channelDescription}
+			</span>
 			<SegmentedControl
 				value={currentChannel}
 				options={[
@@ -163,9 +166,6 @@
 				disabled={saving || upgrading || checking}
 				onchange={(channel) => onRequestChannel?.(channel)}
 			/>
-			<span class="setting-description update-channel-description">
-				{channelDescription}
-			</span>
 		</div>
 	{/if}
 	<div class="update-actions">
