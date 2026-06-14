@@ -2,7 +2,7 @@
   import Modal from '$lib/components/ui/Modal.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import { copyToClipboard } from '$lib/utils/clipboard';
-  import { engineFatalHint } from './engineFatalHints';
+  import { engineFatalHint, ENGINE_FATAL_FALLBACK } from './engineFatalHints';
 
   interface Props {
     open: boolean;
@@ -12,20 +12,25 @@
   let { open, lastError, onclose }: Props = $props();
 
   let copied = $state(false);
-  const hint = $derived(engineFatalHint(lastError));
+  const hint = $derived(lastError ? (engineFatalHint(lastError) ?? ENGINE_FATAL_FALLBACK) : null);
 
   async function copy(): Promise<void> {
     copied = await copyToClipboard(lastError);
     if (copied) setTimeout(() => (copied = false), 1500);
   }
+
+  // Close automatically once the engine recovers (lastError cleared) — works
+  // for every caller, so callers don't each need their own effect.
+  $effect(() => {
+    if (open && !lastError) onclose();
+  });
 </script>
 
-<Modal {open} {onclose} title="Движок sing-box: ошибка запуска" size="lg">
+<Modal {open} {onclose} title="Движок sing-box не запустился" size="lg">
   {#if hint}
     <p class="hint">{hint}</p>
   {/if}
   <pre class="fatal">{lastError}</pre>
-  <a class="logs-link" href="/diagnostics?tab=logs">Открыть полный лог sing-box</a>
 
   {#snippet actions()}
     <Button variant="ghost" onclick={copy}>{copied ? 'Скопировано' : 'Копировать'}</Button>
@@ -57,11 +62,5 @@
     line-height: 1.45;
     white-space: pre-wrap;
     word-break: break-word;
-  }
-  .logs-link {
-    display: inline-block;
-    margin-top: 0.6rem;
-    font-size: 0.82rem;
-    color: var(--accent);
   }
 </style>

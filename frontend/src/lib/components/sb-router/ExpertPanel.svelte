@@ -170,11 +170,6 @@
   let dnsGlobalsModalOpen = $state(false);
   let engineFatalOpen = $state(false);
 
-  // Auto-close the fatal modal once the engine recovers (lastError cleared).
-  $effect(() => {
-    if (engineFatalOpen && !$storeStatus?.lastError) engineFatalOpen = false;
-  });
-
   let inboundDrawerInstance = $state<DeviceProxyInstance | null>(null);
   let inboundDrawerOpen = $state(false);
   let dpReloadKey = $state(0);
