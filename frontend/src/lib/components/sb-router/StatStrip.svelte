@@ -325,9 +325,10 @@
       min-height: 3.25rem;
       padding: 12px 16px;
       flex-direction: row;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 0.75rem;
+      gap: 0.25rem 0.75rem;
     }
     .cell-shell:first-child .label {
       font-size: 10px;
@@ -335,6 +336,13 @@
     .cell-shell:first-child .value {
       font-size: 20px;
       flex-shrink: 0;
+    }
+    /* Row mode: drop the action onto its own line, right-aligned under the
+       status, instead of crowding it against the value. */
+    .cell-shell:first-child .cell-action {
+      flex-basis: 100%;
+      margin-top: 0;
+      text-align: left;
     }
     .cell-shell:not(:first-child) .cell {
       min-height: 3.5rem;
