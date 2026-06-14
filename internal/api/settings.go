@@ -70,19 +70,26 @@ type DNSRouteSettingsDTO struct {
 	RefreshDailyTime     string `json:"refreshDailyTime" example:"03:00"`
 }
 
+type MonitoringSettingsDTO struct {
+	HistoryHours             int `json:"historyHours" example:"24"`
+	SampleIntervalSec        int `json:"sampleIntervalSec" example:"60"`
+	MatrixRefreshIntervalSec int `json:"matrixRefreshIntervalSec" example:"60"`
+}
+
 // SettingsData is the payload for GET /settings/get.
 type SettingsData struct {
-	SchemaVersion             int                  `json:"schemaVersion" example:"16"`
-	AuthEnabled               bool                 `json:"authEnabled" example:"false"`
-	Server                    ServerSettingsDTO    `json:"server"`
-	PingCheck                 PingCheckSettingsDTO `json:"pingCheck"`
-	Logging                   LoggingSettingsDTO   `json:"logging"`
-	MonitoringExcludedTunnels []string             `json:"monitoringExcludedTunnels,omitempty" example:"tn-1,sys-2"`
-	DisableMemorySaving       bool                 `json:"disableMemorySaving" example:"false"`
-	Updates                   UpdateSettingsDTO    `json:"updates"`
-	Download                  DownloadSettingsDTO  `json:"download"`
-	DnsRoute                  DNSRouteSettingsDTO  `json:"dnsRoute"`
-	ConnectivityCheckURL      string               `json:"connectivityCheckUrl" example:"http://connectivitycheck.gstatic.com/generate_204"`
+	SchemaVersion             int                   `json:"schemaVersion" example:"16"`
+	AuthEnabled               bool                  `json:"authEnabled" example:"false"`
+	Server                    ServerSettingsDTO     `json:"server"`
+	PingCheck                 PingCheckSettingsDTO  `json:"pingCheck"`
+	Logging                   LoggingSettingsDTO    `json:"logging"`
+	MonitoringExcludedTunnels []string              `json:"monitoringExcludedTunnels,omitempty" example:"tn-1,sys-2"`
+	DisableMemorySaving       bool                  `json:"disableMemorySaving" example:"false"`
+	Updates                   UpdateSettingsDTO     `json:"updates"`
+	Download                  DownloadSettingsDTO   `json:"download"`
+	DnsRoute                  DNSRouteSettingsDTO   `json:"dnsRoute"`
+	Monitoring                MonitoringSettingsDTO `json:"monitoring"`
+	ConnectivityCheckURL      string                `json:"connectivityCheckUrl" example:"http://connectivitycheck.gstatic.com/generate_204"`
 	// UsageLevel controls which UI sections are visible to the user.
 	// Filtering is frontend-only — the API does not enforce it.
 	// enums: expert,advanced,basic
@@ -108,6 +115,7 @@ type PingCheckToggleService interface {
 // monitoring snapshot recalculation after settings mutations.
 type MonitoringRefreshService interface {
 	RefreshNow(ctx context.Context)
+	NotifySettingsChanged()
 }
 
 // SettingsHandler handles settings API endpoints.
@@ -253,6 +261,11 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		response.ErrorWithStatus(w, http.StatusBadRequest, err.Error(), "INVALID_CONNECTIVITY_CHECK_URL")
 		return
 	}
+	if err := storage.ValidateMonitoringSettings(merged.Monitoring); err != nil {
+		response.ErrorWithStatus(w, http.StatusBadRequest, err.Error(), "INVALID_MONITORING_SETTINGS")
+		return
+	}
+	merged.Monitoring = storage.NormalizeMonitoringSettings(merged.Monitoring)
 	merged.Download.RouteTag = strings.TrimSpace(merged.Download.RouteTag)
 	if merged.Download.RouteTag == "" {
 		merged.Download.RouteTag = "direct"
@@ -309,6 +322,7 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	oldSingboxLogLevel := storage.NormalizeSingboxLogLevel(oldSettings.Logging.SingboxLogLevel)
 	newSingboxLogLevel := storage.NormalizeSingboxLogLevel(merged.Logging.SingboxLogLevel)
 	singboxLogLevelChanged := oldSingboxLogLevel != newSingboxLogLevel
+	monitoringSettingsChanged := oldSettings.Monitoring != merged.Monitoring
 	monitoringExcludedChanged := !equalExcludedTunnelIDs(
 		oldSettings.MonitoringExcludedTunnels,
 		merged.MonitoringExcludedTunnels,
@@ -363,8 +377,8 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if monitoringExcludedChanged && h.monitoring != nil {
-		h.triggerMonitoringRefresh()
+	if (monitoringExcludedChanged || monitoringSettingsChanged) && h.monitoring != nil {
+		h.triggerMonitoringRefresh(monitoringSettingsChanged)
 	}
 
 	// Log specific changes
@@ -621,10 +635,13 @@ func normalizeExcludedTunnelIDs(in []string) []string {
 	return out
 }
 
-func (h *SettingsHandler) triggerMonitoringRefresh() {
+func (h *SettingsHandler) triggerMonitoringRefresh(monitoringSettingsChanged bool) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), settingsMonitoringRefreshTimeout)
 		defer cancel()
+		if monitoringSettingsChanged {
+			h.monitoring.NotifySettingsChanged()
+		}
 		h.monitoring.RefreshNow(ctx)
 	}()
 }

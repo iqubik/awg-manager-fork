@@ -19,7 +19,7 @@ type Service struct {
 
 // NewService wires Scheduler + History.
 func NewService(deps SchedulerDeps) *Service {
-	hist := NewHistory()
+	hist := NewHistory(deps.SettingsStore)
 	sched := NewScheduler(deps, hist)
 	return &Service{scheduler: sched, history: hist}
 }
@@ -95,7 +95,17 @@ func (s *Service) RefreshNow(ctx context.Context) {
 	s.scheduler.RunOnceForced(ctx)
 }
 
+// NotifySettingsChanged wakes the scheduler loop so it recomputes
+// currentInterval() immediately.
+func (s *Service) NotifySettingsChanged() {
+	s.scheduler.NotifySettingsChanged()
+}
+
 // History returns recent samples for (targetID, tunnelID), bounded by limit.
 func (s *Service) History(targetID, tunnelID string, limit int) []Sample {
 	return s.history.Get(targetID, tunnelID, limit)
+}
+
+func (s *Service) HistoryCapacity() int {
+	return s.history.Capacity()
 }

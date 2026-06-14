@@ -4,6 +4,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hoaxisr/awg-manager/internal/storage"
 )
 
 // Sample is a single probe result for a (target, tunnel) pair.
@@ -18,15 +20,27 @@ type History struct {
 	mu       sync.RWMutex
 	buffers  map[string][]Sample
 	capacity int
+	store    *storage.SettingsStore
 }
 
 // NewHistory builds a History at the default capacity (24 hours at the
 // 60-second probe interval).
-func NewHistory() *History {
+func NewHistory(store *storage.SettingsStore) *History {
 	return &History{
 		buffers:  make(map[string][]Sample),
-		capacity: MonitoringHistoryCapacity,
+		capacity: DefaultMonitoringHistoryCapacity,
+		store:    store,
 	}
+}
+
+func (h *History) Capacity() int {
+	if h == nil {
+		return DefaultMonitoringHistoryCapacity
+	}
+	if h.store == nil {
+		return h.capacity
+	}
+	return monitoringHistoryCapacity(h.store)
 }
 
 func key(targetID, tunnelID string) string {
@@ -41,8 +55,9 @@ func (h *History) Append(targetID, tunnelID string, s Sample) {
 	k := key(targetID, tunnelID)
 	buf := h.buffers[k]
 	buf = append(buf, s)
-	if len(buf) > h.capacity {
-		buf = buf[len(buf)-h.capacity:]
+	capacity := h.Capacity()
+	if len(buf) > capacity {
+		buf = buf[len(buf)-capacity:]
 	}
 	h.buffers[k] = buf
 }
@@ -53,6 +68,10 @@ func (h *History) Get(targetID, tunnelID string, limit int) []Sample {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	buf := h.buffers[key(targetID, tunnelID)]
+	capacity := h.Capacity()
+	if len(buf) > capacity {
+		buf = buf[len(buf)-capacity:]
+	}
 	if limit > 0 && len(buf) > limit {
 		buf = buf[len(buf)-limit:]
 	}

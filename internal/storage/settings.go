@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion        = 26
+	CurrentSchemaVersion        = 27
 	DefaultPort                 = 2222
 	DefaultInterface            = "br0"
 	DefaultPingCheckTarget      = "8.8.8.8"
@@ -140,11 +140,18 @@ func (s *SettingsStore) Load() (*Settings, error) {
 		if settings.SchemaVersion < 26 {
 			s.migrateToV26(&settings)
 		}
+		if settings.SchemaVersion < 27 {
+			s.migrateToV27(&settings)
+		}
 	}
 
 	// Self-heal duplicated managed servers — see dedupManagedServers comment.
 	if deduped, removed := dedupManagedServers(settings.ManagedServers); removed > 0 {
 		settings.ManagedServers = deduped
+		needsSave = true
+	}
+	if normalized := NormalizeMonitoringSettings(settings.Monitoring); normalized != settings.Monitoring {
+		settings.Monitoring = normalized
 		needsSave = true
 	}
 
@@ -194,6 +201,7 @@ func (s *SettingsStore) defaultSettings() *Settings {
 			RouteTag:  "direct",
 			RouteKind: "direct",
 		},
+		Monitoring:           DefaultMonitoringSettings(),
 		ConnectivityCheckURL: DefaultConnectivityCheckURL,
 		SingboxRouter: SingboxRouterSettings{
 			Enabled:         false,
@@ -461,6 +469,11 @@ func migrateNATModes(s *Settings) {
 func (s *SettingsStore) migrateToV26(settings *Settings) {
 	migrateNATModes(settings)
 	settings.SchemaVersion = 26
+}
+
+func (s *SettingsStore) migrateToV27(settings *Settings) {
+	settings.Monitoring = NormalizeMonitoringSettings(settings.Monitoring)
+	settings.SchemaVersion = 27
 }
 
 // dedupManagedServers returns servers with duplicate InterfaceName entries

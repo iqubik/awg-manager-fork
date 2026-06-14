@@ -14,7 +14,7 @@ func mkSample(ms int, ok bool) Sample {
 }
 
 func TestHistory_AppendAndGet(t *testing.T) {
-	h := NewHistory()
+	h := NewHistory(nil)
 	for i := 0; i < 10; i++ {
 		h.Append("tgt", "tn", mkSample(i, true))
 	}
@@ -31,13 +31,13 @@ func TestHistory_AppendAndGet(t *testing.T) {
 }
 
 func TestHistory_RingCapacity(t *testing.T) {
-	h := NewHistory()
-	for i := 0; i < MonitoringHistoryCapacity+25; i++ {
+	h := NewHistory(nil)
+	for i := 0; i < DefaultMonitoringHistoryCapacity+25; i++ {
 		h.Append("tgt", "tn", mkSample(i, true))
 	}
 	got := h.Get("tgt", "tn", 0)
-	if len(got) != MonitoringHistoryCapacity {
-		t.Errorf("expected capacity %d, got %d", MonitoringHistoryCapacity, len(got))
+	if len(got) != DefaultMonitoringHistoryCapacity {
+		t.Errorf("expected capacity %d, got %d", DefaultMonitoringHistoryCapacity, len(got))
 	}
 	overflow := 25
 	wantOldest := overflow
@@ -48,7 +48,7 @@ func TestHistory_RingCapacity(t *testing.T) {
 }
 
 func TestHistory_GetLimit(t *testing.T) {
-	h := NewHistory()
+	h := NewHistory(nil)
 	for i := 0; i < 30; i++ {
 		h.Append("tgt", "tn", mkSample(i, true))
 	}
@@ -62,7 +62,7 @@ func TestHistory_GetLimit(t *testing.T) {
 }
 
 func TestHistory_Latest(t *testing.T) {
-	h := NewHistory()
+	h := NewHistory(nil)
 	if h.Latest("tgt", "tn") != nil {
 		t.Errorf("expected nil for empty history")
 	}
@@ -74,7 +74,7 @@ func TestHistory_Latest(t *testing.T) {
 }
 
 func TestHistory_PruneTunnels(t *testing.T) {
-	h := NewHistory()
+	h := NewHistory(nil)
 	h.Append("tgt", "tn-A", mkSample(1, true))
 	h.Append("tgt", "tn-B", mkSample(2, true))
 	h.Append("tgt", "tn-C", mkSample(3, true))

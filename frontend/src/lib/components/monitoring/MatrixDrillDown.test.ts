@@ -47,6 +47,9 @@ describe('MatrixDrillDown', () => {
 					selfTarget: '',
 					selfMethod: 'http',
 				},
+				historyHours: 24,
+				sampleIntervalSec: 60,
+				historyCapacity: 1440,
 				onClose: () => {},
 			},
 		});

@@ -105,18 +105,18 @@ func (h *MonitoringHandler) GetMatrix(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, snap)
 }
 
-// GetHistory returns up to limit (default 1440) most-recent samples for
+// GetHistory returns up to limit (default current monitoring capacity) most-recent samples for
 // (target, tunnelId).
 // GET /api/monitoring/history?target=<id>&tunnelId=<id>&limit=<n>
 //
 //	@Summary		Get monitoring history
-//	@Description	Returns up to `limit` (default 1440) most-recent samples for a single (target, tunnelId) pair, oldest-first. The retained window is 24 hours at a 60-second interval.
+//	@Description	Returns up to `limit` (default current monitoring capacity) most-recent samples for a single (target, tunnelId) pair, oldest-first.
 //	@Tags			monitoring
 //	@Produce		json
 //	@Security		CookieAuth
 //	@Param			target		query		string	true	"Target identifier"
 //	@Param			tunnelId	query		string	true	"Tunnel identifier"
-//	@Param			limit		query		int		false	"Max samples to return (default 1440, clamped to 24 hours)"
+//	@Param			limit		query		int		false	"Max samples to return (default current monitoring capacity)"
 //	@Success		200			{object}	MonitoringHistoryResponse
 //	@Failure		400			{object}	APIErrorEnvelope
 //	@Failure		405			{object}	APIErrorEnvelope
@@ -137,7 +137,7 @@ func (h *MonitoringHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, "target and tunnelId are required", "INVALID_PARAMS")
 		return
 	}
-	limit := monitoring.MonitoringHistoryCapacity
+	limit := h.svc.HistoryCapacity()
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if v, err := strconv.Atoi(l); err == nil && v > 0 {
 			limit = v
@@ -146,8 +146,9 @@ func (h *MonitoringHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	if limit < 1 {
 		limit = 1
 	}
-	if limit > monitoring.MonitoringHistoryCapacity {
-		limit = monitoring.MonitoringHistoryCapacity
+	maxLimit := h.svc.HistoryCapacity()
+	if limit > maxLimit {
+		limit = maxLimit
 	}
 	samples := h.svc.History(target, tunnelID, limit)
 	if samples == nil {

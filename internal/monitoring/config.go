@@ -1,14 +1,33 @@
 package monitoring
 
-import "time"
+import (
+	"time"
+
+	"github.com/hoaxisr/awg-manager/internal/storage"
+)
 
 const (
-	// MonitoringSampleInterval is the scheduler/history step used by the
-	// monitoring matrix.
-	MonitoringSampleInterval = time.Minute
-	// MonitoringRetentionHours is the history window kept per matrix cell.
-	MonitoringRetentionHours = 24
-	// MonitoringHistoryCapacity is the number of retained samples per
-	// (target, tunnel) pair at the current scheduler interval.
-	MonitoringHistoryCapacity = MonitoringRetentionHours * int(time.Hour/MonitoringSampleInterval)
+	DefaultMonitoringSampleInterval  = time.Duration(storage.DefaultMonitoringSampleIntervalSec) * time.Second
+	DefaultMonitoringHistoryHours    = storage.DefaultMonitoringHistoryHours
+	DefaultMonitoringHistoryCapacity = storage.DefaultMonitoringHistoryHours * 3600 / storage.DefaultMonitoringSampleIntervalSec
 )
+
+func effectiveMonitoringSettings(store *storage.SettingsStore) storage.MonitoringSettings {
+	if store == nil {
+		return storage.DefaultMonitoringSettings()
+	}
+	settings, err := store.Get()
+	if err != nil || settings == nil {
+		return storage.DefaultMonitoringSettings()
+	}
+	return storage.NormalizeMonitoringSettings(settings.Monitoring)
+}
+
+func monitoringSampleInterval(store *storage.SettingsStore) time.Duration {
+	settings := effectiveMonitoringSettings(store)
+	return time.Duration(settings.SampleIntervalSec) * time.Second
+}
+
+func monitoringHistoryCapacity(store *storage.SettingsStore) int {
+	return storage.GetMonitoringHistoryCapacity(effectiveMonitoringSettings(store))
+}

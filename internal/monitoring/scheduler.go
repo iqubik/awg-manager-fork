@@ -127,7 +127,6 @@ type SchedulerDeps struct {
 // Scheduler runs ICMP probes through running tunnels on a fixed interval.
 type Scheduler struct {
 	deps         SchedulerDeps
-	interval     time.Duration
 	probeTimeout time.Duration
 	workerLimit  int
 	history      *History
@@ -135,6 +134,7 @@ type Scheduler struct {
 	mu       sync.RWMutex
 	lastSnap Snapshot
 	stopCh   chan struct{}
+	resetCh  chan struct{}
 	stopOnce sync.Once
 }
 
@@ -143,11 +143,11 @@ type Scheduler struct {
 func NewScheduler(deps SchedulerDeps, history *History) *Scheduler {
 	return &Scheduler{
 		deps:         deps,
-		interval:     MonitoringSampleInterval,
 		probeTimeout: 5 * time.Second,
 		workerLimit:  10,
 		history:      history,
 		stopCh:       make(chan struct{}),
+		resetCh:      make(chan struct{}, 1),
 	}
 }
 
@@ -206,20 +206,52 @@ func (s *Scheduler) LatestSnapshot() Snapshot {
 // History exposes the underlying history buffer (used by API handler).
 func (s *Scheduler) History() *History { return s.history }
 
+// NotifySettingsChanged wakes the scheduler loop so it recomputes
+// currentInterval() immediately instead of sleeping until the old timer fires.
+func (s *Scheduler) NotifySettingsChanged() {
+	select {
+	case s.resetCh <- struct{}{}:
+	default:
+	}
+}
+
+// stopTimer drains timer.C if the timer already fired, so the caller
+// can safely reuse or discard the timer without blocking.
+func stopTimer(timer *time.Timer) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+}
+
 func (s *Scheduler) loop(ctx context.Context) {
 	s.RunOnce(ctx)
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
+	timer := time.NewTimer(s.currentInterval())
 	for {
 		select {
-		case <-ticker.C:
+		case <-timer.C:
 			s.RunOnce(ctx)
+			timer.Reset(s.currentInterval())
+		case <-s.resetCh:
+			stopTimer(timer)
+			timer.Reset(s.currentInterval())
 		case <-s.stopCh:
+			stopTimer(timer)
 			return
 		case <-ctx.Done():
+			stopTimer(timer)
 			return
 		}
 	}
+}
+
+func (s *Scheduler) currentInterval() time.Duration {
+	if s.deps.SettingsStore == nil {
+		return DefaultMonitoringSampleInterval
+	}
+	return monitoringSampleInterval(s.deps.SettingsStore)
 }
 
 // RunOnceForced invalidates the Clash cache (if wired) and runs a

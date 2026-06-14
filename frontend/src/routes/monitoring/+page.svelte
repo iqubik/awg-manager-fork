@@ -11,12 +11,14 @@
 	import { MatrixGrid, MatrixStatusStrip, MatrixDrillDown } from '$lib/components/monitoring';
 	import { KernelPingCheckModal, NativeWGPingCheckModal } from '$lib/components/pingcheck';
 	import { notifications } from '$lib/stores/notifications';
-	import {
-		MONITORING_AUTO_REFRESH_MS,
-		MONITORING_HISTORY_HOURS,
-		MONITORING_HISTORY_CAPACITY,
-	} from '$lib/constants/monitoring';
-	import type { MonitoringTarget, MonitoringTunnel, AWGTunnel, NativePingCheckStatus, Settings } from '$lib/types';
+import {
+	getMonitoringHistoryCapacity,
+	getMonitoringHistoryCapacityRaw,
+	normalizeMonitoringSettings,
+	validateMonitoringSettings,
+	DEFAULT_MONITORING_SETTINGS,
+} from '$lib/constants/monitoring';
+	import type { MonitoringSettings, MonitoringTarget, MonitoringTunnel, AWGTunnel, NativePingCheckStatus, Settings } from '$lib/types';
 
 	let drawerOpen = $state(false);
 	let planningOpen = $state(false);
@@ -32,6 +34,7 @@
 	let autoPressResetTimer: ReturnType<typeof setTimeout> | null = null;
 	let autoPressActive = $state(false);
 	let settings = $state<Settings | null>(null);
+	let monitoringDraft = $state<MonitoringSettings>({ ...DEFAULT_MONITORING_SETTINGS });
 	let saving = $state(false);
 	let excludedTunnelIds = $state<Set<string>>(new Set());
 	let excludedTunnelNames = $state<Record<string, string>>({});
@@ -55,6 +58,15 @@
 		const cycle = nextAutoRefreshTs - lastRefreshTs;
 		return Math.min(1, elapsed / cycle);
 	});
+	const persistedMonitoringSettings = $derived(normalizeMonitoringSettings(settings?.monitoring));
+
+	const currentMonitoringDraft = $derived.by(() => ({
+		historyHours: Number(monitoringDraft.historyHours),
+		sampleIntervalSec: Number(monitoringDraft.sampleIntervalSec),
+		matrixRefreshIntervalSec: Number(monitoringDraft.matrixRefreshIntervalSec),
+	}));
+
+	const monitoringErrors = $derived.by(() => validateMonitoringSettings(currentMonitoringDraft));
 
 	// Pingcheck drawer state — backend determines which form is shown.
 	let pingTunnelId = $state('');
@@ -108,6 +120,22 @@
 		return out;
 	}
 
+	const matrixRefreshDelayMs = $derived(
+		persistedMonitoringSettings.matrixRefreshIntervalSec * 1000,
+	);
+
+	function formatDraftHistoryCapacity(value: MonitoringSettings): string {
+		if (
+			!Number.isFinite(value.historyHours) ||
+			!Number.isFinite(value.sampleIntervalSec) ||
+			value.sampleIntervalSec <= 0
+		) {
+			return '—';
+		}
+
+		return `${getMonitoringHistoryCapacityRaw(value)} точек`;
+	}
+
 	function triggerRefresh(force = false): void {
 		void refresh(force);
 	}
@@ -127,7 +155,7 @@
 			if (autoRefreshTimeout) clearTimeout(autoRefreshTimeout);
 			autoRefreshTimeout = setTimeout(() => {
 				triggerAutoRefresh();
-			}, MONITORING_AUTO_REFRESH_MS);
+			}, matrixRefreshDelayMs);
 			return;
 		}
 		refreshing = true;
@@ -150,11 +178,11 @@
 			}
 		} finally {
 			lastRefreshTs = Date.now();
-			nextAutoRefreshTs = lastRefreshTs + MONITORING_AUTO_REFRESH_MS;
+			nextAutoRefreshTs = lastRefreshTs + matrixRefreshDelayMs;
 			if (autoRefreshTimeout) clearTimeout(autoRefreshTimeout);
 			autoRefreshTimeout = setTimeout(() => {
 				triggerAutoRefresh();
-			}, MONITORING_AUTO_REFRESH_MS);
+			}, matrixRefreshDelayMs);
 			refreshing = false;
 		}
 	}
@@ -162,6 +190,7 @@
 	async function loadSettings() {
 		try {
 			settings = await api.getSettings();
+			monitoringDraft = normalizeMonitoringSettings(settings.monitoring);
 			excludedNamesReady = false;
 			excludedTunnelIds = normalizeExcludedTunnelIds(settings.monitoringExcludedTunnels);
 			const names: Record<string, string> = {};
@@ -291,6 +320,35 @@
 			notifications.success('Цели мониторинга сохранены');
 		} catch (e) {
 			notifications.error(e instanceof Error ? e.message : 'Не удалось сохранить цели мониторинга');
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function saveMonitoringSettings() {
+		if (!settings) return;
+		if (Object.keys(monitoringErrors).length > 0) return;
+		saving = true;
+		try {
+			const nextMonitoring = normalizeMonitoringSettings(currentMonitoringDraft);
+			settings = await api.updateSettings({
+				monitoring: nextMonitoring,
+				pingCheck: {
+					...settings.pingCheck,
+					defaults: {
+						...settings.pingCheck.defaults,
+						target: settings.pingCheck.defaults.target,
+					},
+				},
+				connectivityCheckUrl: settings.connectivityCheckUrl,
+			});
+			monitoringDraft = normalizeMonitoringSettings(settings.monitoring);
+			setGlobalSettings(settings);
+			clearHistoryCache();
+			await refresh(true);
+			notifications.success('Настройки мониторинга сохранены');
+		} catch (e) {
+			notifications.error(e instanceof Error ? e.message : 'Не удалось сохранить настройки мониторинга');
 		} finally {
 			saving = false;
 		}
@@ -442,7 +500,14 @@
 		title={drawerTarget && drawerTunnel ? `${drawerTarget.name} × ${drawerTunnel.name}` : ''}
 	>
 		{#if drawerTarget && drawerTunnel}
-			<MatrixDrillDown target={drawerTarget} tunnel={drawerTunnel} onClose={closeDrawer} />
+			<MatrixDrillDown
+				target={drawerTarget}
+				tunnel={drawerTunnel}
+				historyHours={persistedMonitoringSettings.historyHours}
+				sampleIntervalSec={persistedMonitoringSettings.sampleIntervalSec}
+				historyCapacity={getMonitoringHistoryCapacity(persistedMonitoringSettings)}
+				onClose={closeDrawer}
+			/>
 		{/if}
 	</SideDrawer>
 
@@ -457,22 +522,68 @@
 				<section class="planning-section">
 					<h4>Расписание</h4>
 					<div class="planning-grid">
-						<div class="planning-stat">
-							<span class="planning-stat-label">Окно истории</span>
-							<strong>{MONITORING_HISTORY_HOURS} часа</strong>
+						<div class="planning-field">
+							<span>Окно истории, часы</span>
+							<input
+								type="number"
+								class="planning-input"
+								min={1}
+								max={168}
+								step={1}
+								bind:value={monitoringDraft.historyHours}
+								disabled={saving}
+							/>
+							{#if monitoringErrors.historyHours}
+								<span class="planning-error">{monitoringErrors.historyHours}</span>
+							{/if}
 						</div>
-						<div class="planning-stat">
-							<span class="planning-stat-label">Шаг замера</span>
-							<strong>60 секунд</strong>
+						<div class="planning-field">
+							<span>Шаг замера, секунды</span>
+							<input
+								type="number"
+								class="planning-input"
+								min={10}
+								max={3600}
+								step={1}
+								bind:value={monitoringDraft.sampleIntervalSec}
+								disabled={saving}
+							/>
+							{#if monitoringErrors.sampleIntervalSec}
+								<span class="planning-error">{monitoringErrors.sampleIntervalSec}</span>
+							{/if}
 						</div>
-						<div class="planning-stat">
+						<div class="planning-field">
+							<span>Обновление матрицы, секунды</span>
+							<input
+								type="number"
+								class="planning-input"
+								min={10}
+								max={3600}
+								step={1}
+								bind:value={monitoringDraft.matrixRefreshIntervalSec}
+								disabled={saving}
+							/>
+							{#if monitoringErrors.matrixRefreshIntervalSec}
+								<span class="planning-error">{monitoringErrors.matrixRefreshIntervalSec}</span>
+							{/if}
+						</div>
+						<div class="planning-preview">
 							<span class="planning-stat-label">Объём истории</span>
-							<strong>{MONITORING_HISTORY_CAPACITY} точек</strong>
+							<strong>{formatDraftHistoryCapacity(currentMonitoringDraft)}</strong>
+							{#if monitoringErrors.historyCapacity}
+								<span class="planning-error planning-error--preview">{monitoringErrors.historyCapacity}</span>
+							{/if}
 						</div>
-						<div class="planning-stat">
-							<span class="planning-stat-label">Обновление матрицы</span>
-							<strong>Каждые 60 секунд</strong>
-						</div>
+					</div>
+					<div class="planning-actions">
+						<Button
+							variant="secondary"
+							size="md"
+							onclick={saveMonitoringSettings}
+							disabled={saving || Object.keys(monitoringErrors).length > 0}
+						>
+							Сохранить расписание
+						</Button>
 					</div>
 				</section>
 
@@ -725,7 +836,7 @@
 		gap: 0.625rem;
 	}
 
-	.planning-stat {
+	.planning-preview {
 		display: flex;
 		flex-direction: column;
 		gap: 0.2rem;
@@ -733,6 +844,32 @@
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-sm);
 		background: var(--color-bg-secondary);
+	}
+
+	.planning-field input {
+		width: 100%;
+		padding: 0.7rem 0.85rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--color-border);
+		background: var(--color-bg-secondary);
+		color: var(--color-text-primary);
+	}
+
+	.planning-error {
+		font-size: 0.75rem;
+		color: var(--color-error);
+		line-height: 1.3;
+	}
+
+	.planning-error--preview {
+		margin-top: 0.25rem;
+	}
+
+	.planning-actions {
+		display: flex;
+		justify-content: flex-start;
+		gap: 0.5rem;
+		margin-top: 0.25rem;
 	}
 
 	.planning-stat-label {
@@ -756,11 +893,6 @@
 		border: 1px solid var(--color-border);
 		background: var(--color-bg-secondary);
 		color: var(--color-text-primary);
-	}
-
-	.planning-actions {
-		display: flex;
-		justify-content: flex-start;
 	}
 
 	.planning-chip-list {

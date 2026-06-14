@@ -17,6 +17,23 @@ type testDownloadOutboundsProvider struct {
 	items []downloader.Outbound
 }
 
+type testMonitoringRefreshService struct {
+	calls     int
+	notifyCalls int
+	done      chan struct{}
+}
+
+func (s *testMonitoringRefreshService) RefreshNow(_ context.Context) {
+	s.calls++
+	if s.done != nil {
+		close(s.done)
+	}
+}
+
+func (s *testMonitoringRefreshService) NotifySettingsChanged() {
+	s.notifyCalls++
+}
+
 func (p testDownloadOutboundsProvider) ListDownloadOutbounds(_ context.Context) []downloader.Outbound {
 	return p.items
 }
@@ -512,5 +529,98 @@ func TestUpdate_ConnectivityCheckURLValidEmptyInvalid(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "INVALID_CONNECTIVITY_CHECK_URL") {
 		t.Fatalf("missing INVALID_CONNECTIVITY_CHECK_URL, body=%s", rec.Body.String())
+	}
+}
+
+func TestUpdate_MonitoringSettingsValidPersisted(t *testing.T) {
+	h, store := newSettingsHandlerForTest(t)
+	refreshSvc := &testMonitoringRefreshService{done: make(chan struct{})}
+	h.SetMonitoringService(refreshSvc)
+
+	body := []byte(`{"monitoring":{"historyHours":48,"sampleIntervalSec":60,"matrixRefreshIntervalSec":120}}`)
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	select {
+	case <-refreshSvc.done:
+	default:
+		<-refreshSvc.done
+	}
+	got, _ := store.Get()
+	if got.Monitoring.HistoryHours != 48 || got.Monitoring.SampleIntervalSec != 60 || got.Monitoring.MatrixRefreshIntervalSec != 120 {
+		t.Fatalf("monitoring = %+v", got.Monitoring)
+	}
+	if refreshSvc.calls != 1 {
+		t.Fatalf("refresh calls = %d, want 1", refreshSvc.calls)
+	}
+	if refreshSvc.notifyCalls != 1 {
+		t.Fatalf("notify calls = %d, want 1", refreshSvc.notifyCalls)
+	}
+}
+
+func TestUpdate_MonitoringExcludedChanged_NoMonitoringSettingsNotifySkipped(t *testing.T) {
+	h, store := newSettingsHandlerForTest(t)
+	refreshSvc := &testMonitoringRefreshService{done: make(chan struct{})}
+	h.SetMonitoringService(refreshSvc)
+
+	current, _ := store.Get()
+	seed := *current
+	seed.MonitoringExcludedTunnels = []string{}
+	if err := store.Save(&seed); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	body := []byte(`{"monitoringExcludedTunnels":["tn-1"]}`)
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	select {
+	case <-refreshSvc.done:
+	default:
+		<-refreshSvc.done
+	}
+	if refreshSvc.calls != 1 {
+		t.Fatalf("refresh calls = %d, want 1", refreshSvc.calls)
+	}
+	if refreshSvc.notifyCalls != 0 {
+		t.Fatalf("notify calls = %d, want 0", refreshSvc.notifyCalls)
+	}
+}
+
+func TestUpdate_MonitoringSettingsInvalidRejected(t *testing.T) {
+	h, _ := newSettingsHandlerForTest(t)
+	body := []byte(`{"monitoring":{"historyHours":0,"sampleIntervalSec":60,"matrixRefreshIntervalSec":60}}`)
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "INVALID_MONITORING_SETTINGS") {
+		t.Fatalf("missing INVALID_MONITORING_SETTINGS, body=%s", rec.Body.String())
+	}
+}
+
+func TestUpdate_MonitoringSettingsCapacityRejected(t *testing.T) {
+	h, _ := newSettingsHandlerForTest(t)
+	body := []byte(`{"monitoring":{"historyHours":168,"sampleIntervalSec":10,"matrixRefreshIntervalSec":60}}`)
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "INVALID_MONITORING_SETTINGS") {
+		t.Fatalf("missing INVALID_MONITORING_SETTINGS, body=%s", rec.Body.String())
 	}
 }

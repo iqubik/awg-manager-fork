@@ -35,7 +35,8 @@ func decodeMonitoringSamples(t *testing.T, rr *httptest.ResponseRecorder) []moni
 
 func TestMonitoringHandler_GetHistory_DefaultLimitUses24Hours(t *testing.T) {
 	svc := newMonitoringTestService()
-	appendMonitoringSamples(svc, "t", "tn", monitoring.MonitoringHistoryCapacity+25)
+	capacity := svc.HistoryCapacity()
+	appendMonitoringSamples(svc, "t", "tn", capacity+25)
 	h := NewMonitoringHandler(svc)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/monitoring/history?target=t&tunnelId=tn", nil)
@@ -46,14 +47,15 @@ func TestMonitoringHandler_GetHistory_DefaultLimitUses24Hours(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	data := decodeMonitoringSamples(t, rr)
-	if len(data) != monitoring.MonitoringHistoryCapacity {
-		t.Fatalf("len = %d, want %d", len(data), monitoring.MonitoringHistoryCapacity)
+	if len(data) != capacity {
+		t.Fatalf("len = %d, want %d", len(data), capacity)
 	}
 }
 
 func TestMonitoringHandler_GetHistory_ClampsLargeLimit(t *testing.T) {
 	svc := newMonitoringTestService()
-	appendMonitoringSamples(svc, "t", "tn", monitoring.MonitoringHistoryCapacity)
+	capacity := svc.HistoryCapacity()
+	appendMonitoringSamples(svc, "t", "tn", capacity)
 	h := NewMonitoringHandler(svc)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/monitoring/history?target=t&tunnelId=tn&limit=99999", nil)
@@ -64,8 +66,8 @@ func TestMonitoringHandler_GetHistory_ClampsLargeLimit(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
 	data := decodeMonitoringSamples(t, rr)
-	if len(data) != monitoring.MonitoringHistoryCapacity {
-		t.Fatalf("len = %d, want %d", len(data), monitoring.MonitoringHistoryCapacity)
+	if len(data) != capacity {
+		t.Fatalf("len = %d, want %d", len(data), capacity)
 	}
 }
 

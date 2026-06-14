@@ -4,8 +4,6 @@
 	import { LoadingSpinner } from '$lib/components/layout';
 	import { getCachedHistory, setCachedHistory } from '$lib/stores/monitoring';
 	import {
-		MONITORING_HISTORY_CAPACITY,
-		MONITORING_HISTORY_HOURS,
 		MONITORING_RECENT_ROWS,
 		MONITORING_SPARKLINE_POINTS,
 	} from '$lib/constants/monitoring';
@@ -15,14 +13,17 @@
 	interface Props {
 		target: MonitoringTarget;
 		tunnel: MonitoringTunnel;
+		historyHours: number;
+		sampleIntervalSec: number;
+		historyCapacity: number;
 		onClose: () => void;
 	}
 
-	let { target, tunnel }: Props = $props();
+	let { target, tunnel, historyHours, sampleIntervalSec, historyCapacity }: Props = $props();
 
 	let samples = $state<MonitoringSample[]>([]);
 	let loading = $state(true);
-	const historyLimit = MONITORING_HISTORY_CAPACITY;
+	const historyLimit = $derived(historyCapacity);
 
 	function downsamplePoints(points: MonitoringSample[], maxPoints: number): MonitoringSample[] {
 		if (points.length <= maxPoints) return points;
@@ -126,7 +127,7 @@
 			</tbody>
 		</table>
 
-		<small class="footer">Окно: {MONITORING_HISTORY_HOURS} часа · до {MONITORING_HISTORY_CAPACITY} точек · шаг 60 секунд</small>
+		<small class="footer">Окно: {historyHours} часа · до {historyCapacity} точек · шаг {sampleIntervalSec} секунд</small>
 	{/if}
 </div>
 

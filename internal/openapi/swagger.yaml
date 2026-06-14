@@ -1851,6 +1851,18 @@ definitions:
         example: "2024-01-15T10:30:00Z"
         type: string
     type: object
+  api.MonitoringSettingsDTO:
+    properties:
+      historyHours:
+        example: 24
+        type: integer
+      matrixRefreshIntervalSec:
+        example: 60
+        type: integer
+      sampleIntervalSec:
+        example: 60
+        type: integer
+    type: object
   api.MonitoringSnapshotData:
     properties:
       cells:
@@ -2632,6 +2644,8 @@ definitions:
         $ref: '#/definitions/api.DownloadSettingsDTO'
       logging:
         $ref: '#/definitions/api.LoggingSettingsDTO'
+      monitoring:
+        $ref: '#/definitions/api.MonitoringSettingsDTO'
       monitoringExcludedTunnels:
         example:
         - tn-1
@@ -7887,9 +7901,8 @@ paths:
       - managed
   /monitoring/history:
     get:
-      description: Returns up to `limit` (default 1440) most-recent samples for a
-        single (target, tunnelId) pair, oldest-first. The retained window is 24 hours
-        at a 60-second interval.
+      description: Returns up to `limit` (default current monitoring capacity) most-recent
+        samples for a single (target, tunnelId) pair, oldest-first.
       parameters:
       - description: Target identifier
         in: query
@@ -7901,7 +7914,7 @@ paths:
         name: tunnelId
         required: true
         type: string
-      - description: Max samples to return (default 1440, clamped to 24 hours)
+      - description: Max samples to return (default current monitoring capacity)
         in: query
         name: limit
         type: integer

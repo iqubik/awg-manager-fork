@@ -35,7 +35,7 @@ func (f *fakeLister) RunningTunnels(_ context.Context) []traffic.RunningTunnel {
 
 func TestScheduler_RunOnce_NoTunnels(t *testing.T) {
 	prober := &fakeProber{ok: true, latency: 10}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{},
 		TunnelStore:  nil,
@@ -62,7 +62,7 @@ func TestScheduler_RunOnce_NoTunnels(t *testing.T) {
 
 func TestScheduler_RunOnce_TwoTunnelsThreeBaseTargets(t *testing.T) {
 	prober := &fakeProber{ok: true, latency: 14}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{tunnels: []traffic.RunningTunnel{
 			{ID: "tn-A", IfaceName: "wg0"},
@@ -110,7 +110,7 @@ func TestScheduler_RunOnce_TwoTunnelsThreeBaseTargets(t *testing.T) {
 
 func TestScheduler_RunOnce_PrunesStaleHistory(t *testing.T) {
 	prober := &fakeProber{ok: true, latency: 10}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	// Pre-populate history for a tunnel that no longer exists.
 	v := 99
 	hist.Append("cf-1.1.1.1", "tn-old", Sample{TS: time.Now(), LatencyMs: &v, OK: true})
@@ -131,7 +131,7 @@ func TestScheduler_RunOnce_PrunesStaleHistory(t *testing.T) {
 
 func TestScheduler_RunOnce_FailedProberMarksCellNotOK(t *testing.T) {
 	prober := &fakeProber{ok: false}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{tunnels: []traffic.RunningTunnel{{ID: "tn-A", IfaceName: "wg0"}}},
 		Prober:       prober,
@@ -148,7 +148,7 @@ func TestScheduler_RunOnce_FailedProberMarksCellNotOK(t *testing.T) {
 
 func TestScheduler_RunOnce_ExcludesConfiguredTunnels(t *testing.T) {
 	prober := &fakeProber{ok: true, latency: 12}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	settingsStore := storage.NewSettingsStore(t.TempDir())
 	settings, err := settingsStore.Load()
 	if err != nil {
@@ -201,7 +201,7 @@ func (f *fakeSystemTunnels) List(_ context.Context) (systemTunnels, error) {
 
 func TestScheduler_RunOnce_ExcludesConfiguredSystemAndSingboxTunnels(t *testing.T) {
 	prober := &fakeProber{ok: true, latency: 11}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	settingsStore := storage.NewSettingsStore(t.TempDir())
 	settings, err := settingsStore.Load()
 	if err != nil {
@@ -242,7 +242,7 @@ func TestScheduler_RunOnce_ExcludesConfiguredSystemAndSingboxTunnels(t *testing.
 }
 
 func TestScheduler_SingboxTunnels_AppearInSnapshot(t *testing.T) {
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{},
 		SingboxTunnels: &fakeSingboxTunnels{items: []SingboxTunnelInfo{
@@ -265,7 +265,7 @@ func TestScheduler_SingboxTunnels_AppearInSnapshot(t *testing.T) {
 }
 
 func TestScheduler_SystemTunnels_AppearInSnapshot(t *testing.T) {
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{},
 		SystemTunnels: &fakeSystemTunnels{items: []SystemTunnelInfo{
@@ -338,7 +338,7 @@ func (f *fakeSingboxDelay) TestDelay(outboundTag, testURL string, _ time.Duratio
 func TestScheduler_RunOnce_SingboxRowsUseClashDelay(t *testing.T) {
 	httpProber := &fakeProber{ok: true, latency: 14}
 	clashDelay := &fakeSingboxDelay{delay: 87}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{tunnels: []traffic.RunningTunnel{
 			{ID: "tn-A", IfaceName: "wg0"},
@@ -400,7 +400,7 @@ func TestScheduler_RunOnce_SingboxRowsUseClashDelay(t *testing.T) {
 func TestScheduler_RunOnce_SingboxDelayErrorMarksCellNotOK(t *testing.T) {
 	httpProber := &fakeProber{ok: true, latency: 14}
 	clashDelay := &fakeSingboxDelay{err: errFakeDelay}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{},
 		SingboxTunnels: &fakeSingboxTunnels{items: []SingboxTunnelInfo{
