@@ -1,21 +1,30 @@
 import { describe, it, expect } from 'vitest';
-import { engineFatalHint } from './engineFatalHints';
+import { engineFatalHint, ENGINE_FATAL_FALLBACK } from './engineFatalHints';
 
 describe('engineFatalHint', () => {
-	it('маппит Address Filter Fields на подсказку про IP-наборы в DNS', () => {
-		const raw =
-			'FATAL[0000] start service: initialize rule-set[58]: cloudflare_2: ' +
-			'validate dns rule[2]: Legacy Address Filter Fields in DNS rules is deprecated';
-		expect(engineFatalHint(raw)).toContain('IP-набор');
-	});
+	const cases: [string, string][] = [
+		['... Legacy Address Filter Fields in DNS rules is deprecated', 'IP-набор'],
+		['FATAL[0000] start service: initialize cache-file: timeout', 'killall sing-box'],
+		['initialize router: parse rule-set[2]: open /opt/x.srs: no such file or directory', '.srs'],
+		['start service: ... outbound not found: awg-vpn0', 'outbound'],
+		['missing fakeip record, try enable `experimental.cache_file`', 'FakeIP'],
+		['initialize inbound[0]: listen tcp 0.0.0.0:51272: bind: address already in use', 'Порт'],
+	];
+	for (const [raw, needle] of cases) {
+		it(`maps ${needle}`, () => {
+			expect(engineFatalHint(raw)).toContain(needle);
+		});
+	}
 
-	it('возвращает null для неизвестного FATAL', () => {
+	it('returns null for unknown FATAL', () => {
 		expect(engineFatalHint('FATAL[0000] something unfamiliar')).toBeNull();
 	});
-
-	it('возвращает null для пустого/отсутствующего ввода', () => {
+	it('returns null for empty/missing input', () => {
 		expect(engineFatalHint('')).toBeNull();
 		expect(engineFatalHint(null)).toBeNull();
 		expect(engineFatalHint(undefined)).toBeNull();
+	});
+	it('exposes a non-empty fallback', () => {
+		expect(ENGINE_FATAL_FALLBACK.length).toBeGreaterThan(0);
 	});
 });
