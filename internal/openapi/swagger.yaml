@@ -3594,6 +3594,9 @@ definitions:
         items:
           $ref: '#/definitions/api.SingboxRouterIssueDTO'
         type: array
+      lastError:
+        example: engine start failed
+        type: string
       netfilterAvailable:
         example: true
         type: boolean

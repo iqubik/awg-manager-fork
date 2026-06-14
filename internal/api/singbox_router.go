@@ -46,6 +46,7 @@ type SingboxRouterStatusData struct {
 	OutboundAWGCount       int                     `json:"outboundAwgCount" example:"2"`
 	OutboundCompositeCount int                     `json:"outboundCompositeCount" example:"1"`
 	Final                  string                  `json:"final" example:"direct"`
+	LastError              string                  `json:"lastError,omitempty" example:"engine start failed"`
 	Issues                 []SingboxRouterIssueDTO `json:"issues,omitempty"`
 }
 
