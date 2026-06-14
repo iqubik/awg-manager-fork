@@ -161,6 +161,7 @@ func (s *integrationSingbox) Start() error                              { return
 func (s *integrationSingbox) ValidateConfigDir(_ context.Context) error { return nil }
 func (s *integrationSingbox) ConfigDir() string                         { return s.dir }
 func (s *integrationSingbox) Binary() string                            { return "" }
+func (s *integrationSingbox) LastError() string                         { return "" }
 
 // noopWANIPCollector is a test double that returns no WAN IPs. Wired
 // into router.Deps so NewService doesn't fall back to the production

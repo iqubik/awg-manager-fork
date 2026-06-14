@@ -30,6 +30,9 @@ type Status struct {
 	OutboundCompositeCount int     `json:"outboundCompositeCount"`
 	Final                  string  `json:"final"`
 	Issues                 []Issue `json:"issues,omitempty"`
+	// LastError is the last sing-box fatal/exit reason, populated only when
+	// the engine is enabled but not active (СБОЙ). Empty otherwise.
+	LastError string `json:"lastError,omitempty"`
 }
 
 type Issue struct {
