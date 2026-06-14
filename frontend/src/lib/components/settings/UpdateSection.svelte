@@ -28,6 +28,9 @@
 	let upgrading = $state(false);
 	let showConfirm = $state(false);
 	let showChangelog = $state(false);
+	let upgradePhase = $state<'idle' | 'starting' | 'waiting-restart'>('idle');
+	let restartAttempt = $state(0);
+	const maxRestartAttempts = 30;
 
 	const manualCheckTitle = $derived(
 		updateInfo?.available ? 'Проверить наличие более новой версии' : 'Проверить обновления'
@@ -50,6 +53,14 @@
 			? 'Свежие сборки из ветки разработки, могут быть нестабильны.'
 			: 'Стабильные релизы из GitHub Release.'
 	);
+	const upgradeProgress = $derived.by(() => {
+		if (!upgrading) return 0;
+		if (upgradePhase === 'starting') return 18;
+		if (upgradePhase === 'waiting-restart') {
+			return Math.min(95, 18 + Math.round((restartAttempt / maxRestartAttempts) * 77));
+		}
+		return 0;
+	});
 
 	async function checkForUpdates() {
 		if (checking) return;
@@ -82,6 +93,8 @@
 		if (checking || !updateInfo?.available) return;
 		showConfirm = false;
 		upgrading = true;
+		upgradePhase = 'starting';
+		restartAttempt = 0;
 
 		// Capture instanceId before upgrade to detect restart
 		let previousInstanceId = '';
@@ -95,14 +108,17 @@
 		} catch (e) {
 			notifications.error(`Запуск обновления: ${downloadErrorToText(e)}`);
 			upgrading = false;
+			upgradePhase = 'idle';
+			restartAttempt = 0;
 			return;
 		}
 
 		// Poll boot-status (public endpoint — no auth, no connection-lost callbacks).
 		// Detect restart via instanceId change, then reload to pick up new frontend.
-		const maxAttempts = 30;
+		upgradePhase = 'waiting-restart';
 
-		for (let i = 0; i < maxAttempts; i++) {
+		for (let i = 0; i < maxRestartAttempts; i++) {
+			restartAttempt = i + 1;
 			await new Promise(r => setTimeout(r, 2000));
 			try {
 				const status = await api.getBootStatus();
@@ -117,6 +133,8 @@
 
 		notifications.error('Сервер не ответил после обновления');
 		upgrading = false;
+		upgradePhase = 'idle';
+		restartAttempt = 0;
 	}
 </script>
 
@@ -125,6 +143,16 @@
 		{#if upgrading}
 			<span class="setting-description update-status">
 				Обновление... не закрывайте страницу
+			</span>
+			<div class="update-progress" aria-label="Прогресс обновления">
+				<div class="update-progress-bar" style={`width: ${upgradeProgress}%`}></div>
+			</div>
+			<span class="setting-description update-progress-caption">
+				{#if upgradePhase === 'starting'}
+					Запускаем обновление...
+				{:else}
+					Ожидаем перезапуск сервиса...
+				{/if}
 			</span>
 		{:else if updateInfo?.available}
 			<span class="setting-description update-available">
@@ -342,6 +370,26 @@
 
 	.update-status {
 		color: var(--accent) !important;
+	}
+
+	.update-progress {
+		width: 100%;
+		height: 0.45rem;
+		overflow: hidden;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--border) 65%, transparent);
+	}
+
+	.update-progress-bar {
+		height: 100%;
+		border-radius: inherit;
+		background: var(--accent);
+		transition: width 0.35s ease;
+	}
+
+	.update-progress-caption {
+		font-size: 0.75rem;
+		color: var(--text-muted, var(--text-secondary));
 	}
 
 	.update-diagnostics {

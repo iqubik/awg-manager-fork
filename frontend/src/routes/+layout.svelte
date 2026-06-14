@@ -31,6 +31,7 @@
 	import { loadPresetCatalog } from '$lib/stores/presets';
 	import { donateModalOpen, openDonateModal, closeDonateModal } from '$lib/stores/donateModal';
 	import { outboundReferenced } from '$lib/stores/outboundReferenced';
+	import { isMockDevMode } from '$lib/env';
 	import { isStaleAssetError, reloadOnceForStaleAssets } from '$lib/utils/staleAssetReload';
 	import TunnelReferencedModal from '$lib/components/tunnels/TunnelReferencedModal.svelte';
 	import DevelopFeedbackFab from '$lib/components/layout/DevelopFeedbackFab.svelte';
@@ -417,6 +418,7 @@
 		{hasUpdate}
 		{isPreRelease}
 		bind:mobileMenuOpen
+		showDonateButton={isMockDevMode()}
 		onToggleThemeMode={() => theme.toggleMode()}
 		onLogout={() => auth.logout()}
 		onOpenDonate={openDonateModal}
@@ -627,4 +629,5 @@
 	.donate-wallet-link:hover {
 		text-decoration: underline;
 	}
+
 </style>

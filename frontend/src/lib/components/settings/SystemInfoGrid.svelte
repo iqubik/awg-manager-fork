@@ -237,10 +237,6 @@
 			<span class="info-val">{details?.opkgStorage || '—'}</span>
 		</div>
 	{/if}
-	<div class="setting-row">
-		<span class="info-key">Сообщество</span>
-		<span class="detail-muted-block">Заглушка</span>
-	</div>
 	{#if isExpert && details}
 		<details class="more-box" bind:open={detailsOpen}>
 			<summary class="more-summary">
