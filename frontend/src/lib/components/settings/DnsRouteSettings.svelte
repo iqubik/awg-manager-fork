@@ -68,7 +68,12 @@
 {#if settings.dnsRoute.autoRefreshEnabled}
 	<div class="settings-panel">
 		<!-- svelte-ignore a11y_label_has_associated_control -->
-		<label class="form-label">Режим обновления:</label>
+		<label class="form-label">
+			<span>Режим обновления:</span>
+			<span class="form-label-hint">
+				{localMode === 'interval' ? 'рекомендуется 6–24 ч' : 'локальное время роутера'}
+			</span>
+		</label>
 		<div class="mode-options">
 			<label class="mode-option">
 				<input type="radio" value="interval" bind:group={localMode} disabled={saving} />
@@ -104,7 +109,6 @@
 					</Button>
 				{/if}
 			</div>
-			<p class="form-hint">Рекомендуется от 6 до 24 часов</p>
 		{/if}
 
 		{#if localMode === 'daily'}
@@ -126,7 +130,6 @@
 					</Button>
 				{/if}
 			</div>
-			<p class="form-hint">Локальное время роутера</p>
 		{/if}
 	</div>
 {/if}
@@ -137,8 +140,7 @@
 		grid-template-columns: minmax(0, 1fr) auto;
 		grid-template-areas:
 			'label label'
-			'modes form'
-			'hint hint';
+			'modes form';
 		align-items: center;
 		gap: 0.55rem 0.75rem;
 		min-width: 0;
@@ -151,11 +153,21 @@
 
 	.form-label {
 		grid-area: label;
-		display: block;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
 		font-size: 0.8125rem;
 		font-weight: 600;
 		color: var(--text-secondary);
 		margin: 0;
+	}
+
+	.form-label-hint {
+		font-size: 0.75rem;
+		font-weight: 400;
+		color: var(--text-muted);
+		white-space: nowrap;
 	}
 
 	.mode-options {
@@ -192,14 +204,6 @@
 		min-width: 0;
 	}
 
-	.form-hint {
-		grid-area: hint;
-		margin: 0;
-		font-size: 0.75rem;
-		line-height: 1.35;
-		color: var(--text-secondary);
-	}
-
 	.input-with-suffix {
 		display: inline-flex;
 		align-items: center;
@@ -233,11 +237,20 @@
 			grid-template-areas:
 				'label'
 				'modes'
-				'form'
-				'hint';
+				'form';
 			align-items: stretch;
 			gap: 0.6rem;
 			padding: 0.75rem;
+		}
+
+		.form-label {
+			align-items: flex-start;
+			flex-direction: column;
+			gap: 0.2rem;
+		}
+
+		.form-label-hint {
+			white-space: normal;
 		}
 
 		.mode-options {

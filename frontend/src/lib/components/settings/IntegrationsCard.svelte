@@ -9,6 +9,8 @@
 	import { Blocks } from 'lucide-svelte';
 
 	interface Props {
+		expanded?: boolean;
+		onToggleExpanded?: () => void;
 		singboxStatus: SingboxStatus | null;
 		singboxStatusLoading?: boolean;
 		hydraStatus: HydraRouteStatus | null;
@@ -25,6 +27,8 @@
 	}
 
 	let {
+		expanded = true,
+		onToggleExpanded,
 		singboxStatus,
 		singboxStatusLoading = false,
 		hydraStatus,
@@ -120,7 +124,43 @@
 {#if showSingbox || showHydra}
 	<div class="settings-block">
 		<div class="card">
-		<SettingsSectionLabel label="Интеграции" icon={Blocks} tone="purple" header />
+		<button
+			type="button"
+			class="settings-card-toggle"
+			aria-expanded={expanded}
+			aria-controls="integrations-card-body"
+			onclick={() => onToggleExpanded?.()}
+		>
+			<span class="settings-card-toggle-label">
+				<SettingsSectionLabel label="Интеграции" icon={Blocks} tone="purple" inline />
+			</span>
+			<span class="settings-card-toggle-meta">
+				<span class="settings-card-meta-text">
+					{#if singboxInstalled && hydraInstalled}
+						Sing-box · HydraRoute
+					{:else if singboxInstalled}
+						Sing-box
+					{:else if hydraInstalled}
+						HydraRoute
+					{:else}
+						Не установлены
+					{/if}
+				</span>
+				<svg
+					class="settings-card-chevron"
+					class:open={expanded}
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<polyline points="6 9 12 15 18 9" />
+				</svg>
+			</span>
+		</button>
+		{#if expanded}
+		<div id="integrations-card-body" class="settings-card-body">
 		{#if showSingbox}
 			<div class="setting-row">
 				<div class="integration-item">
@@ -265,6 +305,8 @@
 			</div>
 		{/if}
 		</div>
+		{/if}
+		</div>
 	</div>
 {/if}
 
@@ -286,6 +328,66 @@
 <style>
 	.card {
 		container-type: inline-size;
+	}
+
+	.settings-card-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.875rem;
+		width: 100%;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.settings-card-toggle:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+		outline-offset: 0.25rem;
+		border-radius: 0.75rem;
+	}
+
+	.settings-card-toggle-label,
+	.settings-card-toggle-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.625rem;
+		min-width: 0;
+	}
+
+	.settings-card-toggle-label {
+		flex: 1 1 auto;
+	}
+
+	.settings-card-toggle-meta {
+		flex: 0 0 auto;
+		color: var(--color-text-secondary);
+	}
+
+	.settings-card-meta-text {
+		max-width: 12rem;
+		font-size: 0.75rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.settings-card-chevron {
+		width: 1rem;
+		height: 1rem;
+		flex-shrink: 0;
+		transition: transform var(--t-normal) ease;
+	}
+
+	.settings-card-chevron.open {
+		transform: rotate(180deg);
+	}
+
+	.settings-card-body {
+		margin-top: 0.75rem;
 	}
 
 	.setting-row {

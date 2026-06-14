@@ -35,11 +35,13 @@
 	}: Props = $props();
 
 	let showSearch = $derived(sourceRowCount >= TUNNEL_SEARCH_MIN_ROWS);
-	let showMobileSort = $derived(sortOptions.length > 0);
-	let show = $derived(showSearch || showViewToggle || showMobileSort);
+	let hasMultipleRows = $derived(sourceRowCount > 1);
+	let showEffectiveViewToggle = $derived(showViewToggle && hasMultipleRows);
+	let showMobileSort = $derived(hasMultipleRows && sortOptions.length > 0);
+	let show = $derived(showSearch || showEffectiveViewToggle || showMobileSort);
 </script>
 
-{#if show && (showSearch || showViewToggle || showMobileSort)}
+{#if show && (showSearch || showEffectiveViewToggle || showMobileSort)}
 	<div class="toolbar-view-row">
 		{#if showSearch}
 			<div class="tunnel-toolbar-search">
@@ -56,7 +58,7 @@
 				/>
 			</div>
 		{/if}
-		{#if showViewToggle && viewToggle}
+		{#if showEffectiveViewToggle && viewToggle}
 			{@render viewToggle()}
 		{/if}
 		{#if showMobileSort}

@@ -66,18 +66,29 @@
 				href={suggestionIssueUrl}
 				target="_blank"
 				rel="noopener noreferrer"
+				title="Сообщение / предложение"
 				onclick={closeModal}
 			>
-				<span class="split-label">
+				<span class="sr-only">Сообщение / предложение</span>
+				<span class="feedback-action-label-full split-label" aria-hidden="true">
 					<span>Сообщение /</span>
 					<span class="split-second">предложение</span>
 				</span>
+				<span class="feedback-action-label-short" aria-hidden="true">Сообщение</span>
 			</Button>
-			<Button variant="outline-danger" size="md" fullWidth onclick={handleIncident}>
-				<span class="split-label">
+			<Button
+				variant="outline-danger"
+				size="md"
+				fullWidth
+				title="Инцидент / ошибка"
+				onclick={handleIncident}
+			>
+				<span class="sr-only">Инцидент / ошибка</span>
+				<span class="feedback-action-label-full split-label" aria-hidden="true">
 					<span>Инцидент /</span>
 					<span class="split-second">ошибка</span>
 				</span>
+				<span class="feedback-action-label-short" aria-hidden="true">Ошибка</span>
 			</Button>
 		</div>
 	{/snippet}
@@ -174,10 +185,36 @@
 		display: inline;
 	}
 
+	.feedback-action-label-short {
+		display: none;
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
+	}
+
 	/* Узкие кнопки в футере (мобилка и md-модалка): вторая часть под «/» */
 	@container (max-width: 22rem) {
 		.split-second {
 			display: block;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.feedback-action-label-full {
+			display: none;
+		}
+
+		.feedback-action-label-short {
+			display: inline;
 		}
 	}
 </style>

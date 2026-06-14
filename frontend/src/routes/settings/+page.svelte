@@ -56,8 +56,9 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	import { pluralize, AVAILABLE_WORDS, TUNNEL_WORDS } from "$lib/utils/pluralize";
 	import {
 		CircleArrowDown,
-		Lock,
 		CloudDownload,
+		Eye,
+		EyeOff,
 		ScrollText,
 		Wrench,
 		Power,
@@ -68,6 +69,8 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	const LOGGING_EXPANDED_KEY = 'awgm_settings_logging_expanded_v1';
 	const ADVANCED_EXPANDED_KEY = 'awgm_settings_advanced_expanded_v1';
 	const ACTIONS_EXPANDED_KEY = 'awgm_settings_actions_expanded_v1';
+	const UPDATE_EXPANDED_KEY = 'awgm_settings_update_expanded_v1';
+	const INTEGRATIONS_EXPANDED_KEY = 'awgm_settings_integrations_expanded_v1';
 
 	const expandUsageLevel = $derived($page.url.searchParams.has('mode'));
 	const highlightFeedbackFab = $derived($page.url.searchParams.has('feedbackFab'));
@@ -85,6 +88,8 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	const downloadRouteLabel = $derived(resolveDownloadRouteLabel(settings, $downloadOutbounds));
 	const visibleDownloadRouteLabel = $derived(showDownloadRouteDetails ? downloadRouteLabel : '');
 	let updateInfo: UpdateInfo | null = $state(null);
+	let updateExpanded = $state(true);
+	let integrationsExpanded = $state(true);
 	let downloadsExpanded = $state(true);
 	let loggingExpanded = $state(true);
 	let advancedExpanded = $state(true);
@@ -105,6 +110,7 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	let systemInfoInFlight: Promise<void> | null = null;
 	let developGateOpen = $state(false);
 	let footerPatrolWidth = $state(0);
+	let apiKeyVisible = $state(false);
 
 	const singboxStatusValue = $derived($singboxStatus.data ?? null);
 	const singboxStatusLoading = $derived(
@@ -122,6 +128,13 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	const hydraStatusError = $derived($hydrarouteStatus.error);
 	const hydraInstalled = $derived(hydraStatusValue?.installed ?? false);
 	const hydraRunning = $derived(hydraStatusValue?.running ?? false);
+	const apiKeyHasValue = $derived(Boolean(settings?.apiKey?.trim()));
+	const apiKeyDisplayValue = $derived.by(() => {
+		const key = settings?.apiKey?.trim() ?? '';
+		if (!key) return '';
+		if (apiKeyVisible) return key;
+		return '••••••••-••••-••••-••••-••••••••••••';
+	});
 	const downloadsMeta = $derived(settings ? `Автопроверка: ${settings.updates.checkEnabled ? 'вкл' : 'выкл'}` : '');
 	const actionsMeta = $derived.by(() => {
 		const parts = ['AWGM'];
@@ -357,6 +370,16 @@ if (browser) {
 	if (savedActions !== null) {
 		actionsExpanded = savedActions === '1';
 	}
+
+	const savedUpdate = localStorage.getItem(UPDATE_EXPANDED_KEY);
+	if (savedUpdate !== null) {
+		updateExpanded = savedUpdate === '1';
+	}
+
+	const savedIntegrations = localStorage.getItem(INTEGRATIONS_EXPANDED_KEY);
+	if (savedIntegrations !== null) {
+		integrationsExpanded = savedIntegrations === '1';
+	}
 }
 
 $effect(() => {
@@ -385,6 +408,16 @@ $effect(() => {
 	localStorage.setItem(ACTIONS_EXPANDED_KEY, actionsExpanded ? '1' : '0');
 });
 
+$effect(() => {
+	if (!browser) return;
+	localStorage.setItem(UPDATE_EXPANDED_KEY, updateExpanded ? '1' : '0');
+});
+
+$effect(() => {
+	if (!browser) return;
+	localStorage.setItem(INTEGRATIONS_EXPANDED_KEY, integrationsExpanded ? '1' : '0');
+});
+
 	async function toggleAuth(enabled: boolean) {
 		if (!settings) return;
 		saving = true;
@@ -407,6 +440,7 @@ $effect(() => {
 			// over plain HTTP (router LAN context), so the backend produces
 			// the UUID via crypto/rand and persists it in one round-trip.
 			settings = await api.regenerateApiKey();
+			apiKeyVisible = false;
 			setGlobalSettings(settings);
 			notifications.success("API ключ сгенерирован");
 		} catch {
@@ -735,18 +769,50 @@ $effect(() => {
 
 				<div id="awgm-update" class="settings-block">
 					<div class="card settings-highlight-target" class:highlighted={$settingsUpdateHighlight}>
-						<SettingsSectionLabel label="Обновление AWGM" icon={CircleArrowDown} tone="green" header />
-						<UpdateSection
-							bind:updateInfo
-							currentChannel={settings.updates.channel}
-							{saving}
-							showChannelSwitch={isUpdateChannelSwitchVisible(settings.usageLevel)}
-							onRequestChannel={requestChannel}
-						/>
+						<button
+							type="button"
+							class="settings-card-toggle"
+							aria-expanded={updateExpanded}
+							aria-controls="update-card-body"
+							onclick={() => (updateExpanded = !updateExpanded)}
+						>
+							<span class="settings-card-toggle-label">
+								<SettingsSectionLabel label="Обновление AWGM" icon={CircleArrowDown} tone="green" inline />
+							</span>
+							<span class="settings-card-toggle-meta">
+								<span class="settings-card-meta-text">
+									{settings.updates.channel === 'develop' ? 'Разработка' : 'Стабильный'}
+								</span>
+								<svg
+									class="settings-card-chevron"
+									class:open={updateExpanded}
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									aria-hidden="true"
+								>
+									<polyline points="6 9 12 15 18 9" />
+								</svg>
+							</span>
+						</button>
+						{#if updateExpanded}
+							<div id="update-card-body" class="settings-card-body">
+								<UpdateSection
+									bind:updateInfo
+									currentChannel={settings.updates.channel}
+									{saving}
+									showChannelSwitch={isUpdateChannelSwitchVisible(settings.usageLevel)}
+									onRequestChannel={requestChannel}
+								/>
+							</div>
+						{/if}
 					</div>
 				</div>
 
 				<IntegrationsCard
+					expanded={integrationsExpanded}
+					onToggleExpanded={() => (integrationsExpanded = !integrationsExpanded)}
 					singboxStatus={singboxStatusValue}
 					{singboxStatusLoading}
 					hydraStatus={hydraStatusValue}
@@ -770,26 +836,13 @@ $effect(() => {
 				onSelect={selectUsageLevel}
 				initialExpanded={expandUsageLevel}
 				highlighted={expandUsageLevel}
+				authEnabled={settings.authEnabled}
+				onToggleAuth={toggleAuth}
 			/>
 
 			{#if isAppearanceSettingsVisible(settings.usageLevel)}
 				<ThemeSchemeCard />
 			{/if}
-
-				<div class="settings-block">
-					<div class="card">
-					<SettingsSectionLabel label="Доступ" icon={Lock} tone="blue" header />
-					<div class="setting-row toggle-inline-row">
-						<div class="flex flex-col gap-1">
-							<span class="font-medium">Авторизация</span>
-							<span class="setting-description">
-								Требовать вход через учётную запись роутера для доступа к панели управления.
-							</span>
-						</div>
-						<Toggle checked={settings.authEnabled} onchange={toggleAuth} disabled={saving} />
-					</div>
-					</div>
-				</div>
 
 				<div class="settings-block">
 					<div class="card">
@@ -898,23 +951,6 @@ $effect(() => {
 
 				{#if $usageLevel === "expert"}
 				<div class="settings-block">
-					<div class="card">
-					<SettingsSectionLabel label="Мониторинг" icon={CircleArrowDown} tone="teal" header />
-					<div class="setting-row ping-target-setting">
-						<div class="flex flex-col gap-1 ping-target-copy">
-							<span class="font-medium">Настройки мониторинга перенесены</span>
-							<span class="setting-description">
-								Планирование, цели проверки и исключения туннелей теперь находятся в разделе «Мониторинг» → «Настройки».
-							</span>
-						</div>
-						<div class="ping-target-action">
-							<a class="settings-link-button" href="/monitoring">Открыть мониторинг</a>
-						</div>
-					</div>
-					</div>
-				</div>
-
-				<div class="settings-block">
 					<div
 						id="feedback-fab"
 						class="card settings-highlight-target"
@@ -957,7 +993,7 @@ $effect(() => {
 										<input
 											type="text"
 											class="api-key-input"
-											value={settings.apiKey ?? ""}
+											value={apiKeyDisplayValue}
 											readonly
 											placeholder="не сгенерирован"
 											onclick={copyApiKey}
@@ -965,6 +1001,20 @@ $effect(() => {
 												? "Нажмите, чтобы скопировать в буфер обмена"
 												: "Сначала нажмите «Сгенерировать»"}
 										/>
+										<button
+											type="button"
+											class="api-key-visibility-button"
+											aria-label={apiKeyVisible ? 'Скрыть API ключ' : 'Показать API ключ'}
+											title={apiKeyVisible ? 'Скрыть API ключ' : 'Показать API ключ'}
+											disabled={!apiKeyHasValue}
+											onclick={() => (apiKeyVisible = !apiKeyVisible)}
+										>
+											{#if apiKeyVisible}
+												<EyeOff size={18} strokeWidth={2} />
+											{:else}
+												<Eye size={18} strokeWidth={2} />
+											{/if}
+										</button>
 										<div class="api-key-action">
 											<Button variant="secondary" size="md" onclick={generateApiKey} disabled={saving}>
 												Сгенерировать
@@ -1308,60 +1358,45 @@ $effect(() => {
 
 	.api-key-controls {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) max-content;
+		grid-template-columns: minmax(0, 1fr) 2.5rem max-content;
 		align-items: stretch;
 		gap: 0.5rem;
 		width: 100%;
 		min-width: 0;
 	}
 
-	.ping-target-setting {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 0.65rem;
-		align-items: start;
+	.api-key-visibility-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.5rem;
+		height: 2.5rem;
+		flex: 0 0 2.5rem;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-secondary);
+		color: var(--color-text-secondary);
+		cursor: pointer;
+		transition:
+			color var(--t-fast) ease,
+			border-color var(--t-fast) ease,
+			background var(--t-fast) ease;
 	}
 
-	.ping-target-copy {
-		min-width: 0;
+	.api-key-visibility-button:hover:not(:disabled) {
+		color: var(--color-text-primary);
+		border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+		background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-secondary));
+	}
+
+	.api-key-visibility-button:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 
 	.api-key-input {
 		width: 100%;
 		max-width: none;
-	}
-
-	.ping-target-action {
-		display: flex;
-		align-items: flex-start;
-		justify-content: flex-start;
-		align-self: end;
-		min-width: 0;
-	}
-
-	.settings-link-button {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: auto;
-		min-width: 7.5rem;
-		height: 32px;
-		min-height: 32px;
-		max-height: 32px;
-		box-sizing: border-box;
-		padding: 0 0.85rem;
-		border-radius: 0.75rem;
-		border: 1px solid var(--color-border);
-		background: var(--color-bg-secondary);
-		color: var(--color-text-primary);
-		text-decoration: none;
-		font-weight: 600;
-		transition: background var(--t-fast) ease, border-color var(--t-fast) ease;
-	}
-
-	.settings-link-button:hover {
-		background: var(--color-bg-hover);
-		border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
 	}
 
 	.api-key-input {
@@ -1395,27 +1430,6 @@ $effect(() => {
 	}
 
 	@media (min-width: 641px) {
-		.ping-target-setting > *:first-child {
-			display: flex;
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 0.25rem;
-		}
-
-		.ping-target-setting {
-			gap: 0.875rem;
-		}
-
-		.ping-target-setting .setting-description {
-			white-space: normal;
-			overflow: visible;
-			text-overflow: clip;
-		}
-
-		.ping-target-action {
-			align-self: start;
-		}
-		
 		.api-key-setting {
 			display: grid;
 			grid-template-columns: minmax(0, 1fr);
@@ -1438,7 +1452,7 @@ $effect(() => {
 
 		.api-key-controls {
 			width: 100%;
-			grid-template-columns: minmax(0, 1fr) max-content;
+			grid-template-columns: minmax(0, 1fr) 2.5rem max-content;
 			align-items: stretch;
 		}
 
@@ -1448,25 +1462,12 @@ $effect(() => {
 	}
 
 	@media (max-width: 640px) {
-		.ping-target-setting {
-			grid-template-columns: 1fr;
-			align-items: stretch;
-		}
-
-		.ping-target-action {
-			justify-content: stretch;
-		}
-
-		.settings-link-button {
-			width: 100%;
-		}
-
 		.api-key-setting {
 			grid-template-columns: 1fr;
 		}
 
 		.api-key-controls {
-			grid-template-columns: minmax(0, 1fr) max-content;
+			grid-template-columns: minmax(0, 1fr) 2.5rem max-content;
 		}
 
 		.api-key-setting {
