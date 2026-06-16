@@ -1399,6 +1399,9 @@ function currentSingboxDelays() {
 	const subDelays = [];
 	for (const sub of mockSubscriptions) {
 		const members = Array.isArray(sub.members) ? sub.members : [];
+		const selectorTag = String(sub.selectorTag || '');
+		const activeTag = String(sub.activeMember || '');
+		let activeDelay = 0;
 		for (let i = 0; i < members.length; i++) {
 			const m = members[i];
 			const tag = String(m?.tag || '');
@@ -1416,7 +1419,24 @@ function currentSingboxDelays() {
 			for (let j = 0; j < tag.length; j++) acc = ((acc << 5) - acc + tag.charCodeAt(j)) | 0;
 			const spread = Math.abs(acc) % 591;
 			const base = isActive ? 15 + (spread % 140) : 120 + (spread % 481);
-			subDelays.push({ tag, delay: mockDelayJitter(base, 45) });
+			const delay = mockDelayJitter(base, 45);
+			subDelays.push({ tag, delay });
+			if (isActive) activeDelay = delay;
+		}
+		if (selectorTag) {
+			if (!sub.enabled || (sub.lastError && String(sub.lastError).trim() !== '')) {
+				subDelays.push({ tag: selectorTag, delay: 0 });
+			} else if (activeDelay > 0) {
+				subDelays.push({ tag: selectorTag, delay: activeDelay });
+			} else if (activeTag) {
+				let acc = 0;
+				for (let j = 0; j < activeTag.length; j++) acc = ((acc << 5) - acc + activeTag.charCodeAt(j)) | 0;
+				const spread = Math.abs(acc) % 591;
+				const base = 15 + (spread % 140);
+				subDelays.push({ tag: selectorTag, delay: mockDelayJitter(base, 45) });
+			} else {
+				subDelays.push({ tag: selectorTag, delay: mockDelayJitter(120, 45) });
+			}
 		}
 	}
 
