@@ -150,6 +150,10 @@ func (s *SettingsStore) Load() (*Settings, error) {
 		settings.ManagedServers = deduped
 		needsSave = true
 	}
+	if normalized := NormalizeMonitoringSettings(settings.Monitoring); normalized != settings.Monitoring {
+		settings.Monitoring = normalized
+		needsSave = true
+	}
 
 	if needsSave {
 		if err := s.saveUnlocked(&settings); err != nil {
@@ -197,6 +201,7 @@ func (s *SettingsStore) defaultSettings() *Settings {
 			RouteTag:  "direct",
 			RouteKind: "direct",
 		},
+		Monitoring:           DefaultMonitoringSettings(),
 		ConnectivityCheckURL: DefaultConnectivityCheckURL,
 		SingboxRouter: SingboxRouterSettings{
 			Enabled:        false,
@@ -471,6 +476,7 @@ func (s *SettingsStore) migrateToV27(settings *Settings) {
 	if settings.SingboxRouter.RoutingMode == "" {
 		settings.SingboxRouter.RoutingMode = "tproxy"
 	}
+	settings.Monitoring = NormalizeMonitoringSettings(settings.Monitoring)
 	settings.SchemaVersion = 27
 }
 
