@@ -606,18 +606,44 @@ func toMemberInfo(tag string, p vlink.ParsedOutbound) MemberInfo {
 	return mi
 }
 
+// ListDelayTags returns the periodic latency targets for enabled
+// subscriptions. Subscription cards are checked by selector outbound
+// when present, otherwise by the active member tag.
+func (s *Service) ListDelayTags() []string {
+	subs := s.store.List()
+	out := make([]string, 0, len(subs))
+	for _, sub := range subs {
+		if !sub.Enabled {
+			continue
+		}
+		tag := strings.TrimSpace(sub.SelectorTag)
+		if tag == "" {
+			tag = strings.TrimSpace(sub.ActiveMember)
+		}
+		if tag == "" {
+			continue
+		}
+		out = append(out, tag)
+	}
+	return out
+}
+
 // ListActiveMemberTags returns the active member tag of every enabled
-// subscription whose ActiveMember is set. Used by DelayChecker so the
-// active outbound of each subscription gets the same periodic latency
-// probe as regular sing-box tunnels.
+// subscription whose ActiveMember is set. This is kept for callers that
+// specifically operate on concrete member outbounds rather than the
+// subscription card's selector/composite delay target.
 func (s *Service) ListActiveMemberTags() []string {
 	subs := s.store.List()
 	out := make([]string, 0, len(subs))
 	for _, sub := range subs {
-		if !sub.Enabled || sub.ActiveMember == "" {
+		if !sub.Enabled {
 			continue
 		}
-		out = append(out, sub.ActiveMember)
+		tag := strings.TrimSpace(sub.ActiveMember)
+		if tag == "" {
+			continue
+		}
+		out = append(out, tag)
 	}
 	return out
 }
