@@ -54,6 +54,9 @@ func TestSettingsStore_LoadDefault(t *testing.T) {
 	if settings.Download.RouteTag != "direct" {
 		t.Errorf("Download.RouteTag = %q, want direct", settings.Download.RouteTag)
 	}
+	if settings.Monitoring != DefaultMonitoringSettings() {
+		t.Errorf("Monitoring = %+v, want %+v", settings.Monitoring, DefaultMonitoringSettings())
+	}
 }
 
 func TestSettingsStore_MigrateFromV1(t *testing.T) {
@@ -343,6 +346,25 @@ func TestSettings_MigrateV24toV25_SetsPingTargets(t *testing.T) {
 	}
 	if s.ConnectivityCheckURL != DefaultConnectivityCheckURL {
 		t.Fatalf("connectivity URL = %q, want %q", s.ConnectivityCheckURL, DefaultConnectivityCheckURL)
+	}
+}
+
+func TestSettings_MigrateV26toV27_SetsMonitoringDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	legacy := `{"schemaVersion":26,"authEnabled":false,"usageLevel":"basic"}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "settings.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write legacy: %v", err)
+	}
+	store := NewSettingsStore(tmpDir)
+	s, err := store.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if s.SchemaVersion != CurrentSchemaVersion {
+		t.Fatalf("schema = %d, want %d", s.SchemaVersion, CurrentSchemaVersion)
+	}
+	if s.Monitoring != DefaultMonitoringSettings() {
+		t.Fatalf("monitoring = %+v, want %+v", s.Monitoring, DefaultMonitoringSettings())
 	}
 }
 
