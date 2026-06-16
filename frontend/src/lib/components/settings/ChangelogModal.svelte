@@ -28,6 +28,27 @@
 	let error = $state('');
 	let entries = $state<ChangelogEntry[]>([]);
 
+	function changelogErrorToText(error: unknown): string {
+		const raw = error instanceof Error ? error.message : String(error ?? '');
+
+		if (
+			raw.includes('502') ||
+			raw.includes('Bad Gateway') ||
+			raw.includes('CHANGELOG_FETCH_FAILED') ||
+			raw.includes('Unexpected token') ||
+			raw.includes('<!DOCTYPE') ||
+			raw.includes('status 502')
+		) {
+			return 'Список изменений временно недоступен. Проверьте подключение к репозиторию обновлений или повторите попытку позже.';
+		}
+
+		if (raw.includes('changelog not published yet')) {
+			return 'Для этой версии список изменений ещё не опубликован.';
+		}
+
+		return 'Не удалось загрузить список изменений. Повторите попытку позже.';
+	}
+
 	$effect(() => {
 		if (!open) return;
 		loading = true;
@@ -38,7 +59,7 @@
 				entries = resp.entries ?? [];
 			})
 			.catch((e: unknown) => {
-				error = e instanceof Error ? e.message : String(e);
+				error = changelogErrorToText(e);
 			})
 			.finally(() => {
 				loading = false;
@@ -48,25 +69,10 @@
 
 <Modal {open} title="Что нового" size="lg" {onclose}>
 	<div class="modal-body">
-		{#if !pendingUpdate}
-			<div class="changelog-notice" role="status">
-				<p>
-					В данном списке представлены изменения из версий, которые были выпущены и установлены ранее.
-				</p>
-				<p class="changelog-notice-hint">
-					Вы можете проверить, доступно ли обновление, нажав кнопку ниже.
-				</p>
-				{#if oncheckUpdates}
-					<Button variant="secondary" size="sm" onclick={oncheckUpdates}>
-						Проверить обновления
-					</Button>
-				{/if}
-			</div>
-		{/if}
 		{#if loading}
 			<LoadingSpinner />
 		{:else if error}
-			<p class="state-msg state-error">Не удалось загрузить changelog. {error}</p>
+			<p class="state-msg state-error">{error}</p>
 		{:else if entries.length === 0}
 			<p class="state-msg">В CHANGELOG нет записей для этой ветки версий.</p>
 		{:else}
@@ -82,6 +88,7 @@
 	.modal-body {
 		max-height: 70vh;
 		overflow-y: auto;
+		overflow-x: hidden;
 	}
 	.state-msg {
 		margin: 0;
@@ -90,25 +97,5 @@
 	}
 	.state-error {
 		color: var(--error);
-	}
-	.changelog-notice {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
-		margin-bottom: 0.75rem;
-		border: 1px solid var(--color-warning-border, var(--border));
-		border-radius: var(--radius);
-		background: var(--color-warning-tint, var(--bg-secondary, rgba(234, 179, 8, 0.08)));
-	}
-	.changelog-notice p {
-		margin: 0;
-		font-size: 0.875rem;
-		color: var(--text-secondary);
-		line-height: 1.4;
-	}
-	.changelog-notice-hint {
-		color: var(--text-muted) !important;
 	}
 </style>
