@@ -406,7 +406,7 @@
 	.text-input { min-width: 200px; }
 	.select { min-width: 240px; }
 
-	@media (max-width: 640px) {
+	@media (max-width: 768px) {
 		.card-head {
 			padding: 0.875rem 0.875rem 0.75rem;
 		}
@@ -426,6 +426,7 @@
 		.card-footer :global(.btn) {
 			width: 100%;
 			min-width: 0;
+			justify-content: center;
 		}
 
 		.setting-row {
