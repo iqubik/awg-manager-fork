@@ -33,5 +33,10 @@
 			<EyeOff size={12} aria-hidden="true" />
 		{/if}
 	</button>
-	<span class="tunnel-list-endpoint-port">:{port}</span>
+	<span
+		class="tunnel-list-endpoint-port"
+		class:tunnel-list-endpoint-port--muted={!show}
+	>
+		{show ? `:${port}` : ':•••••'}
+	</span>
 </div>
