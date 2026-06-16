@@ -11,9 +11,20 @@
 		children: Snippet;
 		footer?: Snippet;
 		width?: number;
+		panelClass?: string;
+		bodyClass?: string;
 	}
 
-	let { open, onClose, title = '', children, footer, width = 480 }: Props = $props();
+	let {
+		open,
+		onClose,
+		title = '',
+		children,
+		footer,
+		width = 480,
+		panelClass = '',
+		bodyClass = '',
+	}: Props = $props();
 
 	/** Min downward drag (px) before the mobile sheet closes on release */
 	const SHEET_CLOSE_DRAG_PX = 140;
@@ -85,7 +96,7 @@
 		onkeydown={(e) => e.key === 'Enter' && onClose()}
 	></div>
 	<div
-		class="drawer"
+		class={`drawer ${panelClass}`.trim()}
 		class:sheet-dragging={sheetDragging}
 		style="--drawer-width: {width}px; --sheet-drag-y: {sheetDragY}px;"
 		role="dialog"
@@ -101,7 +112,7 @@
 				</IconButton>
 			</span>
 		</header>
-		<div class="drawer-body">
+		<div class={`drawer-body ${bodyClass}`.trim()}>
 			{@render children()}
 		</div>
 		{#if footer}
@@ -244,6 +255,20 @@
 		.drawer-body {
 			max-height: calc(85vh - 60px);
 			overflow-y: auto;
+		}
+
+		.drawer-footer {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			align-items: stretch;
+			gap: 0.5rem;
+			padding: 0.75rem 1rem max(0.75rem, env(safe-area-inset-bottom));
+		}
+
+		.drawer-footer :global(.btn) {
+			width: 100%;
+			min-width: 0;
+			justify-content: center;
 		}
 	}
 </style>
