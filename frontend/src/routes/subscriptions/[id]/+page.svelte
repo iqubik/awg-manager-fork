@@ -3,8 +3,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { api } from '$lib/api/client';
 	import type { Subscription } from '$lib/types';
-	import { PageContainer, PageHeader, LoadingSpinner } from '$lib/components/layout';
-	import { Tabs, LayoutViewToggle } from '$lib/components/ui';
+	import { PageContainer, LoadingSpinner } from '$lib/components/layout';
+	import { Tabs, LayoutViewToggle, BackLink } from '$lib/components/ui';
 	import SubscriptionMembersTab from '$lib/components/subscriptions/SubscriptionMembersTab.svelte';
 	import SubscriptionSettingsTab from '$lib/components/subscriptions/SubscriptionSettingsTab.svelte';
 	import { usageLevel } from '$lib/stores/settings';
@@ -252,7 +252,12 @@
 	{:else if !subscription && error}
 		<div class="err">{error}</div>
 	{:else if subscription}
-		<PageHeader title={subscription.label || subscription.url} backTo="/?tab=subscriptions" />
+		<div class="subscription-header">
+			<div class="subscription-header-left">
+				<BackLink href="/?tab=subscriptions" variant="accent" />
+				<h1 class="subscription-title">{subscription.label || subscription.url}</h1>
+			</div>
+		</div>
 		<Tabs
 			tabs={[
 				{ id: 'members', label: `Серверы (${subscription.memberTags.length})` },
@@ -311,6 +316,34 @@
 <style>
 	.err { color: #f85149; margin-top: 1rem; }
 	.content { margin-top: 1rem; }
+	.subscription-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		margin-bottom: 1rem;
+		padding-bottom: 0.75rem;
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.subscription-header-left {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		min-width: 0;
+	}
+
+	.subscription-title {
+		min-width: 0;
+		margin: 0;
+		font-size: 1.25rem;
+		font-weight: 600;
+		line-height: 1.2;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
 	.members-toolbar {
 		display: flex;
 		justify-content: flex-end;
@@ -322,6 +355,22 @@
 			display: none;
 		}
 	}
+
+	@media (max-width: 640px) {
+		.subscription-header {
+			align-items: stretch;
+		}
+
+		.subscription-header-left {
+			flex-wrap: wrap;
+			gap: 0.625rem;
+		}
+
+		.subscription-title {
+			font-size: 1.125rem;
+		}
+	}
+
 	.loading-progress {
 		margin: 1rem 0;
 		display: flex;
