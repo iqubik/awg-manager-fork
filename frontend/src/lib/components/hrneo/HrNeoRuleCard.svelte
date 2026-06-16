@@ -73,6 +73,7 @@
 				onchange={(checked) => ontoggle(checked)}
 				loading={toggleLoading}
 				disabled={broken}
+				ariaLabel={`Переключить HR Neo правило "${rule.name || 'без названия'}"`}
 				size="sm"
 			/>
 		{/if}
