@@ -86,6 +86,7 @@
 	.wrap {
 		position: relative;
 		display: inline-block;
+		max-width: 100%;
 	}
 
 	.trigger {
@@ -130,6 +131,7 @@
 		right: 0;
 		z-index: var(--z-page-overlay);
 		min-width: 280px;
+		max-width: min(320px, calc(100vw - 32px));
 		padding: 14px;
 		background: var(--color-bg-secondary);
 		border: 1px solid var(--color-border);
@@ -168,5 +170,20 @@
 		font-size: 11px;
 		color: var(--color-text-muted);
 		line-height: 1.4;
+	}
+
+	@media (max-width: 640px) {
+		.wrap {
+			display: flex;
+			justify-content: flex-end;
+			width: 100%;
+		}
+
+		.popover {
+			right: 0;
+			left: auto;
+			min-width: min(280px, calc(100vw - 32px));
+			width: min(320px, calc(100vw - 32px));
+		}
 	}
 </style>

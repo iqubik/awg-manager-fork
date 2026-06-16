@@ -6,7 +6,7 @@
 	import type { TunnelListItem, SingboxTunnel, Subscription } from '$lib/types';
 	import type { DiagnosticsTargetSeed } from '$lib/stores/diagnostics';
 	import { PageContainer, PageHeader } from '$lib/components/layout';
-	import { Tabs } from '$lib/components/ui';
+	import { Tabs, MobileTabRail } from '$lib/components/ui';
 	import { LogsTerminal } from '$lib/components/diagnostics';
 	import { settings, usageLevel } from '$lib/stores/settings';
 	import ConnectionsTab from './ConnectionsTab.svelte';
@@ -14,6 +14,7 @@
 	import AwgConfigAnalyzerTab from './AwgConfigAnalyzerTab.svelte';
 	import AboutDeviceTab from './AboutDeviceTab.svelte';
 	import DnsInfoTab from './DnsInfoTab.svelte';
+	import { readTunnelMobileLayout, subscribeTunnelMobileLayout } from '$lib/constants/singboxLayout';
 
 	type ActiveTab = 'logs' | 'connections' | 'checks' | 'about' | 'awgConfig' | 'dns';
 
@@ -42,6 +43,7 @@
 
 	let activeTab = $state<ActiveTab>(initialDiagnosticsTab());
 	let tunnels = $state<DiagnosticsTargetSeed[]>([]);
+	let isMobileTabs = $state(readTunnelMobileLayout());
 
 	const diagnosticsTabs = $derived.by((): { id: ActiveTab; label: string }[] => {
 		const base: { id: ActiveTab; label: string }[] = [
@@ -152,6 +154,10 @@
 		}
 	});
 
+	onMount(() => subscribeTunnelMobileLayout((mobile) => {
+		isMobileTabs = mobile;
+	}));
+
 	const pageTitle = $derived(
 		activeTab === 'connections' ? 'Соединения · Диагностика' :
 		activeTab === 'checks' ? 'Проверки · Диагностика' :
@@ -160,6 +166,7 @@
 		activeTab === 'dns' ? 'Сведения о DNS · Диагностика' :
 		'Журнал · Диагностика',
 	);
+
 </script>
 
 <svelte:head>
@@ -169,13 +176,24 @@
 <PageContainer width="full">
 	<PageHeader title="Диагностика" />
 
-	<Tabs
-		tabs={diagnosticsTabs}
-		active={activeTab}
-		onchange={(id) => (activeTab = id as ActiveTab)}
-		urlParam="tab"
-		defaultTab="logs"
-	/>
+	{#if isMobileTabs}
+		<MobileTabRail
+			tabs={diagnosticsTabs}
+			active={activeTab}
+			onchange={(id) => (activeTab = id as ActiveTab)}
+			urlParam="tab"
+			defaultTab="logs"
+			ariaLabel="Diagnostics sections"
+		/>
+	{:else}
+		<Tabs
+			tabs={diagnosticsTabs}
+			active={activeTab}
+			onchange={(id) => (activeTab = id as ActiveTab)}
+			urlParam="tab"
+			defaultTab="logs"
+		/>
+	{/if}
 
 	{#if activeTab === 'logs'}
 		<LogsTerminal />
