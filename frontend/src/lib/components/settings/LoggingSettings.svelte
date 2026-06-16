@@ -209,14 +209,20 @@
 
 	.hours-select,
 	.num-input {
-		width: 180px;
-		min-width: 180px;
+		width: var(--logging-control-width);
+		min-width: var(--logging-control-width);
 		flex-shrink: 0;
 	}
 
+	.logging-main-row,
+	.logging-level-row,
+	.logging-buffer-row {
+		--logging-control-width: 192px;
+	}
+
 	.logging-main-row .hours-select {
-		width: 132px;
-		min-width: 132px;
+		width: 120px;
+		min-width: 120px;
 	}
 
 	.hours-select :global(.field),
@@ -250,9 +256,18 @@
 		grid-template-columns: minmax(0, 1fr) auto;
 	}
 
-	.logging-level-row,
+	.logging-level-row {
+		grid-template-columns: minmax(0, 1fr) var(--logging-control-width);
+	}
+
 	.logging-buffer-row {
-		grid-template-columns: minmax(0, 1fr) 180px;
+		grid-template-columns: minmax(0, 1fr) var(--logging-control-width);
+	}
+
+	.logging-buffer-row .num-input {
+		width: 100%;
+		min-width: 0;
+		justify-self: stretch;
 	}
 
 	.logging-main-row > :global(.flex.flex-col),
@@ -261,7 +276,7 @@
 		min-width: 0;
 	}
 
-	@media (max-width: 640px) {
+	@media (max-width: 768px) {
 		.logging-main-row,
 		.logging-level-row,
 		.logging-buffer-row {
@@ -274,6 +289,10 @@
 		.num-input {
 			width: 100%;
 			min-width: 0;
+		}
+
+		.num-input input {
+			text-align: left;
 		}
 
 		.setting-controls {
