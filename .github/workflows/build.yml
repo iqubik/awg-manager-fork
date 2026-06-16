@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - develop
+    paths:
+      - VERSION
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -31,6 +33,45 @@ jobs:
 
       - name: Build frontend
         run: ./scripts/build-frontend.sh
+
+      - name: Verify i18n runtime asset
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          runtime_asset=""
+          for candidate in \
+            "frontend/build/iq-i18n-runtime.min.js" \
+            "frontend/build/iq-i18n-runtime.min.js.gz" \
+            "frontend/.svelte-kit/output/client/iq-i18n-runtime.min.js"
+          do
+            if [[ -s "$candidate" ]]; then
+              runtime_asset="$candidate"
+              break
+            fi
+          done
+
+          if [[ -z "$runtime_asset" ]]; then
+            echo "ERROR: iq-i18n-runtime.min.js is missing from frontend/build" >&2
+            exit 1
+          fi
+
+          if [[ "$runtime_asset" == *.gz ]]; then
+            runtime_source="$(gzip -dc "$runtime_asset")"
+          else
+            runtime_source="$(cat "$runtime_asset")"
+          fi
+
+          if [[ -z "${runtime_source//[[:space:]]/}" ]]; then
+            echo "ERROR: iq-i18n-runtime.min.js is empty in frontend output" >&2
+            exit 1
+          fi
+
+          runtime_head="$(printf '%s' "$runtime_source" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//' | head -c 64)"
+          if [[ "$runtime_head" == "<!doctype"* ]] || [[ "$runtime_head" == "<html"* ]] || [[ "$runtime_head" == "<"* ]]; then
+            echo "ERROR: iq-i18n-runtime.min.js resolved to HTML fallback" >&2
+            exit 1
+          fi
 
       - name: Upload frontend build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -62,7 +103,7 @@ jobs:
           PREV=""
 
           mkdir -p /tmp/prev-release
-          if gh release download latest --dir /tmp/prev-release --pattern VERSION 2>/dev/null \
+          if gh release download iq-latest --dir /tmp/prev-release --pattern VERSION 2>/dev/null \
             && [[ -f /tmp/prev-release/VERSION ]]; then
             PREV="$(tr -d '[:space:]' < /tmp/prev-release/VERSION)"
             esc="${VERSION//./\\.}"
@@ -180,7 +221,57 @@ jobs:
           IPK_VERSION="${{ needs.version.outputs.ipk_version }}"
           printf '%s\n' "$IPK_VERSION" > dist/VERSION
 
+          AWG_RELEASE_BASE_URL="https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest"
+          export AWG_RELEASE_BASE_URL
+
+          echo "AWG_RELEASE_BASE_URL=${AWG_RELEASE_BASE_URL}"
+
           SKIP_FRONTEND_BUILD=1 ./scripts/build-ipk.sh "$IPK_VERSION" "${{ matrix.arch }}"
+
+          if ! strings build/bin/awg-manager | grep -F "$AWG_RELEASE_BASE_URL" >/dev/null; then
+            echo "AWG_RELEASE_BASE_URL was not embedded into awg-manager binary" >&2
+            exit 1
+          fi
+
+          ipk="$(find dist -maxdepth 1 -type f -name 'awg-manager_*_${{ matrix.arch }}-kn.ipk' | head -n 1)"
+          if [[ -z "$ipk" ]]; then
+            echo "Missing generated IPK for ${{ matrix.arch }}" >&2
+            exit 1
+          fi
+
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          cp "$ipk" "$tmp/package.ipk"
+          (
+            cd "$tmp"
+            tar -xzf package.ipk
+
+            data_tar="$(find . -maxdepth 1 -type f -name 'data.tar.*' | head -n 1)"
+            if [[ -z "$data_tar" ]]; then
+              echo "Missing data.tar.* inside IPK" >&2
+              echo "IPK contents:" >&2
+              tar -tzf package.ipk >&2 || true
+              exit 1
+            fi
+
+            mkdir -p data-root
+            tar -xzf "$data_tar" -C data-root
+
+            bin="data-root/opt/bin/awg-manager"
+            if [[ ! -s "$bin" ]]; then
+              echo "Missing extracted awg-manager binary: $bin" >&2
+              exit 1
+            fi
+
+            if ! strings "$bin" | grep -F "$AWG_RELEASE_BASE_URL" >/dev/null; then
+              echo "AWG_RELEASE_BASE_URL was not embedded into packaged awg-manager binary" >&2
+              echo "Expected: $AWG_RELEASE_BASE_URL" >&2
+              echo "Known release/url strings:" >&2
+              strings "$bin" | grep -E 'github.com|repo.hoaxisr|releases/download|CHANGELOG|VERSION' >&2 || true
+              exit 1
+            fi
+          )
 
       - name: Upload result
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -193,22 +284,13 @@ jobs:
             dist/VERSION
           if-no-files-found: error
 
-  test:
-    name: Test
+  backend-test:
+    name: Backend tests
     runs-on: ubuntu-latest
-    needs:
-      - build
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
 
       - name: Setup go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
@@ -239,6 +321,44 @@ jobs:
             coverage.html
           if-no-files-found: error
 
+  frontend-check:
+    name: Frontend svelte-check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend check
+        working-directory: frontend
+        run: npm run check
+
+  frontend-test:
+    name: Frontend vitest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
@@ -252,7 +372,9 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build
-      - test
+      - backend-test
+      - frontend-check
+      - frontend-test
       - version
 
     steps:
@@ -285,7 +407,7 @@ jobs:
           go build -o /tmp/changelog-gen ./cmd/changelog-gen
 
           mkdir -p /tmp/prevcl
-          gh release download latest --dir /tmp/prevcl \
+          gh release download iq-latest --dir /tmp/prevcl \
             --pattern CHANGELOG.md --pattern RELEASED_SHA 2>/dev/null || true
 
           START=""
@@ -300,27 +422,99 @@ jobs:
           fi
 
           echo "changelog range: ${START}..${GITHUB_SHA}"
-          git log --format='%s' "${START}..${GITHUB_SHA}" \
+          git log --no-merges --format='%x1e%H%x1f%s%x1f%b' "${START}..${GITHUB_SHA}" \
             | /tmp/changelog-gen --version "$IPK_VERSION" --date "$(date +%F)" > /tmp/delta.md
 
           PREV=/tmp/prevcl/CHANGELOG.md
           [[ -f "$PREV" ]] || PREV=/dev/null
+
+          if [[ -s "$PREV" ]]; then
+            awk '
+              /^## \[/ {
+                keep = ($0 ~ /^## \[[0-9]+(\.[0-9]+){3,}(\+r[0-9]+)?\]/)
+              }
+              keep { print }
+            ' "$PREV" > /tmp/prevcl/CHANGELOG.fork.md
+            PREV=/tmp/prevcl/CHANGELOG.fork.md
+          fi
+
           if [[ -s /tmp/delta.md ]]; then
             cat /tmp/delta.md "$PREV" > dist/CHANGELOG.md
-          else
+          elif [[ -s "$PREV" ]]; then
             cat "$PREV" > dist/CHANGELOG.md
+          else
+            {
+              echo "## [${IPK_VERSION}] - $(date +%F)"
+              echo
+              echo "### Сборка"
+              echo "- Development build ${GITHUB_SHA}"
+              echo
+            } > dist/CHANGELOG.md
           fi
           printf '%s\n' "$GITHUB_SHA" > dist/RELEASED_SHA
           echo "=== dist/CHANGELOG.md (head) ==="; head -20 dist/CHANGELOG.md || true
+          if [[ ! -s dist/CHANGELOG.md ]]; then
+            echo "dist/CHANGELOG.md is empty" >&2
+            exit 1
+          fi
 
       - name: Publish pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IPK_VERSION: ${{ needs.version.outputs.ipk_version }}
         shell: bash
         run: |
           set -euo pipefail
 
-          shopt -s nullglob
+          RELEASE_TAG="iq-latest"
+          created_release=0
+
+          cleanup_failed_release() {
+            code=$?
+            if (( code != 0 )) && (( created_release == 1 )); then
+              echo "Publish failed, deleting partial ${RELEASE_TAG} release"
+              gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName,name,url || true
+              gh release delete "$RELEASE_TAG" --yes --cleanup-tag || true
+            fi
+            exit "$code"
+          }
+
+          trap cleanup_failed_release EXIT
+
+          current_version="$(tr -d '[:space:]' < ./dist/VERSION)"
+          if [[ "$current_version" != "$IPK_VERSION" ]]; then
+            echo "dist/VERSION mismatch: got $current_version, expected $IPK_VERSION" >&2
+            exit 1
+          fi
+
+          ipks=(./dist/awg-manager_*_*-kn.ipk)
+          if (( ${#ipks[@]} == 0 )); then
+            echo "No IPK packages found in ./dist" >&2
+            find ./dist -maxdepth 1 -type f -print
+            exit 1
+          fi
+
+          for ipk in ./dist/awg-manager_*_*-kn.ipk; do
+            base="$(basename "$ipk")"
+            if [[ "$base" != awg-manager_"${IPK_VERSION}"_* ]]; then
+              echo "Unexpected IPK version in asset: $base, expected $IPK_VERSION" >&2
+              exit 1
+            fi
+          done
+
+          required_files=(
+            ./dist/VERSION
+            ./dist/CHANGELOG.md
+            ./dist/RELEASED_SHA
+          )
+
+          for file in "${required_files[@]}"; do
+            if [[ ! -s "$file" ]]; then
+              echo "Required release asset is missing or empty: $file" >&2
+              exit 1
+            fi
+          done
+
           files=(./dist/awg-manager_* ./dist/sing-box-* ./dist/VERSION ./dist/CHANGELOG.md ./dist/RELEASED_SHA)
 
           if (( ${#files[@]} == 0 )); then
@@ -328,18 +522,77 @@ jobs:
             exit 1
           fi
 
-          gh release delete latest --yes --cleanup-tag || true
+          {
+            echo "Development build: ${IPK_VERSION}"
+            echo
+            echo "Commit: ${GITHUB_SHA}"
+            echo
+            echo "## Changelog"
+            echo
+            cat ./dist/CHANGELOG.md
+          } > ./dist/RELEASE_NOTES.md
 
-          PREV_TAG=$(gh release list --limit 10 --json tagName --jq '[.[] | select(.tagName != "latest")] | .[0].tagName' 2>/dev/null)
+          echo "Publishing development release"
+          echo "RELEASE_TAG=${RELEASE_TAG}"
+          echo "IPK_VERSION=${IPK_VERSION}"
+          echo "GITHUB_SHA=${GITHUB_SHA}"
+          echo "Assets:"
+          printf ' - %s\n' "${files[@]}"
+          echo "=== RELEASE_NOTES.md head ==="
+          head -80 ./dist/RELEASE_NOTES.md
 
-          EXTRA_FLAGS=()
-          if [ -n "${PREV_TAG}" ]; then
-            EXTRA_FLAGS+=("--notes-start-tag" "${PREV_TAG}")
+          echo "Deleting previous ${RELEASE_TAG} release"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release delete "$RELEASE_TAG" --yes --cleanup-tag
+          else
+            echo "No previous ${RELEASE_TAG} release, creating a fresh one"
           fi
 
-          gh release create latest "${files[@]}" \
+          created_release=1
+          gh release create "$RELEASE_TAG" "${files[@]}" \
             --target "${GITHUB_SHA}" \
-            --title "Development build" \
-            --generate-notes \
-            "${EXTRA_FLAGS[@]}" \
+            --title "Development build ${IPK_VERSION}" \
+            --notes-file ./dist/RELEASE_NOTES.md \
             --prerelease
+
+           echo "Published release state:"
+           gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName,name,url,assets
+
+          is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')"
+          if [[ "$is_draft" == "true" ]]; then
+            echo "Release ${RELEASE_TAG} is still draft after publish" >&2
+            exit 1
+          fi
+
+          published_dir="$(mktemp -d)"
+
+          published_version=""
+          for attempt in {1..10}; do
+            rm -f "${published_dir}/VERSION"
+
+            if gh release download "$RELEASE_TAG" \
+                --pattern VERSION \
+                --dir "$published_dir" >/dev/null 2>&1 \
+            && [[ -s "${published_dir}/VERSION" ]]; then
+              published_version="$(tr -d '[:space:]' < "${published_dir}/VERSION")"
+              break
+            fi
+
+            echo "VERSION asset is not available yet, retry ${attempt}/10"
+            sleep 3
+          done
+
+          if [[ -z "$published_version" ]]; then
+            echo "Published VERSION asset is not available for ${RELEASE_TAG}" >&2
+            gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName,name,url,assets || true
+            exit 1
+          fi
+
+          if [[ "$published_version" != "$IPK_VERSION" ]]; then
+            echo "Published VERSION mismatch: got ${published_version}, expected ${IPK_VERSION}" >&2
+            gh release view "$RELEASE_TAG" --json isDraft,isPrerelease,tagName,name,url,assets || true
+            exit 1
+          fi
+
+          created_release=0
+          trap - EXIT
