@@ -725,6 +725,12 @@ export interface GeoFileSettings {
 	refreshDailyTime?: string;
 }
 
+export interface MonitoringSettings {
+	historyHours: number;
+	sampleIntervalSec: number;
+	matrixRefreshIntervalSec: number;
+}
+
 export interface Settings {
 	schemaVersion?: number;
 	authEnabled: boolean;
@@ -737,6 +743,7 @@ export interface Settings {
 	download: DownloadSettings;
 	dnsRoute: DNSRouteSettings;
 	geoFile: GeoFileSettings;
+	monitoring?: MonitoringSettings;
 	connectivityCheckUrl: string;
 	usageLevel: UsageLevel;
 	hiddenSystemTunnels?: string[];

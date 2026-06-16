@@ -35,7 +35,7 @@ func (f *fakeLister) RunningTunnels(_ context.Context) []traffic.RunningTunnel {
 
 func TestScheduler_RunOnce_NoTunnels(t *testing.T) {
 	prober := &fakeProber{ok: true, latency: 10}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{},
 		TunnelStore:  nil,
@@ -62,7 +62,7 @@ func TestScheduler_RunOnce_NoTunnels(t *testing.T) {
 
 func TestScheduler_RunOnce_TwoTunnelsSelfOnly(t *testing.T) {
 	prober := &fakeProber{ok: true, latency: 14}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{tunnels: []traffic.RunningTunnel{
 			{ID: "tn-A", IfaceName: "wg0"},
@@ -110,7 +110,7 @@ func TestScheduler_RunOnce_TwoTunnelsSelfOnly(t *testing.T) {
 
 func TestScheduler_RunOnce_PrunesStaleHistory(t *testing.T) {
 	prober := &fakeProber{ok: true, latency: 10}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	// Pre-populate history for a tunnel that no longer exists.
 	v := 99
 	hist.Append("cf-1.1.1.1", "tn-old", Sample{TS: time.Now(), LatencyMs: &v, OK: true})
@@ -131,7 +131,7 @@ func TestScheduler_RunOnce_PrunesStaleHistory(t *testing.T) {
 
 func TestScheduler_RunOnce_FailedProberMarksCellNotOK(t *testing.T) {
 	prober := &fakeProber{ok: false}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{tunnels: []traffic.RunningTunnel{{ID: "tn-A", IfaceName: "wg0"}}},
 		Prober:       prober,
@@ -148,7 +148,7 @@ func TestScheduler_RunOnce_FailedProberMarksCellNotOK(t *testing.T) {
 
 func TestScheduler_RunOnce_ExcludesConfiguredTunnels(t *testing.T) {
 	prober := &fakeProber{ok: true, latency: 12}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	settingsStore := storage.NewSettingsStore(t.TempDir())
 	settings, err := settingsStore.Load()
 	if err != nil {
@@ -201,7 +201,7 @@ func (f *fakeSystemTunnels) List(_ context.Context) (systemTunnels, error) {
 
 func TestScheduler_RunOnce_ExcludesConfiguredSystemAndSingboxTunnels(t *testing.T) {
 	prober := &fakeProber{ok: true, latency: 11}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	settingsStore := storage.NewSettingsStore(t.TempDir())
 	settings, err := settingsStore.Load()
 	if err != nil {
@@ -242,7 +242,7 @@ func TestScheduler_RunOnce_ExcludesConfiguredSystemAndSingboxTunnels(t *testing.
 }
 
 func TestScheduler_SingboxTunnels_AppearInSnapshot(t *testing.T) {
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{},
 		SingboxTunnels: &fakeSingboxTunnels{items: []SingboxTunnelInfo{
@@ -265,7 +265,7 @@ func TestScheduler_SingboxTunnels_AppearInSnapshot(t *testing.T) {
 }
 
 func TestScheduler_SystemTunnels_AppearInSnapshot(t *testing.T) {
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{},
 		SystemTunnels: &fakeSystemTunnels{items: []SystemTunnelInfo{
@@ -340,7 +340,7 @@ func TestScheduler_RunOnce_SingboxRowsHaveNoSelfCells(t *testing.T) {
 	// they produce no matrix cells. The AWG tunnel still gets its self-cell.
 	httpProber := &fakeProber{ok: true, latency: 14}
 	clashDelay := &fakeSingboxDelay{delay: 87}
-	hist := NewHistory()
+	hist := NewHistory(nil)
 	sched := NewScheduler(SchedulerDeps{
 		TunnelLister: &fakeLister{tunnels: []traffic.RunningTunnel{
 			{ID: "tn-A", IfaceName: "wg0"},
@@ -384,6 +384,46 @@ func TestScheduler_RunOnce_SingboxRowsHaveNoSelfCells(t *testing.T) {
 	}
 	if clashDelay.calls.Load() != 0 {
 		t.Errorf("SingboxDelay called %d times, expected 0 (no sing-box cells)", clashDelay.calls.Load())
+	}
+}
+
+func TestScheduler_RunProbeCell_SingboxSubscriptionSkipsDelayProbe(t *testing.T) {
+	clashDelay := &fakeSingboxDelay{delay: 87}
+	sched := NewScheduler(SchedulerDeps{
+		Prober:       &fakeProber{ok: true, latency: 14},
+		SingboxDelay: clashDelay,
+	}, NewHistory(nil))
+
+	target := Target{
+		ID:   "cf-1.1.1.1",
+		Host: "1.1.1.1",
+		URL:  "https://1.1.1.1/",
+	}
+
+	latency, ok := sched.runProbeCell(context.Background(), target, Tunnel{
+		ID:           "sub-member",
+		Source:       "singbox",
+		SingboxTag:   "sub-member",
+		Subscription: true,
+	}, false)
+	if ok || latency != 0 {
+		t.Fatalf("subscription sing-box row must skip active delay probe, got latency=%d ok=%v", latency, ok)
+	}
+	if clashDelay.calls.Load() != 0 {
+		t.Fatalf("subscription sing-box row must not call TestDelay, got %d calls", clashDelay.calls.Load())
+	}
+
+	latency, ok = sched.runProbeCell(context.Background(), target, Tunnel{
+		ID:           "plain-singbox",
+		Source:       "singbox",
+		SingboxTag:   "plain-singbox",
+		Subscription: false,
+	}, false)
+	if !ok || latency != 87 {
+		t.Fatalf("regular sing-box row should use TestDelay, got latency=%d ok=%v", latency, ok)
+	}
+	if clashDelay.calls.Load() != 1 {
+		t.Fatalf("regular sing-box row should call TestDelay once, got %d calls", clashDelay.calls.Load())
 	}
 }
 
