@@ -392,24 +392,26 @@ definitions:
   api.ChangelogEntryDTO:
     properties:
       date:
-        example: "2024-01-15"
+        example: "2026-06-12"
         type: string
       groups:
         items:
           $ref: '#/definitions/api.ChangelogGroupDTO'
         type: array
       version:
-        example: 2.5.0
+        example: 2.12.3.10+r2
         type: string
     type: object
   api.ChangelogGroupDTO:
     properties:
       heading:
-        example: Bug Fixes
+        example: Исправлено
         type: string
       items:
         example:
-        - Fixed tunnel restart loop
+        - |-
+          fix(dev): align local build version with VERSION file
+          Комментарий: локальная dev-сборка теперь берёт base VERSION и добавляет +r0 сама.
         items:
           type: string
         type: array
@@ -1849,6 +1851,18 @@ definitions:
         example: "2024-01-15T10:30:00Z"
         type: string
     type: object
+  api.MonitoringSettingsDTO:
+    properties:
+      historyHours:
+        example: 24
+        type: integer
+      matrixRefreshIntervalSec:
+        example: 60
+        type: integer
+      sampleIntervalSec:
+        example: 60
+        type: integer
+    type: object
   api.MonitoringSnapshotData:
     properties:
       cells:
@@ -2630,6 +2644,8 @@ definitions:
         $ref: '#/definitions/api.DownloadSettingsDTO'
       logging:
         $ref: '#/definitions/api.LoggingSettingsDTO'
+      monitoring:
+        $ref: '#/definitions/api.MonitoringSettingsDTO'
       monitoringExcludedTunnels:
         example:
         - tn-1
@@ -3675,12 +3691,18 @@ definitions:
     type: object
   api.SingboxStatusData:
     properties:
+      checksumMatchesRequired:
+        example: true
+        type: boolean
       currentSha256:
         example: 76e67bb07b5c2bf4cef108c2f21a5ffaa684d124c21ffe220fc89b39cf1de934
         type: string
       currentVersion:
         example: 1.13.11
         type: string
+      customBuild:
+        example: false
+        type: boolean
       features:
         example:
         - with_quic
@@ -3729,6 +3751,9 @@ definitions:
       version:
         example: 1.9.3
         type: string
+      versionMatchesRequired:
+        example: true
+        type: boolean
     type: object
   api.SingboxStatusResponse:
     properties:
@@ -7879,8 +7904,8 @@ paths:
       - managed
   /monitoring/history:
     get:
-      description: Returns up to `limit` (default 60) most-recent samples for a single
-        (target, tunnelId) pair, oldest-first.
+      description: Returns up to `limit` (default current monitoring capacity) most-recent
+        samples for a single (target, tunnelId) pair, oldest-first.
       parameters:
       - description: Target identifier
         in: query
@@ -7892,7 +7917,7 @@ paths:
         name: tunnelId
         required: true
         type: string
-      - description: Max samples to return (default 60)
+      - description: Max samples to return (default current monitoring capacity)
         in: query
         name: limit
         type: integer
