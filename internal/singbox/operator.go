@@ -25,6 +25,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/sys/env"
 	"github.com/hoaxisr/awg-manager/internal/sys/ndmsinfo"
 	"github.com/hoaxisr/awg-manager/internal/sys/perftrace"
+	"github.com/hoaxisr/awg-manager/internal/sys/semver"
 )
 
 // maxSingboxBootWait caps how long startAndWait polls the Clash API
@@ -1427,13 +1428,22 @@ func (o *Operator) GetStatus(ctx context.Context) Status {
 	}
 	s.CurrentVersion = s.Version
 	s.RequiredVersion = o.RequiredVersion()
-	if o.inst != nil && s.CurrentVersion != "" && s.RequiredVersion != "" {
-		s.CurrentSHA256, _ = o.inst.CurrentSHA256()
+	if o.inst != nil {
 		s.RequiredSHA256 = o.inst.RequiredSHA256()
-		s.UpdateAvailable = s.CurrentVersion != s.RequiredVersion ||
-			(s.CurrentSHA256 != "" && s.RequiredSHA256 != "" && !strings.EqualFold(s.CurrentSHA256, s.RequiredSHA256))
-	} else {
-		s.UpdateAvailable = s.CurrentVersion != "" && s.RequiredVersion != "" && s.CurrentVersion != s.RequiredVersion
+		if s.CurrentVersion != "" {
+			s.CurrentSHA256, _ = o.inst.CurrentSHA256()
+		}
+	}
+	if s.CurrentVersion != "" && s.RequiredVersion != "" {
+		cmp := semver.Compare(s.CurrentVersion, s.RequiredVersion)
+		s.VersionMatchesRequired = cmp == 0
+		shaMismatch := false
+		if s.CurrentSHA256 != "" && s.RequiredSHA256 != "" {
+			s.ChecksumMatchesRequired = strings.EqualFold(s.CurrentSHA256, s.RequiredSHA256)
+			shaMismatch = !s.ChecksumMatchesRequired
+		}
+		s.CustomBuild = (s.VersionMatchesRequired && shaMismatch) || cmp > 0
+		s.UpdateAvailable = cmp < 0
 	}
 	if o.inst != nil {
 		s.InstallState = string(o.inst.EvaluateInstallState())
@@ -2454,7 +2464,8 @@ func (o *Operator) Update(ctx context.Context) error {
 	if o.inst == nil {
 		return fmt.Errorf("installer not wired")
 	}
-	if o.inst.MatchesRequired(ctx) {
+	status := o.GetStatus(ctx)
+	if status.VersionMatchesRequired || status.CustomBuild {
 		return nil
 	}
 	if o.inst.EvaluateInstallState() == installer.InstallStateOutdatedNoSpace {
