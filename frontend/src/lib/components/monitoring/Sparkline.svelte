@@ -63,7 +63,7 @@
 	);
 </script>
 
-<svg {width} {height} role="img" aria-label="Latency sparkline">
+<svg {width} {height} role="img" aria-label="График задержки">
 	{#each thresholdLines as line}
 		<line
 			x1={padding}
