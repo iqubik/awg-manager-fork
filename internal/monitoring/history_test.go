@@ -14,7 +14,7 @@ func mkSample(ms int, ok bool) Sample {
 }
 
 func TestHistory_AppendAndGet(t *testing.T) {
-	h := NewHistory()
+	h := NewHistory(nil)
 	for i := 0; i < 10; i++ {
 		h.Append("tgt", "tn", mkSample(i, true))
 	}
@@ -31,22 +31,24 @@ func TestHistory_AppendAndGet(t *testing.T) {
 }
 
 func TestHistory_RingCapacity(t *testing.T) {
-	h := NewHistory()
-	for i := 0; i < HistoryCapacity+25; i++ {
+	h := NewHistory(nil)
+	for i := 0; i < DefaultMonitoringHistoryCapacity+25; i++ {
 		h.Append("tgt", "tn", mkSample(i, true))
 	}
 	got := h.Get("tgt", "tn", 0)
-	if len(got) != HistoryCapacity {
-		t.Errorf("expected capacity %d, got %d", HistoryCapacity, len(got))
+	if len(got) != DefaultMonitoringHistoryCapacity {
+		t.Errorf("expected capacity %d, got %d", DefaultMonitoringHistoryCapacity, len(got))
 	}
-	// Oldest should now be HistoryCapacity-th sample (i=25).
-	if got[0].LatencyMs == nil || *got[0].LatencyMs != 25 {
-		t.Errorf("oldest after rollover should be 25, got %+v", got[0])
+	overflow := 25
+	wantOldest := overflow
+	// Oldest should now be the first sample after the overflow.
+	if got[0].LatencyMs == nil || *got[0].LatencyMs != wantOldest {
+		t.Errorf("oldest after rollover should be %d, got %+v", wantOldest, got[0])
 	}
 }
 
 func TestHistory_GetLimit(t *testing.T) {
-	h := NewHistory()
+	h := NewHistory(nil)
 	for i := 0; i < 30; i++ {
 		h.Append("tgt", "tn", mkSample(i, true))
 	}
@@ -60,7 +62,7 @@ func TestHistory_GetLimit(t *testing.T) {
 }
 
 func TestHistory_Latest(t *testing.T) {
-	h := NewHistory()
+	h := NewHistory(nil)
 	if h.Latest("tgt", "tn") != nil {
 		t.Errorf("expected nil for empty history")
 	}
@@ -72,7 +74,7 @@ func TestHistory_Latest(t *testing.T) {
 }
 
 func TestHistory_PruneTunnels(t *testing.T) {
-	h := NewHistory()
+	h := NewHistory(nil)
 	h.Append("tgt", "tn-A", mkSample(1, true))
 	h.Append("tgt", "tn-B", mkSample(2, true))
 	h.Append("tgt", "tn-C", mkSample(3, true))
