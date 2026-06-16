@@ -71,9 +71,10 @@
 		hasUpdate?: boolean;
 		isPreRelease?: boolean;
 		mobileMenuOpen?: boolean;
+		showDonateButton?: boolean;
 		onToggleThemeMode: () => void;
 		onLogout: () => void;
-		onOpenDonate: () => void;
+		onOpenDonate?: () => void;
 	}
 
 	let {
@@ -99,6 +100,7 @@
 		hasUpdate = false,
 		isPreRelease = false,
 		mobileMenuOpen = $bindable(false),
+		showDonateButton = true,
 		onToggleThemeMode,
 		onLogout,
 		onOpenDonate,
@@ -253,7 +255,7 @@
 				</IconButton>
 			{/if}
 
-			{#if authenticated}
+			{#if authenticated && showDonateButton && onOpenDonate}
 				<IconButton variant="warm" ariaLabel="Поддержать проект" onclick={onOpenDonate}>
 					<Heart size={16} aria-hidden="true" />
 				</IconButton>
