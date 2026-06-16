@@ -24,6 +24,7 @@
 		storageKey?: string;
 		loadStoredKeyOnMount?: boolean;
 		pastePlaceholder?: string;
+		privacyHidden?: boolean;
 		oncountryconfig?: (config: string, meta: CountryConfigMeta) => void | Promise<void>;
 		onregularconfig?: (meta: { suggestedName?: string }) => void;
 		/** Вызывается после успешного чтения файла (например, подсказка имени). */
@@ -39,6 +40,7 @@
 		storageKey = PREMIUM_VPN_KEY_STORAGE,
 		loadStoredKeyOnMount = true,
 		pastePlaceholder = '[Interface]\nPrivateKey = ...\nAddress = 10.0.0.2/32\n\n[Peer]\nPublicKey = ...\nEndpoint = vpn.example.com:51820\nAllowedIPs = 0.0.0.0/0',
+		privacyHidden = false,
 		oncountryconfig,
 		onregularconfig,
 		onfileloaded
@@ -188,6 +190,7 @@
 		{:else if activeTab === 'paste'}
 			<AmneziaConfEditor
 				bind:value={importContent}
+				privacyHidden={privacyHidden}
 				variant={variant === 'modal' ? 'modal' : 'page'}
 				placeholder={pastePlaceholder}
 			/>
@@ -199,6 +202,7 @@
 				bind:linkPreview
 				{storageKey}
 				{variant}
+				privacyHidden={privacyHidden}
 				{loadStoredKeyOnMount}
 				{oncountryconfig}
 				{onregularconfig}
