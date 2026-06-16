@@ -718,6 +718,12 @@ export interface DNSRouteSettings {
 	refreshDailyTime?: string;  // "HH:MM" 24h format
 }
 
+export interface MonitoringSettings {
+	historyHours: number;
+	sampleIntervalSec: number;
+	matrixRefreshIntervalSec: number;
+}
+
 export interface Settings {
 	schemaVersion?: number;
 	authEnabled: boolean;
@@ -729,6 +735,7 @@ export interface Settings {
 	updates: UpdateSettings;
 	download: DownloadSettings;
 	dnsRoute: DNSRouteSettings;
+	monitoring?: MonitoringSettings;
 	connectivityCheckUrl: string;
 	usageLevel: UsageLevel;
 	hiddenSystemTunnels?: string[];
