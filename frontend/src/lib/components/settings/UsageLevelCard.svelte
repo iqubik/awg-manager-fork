@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Modal } from '$lib/components/ui';
+	import { Modal, Toggle } from '$lib/components/ui';
 	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
 	import type { UsageLevel } from '$lib/types/usageLevel';
 	import { USAGE_LEVEL_LABELS } from '$lib/types/usageLevel';
@@ -11,9 +11,19 @@
 		onSelect: (level: UsageLevel) => void | Promise<void>;
 		initialExpanded?: boolean;
 		highlighted?: boolean;
+		authEnabled?: boolean;
+		onToggleAuth?: (enabled: boolean) => void | Promise<void>;
 	}
 
-	let { value, saving, onSelect, initialExpanded = false, highlighted = false }: Props = $props();
+	let {
+		value,
+		saving,
+		onSelect,
+		initialExpanded = false,
+		highlighted = false,
+		authEnabled = false,
+		onToggleAuth,
+	}: Props = $props();
 
 	type LevelOption = {
 		value: UsageLevel;
@@ -168,6 +178,20 @@
 			</div>
 		</div>
 	{/if}
+
+	<div class="setting-row toggle-inline-row general-access-row">
+		<div class="flex flex-col gap-1">
+			<span class="font-medium">Авторизация</span>
+			<span class="setting-description">
+				Требовать вход через учётную запись роутера для доступа к панели управления.
+			</span>
+		</div>
+		<Toggle
+			checked={authEnabled}
+			onchange={(enabled) => onToggleAuth?.(enabled)}
+			disabled={saving || !onToggleAuth}
+		/>
+	</div>
 	</div>
 </div>
 
@@ -266,6 +290,12 @@
 
 	.level-picker .level-grid {
 		padding-top: 0.875rem;
+	}
+
+	.general-access-row {
+		border-top: 1px solid var(--color-border);
+		margin-top: 0.75rem;
+		padding-top: 0.75rem;
 	}
 
 	.level-grid {
