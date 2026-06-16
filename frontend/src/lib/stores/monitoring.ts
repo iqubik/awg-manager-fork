@@ -1,5 +1,8 @@
 import { writable } from 'svelte/store';
 import type { MonitoringSnapshot, MonitoringSample } from '$lib/types';
+import { DEFAULT_MONITORING_SETTINGS, getMonitoringHistoryCapacity } from '$lib/constants/monitoring';
+
+const DEFAULT_HISTORY_LIMIT = getMonitoringHistoryCapacity(DEFAULT_MONITORING_SETTINGS);
 
 const CACHE_KEY = 'awgm_monitoring_snapshot_v1';
 
@@ -68,20 +71,21 @@ export const monitoringStore = createMonitoringStore();
 // user re-opens the same cell quickly. Cleared on full page reload.
 const historyCache = new Map<string, MonitoringSample[]>();
 
-function cacheKey(targetId: string, tunnelId: string): string {
-	return `${targetId}|${tunnelId}`;
+function cacheKey(targetId: string, tunnelId: string, limit = DEFAULT_HISTORY_LIMIT): string {
+	return `${targetId}|${tunnelId}|${limit}`;
 }
 
-export function getCachedHistory(targetId: string, tunnelId: string): MonitoringSample[] | null {
-	return historyCache.get(cacheKey(targetId, tunnelId)) ?? null;
+export function getCachedHistory(targetId: string, tunnelId: string, limit = DEFAULT_HISTORY_LIMIT): MonitoringSample[] | null {
+	return historyCache.get(cacheKey(targetId, tunnelId, limit)) ?? null;
 }
 
 export function setCachedHistory(
 	targetId: string,
 	tunnelId: string,
 	samples: MonitoringSample[],
+	limit = DEFAULT_HISTORY_LIMIT,
 ) {
-	historyCache.set(cacheKey(targetId, tunnelId), samples);
+	historyCache.set(cacheKey(targetId, tunnelId, limit), samples);
 }
 
 export function clearHistoryCache() {
