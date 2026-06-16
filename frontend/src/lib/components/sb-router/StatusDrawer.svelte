@@ -156,6 +156,34 @@
 
 <SideDrawer {open} onClose={closeDrawer} title="Движок sing-box" width={420}>
   <div class="sections">
+    {#if isExpert}
+      <div class="drawer-meta-row">
+        <span class="drawer-meta-title">Настройки применяются автоматически</span>
+
+        <span
+          class="autosave-indicator"
+          class:saving
+          class:err={lastError}
+          title={saving
+            ? 'Сохраняем настройки sing-box'
+            : lastError
+              ? `Ошибка сохранения: ${lastError}`
+              : 'Настройки сохранены'}
+          aria-label={saving
+            ? 'Сохраняем настройки sing-box'
+            : lastError
+              ? 'Ошибка сохранения настроек sing-box'
+              : 'Настройки sing-box сохранены'}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 3h12l2 2v16H5z" />
+            <path d="M8 3v6h8V3" />
+            <path d="M8 17h8" />
+          </svg>
+        </span>
+      </div>
+    {/if}
+
     <!-- Состояние -->
     <section class="sec">
       <div class="sec-cap">Состояние</div>
@@ -296,6 +324,57 @@
 
 <style>
   .sections { display: flex; flex-direction: column; }
+  .drawer-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.625rem var(--sp-4);
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent);
+  }
+  .drawer-meta-title {
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    line-height: 1.3;
+  }
+  .autosave-indicator {
+    width: 24px;
+    height: 24px;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--color-success, #22c55e);
+    background: color-mix(in srgb, var(--color-success, #22c55e) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-success, #22c55e) 35%, transparent);
+  }
+  .autosave-indicator svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .autosave-indicator.saving {
+    color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+    animation: autosave-pulse 1.1s ease-in-out infinite;
+  }
+  .autosave-indicator.err {
+    color: var(--color-error, #dc2626);
+    background: color-mix(in srgb, var(--color-error, #dc2626) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-error, #dc2626) 40%, transparent);
+  }
+  @keyframes autosave-pulse {
+    0%, 100% { opacity: 0.65; }
+    50% { opacity: 1; }
+  }
   .sec {
     padding: 14px var(--sp-4);
     border-bottom: 1px solid var(--border);
@@ -403,13 +482,4 @@
   .chip-label { font-size: 12.5px; font-weight: 600; }
   .chip-desc { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
 
-  .footer-actions { display: flex; flex-direction: column; gap: 6px; width: 100%; }
-  .footer-btns {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-    width: 100%;
-  }
-  .save-status { align-self: flex-end; font-size: 11px; color: var(--text-muted); }
-  .save-status.err { color: var(--color-error, #dc2626); }
 </style>
