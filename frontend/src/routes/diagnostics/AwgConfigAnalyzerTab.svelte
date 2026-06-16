@@ -2,4 +2,4 @@
 	import AwgConfigAnalyzer from '$lib/components/diagnostics/AwgConfigAnalyzer.svelte';
 </script>
 
-<AwgConfigAnalyzer />
+<AwgConfigAnalyzer layoutMode="standalone" />

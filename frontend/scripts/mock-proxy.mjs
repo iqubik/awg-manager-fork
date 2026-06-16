@@ -6228,6 +6228,29 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'GET' && path === '/terminal/status') {
+		send(res, 200, {
+			success: true,
+			data: {
+				installed: false,
+				running: false,
+				sessionActive: false,
+			},
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/terminal/start') {
+		send(res, 400, {
+			success: false,
+			error: {
+				code: 'MOCK_TERMINAL_UNAVAILABLE',
+				message: 'Terminal WebSocket is not available in mock mode.',
+			},
+		});
+		return;
+	}
+
 	// ── fakeip config CRUD ────────────────────────────────────────────────────
 
 	if (req.method === 'GET' && path === '/singbox/fakeip/config/dns/servers/list') {
@@ -6628,7 +6651,6 @@ const server = http.createServer(async (req, res) => {
 	}
 
 	// ── end fakeip config CRUD ─────────────────────────────────────────────────
-
 	// Pass-through for everything else (including /events SSE).
 	const upstream = new URL(UPSTREAM);
 	const proxyReq = http.request(
