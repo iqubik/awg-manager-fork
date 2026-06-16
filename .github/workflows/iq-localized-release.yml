@@ -1,0 +1,499 @@
+name: "IQ Localized Release"
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: iq-localized-release
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  AWG_RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest
+  IQ_I18N_LANGUAGES: en,tr,fa,zh
+  IQ_I18N_PRIMARY_LANGUAGE: en
+
+jobs:
+  frontend:
+    name: Build localized frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout public repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Check i18n secrets
+        env:
+          IQ_I18N_TOKEN: ${{ secrets.IQ_I18N_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${IQ_I18N_TOKEN:-}" ]]; then
+            echo "IQ_I18N_TOKEN is required for localized release" >&2
+            exit 1
+          fi
+
+      - name: Checkout private i18n overlay
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: iqubik/awg-i18n-private
+          token: ${{ secrets.IQ_I18N_TOKEN }}
+          path: .iq-i18n-private
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build proprietary i18n runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f ".iq-i18n-private/scripts/build-runtime.mjs" ]]; then
+            echo "Missing private i18n builder: .iq-i18n-private/scripts/build-runtime.mjs" >&2
+            exit 1
+          fi
+
+          node .iq-i18n-private/scripts/build-runtime.mjs \
+            --out frontend/static/iq-i18n-runtime.min.js \
+            --languages "$IQ_I18N_LANGUAGES" \
+            --primary-language "$IQ_I18N_PRIMARY_LANGUAGE"
+
+          rm -f frontend/static/iq-i18n-runtime.min.js.map
+          rm -f frontend/static/iq-i18n-runtime.min.js.LICENSE.txt
+
+          forbidden_static="$(find frontend/static -maxdepth 1 -type f -print | grep -E '(^|/)(en|tr|fa|zh)\.json$|(^|/).*iq-i18n.*\.map$|(^|/).*iq-i18n.*LICENSE' || true)"
+          if [[ -n "$forbidden_static" ]]; then
+            echo "Forbidden standalone i18n dictionaries or private debug artifacts" >&2
+            echo "$forbidden_static" >&2
+            exit 1
+          fi
+
+          test -s frontend/static/iq-i18n-runtime.min.js
+
+      - name: Verify public repo does not contain dictionaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          forbidden_public="$(git ls-files | grep -E '(^|/)(en|tr|fa|zh)\.json$' || true)"
+          if [[ -n "$forbidden_public" ]]; then
+            echo "Public repo must not contain standalone en/tr/fa/zh dictionaries" >&2
+            echo "$forbidden_public" >&2
+            exit 1
+          fi
+
+      - name: Build frontend
+        run: ./scripts/build-frontend.sh
+
+      - name: Verify frontend build has runtime and no dictionaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -s frontend/build/iq-i18n-runtime.min.js ]]; then
+            if [[ -s frontend/static/iq-i18n-runtime.min.js ]]; then
+              echo "iq-i18n-runtime.min.js was not copied by frontend build; copying it into frontend/build" >&2
+              cp frontend/static/iq-i18n-runtime.min.js frontend/build/iq-i18n-runtime.min.js
+            else
+              echo "Missing iq-i18n-runtime.min.js in both frontend/build and frontend/static" >&2
+              echo "Known iq-i18n files:" >&2
+              find frontend -type f -name '*iq-i18n*' -print >&2 || true
+              exit 1
+            fi
+          fi
+
+          test -s frontend/build/iq-i18n-runtime.min.js
+
+          forbidden_build="$(find frontend/build -type f -print | grep -E '(^|/)(en|tr|fa|zh)\.json$|(^|/).*iq-i18n.*\.map$|(^|/).*iq-i18n.*LICENSE' || true)"
+          if [[ -n "$forbidden_build" ]]; then
+            echo "Forbidden standalone i18n dictionaries or private debug artifacts" >&2
+            echo "$forbidden_build" >&2
+            exit 1
+          fi
+
+      - name: Remove proprietary runtime from workspace
+        if: always()
+        run: rm -f frontend/static/iq-i18n-runtime.min.js frontend/static/iq-i18n-runtime.min.js.map frontend/static/iq-i18n-runtime.min.js.LICENSE.txt
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: frontend-build
+          path: frontend/build
+          if-no-files-found: error
+
+  version:
+    name: Resolve IPK version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ipk_version: ${{ steps.resolve.outputs.ipk_version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Resolve revision for IQ localized release
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          REV=1
+          PREV=""
+
+          mkdir -p /tmp/prev-release
+          if gh release download iq-latest --dir /tmp/prev-release --pattern VERSION 2>/dev/null \
+            && [[ -f /tmp/prev-release/VERSION ]]; then
+            PREV="$(tr -d '[:space:]' < /tmp/prev-release/VERSION)"
+            esc="${VERSION//./\\.}"
+            if [[ "$PREV" =~ ^${esc}\+r([0-9]+)$ ]]; then
+              REV=$((BASH_REMATCH[1] + 1))
+            fi
+          fi
+
+          IPK_VERSION="${VERSION}+r${REV}"
+          echo "Resolved ${IPK_VERSION} (previous: ${PREV:-none})"
+          echo "ipk_version=${IPK_VERSION}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build localized IPK (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs:
+      - frontend
+      - version
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: true
+      matrix:
+        arch:
+          - mipsel-3.4
+          - mips-3.4
+          - aarch64-3.10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Load sing-box version
+        shell: bash
+        run: |
+          set -euo pipefail
+          v="$(sed -n 's/^const RequiredVersion = "\(.*\)"/\1/p' internal/singbox/installer/embedded.go)"
+          echo "SINGBOX_VERSION=$v" >> "$GITHUB_ENV"
+          echo "SINGBOX_REF=v$v" >> "$GITHUB_ENV"
+
+      - name: Download frontend build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: frontend-build
+          path: frontend/build
+
+      - name: Setup go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: 1.25.10
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git ca-certificates gnupg curl file xz-utils unzip zip python3 python3-requests procps \
+            build-essential pkg-config
+
+          go install golang.org/dl/go1.23.12@latest
+          go1.23.12 download
+
+      - name: Restore sing-box build artifacts
+        id: singbox-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          key: iq-sing-box-${{ matrix.arch }}-${{ env.SINGBOX_VERSION }}-${{ env.SINGBOX_REF }}-${{ hashFiles('scripts/build-singbox.sh', 'scripts/patches/**') }}
+          path: |
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}.sha256
+
+      - name: Build sing-box
+        if: steps.singbox-cache.outputs.cache-hit != 'true'
+        env:
+          RELEASE_BASE_URL: ${{ env.AWG_RELEASE_BASE_URL }}
+        run: |
+          set -euo pipefail
+          ./scripts/build-singbox.sh "${{ matrix.arch }}"
+
+      - name: Save sing-box build artifacts
+        if: steps.singbox-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          key: iq-sing-box-${{ matrix.arch }}-${{ env.SINGBOX_VERSION }}-${{ env.SINGBOX_REF }}-${{ hashFiles('scripts/build-singbox.sh', 'scripts/patches/**') }}
+          path: |
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}.sha256
+
+      - name: Refresh sing-box embedded metadata
+        env:
+          RELEASE_BASE_URL: ${{ env.AWG_RELEASE_BASE_URL }}
+        run: |
+          set -euo pipefail
+          ./scripts/update-singbox-embedded.sh "${{ matrix.arch }}" "$SINGBOX_VERSION"
+
+      - name: Build localized IPK
+        id: build
+        env:
+          AWG_RELEASE_BASE_URL: ${{ env.AWG_RELEASE_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          : "${AWG_RELEASE_BASE_URL:?AWG_RELEASE_BASE_URL must be set for IQ localized release}"
+
+          file="dist/sing-box-${SINGBOX_VERSION}-${{ matrix.arch }}"
+          if [[ ! -f "$file" ]]; then
+            echo "Missing sing-box binary: $file" >&2
+            exit 1
+          fi
+
+          IPK_VERSION="${{ needs.version.outputs.ipk_version }}"
+          printf '%s\n' "$IPK_VERSION" > dist/VERSION
+
+          SKIP_FRONTEND_BUILD=1 AWG_RELEASE_BASE_URL="$AWG_RELEASE_BASE_URL" \
+            ./scripts/build-ipk.sh "$IPK_VERSION" "${{ matrix.arch }}"
+
+      - name: Verify localized IPK contents
+        shell: bash
+        env:
+          AWG_RELEASE_BASE_URL: ${{ env.AWG_RELEASE_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          ipk="$(find dist -maxdepth 1 -type f -name 'awg-manager_*_${{ matrix.arch }}-kn.ipk' | head -n 1)"
+          if [[ -z "$ipk" ]]; then
+            echo "Missing generated IPK for ${{ matrix.arch }}" >&2
+            exit 1
+          fi
+
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          cp "$ipk" "$tmp/package.ipk"
+          (
+            cd "$tmp"
+
+            echo "IPK file type:"
+            file package.ipk
+
+            tar -xzf package.ipk
+
+            data_tar="$(find . -maxdepth 1 -type f -name 'data.tar.*' | head -n 1)"
+            if [[ -z "$data_tar" ]]; then
+              echo "Missing data.tar.* inside IPK" >&2
+              echo "IPK contents:" >&2
+              tar -tzf package.ipk >&2 || true
+              exit 1
+            fi
+
+            if ! tar -tzf "$data_tar" | grep -E '(^|/)\.?/opt/bin/awg-manager$|^\./opt/bin/awg-manager$' >/dev/null; then
+              echo "Missing /opt/bin/awg-manager inside IPK data archive" >&2
+              echo "IPK data archive contents:" >&2
+              tar -tzf "$data_tar" >&2
+              exit 1
+            fi
+
+            mkdir -p data-root
+            tar -xzf "$data_tar" -C data-root
+
+            bin="data-root/opt/bin/awg-manager"
+            if [[ ! -s "$bin" ]]; then
+              echo "Missing extracted awg-manager binary: $bin" >&2
+              find data-root -maxdepth 4 -type f -print >&2 || true
+              exit 1
+            fi
+
+            if ! strings "$bin" | grep -F "$AWG_RELEASE_BASE_URL" >/dev/null; then
+              echo "AWG_RELEASE_BASE_URL was not embedded into packaged awg-manager binary" >&2
+              echo "Expected: $AWG_RELEASE_BASE_URL" >&2
+              echo "Known release/url strings:" >&2
+              strings "$bin" | grep -E 'github.com|repo.hoaxisr|releases/download|CHANGELOG|VERSION' >&2 || true
+              exit 1
+            fi
+
+            if ! strings "$bin" | grep -E 'iq-i18n-runtime\.min\.js|__IQ_I18N__|\[iq-i18n\]' >/dev/null; then
+              echo "Embedded frontend does not appear to contain IQ i18n runtime" >&2
+              echo "Known embedded iq-i18n strings:" >&2
+              strings "$bin" | grep -F 'iq-i18n' >&2 || true
+              exit 1
+            fi
+
+            forbidden_ipk="$(tar -tzf "$data_tar" | grep -E '(^|/)(tr|fa|zh)\.json$|(^|/).*iq-i18n.*\.map$|(^|/).*iq-i18n.*LICENSE' || true)"
+            if [[ -n "$forbidden_ipk" ]]; then
+              echo "Forbidden i18n source/debug files found inside IPK" >&2
+              echo "$forbidden_ipk" >&2
+              exit 1
+            fi
+          )
+
+      - name: Upload result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: result-${{ matrix.arch }}
+          path: |
+            dist/awg-manager_*_${{ matrix.arch }}-kn.ipk
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}.sha256
+            dist/VERSION
+          if-no-files-found: error
+
+  backend-test:
+    name: Backend tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Setup go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: 1.25.10
+
+      - name: Run go tests
+        shell: bash
+        run: go test -count=1 ./...
+
+  frontend-check:
+    name: Frontend svelte-check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend check
+        working-directory: frontend
+        run: npm run check
+
+  frontend-test:
+    name: Frontend vitest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npx vitest run
+
+  pre-release:
+    name: Publish IQ localized pre-release
+    runs-on: ubuntu-latest
+    needs:
+      - build
+      - backend-test
+      - frontend-check
+      - frontend-test
+      - version
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+
+      - name: Download build results
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: result-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "${{ needs.version.outputs.ipk_version }}" > dist/VERSION
+          printf '%s\n' "${GITHUB_SHA}" > dist/RELEASED_SHA
+
+          cat > dist/CHANGELOG.md <<EOF
+          # IQ localized build ${{ needs.version.outputs.ipk_version }}
+
+          Source commit: ${GITHUB_SHA}
+          Release channel: iq-latest
+          EOF
+
+      - name: Publish iq-latest pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          files=(./dist/awg-manager_* ./dist/sing-box-* ./dist/VERSION ./dist/CHANGELOG.md ./dist/RELEASED_SHA)
+
+          if (( ${#files[@]} == 0 )); then
+            echo "No release files found in ./dist" >&2
+            exit 1
+          fi
+
+          gh release delete iq-latest --yes --cleanup-tag || true
+
+          gh release create iq-latest "${files[@]}" \
+            --target "${GITHUB_SHA}" \
+            --title "IQ localized development build" \
+            --generate-notes \
+            --prerelease
+
+          echo "Published release state:"
+          gh release view iq-latest --json isDraft,isPrerelease,tagName,name
+
+          is_draft="$(gh release view iq-latest --json isDraft --jq '.isDraft')"
+          if [[ "$is_draft" == "true" ]]; then
+            echo "Release iq-latest is still draft after publish" >&2
+            exit 1
+          fi
+
+          published_version="$(curl -fsSL "https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest/VERSION" | tr -d '[:space:]')"
+          if [[ "$published_version" != "${{ needs.version.outputs.ipk_version }}" ]]; then
+            echo "Published VERSION mismatch: got ${published_version}, expected ${{ needs.version.outputs.ipk_version }}" >&2
+            exit 1
+          fi
