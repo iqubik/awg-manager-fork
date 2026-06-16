@@ -38,7 +38,8 @@ func New(version string, settings *storage.SettingsStore, appLogger logging.AppL
 		done:     make(chan struct{}),
 	}
 	s.downloader = newLoggingDownloader(newDefaultDownloader(), s.appLog)
-	s.changelog = newChangelogFetcher(changelogURLForChannel(channelStable), 10*time.Minute, s.downloader)
+	primary, secondary := changelogSourcesForChannel(channelStable)
+	s.changelog = newChangelogFetcher(primary, secondary, 10*time.Minute, s.downloader)
 	return s
 }
 
@@ -60,6 +61,43 @@ func (s *Service) SetDownloader(dl Downloader) {
 	if s.changelog != nil {
 		s.changelog.downloader = s.downloader
 	}
+}
+
+func (s *Service) syncChangelogSource(ctx context.Context) error {
+	ch := s.channel()
+	if ch == channelStable {
+		if source, err := resolveStableChangelogSource(ctx, s.downloader); err != nil {
+			repoURL := normalizedReleaseRepoURL()
+			return fmt.Errorf("resolve changelog source: channel=%s repoURL=%s: %w", ch, repoURL, err)
+		} else if source != nil {
+			if source.resolve != nil {
+				s.changelog.SetResolvedSources(source.primaryURL, source.secondaryURL, source.resolve)
+			} else {
+				s.changelog.SetSources(source.primaryURL, source.secondaryURL)
+			}
+			s.appLog.Debug("changelog", "", fmt.Sprintf(
+				"Resolved changelog source: channel=%s primary=%s secondary=%s",
+				ch,
+				source.primaryURL,
+				source.secondaryURL,
+			))
+			return nil
+		}
+	}
+
+	primary, secondary, err := resolveChangelogSourcesForChannel(ctx, s.downloader, ch)
+	if err != nil {
+		repoURL := normalizedReleaseRepoURL()
+		return fmt.Errorf("resolve changelog source: channel=%s repoURL=%s: %w", ch, repoURL, err)
+	}
+	s.changelog.SetSources(primary, secondary)
+	s.appLog.Debug("changelog", "", fmt.Sprintf(
+		"Resolved changelog source: channel=%s primary=%s secondary=%s",
+		ch,
+		primary,
+		secondary,
+	))
+	return nil
 }
 
 // Start begins periodic update checks.
@@ -118,8 +156,18 @@ func (s *Service) doCheck() {
 
 	ctx := context.Background()
 	ch := s.channel()
-	s.changelog.SetURL(changelogURLForChannel(ch))
 	info := checkWithDownloader(ctx, s.version, ch, s.downloader)
+
+	s.appLog.Info("check", "", fmt.Sprintf(
+		"Update source: channel=%s source=%s url=%s current=%s latest=%s available=%t error=%s",
+		ch,
+		info.Source,
+		info.SourceURL,
+		info.CurrentVersion,
+		info.LatestVersion,
+		info.Available,
+		info.Error,
+	))
 
 	s.mu.Lock()
 	s.cached = info
@@ -158,7 +206,9 @@ func (s *Service) CheckNow(ctx context.Context) *UpdateInfo {
 	s.mu.Unlock()
 
 	ch := s.channel()
-	s.changelog.SetURL(changelogURLForChannel(ch))
+	if ch == channelStable {
+		stableReleaseResolver.Clear()
+	}
 	info := checkWithDownloader(ctx, s.version, ch, s.downloader)
 
 	// A user-forced refresh should also invalidate the changelog cache so
@@ -204,6 +254,9 @@ func (s *Service) ApplyUpgrade(ctx context.Context) error {
 // parses it, and returns the slice of entries strictly newer than fromVer
 // and no newer than toVer. Result is sorted newest-first.
 func (s *Service) GetChangelog(ctx context.Context, fromVer, toVer string) ([]Entry, error) {
+	if err := s.syncChangelogSource(ctx); err != nil {
+		return nil, err
+	}
 	entries, err := s.changelog.Fetch(ctx)
 	if err != nil {
 		return nil, err
@@ -215,6 +268,9 @@ func (s *Service) GetChangelog(ctx context.Context, fromVer, toVer string) ([]En
 // only the entry that exactly matches version, or nil if there is no
 // such entry.
 func (s *Service) GetChangelogSingle(ctx context.Context, version string) (*Entry, error) {
+	if err := s.syncChangelogSource(ctx); err != nil {
+		return nil, err
+	}
 	entries, err := s.changelog.Fetch(ctx)
 	if err != nil {
 		return nil, err
@@ -225,6 +281,9 @@ func (s *Service) GetChangelogSingle(ctx context.Context, version string) (*Entr
 // GetChangelogMinor returns all CHANGELOG entries for the same major.minor
 // as version up to and including that release (e.g. 2.11.0–2.11.2 on 2.11.2+r70).
 func (s *Service) GetChangelogMinor(ctx context.Context, version string) ([]Entry, error) {
+	if err := s.syncChangelogSource(ctx); err != nil {
+		return nil, err
+	}
 	entries, err := s.changelog.Fetch(ctx)
 	if err != nil {
 		return nil, err

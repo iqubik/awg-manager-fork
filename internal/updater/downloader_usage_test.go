@@ -68,6 +68,13 @@ func (f *fakeDownloader) DownloadFile(ctx context.Context, req downloader.FileRe
 }
 
 func TestCheckWithDownloader_UsesDownloaderRequest(t *testing.T) {
+	oldReleaseBaseURL := releaseBaseURL
+	oldEntwareRepoURL := entwareRepoURL
+	defer func() {
+		releaseBaseURL = oldReleaseBaseURL
+		entwareRepoURL = oldEntwareRepoURL
+	}()
+
 	arch := archSuffix()
 	ipkName := "awg-manager_9.9.9_" + arch + "-kn.ipk"
 	packages := "Package: awg-manager\nVersion: 9.9.9\nFilename: " + ipkName + "\n"
@@ -235,7 +242,7 @@ func TestChangelogFetcher_UsesDownloaderRequest(t *testing.T) {
 			return []byte(md), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
 		},
 	}
-	f := newChangelogFetcher("http://repo.local/CHANGELOG.md", repoTimeout, dl)
+	f := newChangelogFetcher("http://repo.local/CHANGELOG.md", "", repoTimeout, dl)
 	entries, err := f.Fetch(context.Background())
 	if err != nil {
 		t.Fatalf("fetch changelog: %v", err)
