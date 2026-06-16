@@ -34,15 +34,15 @@
 	</div>
 	<div class="tile">
 		<span class="value tone-good">{up}</span>
-		<span class="label">Up</span>
+		<span class="label">Работают</span>
 	</div>
 	<div class="tile">
 		<span class="value" class:tone-bad={failed > 0}>{failed}</span>
-		<span class="label">Failed</span>
+		<span class="label">Сбоят</span>
 	</div>
 	<div class="tile">
 		<span class="value">{avgLatency !== null ? `${avgLatency}ms` : '—'}</span>
-		<span class="label">Средняя latency</span>
+		<span class="label">Средняя задержка</span>
 	</div>
 </div>
 

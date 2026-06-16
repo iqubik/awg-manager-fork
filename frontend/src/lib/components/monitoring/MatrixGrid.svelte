@@ -139,7 +139,7 @@
 		<table class="matrix">
 			<thead>
 				<tr>
-					<th class="th-target">Target</th>
+					<th class="th-target">Цель</th>
 					{#each sortedTunnels as t (t.id)}
 						{@const typeBadges = tunnelTypeBadges(t)}
 						{@const awgBackendValue = resolvedAwgBackend(t)}
@@ -263,7 +263,7 @@
 										ariaLabel="{target.name} × {tunnel.name}"
 									/>
 								{:else}
-									<MatrixCell latencyMs={null} ok={false} activeForRestart={false} ariaLabel="no data" />
+									<MatrixCell latencyMs={null} ok={false} activeForRestart={false} ariaLabel="нет данных" />
 								{/if}
 							</td>
 						{/each}
@@ -362,7 +362,7 @@
 										ariaLabel={`${target.name} × ${tunnel.name}`}
 									/>
 								{:else}
-									<MatrixCell latencyMs={null} ok={false} activeForRestart={false} ariaLabel="no data" />
+									<MatrixCell latencyMs={null} ok={false} activeForRestart={false} ariaLabel="нет данных" />
 								{/if}
 							</div>
 						{/each}
