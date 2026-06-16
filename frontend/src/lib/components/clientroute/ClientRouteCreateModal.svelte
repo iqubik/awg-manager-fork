@@ -35,6 +35,18 @@
 		value: t.id,
 		label: t.name,
 	})));
+	const fallbackOpts: DropdownOption<'drop' | 'bypass'>[] = [
+		{
+			value: 'drop',
+			label: 'Блокировать — Kill Switch',
+			description: 'Если туннель недоступен, трафик устройства будет заблокирован',
+		},
+		{
+			value: 'bypass',
+			label: 'Напрямую — Bypass VPN',
+			description: 'Если туннель недоступен, трафик пойдёт обычным маршрутом',
+		},
+	];
 
 	let selectedDevice = $state<{ ip: string; name: string } | null>(null);
 	let searchText = $state('');
@@ -193,27 +205,13 @@
 
 		<!-- Fallback selector -->
 		<div class="section">
-			<span class="section-label">Если туннель недоступен</span>
-			<div class="fallback-cards">
-				<button
-					type="button"
-					class="fallback-card"
-					class:active={selectedFallback === 'drop'}
-					onclick={() => (selectedFallback = 'drop')}
-				>
-					<span class="fallback-title">Блокировать</span>
-					<span class="fallback-subtitle">Kill Switch</span>
-				</button>
-				<button
-					type="button"
-					class="fallback-card"
-					class:active={selectedFallback === 'bypass'}
-					onclick={() => (selectedFallback = 'bypass')}
-				>
-					<span class="fallback-title">Напрямую</span>
-					<span class="fallback-subtitle">Bypass VPN</span>
-				</button>
-			</div>
+			<Dropdown
+				label="Если туннель недоступен"
+				bind:value={selectedFallback}
+				options={fallbackOpts}
+				fullWidth
+				multilineDescription
+			/>
 		</div>
 
 		<!-- Warning -->
@@ -372,44 +370,6 @@
 		background: color-mix(in srgb, var(--color-accent) 15%, transparent);
 	}
 
-	.fallback-cards {
-		display: flex;
-		gap: 0.75rem;
-	}
-
-	.fallback-card {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.25rem;
-		padding: 0.75rem;
-		border: 2px solid var(--color-border);
-		border-radius: 8px;
-		background: var(--color-bg-primary);
-		cursor: pointer;
-		transition: border-color 0.15s;
-	}
-
-	.fallback-card:hover {
-		border-color: var(--color-text-muted);
-	}
-
-	.fallback-card.active {
-		border-color: var(--color-accent);
-	}
-
-	.fallback-title {
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: var(--color-text-primary);
-	}
-
-	.fallback-subtitle {
-		font-size: 0.75rem;
-		color: var(--color-text-muted);
-	}
-
 	.field-error .device-list {
 		border-color: var(--error, #ef4444);
 		box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
@@ -423,5 +383,11 @@
 		color: var(--warning, #eab308);
 		font-size: 0.8125rem;
 		line-height: 1.4;
+	}
+
+	@media (max-width: 768px) {
+		.device-list {
+			max-height: 210px;
+		}
 	}
 </style>
