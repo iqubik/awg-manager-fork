@@ -160,15 +160,43 @@ jobs:
 
           git checkout -b "$WORK_BRANCH" "$DEVELOP_SHA"
 
+          finish_rebase_with_version_autoresolve() {
+            while [[ -d .git/rebase-merge || -d .git/rebase-apply ]]; do
+              conflicts="$(git diff --name-only --diff-filter=U | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+
+              if [[ "$conflicts" != "VERSION" ]]; then
+                echo "Rebase failed. Backup branch already pushed: ${BACKUP_BRANCH}" >&2
+                echo "Unresolved conflicts: ${conflicts:-<none>}" >&2
+                git status --short >&2 || true
+                git diff --name-only --diff-filter=U >&2 || true
+                git rebase --abort || true
+                exit 1
+              fi
+
+              echo "Auto-resolving VERSION from upstream tag ${UPSTREAM_TAG}"
+              git show "refs/tags/upstream/${UPSTREAM_TAG}:VERSION" > VERSION
+              git add VERSION
+
+              if git diff --cached --quiet; then
+                echo "VERSION-only replay became empty; skipping current commit"
+                git rebase --skip || true
+              else
+                GIT_EDITOR=true git rebase --continue || true
+              fi
+            done
+          }
+
           if ! git rebase "refs/tags/upstream/${UPSTREAM_TAG}"; then
-            echo "Rebase failed. Backup branch already pushed: ${BACKUP_BRANCH}" >&2
-            git status --short >&2 || true
-            git rebase --abort || true
-            exit 1
+            finish_rebase_with_version_autoresolve
           fi
 
           WORK_SHA="$(git rev-parse HEAD)"
           IPK_VERSION="$(tr -d '[:space:]' < VERSION)"
+          UPSTREAM_VERSION="$(git show "refs/tags/upstream/${UPSTREAM_TAG}:VERSION" | tr -d '[:space:]')"
+          if [[ "$IPK_VERSION" != "$UPSTREAM_VERSION" ]]; then
+            echo "Author release must keep upstream VERSION: got ${IPK_VERSION}, expected ${UPSTREAM_VERSION}" >&2
+            exit 1
+          fi
 
           git push origin "refs/heads/${WORK_BRANCH}:refs/heads/${WORK_BRANCH}"
 
