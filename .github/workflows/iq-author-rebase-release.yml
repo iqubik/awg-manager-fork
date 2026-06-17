@@ -679,20 +679,16 @@ jobs:
           printf '%s\n' "${WORK_SHA}" > dist/RELEASED_SHA
 
           cat > dist/CHANGELOG.md <<EOF
-          # IQ rebased release ${FORK_RELEASE_TAG}
+          ## [${IPK_VERSION}] - $(date +%F)
 
-          Author upstream:
-          - repo: hoaxisr/awg-manager
-          - tag: ${UPSTREAM_TAG}
-
-          IQ fork:
-          - release tag: ${FORK_RELEASE_TAG}
-          - work branch: ${WORK_BRANCH}
-          - backup branch: ${BACKUP_BRANCH}
-          - release sha: ${WORK_SHA}
-          - package version: ${IPK_VERSION}
-
-          Develop was not rewritten automatically.
+          ### Сборка
+          - IQ release ${FORK_RELEASE_TAG} с патчами fork поверх upstream ${UPSTREAM_TAG}.
+          - Код автора взят из hoaxisr/awg-manager ${UPSTREAM_TAG}.
+          - Release tag fork: ${FORK_RELEASE_TAG}.
+          - Work branch: ${WORK_BRANCH}.
+          - Backup branch: ${BACKUP_BRANCH}.
+          - Release SHA: ${WORK_SHA}.
+          - Develop не переписывался автоматически.
           EOF
 
       - name: Publish author-tag release
