@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripHostMask, endpointHost, peerStatus, buildPeerRowVM, STATUS_LABEL } from './peerRowVM';
+import { stripHostMask, endpointHost, peerStatus, buildPeerRowVM, splitHandshake, STATUS_LABEL } from './peerRowVM';
 import type { ManagedPeer, ManagedPeerStats } from '$lib/types';
 
 describe('stripHostMask', () => {
@@ -24,8 +24,23 @@ describe('endpointHost', () => {
 		expect(endpointHost('')).toBe('—');
 		expect(endpointHost(undefined)).toBe('—');
 	});
+	it('убирает порт у hostname', () => {
+		expect(endpointHost('vpn.example.com:443')).toBe('vpn.example.com');
+	});
+	it('нечисловой порт оставляет как есть', () => {
+		expect(endpointHost('host:abc')).toBe('host:abc');
+	});
 	it('голый ipv6 без порта оставляет как есть', () => {
 		expect(endpointHost('2001:db8::1')).toBe('2001:db8::1');
+	});
+});
+
+describe('splitHandshake', () => {
+	it('отрезает суффикс « назад»', () => {
+		expect(splitHandshake('2 дня назад')).toEqual({ main: '2 дня', suffix: 'назад' });
+	});
+	it('без суффикса возвращает только main', () => {
+		expect(splitHandshake('только что')).toEqual({ main: 'только что' });
 	});
 });
 

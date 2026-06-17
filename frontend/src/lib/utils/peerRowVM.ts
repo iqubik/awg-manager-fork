@@ -60,7 +60,7 @@ export function peerStatus(enabled: boolean, online: boolean | null | undefined)
 	return online ? 'online' : 'offline';
 }
 
-function splitHandshake(value: string): { main: string; suffix?: string } {
+export function splitHandshake(value: string): { main: string; suffix?: string } {
 	const t = value.trim();
 	if (t.endsWith(' назад')) return { main: t.slice(0, -' назад'.length), suffix: 'назад' };
 	return { main: t };
