@@ -95,6 +95,7 @@ jobs:
           if [[ -z "$FORK_RELEASE_TAG" ]]; then
             FORK_RELEASE_TAG="$UPSTREAM_TAG"
           fi
+
           if [[ ! "$FORK_RELEASE_TAG" =~ ^[A-Za-z0-9._/-]+$ ]]; then
             echo "Unsafe fork release tag: $FORK_RELEASE_TAG" >&2
             exit 1
@@ -104,12 +105,14 @@ jobs:
           if [[ -z "$FORK_VERSION" && -n "${INPUT_FORK_RELEASE_TAG:-}" ]]; then
             FORK_VERSION="${FORK_RELEASE_TAG#v}"
           fi
+
           if [[ -n "$FORK_VERSION" && ! "$FORK_VERSION" =~ ^[0-9][A-Za-z0-9.+-]*$ ]]; then
             echo "Unsafe fork version: $FORK_VERSION" >&2
             exit 1
           fi
 
           SKIP=false
+
           if gh release view "$FORK_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             if [[ "$FORCE_RELEASE" != "true" ]]; then
               SKIP=true
@@ -131,6 +134,7 @@ jobs:
           echo "Resolved upstream tag: $UPSTREAM_TAG ($SOURCE)"
           echo "Resolved fork release tag: $FORK_RELEASE_TAG"
           echo "Resolved fork version: ${FORK_VERSION:-<upstream VERSION>}"
+
           echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
           echo "fork_release_tag=$FORK_RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "fork_version=$FORK_VERSION" >> "$GITHUB_OUTPUT"
@@ -227,11 +231,13 @@ jobs:
 
           WORK_SHA="$(git rev-parse HEAD)"
           UPSTREAM_VERSION="$(git show "refs/tags/upstream/${UPSTREAM_TAG}:VERSION" | tr -d '[:space:]')"
+
           IPK_VERSION="$UPSTREAM_VERSION"
           if [[ -n "${FORK_VERSION:-}" ]]; then
             IPK_VERSION="$FORK_VERSION"
             printf '%s\n' "$IPK_VERSION" > VERSION
           fi
+
           if [[ -z "${FORK_VERSION:-}" && "$IPK_VERSION" != "$UPSTREAM_VERSION" ]]; then
             echo "Author release must keep upstream VERSION: got ${IPK_VERSION}, expected ${UPSTREAM_VERSION}" >&2
             exit 1
@@ -264,6 +270,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           if [[ -z "${IQ_I18N_TOKEN:-}" ]]; then
             echo "IQ_I18N_TOKEN is required for localized release" >&2
             exit 1
@@ -395,6 +402,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           v="$(sed -n 's/^const RequiredVersion = "\(.*\)"/\1/p' internal/singbox/installer/embedded.go)"
           echo "SINGBOX_VERSION=$v" >> "$GITHUB_ENV"
           echo "SINGBOX_REF=v$v" >> "$GITHUB_ENV"
@@ -493,6 +501,7 @@ jobs:
           trap 'rm -rf "$tmp"' EXIT
 
           cp "$ipk" "$tmp/package.ipk"
+
           (
             cd "$tmp"
 
@@ -663,6 +672,11 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Setup go for changelog generator
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: 1.25.10
+
       - name: Generate release metadata
         shell: bash
         env:
@@ -675,16 +689,30 @@ jobs:
         run: |
           set -euo pipefail
 
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/hoaxisr/awg-manager.git
+          git fetch upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/upstream/${UPSTREAM_TAG}"
+
+          go build -o /tmp/changelog-gen ./cmd/changelog-gen
+
           printf '%s\n' "${IPK_VERSION}" > dist/VERSION
           printf '%s\n' "${WORK_SHA}" > dist/RELEASED_SHA
 
-          cat > dist/CHANGELOG.md <<EOF
-          ## [${IPK_VERSION}] - $(date +%F)
+          CHANGELOG_RANGE="refs/tags/upstream/${UPSTREAM_TAG}..${WORK_SHA}"
+          echo "author rebase changelog range: ${CHANGELOG_RANGE}"
 
-          ### Сборка
-          - Стабильная IQ-сборка AWG Manager ${FORK_RELEASE_TAG} с патчами fork.
-          - Основано на авторском релизе hoaxisr/awg-manager ${UPSTREAM_TAG}.
-          EOF
+          git log --no-merges --format='%x1e%H%x1f%s%x1f%b' "${CHANGELOG_RANGE}" \
+            | /tmp/changelog-gen --version "${IPK_VERSION}" --date "$(date +%F)" > dist/CHANGELOG.md
+
+          if [[ ! -s dist/CHANGELOG.md ]]; then
+            {
+              echo "## [${IPK_VERSION}] - $(date +%F)"
+              echo
+              echo "### Сборка"
+              echo "- Сборка ${FORK_RELEASE_TAG} создана поверх upstream ${UPSTREAM_TAG}, но отдельных commit-записей поверх upstream tag не найдено."
+              echo
+            } > dist/CHANGELOG.md
+          fi
 
           cat > dist/RELEASE_INFO.md <<EOF
           # IQ rebased release ${FORK_RELEASE_TAG}
@@ -724,7 +752,16 @@ jobs:
           set -euo pipefail
 
           shopt -s nullglob
-          files=(./dist/awg-manager_* ./dist/sing-box-* ./dist/VERSION ./dist/CHANGELOG.md ./dist/RELEASED_SHA ./dist/RELEASE_INFO.md ./dist/RELEASE_NOTES.md)
+
+          files=(
+            ./dist/awg-manager_*
+            ./dist/sing-box-*
+            ./dist/VERSION
+            ./dist/CHANGELOG.md
+            ./dist/RELEASED_SHA
+            ./dist/RELEASE_INFO.md
+            ./dist/RELEASE_NOTES.md
+          )
 
           if (( ${#files[@]} == 0 )); then
             echo "No release files found in ./dist" >&2
