@@ -3,6 +3,14 @@ name: "IQ Author Rebase Release"
 on:
   workflow_dispatch:
     inputs:
+      upstream_source:
+        description: "Author source: release tag/latest release or develop branch"
+        required: true
+        default: release
+        type: choice
+        options:
+          - release
+          - develop
       upstream_tag:
         description: "Author release tag from hoaxisr/awg-manager. Empty = latest release"
         required: false
@@ -45,7 +53,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
+      upstream_source: ${{ steps.resolve.outputs.upstream_source }}
       upstream_tag: ${{ steps.resolve.outputs.upstream_tag }}
+      upstream_ref_label: ${{ steps.resolve.outputs.upstream_ref_label }}
       fork_release_tag: ${{ steps.resolve.outputs.fork_release_tag }}
       fork_version: ${{ steps.resolve.outputs.fork_version }}
       skip: ${{ steps.resolve.outputs.skip }}
@@ -56,6 +66,7 @@ jobs:
         id: resolve
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_UPSTREAM_SOURCE: ${{ inputs.upstream_source }}
           INPUT_UPSTREAM_TAG: ${{ inputs.upstream_tag }}
           INPUT_FORK_RELEASE_TAG: ${{ inputs.fork_release_tag }}
           INPUT_FORK_VERSION: ${{ inputs.fork_version }}
@@ -70,37 +81,58 @@ jobs:
             FORCE_RELEASE=true
           fi
 
-          if [[ -n "${INPUT_UPSTREAM_TAG:-}" ]]; then
-            UPSTREAM_TAG="${INPUT_UPSTREAM_TAG}"
-            SOURCE="workflow_dispatch"
-          elif [[ -n "${PAYLOAD_UPSTREAM_TAG:-}" ]]; then
-            UPSTREAM_TAG="${PAYLOAD_UPSTREAM_TAG}"
-            SOURCE="repository_dispatch"
-          else
-            UPSTREAM_TAG="$(gh api repos/hoaxisr/awg-manager/releases/latest --jq '.tag_name')"
-            SOURCE="latest_release"
-          fi
-
-          if [[ -z "${UPSTREAM_TAG:-}" ]]; then
-            echo "Resolved upstream tag is empty" >&2
-            exit 1
-          fi
-
-          if [[ ! "$UPSTREAM_TAG" =~ ^[A-Za-z0-9._/-]+$ ]]; then
-            echo "Unsafe upstream tag: $UPSTREAM_TAG" >&2
+          UPSTREAM_SOURCE="${INPUT_UPSTREAM_SOURCE:-release}"
+          if [[ "$UPSTREAM_SOURCE" != "release" && "$UPSTREAM_SOURCE" != "develop" ]]; then
+            echo "Invalid upstream_source: $UPSTREAM_SOURCE" >&2
             exit 1
           fi
 
           FORK_RELEASE_TAG="${INPUT_FORK_RELEASE_TAG:-}"
-          if [[ -z "$FORK_RELEASE_TAG" ]]; then
-            FORK_RELEASE_TAG="$UPSTREAM_TAG"
+          FORK_VERSION="${INPUT_FORK_VERSION:-}"
+
+          if [[ "$UPSTREAM_SOURCE" == "release" ]]; then
+            if [[ -n "${INPUT_UPSTREAM_TAG:-}" ]]; then
+              UPSTREAM_TAG="${INPUT_UPSTREAM_TAG}"
+              SOURCE="workflow_dispatch"
+            elif [[ -n "${PAYLOAD_UPSTREAM_TAG:-}" ]]; then
+              UPSTREAM_TAG="${PAYLOAD_UPSTREAM_TAG}"
+              SOURCE="repository_dispatch"
+            else
+              UPSTREAM_TAG="$(gh api repos/hoaxisr/awg-manager/releases/latest --jq '.tag_name')"
+              SOURCE="latest_release"
+            fi
+
+            UPSTREAM_REF_LABEL="$UPSTREAM_TAG"
+
+            if [[ -z "$FORK_RELEASE_TAG" ]]; then
+              FORK_RELEASE_TAG="$UPSTREAM_TAG"
+            fi
+          else
+            UPSTREAM_TAG=""
+            UPSTREAM_REF_LABEL="develop"
+            SOURCE="upstream_develop"
+
+            if [[ -z "$FORK_RELEASE_TAG" ]]; then
+              echo "fork_release_tag is required when upstream_source=develop" >&2
+              exit 1
+            fi
           fi
+
+          if [[ "$UPSTREAM_SOURCE" == "release" && -z "${UPSTREAM_TAG:-}" ]]; then
+            echo "Resolved upstream tag is empty" >&2
+            exit 1
+          fi
+
+          if [[ "$UPSTREAM_SOURCE" == "release" && ! "$UPSTREAM_TAG" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "Unsafe upstream tag: $UPSTREAM_TAG" >&2
+            exit 1
+          fi
+
           if [[ ! "$FORK_RELEASE_TAG" =~ ^[A-Za-z0-9._/-]+$ ]]; then
             echo "Unsafe fork release tag: $FORK_RELEASE_TAG" >&2
             exit 1
           fi
 
-          FORK_VERSION="${INPUT_FORK_VERSION:-}"
           if [[ -z "$FORK_VERSION" && -n "${INPUT_FORK_RELEASE_TAG:-}" ]]; then
             FORK_VERSION="${FORK_RELEASE_TAG#v}"
           fi
@@ -128,10 +160,13 @@ jobs:
             fi
           fi
 
-          echo "Resolved upstream tag: $UPSTREAM_TAG ($SOURCE)"
+          echo "Resolved upstream source: $UPSTREAM_SOURCE"
+          echo "Resolved upstream ref: $UPSTREAM_REF_LABEL ($SOURCE)"
           echo "Resolved fork release tag: $FORK_RELEASE_TAG"
           echo "Resolved fork version: ${FORK_VERSION:-<upstream VERSION>}"
+          echo "upstream_source=$UPSTREAM_SOURCE" >> "$GITHUB_OUTPUT"
           echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+          echo "upstream_ref_label=$UPSTREAM_REF_LABEL" >> "$GITHUB_OUTPUT"
           echo "fork_release_tag=$FORK_RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "fork_version=$FORK_VERSION" >> "$GITHUB_OUTPUT"
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
@@ -159,6 +194,7 @@ jobs:
       - name: Backup develop and rebase onto author tag
         id: prepare
         env:
+          UPSTREAM_SOURCE: ${{ needs.resolve-upstream.outputs.upstream_source }}
           UPSTREAM_TAG: ${{ needs.resolve-upstream.outputs.upstream_tag }}
           FORK_VERSION: ${{ needs.resolve-upstream.outputs.fork_version }}
         shell: bash
@@ -184,7 +220,13 @@ jobs:
           fi
 
           git fetch --no-tags origin "$DEVELOP_SHA"
-          git fetch upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/upstream/${UPSTREAM_TAG}"
+          if [[ "$UPSTREAM_SOURCE" == "release" ]]; then
+            git fetch upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/upstream/${UPSTREAM_TAG}"
+            REBASE_TARGET="refs/tags/upstream/${UPSTREAM_TAG}"
+          else
+            git fetch upstream "refs/heads/develop:refs/remotes/upstream/develop"
+            REBASE_TARGET="refs/remotes/upstream/develop"
+          fi
 
           TS="$(date -u +%Y%m%d-%H%M%S)"
           BACKUP_BRANCH="backup/dev-${TS}"
@@ -208,8 +250,8 @@ jobs:
                 exit 1
               fi
 
-              echo "Auto-resolving VERSION from upstream tag ${UPSTREAM_TAG}"
-              git show "refs/tags/upstream/${UPSTREAM_TAG}:VERSION" > VERSION
+              echo "Auto-resolving VERSION from ${REBASE_TARGET}"
+              git show "${REBASE_TARGET}:VERSION" > VERSION
               git add VERSION
 
               if git diff --cached --quiet; then
@@ -221,12 +263,12 @@ jobs:
             done
           }
 
-          if ! git rebase "refs/tags/upstream/${UPSTREAM_TAG}"; then
+          if ! git rebase "$REBASE_TARGET"; then
             finish_rebase_with_version_autoresolve
           fi
 
           WORK_SHA="$(git rev-parse HEAD)"
-          UPSTREAM_VERSION="$(git show "refs/tags/upstream/${UPSTREAM_TAG}:VERSION" | tr -d '[:space:]')"
+          UPSTREAM_VERSION="$(git show "${REBASE_TARGET}:VERSION" | tr -d '[:space:]')"
           IPK_VERSION="$UPSTREAM_VERSION"
           if [[ -n "${FORK_VERSION:-}" ]]; then
             IPK_VERSION="$FORK_VERSION"
@@ -663,10 +705,17 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Setup go for changelog generator
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: 1.25.10
+
       - name: Generate release metadata
         shell: bash
         env:
+          UPSTREAM_SOURCE: ${{ needs.resolve-upstream.outputs.upstream_source }}
           UPSTREAM_TAG: ${{ needs.resolve-upstream.outputs.upstream_tag }}
+          UPSTREAM_REF_LABEL: ${{ needs.resolve-upstream.outputs.upstream_ref_label }}
           FORK_RELEASE_TAG: ${{ needs.resolve-upstream.outputs.fork_release_tag }}
           WORK_BRANCH: ${{ needs.prepare-rebase.outputs.work_branch }}
           BACKUP_BRANCH: ${{ needs.prepare-rebase.outputs.backup_branch }}
@@ -675,23 +724,44 @@ jobs:
         run: |
           set -euo pipefail
 
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/hoaxisr/awg-manager.git
+          if [[ "$UPSTREAM_SOURCE" == "release" ]]; then
+            git fetch upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/upstream/${UPSTREAM_TAG}"
+            CHANGELOG_BASE="refs/tags/upstream/${UPSTREAM_TAG}"
+          else
+            git fetch upstream "refs/heads/develop:refs/remotes/upstream/develop"
+            CHANGELOG_BASE="refs/remotes/upstream/develop"
+          fi
+
+          go build -o /tmp/changelog-gen ./cmd/changelog-gen
+
           printf '%s\n' "${IPK_VERSION}" > dist/VERSION
           printf '%s\n' "${WORK_SHA}" > dist/RELEASED_SHA
 
-          cat > dist/CHANGELOG.md <<EOF
-          ## [${IPK_VERSION}] - $(date +%F)
+          CHANGELOG_RANGE="${CHANGELOG_BASE}..${WORK_SHA}"
+          echo "author rebase changelog range: ${CHANGELOG_RANGE}"
 
-          ### Сборка
-          - Стабильная IQ-сборка AWG Manager ${FORK_RELEASE_TAG} с патчами fork.
-          - Основано на авторском релизе hoaxisr/awg-manager ${UPSTREAM_TAG}.
-          EOF
+          git log --no-merges --format='%x1e%H%x1f%s%x1f%b' "${CHANGELOG_RANGE}" \
+            | /tmp/changelog-gen --version "${IPK_VERSION}" --date "$(date +%F)" > dist/CHANGELOG.md
+
+          if [[ ! -s dist/CHANGELOG.md ]]; then
+            {
+              echo "## [${IPK_VERSION}] - $(date +%F)"
+              echo
+              echo "### Сборка"
+              echo "- Сборка ${FORK_RELEASE_TAG} создана поверх upstream ${UPSTREAM_REF_LABEL}, но отдельных commit-записей поверх выбранной upstream-базы не найдено."
+              echo
+            } > dist/CHANGELOG.md
+          fi
 
           cat > dist/RELEASE_INFO.md <<EOF
           # IQ rebased release ${FORK_RELEASE_TAG}
 
           Author upstream:
           - repo: hoaxisr/awg-manager
-          - tag: ${UPSTREAM_TAG}
+          - source: ${UPSTREAM_SOURCE}
+          - ref: ${UPSTREAM_REF_LABEL}
 
           IQ fork:
           - release tag: ${FORK_RELEASE_TAG}
