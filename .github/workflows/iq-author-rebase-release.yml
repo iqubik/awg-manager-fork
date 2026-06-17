@@ -1,29 +1,183 @@
-name: "IQ Localized Release"
+name: "IQ Author Rebase Release"
 
 on:
   workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "Author release tag from hoaxisr/awg-manager. Empty = latest release"
+        required: false
+        type: string
+      force_release:
+        description: "Delete and recreate existing release/tag in this fork"
+        required: false
+        default: false
+        type: boolean
+
+  schedule:
+    - cron: "17 */6 * * *"
+
+  repository_dispatch:
+    types:
+      - upstream-release
 
 concurrency:
-  group: iq-localized-release
-  cancel-in-progress: true
+  group: iq-author-rebase-release
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 env:
-  AWG_RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest
   IQ_I18N_LANGUAGES: en,tr,fa,zh
   IQ_I18N_PRIMARY_LANGUAGE: en
 
 jobs:
+  resolve-upstream:
+    name: Resolve upstream author release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      upstream_tag: ${{ steps.resolve.outputs.upstream_tag }}
+      skip: ${{ steps.resolve.outputs.skip }}
+      force_release: ${{ steps.resolve.outputs.force_release }}
+
+    steps:
+      - name: Resolve upstream tag and release state
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_UPSTREAM_TAG: ${{ inputs.upstream_tag }}
+          INPUT_FORCE_RELEASE: ${{ inputs.force_release }}
+          PAYLOAD_UPSTREAM_TAG: ${{ github.event.client_payload.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FORCE_RELEASE=false
+          if [[ "${INPUT_FORCE_RELEASE:-}" == "true" ]]; then
+            FORCE_RELEASE=true
+          fi
+
+          if [[ -n "${INPUT_UPSTREAM_TAG:-}" ]]; then
+            UPSTREAM_TAG="${INPUT_UPSTREAM_TAG}"
+            SOURCE="workflow_dispatch"
+          elif [[ -n "${PAYLOAD_UPSTREAM_TAG:-}" ]]; then
+            UPSTREAM_TAG="${PAYLOAD_UPSTREAM_TAG}"
+            SOURCE="repository_dispatch"
+          else
+            UPSTREAM_TAG="$(gh api repos/hoaxisr/awg-manager/releases/latest --jq '.tag_name')"
+            SOURCE="latest_release"
+          fi
+
+          if [[ -z "${UPSTREAM_TAG:-}" ]]; then
+            echo "Resolved upstream tag is empty" >&2
+            exit 1
+          fi
+
+          if [[ ! "$UPSTREAM_TAG" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "Unsafe upstream tag: $UPSTREAM_TAG" >&2
+            exit 1
+          fi
+
+          SKIP=false
+          if gh release view "$UPSTREAM_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [[ "$FORCE_RELEASE" != "true" ]]; then
+              SKIP=true
+              echo "Release $UPSTREAM_TAG already exists in $GITHUB_REPOSITORY; skipping"
+            else
+              echo "Release $UPSTREAM_TAG already exists in $GITHUB_REPOSITORY; force rebuild enabled"
+            fi
+          fi
+
+          if git ls-remote --exit-code --tags "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${UPSTREAM_TAG}" >/dev/null 2>&1; then
+            if [[ "$FORCE_RELEASE" != "true" ]]; then
+              SKIP=true
+              echo "Tag $UPSTREAM_TAG already exists in $GITHUB_REPOSITORY; skipping"
+            else
+              echo "Tag $UPSTREAM_TAG already exists in $GITHUB_REPOSITORY; force rebuild enabled"
+            fi
+          fi
+
+          echo "Resolved upstream tag: $UPSTREAM_TAG ($SOURCE)"
+          echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+          echo "force_release=$FORCE_RELEASE" >> "$GITHUB_OUTPUT"
+
+  prepare-rebase:
+    name: Backup develop and prepare rebased work branch
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-upstream
+    if: needs.resolve-upstream.outputs.skip != 'true'
+    timeout-minutes: 20
+    outputs:
+      backup_branch: ${{ steps.prepare.outputs.backup_branch }}
+      work_branch: ${{ steps.prepare.outputs.work_branch }}
+      work_sha: ${{ steps.prepare.outputs.work_sha }}
+      ipk_version: ${{ steps.prepare.outputs.ipk_version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+
+      - name: Backup develop and rebase onto author tag
+        id: prepare
+        env:
+          UPSTREAM_TAG: ${{ needs.resolve-upstream.outputs.upstream_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/hoaxisr/awg-manager.git
+
+          git fetch origin "develop:refs/remotes/origin/develop" --prune
+          git fetch upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/upstream/${UPSTREAM_TAG}"
+
+          TS="$(date -u +%Y%m%d-%H%M%S)"
+          BACKUP_BRANCH="backup/dev-${TS}"
+          WORK_BRANCH="work/dev-rebase-${TS}"
+
+          git branch "$BACKUP_BRANCH" refs/remotes/origin/develop
+          git push origin "$BACKUP_BRANCH"
+
+          git checkout -b "$WORK_BRANCH" refs/remotes/origin/develop
+
+          if ! git rebase "refs/tags/upstream/${UPSTREAM_TAG}"; then
+            echo "Rebase failed. Backup branch already pushed: ${BACKUP_BRANCH}" >&2
+            git status --short >&2 || true
+            git rebase --abort || true
+            exit 1
+          fi
+
+          WORK_SHA="$(git rev-parse HEAD)"
+          IPK_VERSION="$(tr -d '[:space:]' < VERSION)"
+
+          git push origin "$WORK_BRANCH"
+
+          echo "backup_branch=${BACKUP_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "work_branch=${WORK_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "work_sha=${WORK_SHA}" >> "$GITHUB_OUTPUT"
+          echo "ipk_version=${IPK_VERSION}" >> "$GITHUB_OUTPUT"
+
   frontend:
     name: Build localized frontend
     runs-on: ubuntu-latest
+    needs:
+      - prepare-rebase
     timeout-minutes: 30
 
     steps:
-      - name: Checkout public repo
+      - name: Checkout rebased work tree
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.prepare-rebase.outputs.work_sha }}
+          fetch-depth: 0
 
       - name: Check i18n secrets
         env:
@@ -134,51 +288,13 @@ jobs:
           path: frontend/build
           if-no-files-found: error
 
-  version:
-    name: Resolve IPK version
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      ipk_version: ${{ steps.resolve.outputs.ipk_version }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - name: Resolve revision for IQ localized release
-        id: resolve
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          VERSION="$(tr -d '[:space:]' < VERSION)"
-          REV=1
-          PREV=""
-
-          mkdir -p /tmp/prev-release
-          if gh release download iq-latest --dir /tmp/prev-release --pattern VERSION 2>/dev/null \
-            && [[ -f /tmp/prev-release/VERSION ]]; then
-            PREV="$(tr -d '[:space:]' < /tmp/prev-release/VERSION)"
-            esc="${VERSION//./\\.}"
-            if [[ "$PREV" == "$VERSION" ]]; then
-              REV=2
-            elif [[ "$PREV" =~ ^${esc}\+r([0-9]+)$ ]]; then
-              REV=$((BASH_REMATCH[1] + 1))
-            fi
-          fi
-
-          IPK_VERSION="${VERSION}+r${REV}"
-          echo "Resolved ${IPK_VERSION} (previous: ${PREV:-none})"
-          echo "ipk_version=${IPK_VERSION}" >> "$GITHUB_OUTPUT"
-
   build:
     name: Build localized IPK (${{ matrix.arch }})
     runs-on: ubuntu-latest
     needs:
+      - resolve-upstream
+      - prepare-rebase
       - frontend
-      - version
     timeout-minutes: 120
 
     strategy:
@@ -190,8 +306,11 @@ jobs:
           - aarch64-3.10
 
     steps:
-      - name: Checkout
+      - name: Checkout rebased work tree
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.prepare-rebase.outputs.work_sha }}
+          fetch-depth: 0
 
       - name: Load sing-box version
         shell: bash
@@ -236,7 +355,7 @@ jobs:
       - name: Build sing-box
         if: steps.singbox-cache.outputs.cache-hit != 'true'
         env:
-          RELEASE_BASE_URL: ${{ env.AWG_RELEASE_BASE_URL }}
+          RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.upstream_tag }}
         run: |
           set -euo pipefail
           ./scripts/build-singbox.sh "${{ matrix.arch }}"
@@ -252,7 +371,7 @@ jobs:
 
       - name: Refresh sing-box embedded metadata
         env:
-          RELEASE_BASE_URL: ${{ env.AWG_RELEASE_BASE_URL }}
+          RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.upstream_tag }}
         run: |
           set -euo pipefail
           ./scripts/update-singbox-embedded.sh "${{ matrix.arch }}" "$SINGBOX_VERSION"
@@ -260,11 +379,11 @@ jobs:
       - name: Build localized IPK
         id: build
         env:
-          AWG_RELEASE_BASE_URL: ${{ env.AWG_RELEASE_BASE_URL }}
+          AWG_RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.upstream_tag }}
         run: |
           set -euo pipefail
 
-          : "${AWG_RELEASE_BASE_URL:?AWG_RELEASE_BASE_URL must be set for IQ localized release}"
+          : "${AWG_RELEASE_BASE_URL:?AWG_RELEASE_BASE_URL must be set for IQ author release}"
 
           file="dist/sing-box-${SINGBOX_VERSION}-${{ matrix.arch }}"
           if [[ ! -f "$file" ]]; then
@@ -272,7 +391,7 @@ jobs:
             exit 1
           fi
 
-          IPK_VERSION="${{ needs.version.outputs.ipk_version }}"
+          IPK_VERSION="${{ needs.prepare-rebase.outputs.ipk_version }}"
           printf '%s\n' "$IPK_VERSION" > dist/VERSION
 
           SKIP_FRONTEND_BUILD=1 AWG_RELEASE_BASE_URL="$AWG_RELEASE_BASE_URL" \
@@ -281,7 +400,7 @@ jobs:
       - name: Verify localized IPK contents
         shell: bash
         env:
-          AWG_RELEASE_BASE_URL: ${{ env.AWG_RELEASE_BASE_URL }}
+          AWG_RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.upstream_tag }}
         run: |
           set -euo pipefail
 
@@ -365,10 +484,15 @@ jobs:
   backend-test:
     name: Backend tests
     runs-on: ubuntu-latest
+    needs:
+      - prepare-rebase
 
     steps:
-      - name: Checkout
+      - name: Checkout rebased work tree
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.prepare-rebase.outputs.work_sha }}
+          fetch-depth: 0
 
       - name: Setup go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
@@ -382,10 +506,15 @@ jobs:
   frontend-check:
     name: Frontend svelte-check
     runs-on: ubuntu-latest
+    needs:
+      - prepare-rebase
 
     steps:
-      - name: Checkout
+      - name: Checkout rebased work tree
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.prepare-rebase.outputs.work_sha }}
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
@@ -405,10 +534,15 @@ jobs:
   frontend-test:
     name: Frontend vitest
     runs-on: ubuntu-latest
+    needs:
+      - prepare-rebase
 
     steps:
-      - name: Checkout
+      - name: Checkout rebased work tree
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.prepare-rebase.outputs.work_sha }}
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
@@ -425,20 +559,22 @@ jobs:
         working-directory: frontend
         run: npx vitest run
 
-  pre-release:
-    name: Publish IQ localized pre-release
+  release:
+    name: Publish author-tag IQ release
     runs-on: ubuntu-latest
     needs:
+      - resolve-upstream
+      - prepare-rebase
       - build
       - backend-test
       - frontend-check
       - frontend-test
-      - version
 
     steps:
-      - name: Checkout
+      - name: Checkout rebased work tree
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          ref: ${{ needs.prepare-rebase.outputs.work_sha }}
           fetch-depth: 0
 
       - name: Download build results
@@ -448,85 +584,43 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Setup go for changelog generator
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
-        with:
-          go-version: 1.25.10
-
       - name: Generate release metadata
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
+        env:
+          UPSTREAM_TAG: ${{ needs.resolve-upstream.outputs.upstream_tag }}
+          WORK_BRANCH: ${{ needs.prepare-rebase.outputs.work_branch }}
+          BACKUP_BRANCH: ${{ needs.prepare-rebase.outputs.backup_branch }}
+          WORK_SHA: ${{ needs.prepare-rebase.outputs.work_sha }}
+          IPK_VERSION: ${{ needs.prepare-rebase.outputs.ipk_version }}
         run: |
           set -euo pipefail
 
-          go build -o /tmp/changelog-gen ./cmd/changelog-gen
+          printf '%s\n' "${IPK_VERSION}" > dist/VERSION
+          printf '%s\n' "${WORK_SHA}" > dist/RELEASED_SHA
 
-          printf '%s\n' "${{ needs.version.outputs.ipk_version }}" > dist/VERSION
-          printf '%s\n' "${GITHUB_SHA}" > dist/RELEASED_SHA
+          cat > dist/CHANGELOG.md <<EOF
+          # IQ rebased release ${UPSTREAM_TAG}
 
-          mkdir -p /tmp/prev-release
-          gh release download iq-latest --dir /tmp/prev-release \
-            --pattern CHANGELOG.md --pattern RELEASED_SHA 2>/dev/null || true
+          Author upstream:
+          - repo: hoaxisr/awg-manager
+          - tag: ${UPSTREAM_TAG}
 
-          START=""
-          if [[ -f /tmp/prev-release/RELEASED_SHA ]]; then
-            START="$(tr -d '[:space:]' < /tmp/prev-release/RELEASED_SHA)"
-          fi
-          if [[ -n "$START" ]] \
-            && git cat-file -e "${START}^{commit}" 2>/dev/null \
-            && git merge-base --is-ancestor "$START" "$GITHUB_SHA"; then
-            :
-          else
-            START="${GITHUB_SHA}~1"
-          fi
+          IQ fork:
+          - work branch: ${WORK_BRANCH}
+          - backup branch: ${BACKUP_BRANCH}
+          - release sha: ${WORK_SHA}
+          - package version: ${IPK_VERSION}
 
-          echo "changelog range: ${START}..${GITHUB_SHA}"
-          git log --no-merges --format='%x1e%H%x1f%s%x1f%b' "${START}..${GITHUB_SHA}" \
-            | /tmp/changelog-gen --version "${{ needs.version.outputs.ipk_version }}" --date "$(date +%F)" > /tmp/delta.md
+          Develop was not rewritten automatically.
+          EOF
 
-          PREV=/tmp/prev-release/CHANGELOG.md
-          if [[ -s "$PREV" ]]; then
-            awk '
-              /^## \[[^]]+\]/ { keep = 1 }
-              keep { print }
-            ' "$PREV" > /tmp/prev-release/CHANGELOG.fork.md
-            PREV=/tmp/prev-release/CHANGELOG.fork.md
-          else
-            PREV=/dev/null
-          fi
-
-          if [[ ! -s /tmp/delta.md ]]; then
-            {
-              echo "## [${{ needs.version.outputs.ipk_version }}] - $(date +%F)"
-              echo
-              echo "### Сборка"
-              echo "- Повторная сборка без изменений исходной версии."
-              echo "- Базовая версия: $(tr -d '[:space:]' < VERSION)"
-              echo "- Commit: ${GITHUB_SHA}"
-              echo
-            } > /tmp/delta.md
-          fi
-
-          cat /tmp/delta.md "$PREV" > dist/CHANGELOG.md
-
-          {
-            echo "IQ localized development build ${{ needs.version.outputs.ipk_version }}"
-            echo
-            echo "Commit: ${GITHUB_SHA}"
-            echo "Release channel: iq-latest"
-            echo
-            echo "## Changelog"
-            echo
-            cat dist/CHANGELOG.md
-          } > dist/RELEASE_NOTES.md
-
-          echo "=== dist/CHANGELOG.md (head) ==="
-          head -20 dist/CHANGELOG.md || true
-
-      - name: Publish iq-latest pre-release
+      - name: Publish author-tag release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_TAG: ${{ needs.resolve-upstream.outputs.upstream_tag }}
+          FORCE_RELEASE: ${{ needs.resolve-upstream.outputs.force_release }}
+          WORK_SHA: ${{ needs.prepare-rebase.outputs.work_sha }}
+          IPK_VERSION: ${{ needs.prepare-rebase.outputs.ipk_version }}
         shell: bash
         run: |
           set -euo pipefail
@@ -539,25 +633,35 @@ jobs:
             exit 1
           fi
 
-          gh release delete iq-latest --yes --cleanup-tag || true
+          release_exists=false
+          tag_exists=false
 
-          gh release create iq-latest "${files[@]}" \
-            --target "${GITHUB_SHA}" \
-            --title "IQ localized development build ${{ needs.version.outputs.ipk_version }}" \
-            --notes-file ./dist/RELEASE_NOTES.md \
-            --prerelease
-
-          echo "Published release state:"
-          gh release view iq-latest --json isDraft,isPrerelease,tagName,name
-
-          is_draft="$(gh release view iq-latest --json isDraft --jq '.isDraft')"
-          if [[ "$is_draft" == "true" ]]; then
-            echo "Release iq-latest is still draft after publish" >&2
-            exit 1
+          if gh release view "$UPSTREAM_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            release_exists=true
           fi
 
-          published_version="$(curl -fsSL "https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest/VERSION" | tr -d '[:space:]')"
-          if [[ "$published_version" != "${{ needs.version.outputs.ipk_version }}" ]]; then
-            echo "Published VERSION mismatch: got ${published_version}, expected ${{ needs.version.outputs.ipk_version }}" >&2
+          if git ls-remote --exit-code --tags origin "refs/tags/${UPSTREAM_TAG}" >/dev/null 2>&1; then
+            tag_exists=true
+          fi
+
+          if [[ "$release_exists" == "true" || "$tag_exists" == "true" ]]; then
+            if [[ "$FORCE_RELEASE" == "true" ]]; then
+              gh release delete "$UPSTREAM_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+              git push origin ":refs/tags/${UPSTREAM_TAG}" || true
+            else
+              echo "Release or tag $UPSTREAM_TAG already exists in $GITHUB_REPOSITORY and force_release is false" >&2
+              exit 1
+            fi
+          fi
+
+          gh release create "$UPSTREAM_TAG" "${files[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$WORK_SHA" \
+            --title "AWG Manager ${UPSTREAM_TAG} + IQ patches" \
+            --notes-file dist/CHANGELOG.md
+
+          published_version="$(curl -fsSL "https://github.com/iqubik/awg-manager-fork/releases/download/${UPSTREAM_TAG}/VERSION" | tr -d '[:space:]')"
+          if [[ "$published_version" != "$IPK_VERSION" ]]; then
+            echo "Published VERSION mismatch: got ${published_version}, expected ${IPK_VERSION}" >&2
             exit 1
           fi
