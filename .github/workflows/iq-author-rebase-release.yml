@@ -663,6 +663,11 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Setup go for changelog generator
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: 1.25.10
+
       - name: Generate release metadata
         shell: bash
         env:
@@ -675,16 +680,30 @@ jobs:
         run: |
           set -euo pipefail
 
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/hoaxisr/awg-manager.git
+          git fetch upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/upstream/${UPSTREAM_TAG}"
+
+          go build -o /tmp/changelog-gen ./cmd/changelog-gen
+
           printf '%s\n' "${IPK_VERSION}" > dist/VERSION
           printf '%s\n' "${WORK_SHA}" > dist/RELEASED_SHA
 
-          cat > dist/CHANGELOG.md <<EOF
-          ## [${IPK_VERSION}] - $(date +%F)
+          CHANGELOG_RANGE="refs/tags/upstream/${UPSTREAM_TAG}..${WORK_SHA}"
+          echo "author rebase changelog range: ${CHANGELOG_RANGE}"
 
-          ### Сборка
-          - Стабильная IQ-сборка AWG Manager ${FORK_RELEASE_TAG} с патчами fork.
-          - Основано на авторском релизе hoaxisr/awg-manager ${UPSTREAM_TAG}.
-          EOF
+          git log --no-merges --format='%x1e%H%x1f%s%x1f%b' "${CHANGELOG_RANGE}" \
+            | /tmp/changelog-gen --version "${IPK_VERSION}" --date "$(date +%F)" > dist/CHANGELOG.md
+
+          if [[ ! -s dist/CHANGELOG.md ]]; then
+            {
+              echo "## [${IPK_VERSION}] - $(date +%F)"
+              echo
+              echo "### Сборка"
+              echo "- Сборка ${FORK_RELEASE_TAG} создана поверх upstream ${UPSTREAM_TAG}, но отдельных commit-записей поверх upstream tag не найдено."
+              echo
+            } > dist/CHANGELOG.md
+          fi
 
           cat > dist/RELEASE_INFO.md <<EOF
           # IQ rebased release ${FORK_RELEASE_TAG}
