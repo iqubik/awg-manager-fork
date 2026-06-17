@@ -136,17 +136,29 @@ jobs:
           git remote remove upstream 2>/dev/null || true
           git remote add upstream https://github.com/hoaxisr/awg-manager.git
 
-          git fetch origin "develop:refs/remotes/origin/develop" --prune
+          DEVELOP_BRANCH="${GITHUB_REF_NAME:-develop}"
+          if [[ "$DEVELOP_BRANCH" != "develop" ]]; then
+            DEVELOP_BRANCH="develop"
+          fi
+
+          DEVELOP_SHA="$(git ls-remote --heads origin "$DEVELOP_BRANCH" | awk '{print $1}')"
+          if [[ -z "$DEVELOP_SHA" ]]; then
+            echo "Cannot resolve origin/${DEVELOP_BRANCH}" >&2
+            git ls-remote --heads origin >&2 || true
+            exit 1
+          fi
+
+          git fetch --no-tags origin "$DEVELOP_SHA"
           git fetch upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/upstream/${UPSTREAM_TAG}"
 
           TS="$(date -u +%Y%m%d-%H%M%S)"
           BACKUP_BRANCH="backup/dev-${TS}"
           WORK_BRANCH="work/dev-rebase-${TS}"
 
-          git branch "$BACKUP_BRANCH" refs/remotes/origin/develop
-          git push origin "$BACKUP_BRANCH"
+          git branch "$BACKUP_BRANCH" "$DEVELOP_SHA"
+          git push origin "refs/heads/${BACKUP_BRANCH}:refs/heads/${BACKUP_BRANCH}"
 
-          git checkout -b "$WORK_BRANCH" refs/remotes/origin/develop
+          git checkout -b "$WORK_BRANCH" "$DEVELOP_SHA"
 
           if ! git rebase "refs/tags/upstream/${UPSTREAM_TAG}"; then
             echo "Rebase failed. Backup branch already pushed: ${BACKUP_BRANCH}" >&2
@@ -158,7 +170,7 @@ jobs:
           WORK_SHA="$(git rev-parse HEAD)"
           IPK_VERSION="$(tr -d '[:space:]' < VERSION)"
 
-          git push origin "$WORK_BRANCH"
+          git push origin "refs/heads/${WORK_BRANCH}:refs/heads/${WORK_BRANCH}"
 
           echo "backup_branch=${BACKUP_BRANCH}" >> "$GITHUB_OUTPUT"
           echo "work_branch=${WORK_BRANCH}" >> "$GITHUB_OUTPUT"
