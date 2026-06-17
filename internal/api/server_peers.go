@@ -465,6 +465,7 @@ func (h *ServersHandler) resolveServerEndpoint(ctx context.Context, serverID str
 	if host := resolveWireguardClientEndpointHost(storedEndpoint, keenDNSDomain); host != "" {
 		return host, nil
 	}
+	h.log.Info("endpoint", serverID, "KeenDNS/CrazeDNS не настроен — endpoint WireGuard-сервера будет указан как WAN IP")
 	return testing.GetWANIPWithFallback(ctx, h.queries.WANInterfaceAddress)
 }
 
