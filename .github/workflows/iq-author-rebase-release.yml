@@ -7,6 +7,14 @@ on:
         description: "Author release tag from hoaxisr/awg-manager. Empty = latest release"
         required: false
         type: string
+      fork_release_tag:
+        description: "Fork release tag. Empty = use upstream_tag"
+        required: false
+        type: string
+      fork_version:
+        description: "Fork package VERSION. Empty = derive from fork_release_tag or use upstream VERSION"
+        required: false
+        type: string
       force_release:
         description: "Delete and recreate existing release/tag in this fork"
         required: false
@@ -38,6 +46,8 @@ jobs:
     timeout-minutes: 10
     outputs:
       upstream_tag: ${{ steps.resolve.outputs.upstream_tag }}
+      fork_release_tag: ${{ steps.resolve.outputs.fork_release_tag }}
+      fork_version: ${{ steps.resolve.outputs.fork_version }}
       skip: ${{ steps.resolve.outputs.skip }}
       force_release: ${{ steps.resolve.outputs.force_release }}
 
@@ -47,6 +57,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_UPSTREAM_TAG: ${{ inputs.upstream_tag }}
+          INPUT_FORK_RELEASE_TAG: ${{ inputs.fork_release_tag }}
+          INPUT_FORK_VERSION: ${{ inputs.fork_version }}
           INPUT_FORCE_RELEASE: ${{ inputs.force_release }}
           PAYLOAD_UPSTREAM_TAG: ${{ github.event.client_payload.tag }}
         shell: bash
@@ -79,27 +91,49 @@ jobs:
             exit 1
           fi
 
+          FORK_RELEASE_TAG="${INPUT_FORK_RELEASE_TAG:-}"
+          if [[ -z "$FORK_RELEASE_TAG" ]]; then
+            FORK_RELEASE_TAG="$UPSTREAM_TAG"
+          fi
+          if [[ ! "$FORK_RELEASE_TAG" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "Unsafe fork release tag: $FORK_RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          FORK_VERSION="${INPUT_FORK_VERSION:-}"
+          if [[ -z "$FORK_VERSION" && -n "${INPUT_FORK_RELEASE_TAG:-}" ]]; then
+            FORK_VERSION="${FORK_RELEASE_TAG#v}"
+          fi
+          if [[ -n "$FORK_VERSION" && ! "$FORK_VERSION" =~ ^[0-9][A-Za-z0-9.+-]*$ ]]; then
+            echo "Unsafe fork version: $FORK_VERSION" >&2
+            exit 1
+          fi
+
           SKIP=false
-          if gh release view "$UPSTREAM_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if gh release view "$FORK_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             if [[ "$FORCE_RELEASE" != "true" ]]; then
               SKIP=true
-              echo "Release $UPSTREAM_TAG already exists in $GITHUB_REPOSITORY; skipping"
+              echo "Release $FORK_RELEASE_TAG already exists in $GITHUB_REPOSITORY; skipping"
             else
-              echo "Release $UPSTREAM_TAG already exists in $GITHUB_REPOSITORY; force rebuild enabled"
+              echo "Release $FORK_RELEASE_TAG already exists in $GITHUB_REPOSITORY; force rebuild enabled"
             fi
           fi
 
-          if git ls-remote --exit-code --tags "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${UPSTREAM_TAG}" >/dev/null 2>&1; then
+          if git ls-remote --exit-code --tags "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${FORK_RELEASE_TAG}" >/dev/null 2>&1; then
             if [[ "$FORCE_RELEASE" != "true" ]]; then
               SKIP=true
-              echo "Tag $UPSTREAM_TAG already exists in $GITHUB_REPOSITORY; skipping"
+              echo "Tag $FORK_RELEASE_TAG already exists in $GITHUB_REPOSITORY; skipping"
             else
-              echo "Tag $UPSTREAM_TAG already exists in $GITHUB_REPOSITORY; force rebuild enabled"
+              echo "Tag $FORK_RELEASE_TAG already exists in $GITHUB_REPOSITORY; force rebuild enabled"
             fi
           fi
 
           echo "Resolved upstream tag: $UPSTREAM_TAG ($SOURCE)"
+          echo "Resolved fork release tag: $FORK_RELEASE_TAG"
+          echo "Resolved fork version: ${FORK_VERSION:-<upstream VERSION>}"
           echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+          echo "fork_release_tag=$FORK_RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "fork_version=$FORK_VERSION" >> "$GITHUB_OUTPUT"
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
           echo "force_release=$FORCE_RELEASE" >> "$GITHUB_OUTPUT"
 
@@ -126,6 +160,7 @@ jobs:
         id: prepare
         env:
           UPSTREAM_TAG: ${{ needs.resolve-upstream.outputs.upstream_tag }}
+          FORK_VERSION: ${{ needs.resolve-upstream.outputs.fork_version }}
         shell: bash
         run: |
           set -euo pipefail
@@ -191,9 +226,13 @@ jobs:
           fi
 
           WORK_SHA="$(git rev-parse HEAD)"
-          IPK_VERSION="$(tr -d '[:space:]' < VERSION)"
           UPSTREAM_VERSION="$(git show "refs/tags/upstream/${UPSTREAM_TAG}:VERSION" | tr -d '[:space:]')"
-          if [[ "$IPK_VERSION" != "$UPSTREAM_VERSION" ]]; then
+          IPK_VERSION="$UPSTREAM_VERSION"
+          if [[ -n "${FORK_VERSION:-}" ]]; then
+            IPK_VERSION="$FORK_VERSION"
+            printf '%s\n' "$IPK_VERSION" > VERSION
+          fi
+          if [[ -z "${FORK_VERSION:-}" && "$IPK_VERSION" != "$UPSTREAM_VERSION" ]]; then
             echo "Author release must keep upstream VERSION: got ${IPK_VERSION}, expected ${UPSTREAM_VERSION}" >&2
             exit 1
           fi
@@ -395,7 +434,7 @@ jobs:
       - name: Build sing-box
         if: steps.singbox-cache.outputs.cache-hit != 'true'
         env:
-          RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.upstream_tag }}
+          RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.fork_release_tag }}
         run: |
           set -euo pipefail
           ./scripts/build-singbox.sh "${{ matrix.arch }}"
@@ -411,7 +450,7 @@ jobs:
 
       - name: Refresh sing-box embedded metadata
         env:
-          RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.upstream_tag }}
+          RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.fork_release_tag }}
         run: |
           set -euo pipefail
           ./scripts/update-singbox-embedded.sh "${{ matrix.arch }}" "$SINGBOX_VERSION"
@@ -419,7 +458,7 @@ jobs:
       - name: Build localized IPK
         id: build
         env:
-          AWG_RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.upstream_tag }}
+          AWG_RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.fork_release_tag }}
         run: |
           set -euo pipefail
 
@@ -440,7 +479,7 @@ jobs:
       - name: Verify localized IPK contents
         shell: bash
         env:
-          AWG_RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.upstream_tag }}
+          AWG_RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.fork_release_tag }}
         run: |
           set -euo pipefail
 
@@ -628,6 +667,7 @@ jobs:
         shell: bash
         env:
           UPSTREAM_TAG: ${{ needs.resolve-upstream.outputs.upstream_tag }}
+          FORK_RELEASE_TAG: ${{ needs.resolve-upstream.outputs.fork_release_tag }}
           WORK_BRANCH: ${{ needs.prepare-rebase.outputs.work_branch }}
           BACKUP_BRANCH: ${{ needs.prepare-rebase.outputs.backup_branch }}
           WORK_SHA: ${{ needs.prepare-rebase.outputs.work_sha }}
@@ -639,13 +679,14 @@ jobs:
           printf '%s\n' "${WORK_SHA}" > dist/RELEASED_SHA
 
           cat > dist/CHANGELOG.md <<EOF
-          # IQ rebased release ${UPSTREAM_TAG}
+          # IQ rebased release ${FORK_RELEASE_TAG}
 
           Author upstream:
           - repo: hoaxisr/awg-manager
           - tag: ${UPSTREAM_TAG}
 
           IQ fork:
+          - release tag: ${FORK_RELEASE_TAG}
           - work branch: ${WORK_BRANCH}
           - backup branch: ${BACKUP_BRANCH}
           - release sha: ${WORK_SHA}
@@ -658,6 +699,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           UPSTREAM_TAG: ${{ needs.resolve-upstream.outputs.upstream_tag }}
+          FORK_RELEASE_TAG: ${{ needs.resolve-upstream.outputs.fork_release_tag }}
           FORCE_RELEASE: ${{ needs.resolve-upstream.outputs.force_release }}
           WORK_SHA: ${{ needs.prepare-rebase.outputs.work_sha }}
           IPK_VERSION: ${{ needs.prepare-rebase.outputs.ipk_version }}
@@ -676,31 +718,31 @@ jobs:
           release_exists=false
           tag_exists=false
 
-          if gh release view "$UPSTREAM_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if gh release view "$FORK_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             release_exists=true
           fi
 
-          if git ls-remote --exit-code --tags origin "refs/tags/${UPSTREAM_TAG}" >/dev/null 2>&1; then
+          if git ls-remote --exit-code --tags origin "refs/tags/${FORK_RELEASE_TAG}" >/dev/null 2>&1; then
             tag_exists=true
           fi
 
           if [[ "$release_exists" == "true" || "$tag_exists" == "true" ]]; then
             if [[ "$FORCE_RELEASE" == "true" ]]; then
-              gh release delete "$UPSTREAM_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
-              git push origin ":refs/tags/${UPSTREAM_TAG}" || true
+              gh release delete "$FORK_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+              git push origin ":refs/tags/${FORK_RELEASE_TAG}" || true
             else
-              echo "Release or tag $UPSTREAM_TAG already exists in $GITHUB_REPOSITORY and force_release is false" >&2
+              echo "Release or tag $FORK_RELEASE_TAG already exists in $GITHUB_REPOSITORY and force_release is false" >&2
               exit 1
             fi
           fi
 
-          gh release create "$UPSTREAM_TAG" "${files[@]}" \
+          gh release create "$FORK_RELEASE_TAG" "${files[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$WORK_SHA" \
-            --title "AWG Manager ${UPSTREAM_TAG} + IQ patches" \
+            --title "AWG Manager ${FORK_RELEASE_TAG} + IQ patches" \
             --notes-file dist/CHANGELOG.md
 
-          published_version="$(curl -fsSL "https://github.com/iqubik/awg-manager-fork/releases/download/${UPSTREAM_TAG}/VERSION" | tr -d '[:space:]')"
+          published_version="$(curl -fsSL "https://github.com/iqubik/awg-manager-fork/releases/download/${FORK_RELEASE_TAG}/VERSION" | tr -d '[:space:]')"
           if [[ "$published_version" != "$IPK_VERSION" ]]; then
             echo "Published VERSION mismatch: got ${published_version}, expected ${IPK_VERSION}" >&2
             exit 1
