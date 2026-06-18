@@ -126,6 +126,13 @@
 	min-width: 0;
 }
 
+.server-detail-card .server-settings .setting-row:not(.setting-row-toggle) {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 0.5rem;
+}
+
 .server-detail-card .server-settings .setting-row:first-child {
 	padding-top: 0.875rem;
 }
@@ -154,13 +161,35 @@
 .server-detail-card .setting-control {
 	width: 100%;
 	min-width: 0;
-	max-width: 280px;
+	max-width: none;
 }
 
 .server-detail-card .setting-control :global(.dropdown),
 .server-detail-card .setting-control :global(.field),
-.server-detail-card .setting-control :global(.picker) {
+.server-detail-card .setting-control :global(.picker),
+.server-detail-card .setting-control :global(.segmented-control) {
 	width: 100%;
+	min-width: 0;
+}
+
+.server-detail-card .setting-control :global(.segmented-control-btn) {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+.server-detail-card .setting-control :global(.chips),
+.server-detail-card .setting-control :global(.control) {
+	width: 100%;
+	min-width: 0;
+}
+
+.server-detail-card .setting-control :global(.segmented-control--full-width) {
+	width: 100%;
+	min-width: 0;
+}
+
+.server-detail-card .setting-control :global(.segmented-control--full-width .segmented-control-btn) {
+	flex: 1 1 0;
 	min-width: 0;
 }
 
