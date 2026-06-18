@@ -15,6 +15,14 @@ import (
 
 // executeOne dispatches a single action to the appropriate executor.
 func (o *Orchestrator) executeOne(ctx context.Context, action Action) error {
+	o.logActionStart(action)
+	err := o.executeOneRaw(ctx, action)
+	o.logActionFinish(action, err)
+	return err
+}
+
+// executeOneRaw dispatches a single action to the appropriate executor.
+func (o *Orchestrator) executeOneRaw(ctx context.Context, action Action) error {
 	switch action.Type {
 	case ActionColdStartKernel:
 		return o.executeColdStartKernel(ctx, action)
@@ -143,6 +151,13 @@ func (o *Orchestrator) executeOne(ctx context.Context, action Action) error {
 			return nil
 		}
 		return o.clientRoute.OnTunnelDelete(ctx, action.Tunnel)
+	case ActionHydraRoutePostStart:
+		if o.hydraRoute == nil {
+			o.logActionSkip(action, "hydraroute executor is not wired")
+			return nil
+		}
+		o.hydraRoute.ScheduleRestartAfterInterfaceOnline(ctx, action.Reason, action.NDMS, action.Iface)
+		return nil
 
 	case ActionDeleteKernel:
 		return o.executeDeleteKernel(ctx, action)

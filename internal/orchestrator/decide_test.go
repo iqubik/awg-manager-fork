@@ -1206,6 +1206,23 @@ func TestDecide_Boot_ColdStartsStoppedKernelTunnel(t *testing.T) {
 	}
 }
 
+func TestDecide_Boot_AddsHydraRoutePostStartForKernel(t *testing.T) {
+	s := newState()
+	s.tunnels["awg10"] = &tunnelState{
+		ID: "awg10", Backend: "kernel", Enabled: true, Running: false,
+	}
+
+	actions := decide(Event{Type: EventBoot}, &s)
+
+	postStarts := filterActions(actions, ActionHydraRoutePostStart)
+	if len(postStarts) != 1 {
+		t.Fatalf("expected 1 ActionHydraRoutePostStart, got %d", len(postStarts))
+	}
+	if postStarts[0].NDMS != "OpkgTun10" || postStarts[0].Iface != "opkgtun10" || postStarts[0].Reason != "boot-start" {
+		t.Fatalf("unexpected post-start action: %+v", postStarts[0])
+	}
+}
+
 func TestDecide_Reconnect_ReconcilesRunningKernelTunnel(t *testing.T) {
 	s := newState()
 	s.tunnels["awg10"] = &tunnelState{
@@ -1217,6 +1234,57 @@ func TestDecide_Reconnect_ReconcilesRunningKernelTunnel(t *testing.T) {
 	reconciles := filterActions(actions, ActionReconcileKernel)
 	if len(reconciles) != 1 {
 		t.Errorf("expected 1 ReconcileKernel on reconnect, got %d", len(reconciles))
+	}
+}
+
+func TestDecide_WANUp_ResumeKernelAddsHydraRoutePostStart(t *testing.T) {
+	s := newState()
+	s.tunnels["awg10"] = &tunnelState{
+		ID: "awg10", Backend: "kernel", Enabled: true, Running: true, ISPInterface: "ppp0",
+	}
+
+	actions := decide(Event{Type: EventWANUp, WANIface: "ppp0"}, &s)
+
+	resumes := filterActions(actions, ActionResumeKernel)
+	if len(resumes) != 1 {
+		t.Fatalf("expected 1 ActionResumeKernel, got %d", len(resumes))
+	}
+	postStarts := filterActions(actions, ActionHydraRoutePostStart)
+	if len(postStarts) != 1 {
+		t.Fatalf("expected 1 ActionHydraRoutePostStart, got %d", len(postStarts))
+	}
+	if postStarts[0].Reason != "wan-up-resume" {
+		t.Fatalf("unexpected reason: %+v", postStarts[0])
+	}
+}
+
+func TestDecide_StartNativeWG_AddsHydraRoutePostStart(t *testing.T) {
+	s := newState()
+	s.tunnels["awg0"] = &tunnelState{ID: "awg0", Backend: "nativewg", Enabled: true, NWGIndex: 0}
+
+	actions := decide(Event{Type: EventStart, Tunnel: "awg0"}, &s)
+
+	postStarts := filterActions(actions, ActionHydraRoutePostStart)
+	if len(postStarts) != 1 {
+		t.Fatalf("expected 1 ActionHydraRoutePostStart, got %d", len(postStarts))
+	}
+	if postStarts[0].NDMS != "Wireguard0" || postStarts[0].Iface != "nwg0" || postStarts[0].Reason != "manual-start" {
+		t.Fatalf("unexpected post-start action: %+v", postStarts[0])
+	}
+}
+
+func TestDecide_RestartKernel_AddsHydraRoutePostStart(t *testing.T) {
+	s := newState()
+	s.tunnels["awg10"] = &tunnelState{ID: "awg10", Backend: "kernel", Enabled: true, Running: true}
+
+	actions := decide(Event{Type: EventRestart, Tunnel: "awg10"}, &s)
+
+	postStarts := filterActions(actions, ActionHydraRoutePostStart)
+	if len(postStarts) != 1 {
+		t.Fatalf("expected 1 ActionHydraRoutePostStart, got %d", len(postStarts))
+	}
+	if postStarts[0].Reason != "restart" || postStarts[0].NDMS != "OpkgTun10" || postStarts[0].Iface != "opkgtun10" {
+		t.Fatalf("unexpected post-start action: %+v", postStarts[0])
 	}
 }
 
