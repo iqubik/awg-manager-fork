@@ -45,6 +45,8 @@ import type {
 	HydraRouteStatus,
 	HydraRouteConfig,
 	GeoFileEntry,
+	GeoUpdateInterval,
+	GeoUpdateSchedule,
 	DownloadRoute,
 	DownloadOutbound,
 	GeoTag,
@@ -484,6 +486,17 @@ class ApiClient {
 
 	async getGeoFiles(): Promise<GeoFileEntry[]> {
 		return this.request('/hydraroute/geo-files');
+	}
+
+	async getGeoUpdateSchedule(): Promise<GeoUpdateSchedule> {
+		return this.request('/hydraroute/geo-files/schedule');
+	}
+
+	async setGeoUpdateSchedule(interval: GeoUpdateInterval): Promise<GeoUpdateSchedule> {
+		return this.request('/hydraroute/geo-files/schedule', {
+			method: 'PUT',
+			body: JSON.stringify({ interval }),
+		});
 	}
 
 	async listDownloadOutbounds(): Promise<DownloadOutbound[]> {
