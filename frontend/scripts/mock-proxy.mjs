@@ -139,6 +139,8 @@ let singboxLogLevel = DEFAULT_MOCK_STATE.singboxLogLevel;
 let downloadRouteTag = DEFAULT_MOCK_STATE.downloadRouteTag;
 let updateChannel = DEFAULT_MOCK_STATE.updateChannel;
 let updateCheckEnabled = DEFAULT_MOCK_STATE.updateCheckEnabled;
+let geoUpdateScheduleInterval = 'off';
+let geoUpdateScheduleUpdatedAt = '';
 
 // Service-download fault injection: every "download via route" endpoint
 // (geo.dat, AWGM update, DNSRoute lists, Amnezia Premium, sing-box binary,
@@ -162,6 +164,8 @@ function getRuntimeState() {
 		downloadRouteTag,
 		updateChannel,
 		updateCheckEnabled,
+		geoUpdateScheduleInterval,
+		geoUpdateScheduleUpdatedAt,
 		singboxInstallShouldFail,
 		downloadFaultsEnabled,
 		downloadFaultProbability,
@@ -177,6 +181,8 @@ function resetRuntimeControls() {
 	downloadRouteTag = DEFAULT_MOCK_STATE.downloadRouteTag;
 	updateChannel = DEFAULT_MOCK_STATE.updateChannel;
 	updateCheckEnabled = DEFAULT_MOCK_STATE.updateCheckEnabled;
+	geoUpdateScheduleInterval = 'off';
+	geoUpdateScheduleUpdatedAt = '';
 	singboxInstallShouldFail = process.env.MOCK_SINGBOX_INSTALL_FAIL === '1';
 	downloadFaultsEnabled = process.env.MOCK_DOWNLOAD_FAULTS !== '0';
 	downloadFaultProbability = parseProbability(process.env.MOCK_DOWNLOAD_FAULT_PROB, 0.4);
@@ -3989,6 +3995,41 @@ const server = http.createServer(async (req, res) => {
 					external: true,
 				},
 			],
+		});
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/hydraroute/geo-files/schedule') {
+		sendData(res, {
+			interval: geoUpdateScheduleInterval,
+			updatedAt: geoUpdateScheduleUpdatedAt || undefined,
+		});
+		return;
+	}
+
+	if (req.method === 'PUT' && path === '/hydraroute/geo-files/schedule') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const payload = JSON.parse(raw || '{}');
+				const interval = typeof payload.interval === 'string' ? payload.interval.trim() : '';
+				if (!['off', 'hourly', '6h', 'daily', 'weekly'].includes(interval)) {
+					send(res, 400, {
+						success: false,
+						error: { code: 'GEO_SCHEDULE_ERROR', message: `invalid schedule interval "${interval}"` },
+					});
+					return;
+				}
+				geoUpdateScheduleInterval = interval;
+				geoUpdateScheduleUpdatedAt = new Date().toISOString();
+				sendData(res, {
+					interval: geoUpdateScheduleInterval,
+					updatedAt: geoUpdateScheduleUpdatedAt,
+				});
+			} catch (e) {
+				sendInvalidRequest(res, e);
+			}
 		});
 		return;
 	}
