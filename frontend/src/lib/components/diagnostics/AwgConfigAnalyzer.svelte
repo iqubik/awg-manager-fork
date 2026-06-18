@@ -36,6 +36,12 @@
 
 	interface Props {
 		initialTunnelId?: string;
+		initialRaw?: string;
+		autoAnalyze?: boolean;
+		sourceLabel?: string;
+		readonlySource?: boolean;
+		allowTunnelSave?: boolean;
+		forceSingleColumn?: boolean;
 		embedded?: boolean;
 		layoutMode?: 'embedded' | 'standalone';
 		lockTunnelSelection?: boolean;
@@ -44,6 +50,12 @@
 
 	let {
 		initialTunnelId = '',
+		initialRaw = '',
+		autoAnalyze = false,
+		sourceLabel = '',
+		readonlySource = false,
+		allowTunnelSave = true,
+		forceSingleColumn = false,
 		embedded = false,
 		layoutMode = 'standalone',
 		lockTunnelSelection = false,
@@ -111,6 +123,10 @@
 		return embedded && lockTunnelSelection && !!initialTunnelId;
 	}
 
+	function hideTunnelSelection(): boolean {
+		return readonlySource || (embedded && lockTunnelSelection);
+	}
+
 	async function ensureEmbeddedBaseline() {
 		if (!isEmbeddedLocked()) return;
 		if (loadedTunnelRaw !== '') return;
@@ -163,6 +179,21 @@
 			error = e instanceof Error ? e.message : String(e);
 		}
 	}
+
+	$effect(() => {
+		const next = initialRaw.trim();
+		if (!next) return;
+		if (raw.trim() === next && lastAnalyzedRaw === next) return;
+
+		raw = next;
+		loadedTunnelRaw = '';
+		selectedTunnelId = '';
+		tunnelLoadError = '';
+
+		if (autoAnalyze) {
+			analyze();
+		}
+	});
 
 	function clearAll() {
 		raw = '';
@@ -505,6 +536,12 @@
 	}
 
 	onMount(async () => {
+		if (readonlySource) {
+			if (initialTunnelId) {
+				selectedTunnelId = initialTunnelId;
+			}
+			return;
+		}
 		tunnelsLoading = true;
 		tunnelLoadError = '';
 		try {
@@ -620,6 +657,7 @@
 	class="awg-analyzer"
 	class:embedded={embedded || layoutMode === 'embedded'}
 	class:standalone={!embedded && layoutMode === 'standalone'}
+	class:single-column={forceSingleColumn}
 	class:has-results={hasAnalysisResults}
 	class:no-results={!hasAnalysisResults}
 >
@@ -642,7 +680,7 @@
 
 	<div class="layout">
 		<div class="col-input">
-			{#if !embedded || !lockTunnelSelection}
+			{#if !hideTunnelSelection()}
 				<div class="source-toggle">
 					<button
 						type="button"
@@ -662,34 +700,34 @@
 					</button>
 				</div>
 
-					{#if sourceMode === 'tunnel'}
-						<div class="existing-tunnel-box">
-							<div class="existing-tunnel-head">
-								<div class="existing-tunnel-head-copy">
-									<span class="existing-tunnel-title">Существующий AWG-туннель</span>
-									<span class="existing-tunnel-note">или вставьте .conf ниже</span>
-								</div>
-								<SensitiveBlockEye bind:hidden={tunnelSelectionHidden} label="выбранного AWG-туннеля" />
+				{#if sourceMode === 'tunnel'}
+					<div class="existing-tunnel-box">
+						<div class="existing-tunnel-head">
+							<div class="existing-tunnel-head-copy">
+								<span class="existing-tunnel-title">Существующий AWG-туннель</span>
+								<span class="existing-tunnel-note">или вставьте .conf ниже</span>
 							</div>
-							<div class="existing-tunnel-row">
-								<div class="existing-tunnel-select">
-									<Dropdown
-										bind:value={selectedTunnelId}
-										options={tunnelOptions}
-										placeholder={tunnelPlaceholder}
-										onchange={() => void applyFromSelectedTunnel()}
-										disabled={tunnelsLoading || tunnelLoading || tunnelOptions.length === 0}
-										fullWidth
-									/>
-								</div>
-								{#if tunnelLoading}
-									<span class="existing-tunnel-loading">Загрузка…</span>
-								{/if}
+							<SensitiveBlockEye bind:hidden={tunnelSelectionHidden} label="выбранного AWG-туннеля" />
+						</div>
+						<div class="existing-tunnel-row">
+							<div class="existing-tunnel-select">
+								<Dropdown
+									bind:value={selectedTunnelId}
+									options={tunnelOptions}
+									placeholder={tunnelPlaceholder}
+									onchange={() => void applyFromSelectedTunnel()}
+									disabled={tunnelsLoading || tunnelLoading || tunnelOptions.length === 0}
+									fullWidth
+								/>
 							</div>
-							{#if tunnelLoadError}
-								<div class="warn" role="alert">{tunnelLoadError}</div>
+							{#if tunnelLoading}
+								<span class="existing-tunnel-loading">Загрузка…</span>
 							{/if}
 						</div>
+						{#if tunnelLoadError}
+							<div class="warn" role="alert">{tunnelLoadError}</div>
+						{/if}
+					</div>
 				{:else}
 					<div class="existing-tunnel-box">
 						<div class="existing-tunnel-head">
@@ -718,7 +756,7 @@
 						{/if}
 					</div>
 				{/if}
-			{:else}
+			{:else if embedded && lockTunnelSelection}
 				<div class="existing-tunnel-box embedded">
 					<div class="existing-tunnel-head">
 						<span class="existing-tunnel-title">Текущий AWG-туннель</span>
@@ -727,6 +765,13 @@
 					{#if tunnelLoadError}
 						<div class="warn" role="alert">{tunnelLoadError}</div>
 					{/if}
+				</div>
+			{:else if sourceLabel}
+				<div class="existing-tunnel-box embedded">
+					<div class="existing-tunnel-head">
+						<span class="existing-tunnel-title">Источник конфига</span>
+						<span class="existing-tunnel-note">{sourceLabel}</span>
+					</div>
 				</div>
 			{/if}
 
@@ -768,7 +813,7 @@
 				<span class="bar-clear">
 					<Button variant="secondary" onclick={clearAll}>Очистить</Button>
 				</span>
-				{#if canSave}
+				{#if allowTunnelSave && canSave}
 					<span class="bar-save">
 						<Button variant="outline-primary" onclick={saveToTunnel} loading={savingTunnel}>
 							Записать в туннель
@@ -1122,6 +1167,12 @@
 			align-items: start;
 		}
 
+		.awg-analyzer.single-column .layout {
+			grid-template-columns: minmax(0, 1fr);
+			column-gap: 0;
+			row-gap: 16px;
+		}
+
 		.awg-analyzer.embedded .col-input {
 			position: static;
 			max-height: none;
@@ -1158,6 +1209,38 @@
 		}
 
 		.awg-analyzer.embedded .col-results > .card {
+			margin-bottom: 0;
+		}
+
+		.awg-analyzer.single-column .col-input {
+			position: static;
+			max-height: none;
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+			min-height: 0;
+		}
+
+		.awg-analyzer.single-column .drop {
+			flex: none;
+			min-height: auto;
+			overflow: visible;
+		}
+
+		.awg-analyzer.single-column .ta {
+			min-height: 260px;
+			max-height: 420px;
+			resize: vertical;
+			overflow-y: auto;
+		}
+
+		.awg-analyzer.single-column .col-results {
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+		}
+
+		.awg-analyzer.single-column .col-results > .card {
 			margin-bottom: 0;
 		}
 
