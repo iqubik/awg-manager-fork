@@ -379,16 +379,78 @@ jobs:
         shell: bash
         run: |
           set +e
-          go test -count=1 ./... 2>&1 | tee /tmp/go-test.log
+          go test -count=1 -json ./... 2>&1 | tee /tmp/go-test.log
           status=${PIPESTATUS[0]}
 
-          {
-            echo "### Backend tests"
-            echo
-            if [[ "$status" -eq 0 ]]; then
-              echo "PASS \`go test -count=1 ./...\`"
-            else
-              echo "FAIL \`go test -count=1 ./...\`"
+          python3 - "$status" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import sys
+          from pathlib import Path
+
+          status = int(sys.argv[1])
+          log_path = Path("/tmp/go-test.log")
+          package_results = {}
+          test_results = {}
+
+          for raw_line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+              try:
+                  event = json.loads(raw_line)
+              except json.JSONDecodeError:
+                  continue
+
+              action = event.get("Action")
+              package = event.get("Package")
+              test = event.get("Test")
+
+              if package and not test and action in {"pass", "fail", "skip"}:
+                  package_results[package] = action
+
+              if package and test and action in {"pass", "fail", "skip"}:
+                  test_results[(package, test)] = action
+
+          def summarize(results):
+              counts = {"pass": 0, "fail": 0, "skip": 0}
+              for value in results.values():
+                  if value in counts:
+                      counts[value] += 1
+              counts["total"] = sum(counts.values())
+              return counts
+
+          package_counts = summarize(package_results)
+          test_counts = summarize(test_results)
+          failed_packages = sorted(name for name, value in package_results.items() if value == "fail")
+          failed_tests = sorted(f"{pkg} :: {test}" for (pkg, test), value in test_results.items() if value == "fail")
+
+          print("### Backend tests")
+          print()
+          print("Command: `go test -count=1 -json ./...`")
+          print()
+          print("| Metric | Passed | Failed | Skipped | Total |")
+          print("|--------|--------|--------|---------|-------|")
+          print(
+              f"| Packages | {package_counts['pass']} | {package_counts['fail']} | "
+              f"{package_counts['skip']} | {package_counts['total']} |"
+          )
+          print(
+              f"| Tests | {test_counts['pass']} | {test_counts['fail']} | "
+              f"{test_counts['skip']} | {test_counts['total']} |"
+          )
+
+          if status != 0 and failed_packages:
+              print()
+              print("Failed packages:")
+              for item in failed_packages:
+                  print(f"- `{item}`")
+
+          if status != 0 and failed_tests:
+              print()
+              print("Failed tests:")
+              for item in failed_tests:
+                  print(f"- `{item}`")
+          PY
+
+          if [[ "$status" -ne 0 ]]; then
+            {
               echo
               echo "<details><summary>Last 120 log lines</summary>"
               echo
@@ -396,8 +458,8 @@ jobs:
               tail -n 120 /tmp/go-test.log
               echo '```'
               echo "</details>"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           exit "$status"
 
@@ -425,16 +487,29 @@ jobs:
         shell: bash
         run: |
           set +e
+          start_ts=$(date +%s)
           npm run check 2>&1 | tee /tmp/frontend-check.log
           status=${PIPESTATUS[0]}
+          end_ts=$(date +%s)
+          duration=$((end_ts - start_ts))
+          result_line="$(grep -E 'svelte-check found .* errors? and .* warnings?' /tmp/frontend-check.log | tail -n 1)"
 
           {
             echo "### Frontend svelte-check"
             echo
+            echo "Command: \`npm run check\`"
             if [[ "$status" -eq 0 ]]; then
-              echo "PASS \`npm run check\`"
+              echo "Status: PASS"
             else
-              echo "FAIL \`npm run check\`"
+              echo "Status: FAIL"
+            fi
+            echo "Duration: ${duration}s"
+            if [[ -n "$result_line" ]]; then
+              echo
+              echo "Result:"
+              echo "$result_line"
+            fi
+            if [[ "$status" -ne 0 ]]; then
               echo
               echo "<details><summary>Last 120 log lines</summary>"
               echo
@@ -474,13 +549,12 @@ jobs:
           npx vitest run 2>&1 | tee /tmp/vitest.log
           status=${PIPESTATUS[0]}
 
-          {
-            echo "### Frontend vitest"
-            echo
-            if [[ "$status" -eq 0 ]]; then
-              echo "PASS \`npx vitest run\`"
-            else
-              echo "FAIL \`npx vitest run\`"
+          if [[ "$status" -ne 0 ]]; then
+            {
+              echo "### Frontend vitest failure details"
+              echo
+              echo "Command: \`npx vitest run\`"
+              echo "Status: FAIL"
               echo
               echo "<details><summary>Last 120 log lines</summary>"
               echo
@@ -488,8 +562,8 @@ jobs:
               tail -n 120 /tmp/vitest.log
               echo '```'
               echo "</details>"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           exit "$status"
 
