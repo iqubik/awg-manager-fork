@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Modal, Button } from '$lib/components/ui';
+	import AwgConfigAnalyzer from '$lib/components/diagnostics/AwgConfigAnalyzer.svelte';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { copyToClipboard } from '$lib/utils/clipboard';
@@ -18,7 +19,7 @@
 
 	let conf = $state('');
 	let loading = $state(false);
-	let showQR = $state(false);
+	let viewMode = $state<'conf' | 'qr' | 'analysis'>('conf');
 	let qrDataUrl = $state('');
 	let qrGenerating = $state(false);
 	let loadedForKey = $state('');
@@ -37,7 +38,7 @@
 		const key = confLoadKey();
 		if (loadedForKey === key) return;
 		loadedForKey = key;
-		showQR = false;
+		viewMode = 'conf';
 		qrDataUrl = '';
 		void loadConf();
 	});
@@ -57,8 +58,8 @@
 	}
 
 	async function toggleQR() {
-		if (showQR) {
-			showQR = false;
+		if (viewMode === 'qr') {
+			viewMode = 'conf';
 			return;
 		}
 		if (!qrDataUrl) {
@@ -82,7 +83,11 @@
 				qrGenerating = false;
 			}
 		}
-		showQR = true;
+		viewMode = 'qr';
+	}
+
+	function toggleAnalysis() {
+		viewMode = viewMode === 'analysis' ? 'conf' : 'analysis';
 	}
 
 	function downloadConf() {
@@ -110,10 +115,23 @@
 	{#if loading}
 		<div class="loading">Загрузка...</div>
 	{:else if conf}
-		{#if showQR && qrDataUrl}
+		{#if viewMode === 'qr' && qrDataUrl}
 			<div class="qr-container">
 				<img src={qrDataUrl} alt="QR-код конфигурации" class="qr-image" />
 				<span class="qr-hint">Отсканируйте в AmneziaWG / WireGuard</span>
+			</div>
+		{:else if viewMode === 'analysis'}
+			<div class="analysis-container">
+				<AwgConfigAnalyzer
+					layoutMode="embedded"
+					embedded
+					forceSingleColumn
+					initialRaw={conf}
+					autoAnalyze
+					readonlySource
+					allowTunnelSave={false}
+					sourceLabel={`Клиент ${peerName}`}
+				/>
 			</div>
 		{:else}
 			<pre class="conf-preview">{conf}</pre>
@@ -123,19 +141,38 @@
 	{/if}
 
 	{#snippet actions()}
-		<Button variant="ghost" size="md" onclick={toggleQR} disabled={!conf} loading={qrGenerating}>
-			{showQR ? 'Конфиг' : 'QR-код'}
-		</Button>
-		<Button variant="ghost" size="md" onclick={copyConf} disabled={!conf}>
-			Копировать
-		</Button>
-		<Button variant="primary" size="md" onclick={downloadConf} disabled={!conf}>
-			Скачать .conf
-		</Button>
+		<div class="actions-grid">
+			<Button variant="ghost" size="md" onclick={toggleQR} disabled={!conf} loading={qrGenerating}>
+				{viewMode === 'qr' ? 'Конфиг' : 'QR-код'}
+			</Button>
+			<Button variant="ghost" size="md" onclick={toggleAnalysis} disabled={!conf}>
+				{viewMode === 'analysis' ? 'Конфиг' : 'Проверить'}
+			</Button>
+			<Button variant="ghost" size="md" onclick={copyConf} disabled={!conf}>
+				Копировать
+			</Button>
+			<Button variant="primary" size="md" onclick={downloadConf} disabled={!conf}>
+				Скачать .conf
+			</Button>
+		</div>
 	{/snippet}
 </Modal>
 
 <style>
+	.actions-grid {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 0.5rem;
+		width: 100%;
+	}
+
+	.actions-grid :global(.btn),
+	.actions-grid :global(button),
+	.actions-grid :global(a) {
+		width: 100%;
+		min-width: 0;
+	}
+
 	.conf-preview {
 		background: var(--bg-primary);
 		border: 1px solid var(--border);
@@ -157,6 +194,12 @@
 		color: var(--text-muted);
 	}
 
+	.analysis-container {
+		max-height: min(78vh, 960px);
+		overflow: auto;
+		padding-right: 2px;
+	}
+
 	.qr-container {
 		display: flex;
 		flex-direction: column;
@@ -175,6 +218,10 @@
 	}
 
 	@media (max-width: 640px) {
+		.actions-grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
 		.qr-container {
 			padding: 1rem;
 		}
