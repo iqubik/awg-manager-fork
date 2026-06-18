@@ -377,7 +377,29 @@ jobs:
 
       - name: Run go tests
         shell: bash
-        run: go test -count=1 ./...
+        run: |
+          set +e
+          go test -count=1 ./... 2>&1 | tee /tmp/go-test.log
+          status=${PIPESTATUS[0]}
+
+          {
+            echo "### Backend tests"
+            echo
+            if [[ "$status" -eq 0 ]]; then
+              echo "PASS \`go test -count=1 ./...\`"
+            else
+              echo "FAIL \`go test -count=1 ./...\`"
+              echo
+              echo "<details><summary>Last 120 log lines</summary>"
+              echo
+              echo '```'
+              tail -n 120 /tmp/go-test.log
+              echo '```'
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$status"
 
   frontend-check:
     name: Frontend svelte-check
@@ -400,7 +422,30 @@ jobs:
 
       - name: Run frontend check
         working-directory: frontend
-        run: npm run check
+        shell: bash
+        run: |
+          set +e
+          npm run check 2>&1 | tee /tmp/frontend-check.log
+          status=${PIPESTATUS[0]}
+
+          {
+            echo "### Frontend svelte-check"
+            echo
+            if [[ "$status" -eq 0 ]]; then
+              echo "PASS \`npm run check\`"
+            else
+              echo "FAIL \`npm run check\`"
+              echo
+              echo "<details><summary>Last 120 log lines</summary>"
+              echo
+              echo '```'
+              tail -n 120 /tmp/frontend-check.log
+              echo '```'
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$status"
 
   frontend-test:
     name: Frontend vitest
@@ -423,7 +468,30 @@ jobs:
 
       - name: Run frontend tests
         working-directory: frontend
-        run: npx vitest run
+        shell: bash
+        run: |
+          set +e
+          npx vitest run 2>&1 | tee /tmp/vitest.log
+          status=${PIPESTATUS[0]}
+
+          {
+            echo "### Frontend vitest"
+            echo
+            if [[ "$status" -eq 0 ]]; then
+              echo "PASS \`npx vitest run\`"
+            else
+              echo "FAIL \`npx vitest run\`"
+              echo
+              echo "<details><summary>Last 120 log lines</summary>"
+              echo
+              echo '```'
+              tail -n 120 /tmp/vitest.log
+              echo '```'
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$status"
 
   pre-release:
     name: Publish IQ localized pre-release
