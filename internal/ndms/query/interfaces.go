@@ -269,6 +269,8 @@ func (s *InterfaceStore) FetchSummary(ctx context.Context, name string) (*ndms.I
 		State     string `json:"state"`
 		Link      string `json:"link"`
 		ConfLayer string `json:"conf-layer"`
+		Connected string `json:"connected"`
+		Online    string `json:"online"`
 		Summary   struct {
 			Layer struct {
 				Conf string `json:"conf"`
@@ -287,6 +289,8 @@ func (s *InterfaceStore) FetchSummary(ctx context.Context, name string) (*ndms.I
 		ConfLayer: resp.Summary.Layer.Conf,
 		Link:      layerLevelToUpDown(resp.Summary.Layer.Link),
 		State:     layerLevelToUpDown(resp.Summary.Layer.Ctrl),
+		Connected: resp.Connected == "yes",
+		Online:    resp.Online == "yes",
 	}
 	if resp.Summary.Layer.Conf == "" {
 		// Полный объект без summary-подсекции (или status-error на
@@ -1098,4 +1102,3 @@ func allInterfaceLabel(ifaceType, kernelName, description string) string {
 	}
 	return kernelName
 }
-
