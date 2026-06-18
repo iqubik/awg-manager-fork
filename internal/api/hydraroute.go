@@ -54,6 +54,16 @@ type GeoFilesResponse struct {
 	Data    []GeoFileEntryDTO `json:"data"`
 }
 
+type GeoUpdateScheduleDTO struct {
+	Interval  string `json:"interval" example:"off"`
+	UpdatedAt string `json:"updatedAt,omitempty" example:"2024-01-15T02:00:00Z"`
+}
+
+type GeoUpdateScheduleResponse struct {
+	Success bool                 `json:"success" example:"true"`
+	Data    GeoUpdateScheduleDTO `json:"data"`
+}
+
 // GeoTagDTO mirrors frontend GeoTag.
 type GeoTagDTO struct {
 	Name  string `json:"name" example:"google"`
@@ -177,6 +187,10 @@ type SetPolicyOrderRequest struct {
 	Order []string `json:"order" example:"default"`
 }
 
+type SetGeoUpdateScheduleRequest struct {
+	Interval string `json:"interval" example:"daily"`
+}
+
 // HydraRouteHandler handles HydraRoute Neo settings API endpoints.
 type HydraRouteHandler struct {
 	svc         *hydraroute.Service
@@ -293,6 +307,50 @@ func (h *HydraRouteHandler) ListGeoFiles(w http.ResponseWriter, r *http.Request)
 	}
 
 	response.Success(w, response.MustNotNil(gds.List()))
+}
+
+// GetGeoUpdateSchedule returns the current geo-data auto-update interval.
+func (h *HydraRouteHandler) GetGeoUpdateSchedule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.MethodNotAllowed(w)
+		return
+	}
+
+	gds := h.svc.GetGeoData()
+	if gds == nil {
+		response.Error(w, "geo data store not initialized", "NOT_INITIALIZED")
+		return
+	}
+
+	response.Success(w, gds.GetSchedule())
+}
+
+// SetGeoUpdateSchedule updates the persisted geo-data auto-update interval.
+func (h *HydraRouteHandler) SetGeoUpdateSchedule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		response.MethodNotAllowed(w)
+		return
+	}
+
+	var req SetGeoUpdateScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, "invalid request body: "+err.Error(), "BAD_REQUEST")
+		return
+	}
+
+	gds := h.svc.GetGeoData()
+	if gds == nil {
+		response.Error(w, "geo data store not initialized", "NOT_INITIALIZED")
+		return
+	}
+
+	schedule, err := gds.SetSchedule(req.Interval)
+	if err != nil {
+		response.Error(w, err.Error(), "GEO_SCHEDULE_ERROR")
+		return
+	}
+
+	response.Success(w, schedule)
 }
 
 // AddGeoFile downloads and registers a new geo data file.
