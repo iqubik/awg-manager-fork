@@ -72,6 +72,11 @@ type GeoFileEntry struct {
 	Mtime string `json:"mtime,omitempty"`
 }
 
+type GeoUpdateSchedule struct {
+	Interval  string `json:"interval"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
+}
+
 type GeoTag struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
@@ -90,6 +95,11 @@ type DnsListInfo struct {
 const (
 	maxGeoFiles    = 16
 	defaultMaxElem = 65536
+	GeoUpdateOff   = "off"
+	GeoUpdateHour  = "hourly"
+	GeoUpdate6H    = "6h"
+	GeoUpdateDay   = "daily"
+	GeoUpdateWeek  = "weekly"
 )
 
 // hrConfPath and hrDir are vars so tests can override them via t.TempDir().

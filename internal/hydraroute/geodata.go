@@ -51,7 +51,8 @@ func defaultURLForType(fileType string) string {
 
 // geoDataJSON is the on-disk format for GeoDataStore persistence.
 type geoDataJSON struct {
-	Files []GeoFileEntry `json:"files"`
+	Files    []GeoFileEntry    `json:"files"`
+	Schedule GeoUpdateSchedule `json:"schedule,omitempty"`
 }
 
 // ProgressFn receives streaming download progress: bytes copied so far and
@@ -65,6 +66,7 @@ type GeoDataStore struct {
 	geoDir      string // managed .dat files: <data-dir>/geo
 	mu          sync.RWMutex
 	entries     []GeoFileEntry
+	schedule    GeoUpdateSchedule
 	tagCache    map[string][]GeoTag // path → cached tags
 	busyPaths   map[string]struct{}
 	reserved    map[string]string // path -> fileType
@@ -103,6 +105,7 @@ func NewGeoDataStore(dataDir string) *GeoDataStore {
 	s := &GeoDataStore{
 		storagePath: filepath.Join(dataDir, geoDataFile),
 		geoDir:      geoDir,
+		schedule:    GeoUpdateSchedule{Interval: GeoUpdateOff},
 		tagCache:    make(map[string][]GeoTag),
 		busyPaths:   make(map[string]struct{}),
 		reserved:    make(map[string]string),
@@ -128,6 +131,51 @@ func (s *GeoDataStore) List() []GeoFileEntry {
 	result := make([]GeoFileEntry, len(s.entries))
 	copy(result, s.entries)
 	return result
+}
+
+func normalizeSchedule(schedule GeoUpdateSchedule) GeoUpdateSchedule {
+	schedule.Interval = strings.TrimSpace(schedule.Interval)
+	if schedule.Interval == "" || !validGeoUpdateInterval(schedule.Interval) {
+		schedule.Interval = GeoUpdateOff
+	}
+	return schedule
+}
+
+func validGeoUpdateInterval(interval string) bool {
+	switch interval {
+	case GeoUpdateOff, GeoUpdateHour, GeoUpdate6H, GeoUpdateDay, GeoUpdateWeek:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *GeoDataStore) GetSchedule() GeoUpdateSchedule {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return normalizeSchedule(s.schedule)
+}
+
+func (s *GeoDataStore) SetSchedule(interval string) (GeoUpdateSchedule, error) {
+	interval = strings.TrimSpace(interval)
+	if !validGeoUpdateInterval(interval) {
+		return GeoUpdateSchedule{}, fmt.Errorf("invalid schedule interval %q", interval)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	prev := s.schedule
+	next := GeoUpdateSchedule{
+		Interval:  interval,
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	s.schedule = next
+	if err := s.saveUnlocked(); err != nil {
+		s.schedule = prev
+		return GeoUpdateSchedule{}, err
+	}
+	return s.schedule, nil
 }
 
 // validateDownloadURL returns an error if rawURL is not a safe http/https URL
@@ -849,7 +897,10 @@ func (s *GeoDataStore) load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.entries = doc.Files
-	if s.reconcileUnlocked() {
+	normalizedSchedule := normalizeSchedule(doc.Schedule)
+	scheduleChanged := normalizedSchedule.Interval != strings.TrimSpace(doc.Schedule.Interval)
+	s.schedule = normalizedSchedule
+	if s.reconcileUnlocked() || scheduleChanged {
 		_ = s.saveUnlocked()
 	}
 	return nil
@@ -858,7 +909,10 @@ func (s *GeoDataStore) load() error {
 // saveUnlocked writes current entries to disk atomically.
 // Caller must hold s.mu (write lock).
 func (s *GeoDataStore) saveUnlocked() error {
-	doc := geoDataJSON{Files: s.entries}
+	doc := geoDataJSON{
+		Files:    s.entries,
+		Schedule: normalizeSchedule(s.schedule),
+	}
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
