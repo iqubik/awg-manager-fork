@@ -49,6 +49,8 @@
 		line-height: 1.4;
 		color: var(--error, var(--color-danger));
 		min-width: 0;
+		overflow-wrap: anywhere;
+		word-break: break-word;
 	}
 
 	.dl-error-title {
@@ -58,6 +60,8 @@
 	.dl-error-detail {
 		color: var(--text-muted, var(--color-text-muted));
 		font-weight: 400;
+		overflow-wrap: anywhere;
+		word-break: break-word;
 	}
 
 	.dl-error-link {

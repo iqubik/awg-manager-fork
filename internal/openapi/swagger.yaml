@@ -1254,6 +1254,23 @@ definitions:
         example: true
         type: boolean
     type: object
+  api.GeoUpdateScheduleDTO:
+    properties:
+      interval:
+        example: "off"
+        type: string
+      updatedAt:
+        example: "2024-01-15T02:00:00Z"
+        type: string
+    type: object
+  api.GeoUpdateScheduleResponse:
+    properties:
+      data:
+        $ref: '#/definitions/api.GeoUpdateScheduleDTO'
+      success:
+        example: true
+        type: boolean
+    type: object
   api.HealthData:
     properties:
       instanceId:
@@ -2580,6 +2597,12 @@ definitions:
         type: string
       name:
         example: Policy0
+        type: string
+    type: object
+  api.SetGeoUpdateScheduleRequest:
+    properties:
+      interval:
+        example: daily
         type: string
     type: object
   api.SetInterfaceUpRequest:
@@ -6790,6 +6813,50 @@ paths:
       security:
       - CookieAuth: []
       summary: Rescan HydraRoute geo files from hrneo.conf
+      tags:
+      - hydraroute
+  /hydraroute/geo-files/schedule:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GeoUpdateScheduleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Get HydraRoute geo file auto-update schedule
+      tags:
+      - hydraroute
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Geo auto-update schedule interval
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SetGeoUpdateScheduleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GeoUpdateScheduleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Set HydraRoute geo file auto-update schedule
       tags:
       - hydraroute
   /hydraroute/geo-files/take-control:
