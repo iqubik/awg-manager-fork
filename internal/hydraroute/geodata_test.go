@@ -3,6 +3,7 @@ package hydraroute
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/logging"
 )
@@ -39,6 +41,191 @@ func newTestGeoStore(t *testing.T) *GeoDataStore {
 	t.Helper()
 	tmp := t.TempDir()
 	return NewGeoDataStore(tmp)
+}
+
+func TestGeoDataStore_ScheduleDefaultsToOff(t *testing.T) {
+	store := newTestGeoStore(t)
+	got := store.GetSchedule()
+	if got.Interval != GeoUpdateOff {
+		t.Fatalf("Interval = %q, want %q", got.Interval, GeoUpdateOff)
+	}
+}
+
+func TestGeoDataStore_SetScheduleAcceptsAllValidIntervals(t *testing.T) {
+	for _, interval := range []string{GeoUpdateOff, GeoUpdateHour, GeoUpdate6H, GeoUpdateDay, GeoUpdateWeek} {
+		t.Run(interval, func(t *testing.T) {
+			store := newTestGeoStore(t)
+			got, err := store.SetSchedule(interval)
+			if err != nil {
+				t.Fatalf("SetSchedule(%q): %v", interval, err)
+			}
+			if got.Interval != interval {
+				t.Fatalf("Interval = %q, want %q", got.Interval, interval)
+			}
+			if got.UpdatedAt == "" {
+				t.Fatal("UpdatedAt = empty, want timestamp")
+			}
+			if _, err := time.Parse(time.RFC3339, got.UpdatedAt); err != nil {
+				t.Fatalf("UpdatedAt parse: %v", err)
+			}
+		})
+	}
+}
+
+func TestGeoDataStore_SetSchedulePersists(t *testing.T) {
+	store := newTestGeoStore(t)
+
+	got, err := store.SetSchedule(GeoUpdateDay)
+	if err != nil {
+		t.Fatalf("SetSchedule: %v", err)
+	}
+	if got.Interval != GeoUpdateDay {
+		t.Fatalf("Interval = %q, want %q", got.Interval, GeoUpdateDay)
+	}
+	if got.UpdatedAt == "" {
+		t.Fatal("UpdatedAt = empty, want timestamp")
+	}
+
+	reloaded := NewGeoDataStore(filepath.Dir(store.storagePath))
+	reloadedGot := reloaded.GetSchedule()
+	if reloadedGot.Interval != GeoUpdateDay {
+		t.Fatalf("reloaded Interval = %q, want %q", reloadedGot.Interval, GeoUpdateDay)
+	}
+	if reloadedGot.UpdatedAt == "" {
+		t.Fatal("reloaded UpdatedAt = empty, want timestamp")
+	}
+}
+
+func TestGeoDataStore_SetScheduleRejectsInvalidValue(t *testing.T) {
+	store := newTestGeoStore(t)
+	if _, err := store.SetSchedule("every-minute"); err == nil {
+		t.Fatal("SetSchedule(invalid) error = nil, want error")
+	}
+}
+
+func TestGeoDataStore_SetScheduleRejectsInvalidAndDoesNotMutate(t *testing.T) {
+	store := newTestGeoStore(t)
+	if _, err := store.SetSchedule(GeoUpdateDay); err != nil {
+		t.Fatalf("SetSchedule(daily): %v", err)
+	}
+	if _, err := store.SetSchedule("every-minute"); err == nil {
+		t.Fatal("SetSchedule(invalid) error = nil, want error")
+	}
+	if got := store.GetSchedule().Interval; got != GeoUpdateDay {
+		t.Fatalf("Interval after invalid = %q, want %q", got, GeoUpdateDay)
+	}
+}
+
+func TestGeoDataStore_SetScheduleRollsBackOnSaveError(t *testing.T) {
+	store := newTestGeoStore(t)
+	if _, err := store.SetSchedule(GeoUpdateDay); err != nil {
+		t.Fatalf("SetSchedule(daily): %v", err)
+	}
+
+	store.mu.Lock()
+	store.storagePath = store.geoDir
+	store.mu.Unlock()
+
+	if _, err := store.SetSchedule(GeoUpdateWeek); err == nil {
+		t.Fatal("SetSchedule(weekly) error = nil, want error")
+	}
+	if got := store.GetSchedule().Interval; got != GeoUpdateDay {
+		t.Fatalf("Interval after failed save = %q, want %q", got, GeoUpdateDay)
+	}
+}
+
+func TestGeoDataStore_LoadOldJSONWithoutScheduleDefaultsOff(t *testing.T) {
+	tmp := t.TempDir()
+	dataFile := filepath.Join(tmp, geoDataFile)
+	samplePath := filepath.Join(tmp, geoSubdir, "sample.dat")
+	if err := os.MkdirAll(filepath.Dir(samplePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(samplePath, []byte("geo"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	oldJSON := `{"files":[{"type":"geosite","path":"` + strings.ReplaceAll(samplePath, `\`, `\\`) + `","url":"https://example.com/sample.dat","size":3,"tagCount":0,"updated":"2026-06-18T12:00:00Z"}]}`
+	if err := os.WriteFile(dataFile, []byte(oldJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile old JSON: %v", err)
+	}
+
+	store := NewGeoDataStore(tmp)
+	if got := store.GetSchedule().Interval; got != GeoUpdateOff {
+		t.Fatalf("Interval = %q, want %q", got, GeoUpdateOff)
+	}
+	if len(store.List()) != 1 {
+		t.Fatalf("files = %d, want 1", len(store.List()))
+	}
+	if _, err := store.SetSchedule(GeoUpdateHour); err != nil {
+		t.Fatalf("SetSchedule(hourly): %v", err)
+	}
+	if len(store.List()) != 1 {
+		t.Fatalf("files after SetSchedule = %d, want 1", len(store.List()))
+	}
+}
+
+func TestGeoDataStore_LoadInvalidScheduleNormalizesToOff(t *testing.T) {
+	tmp := t.TempDir()
+	dataFile := filepath.Join(tmp, geoDataFile)
+	raw := `{"files":[],"schedule":{"interval":"every-minute"}}`
+	if err := os.WriteFile(dataFile, []byte(raw), 0o644); err != nil {
+		t.Fatalf("WriteFile invalid JSON: %v", err)
+	}
+
+	store := NewGeoDataStore(tmp)
+	if got := store.GetSchedule().Interval; got != GeoUpdateOff {
+		t.Fatalf("Interval = %q, want %q", got, GeoUpdateOff)
+	}
+
+	data, err := os.ReadFile(dataFile)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var doc geoDataJSON
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("Unmarshal saved JSON: %v", err)
+	}
+	if doc.Schedule.Interval != GeoUpdateOff {
+		t.Fatalf("persisted interval = %q, want %q", doc.Schedule.Interval, GeoUpdateOff)
+	}
+}
+
+func TestGeoDataStore_LoadSavePreservesFilesAndSchedule(t *testing.T) {
+	store := newTestGeoStore(t)
+	samplePath := filepath.Join(store.geoDir, "sample.dat")
+	if err := os.WriteFile(samplePath, []byte("geo"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	store.mu.Lock()
+	store.entries = []GeoFileEntry{
+		{
+			Type:     "geosite",
+			Path:     samplePath,
+			URL:      "https://example.com/sample.dat",
+			Size:     42,
+			TagCount: 7,
+			Updated:  "2026-06-18T12:00:00Z",
+		},
+	}
+	store.mu.Unlock()
+
+	saved, err := store.SetSchedule(GeoUpdateWeek)
+	if err != nil {
+		t.Fatalf("SetSchedule: %v", err)
+	}
+
+	reloaded := NewGeoDataStore(filepath.Dir(store.storagePath))
+	files := reloaded.List()
+	if len(files) != 1 {
+		t.Fatalf("files = %d, want 1", len(files))
+	}
+	if files[0].URL != "https://example.com/sample.dat" {
+		t.Fatalf("URL = %q, want persisted URL", files[0].URL)
+	}
+	if got := reloaded.GetSchedule(); got.Interval != saved.Interval || got.UpdatedAt != saved.UpdatedAt {
+		t.Fatalf("schedule = %+v, want %+v", got, saved)
+	}
 }
 
 func TestGeoDataStore_LogsDownloadAndUpdateRouteURLs(t *testing.T) {
