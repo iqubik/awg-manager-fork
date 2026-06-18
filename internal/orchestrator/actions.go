@@ -47,6 +47,7 @@ const (
 	ActionDeleteDNSRoutes
 	ActionDeleteStaticRoutes
 	ActionDeleteClientRoutes
+	ActionHydraRoutePostStart
 
 	// Persistence
 	ActionPersistRunning
@@ -67,5 +68,7 @@ type Action struct {
 	Config  *tunnel.Config
 	WAN     string // resolved WAN interface
 	Iface   string // kernel interface name
+	NDMS    string // NDMS interface name
 	Enabled *bool
+	Reason  string
 }
