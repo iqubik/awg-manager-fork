@@ -4,10 +4,13 @@ setlocal
 rem Usage:
 rem   scripts\dev\dev-mock-frontend.bat [FRONT_PORT] [PRISM_PORT] [MOCK_PROXY_PORT]
 rem Example:
-rem   scripts\dev\dev-mock-frontend.bat 4173 8080 8081
+rem   scripts\dev\dev-mock-frontend.bat 5173 8080 8081
+rem Behavior:
+rem   If a requested port is unavailable, the script automatically tries
+rem   the next ports until it finds a usable one.
 
 set "FRONT_PORT=%~1"
-if "%FRONT_PORT%"=="" set "FRONT_PORT=4173"
+if "%FRONT_PORT%"=="" set "FRONT_PORT=5173"
 
 set "MOCK_PORT=%~2"
 if "%MOCK_PORT%"=="" set "MOCK_PORT=8080"
@@ -32,13 +35,13 @@ if not exist "%SWAGGER%" (
 )
 
 echo Checking dev ports...
-call :ensure_port_available "%MOCK_PORT%" "Prism mock"
+call :select_port MOCK_PORT "Prism mock"
 if errorlevel 1 exit /b 1
 
-call :ensure_port_available "%MOCK_PROXY_PORT%" "mock-proxy"
+call :select_port MOCK_PROXY_PORT "mock-proxy"
 if errorlevel 1 exit /b 1
 
-call :ensure_port_available "%FRONT_PORT%" "Vite frontend"
+call :select_port FRONT_PORT "Vite frontend"
 if errorlevel 1 exit /b 1
 
 echo Starting Prism mock on http://127.0.0.1:%MOCK_PORT% ...
@@ -77,6 +80,60 @@ echo Close all opened terminal windows to stop.
 endlocal
 exit /b 0
 
+:select_port
+setlocal EnableDelayedExpansion
+set "TARGET_VAR=%~1"
+set "TARGET_NAME=%~2"
+call set "BASE_PORT=%%%TARGET_VAR%%%"
+if not defined BASE_PORT (
+  echo [ERROR] No base port provided for %TARGET_NAME%.
+  exit /b 1
+)
+
+set /a TRY_PORT=%BASE_PORT%
+set /a MAX_ATTEMPTS=50
+set /a ATTEMPT=0
+
+:select_port_loop
+set /a ATTEMPT+=1
+if /I "%TARGET_VAR%"=="FRONT_PORT" (
+  if !ATTEMPT! equ 1 (
+    if !TRY_PORT! geq 4111 if !TRY_PORT! leq 4410 (
+      echo [INFO] Vite frontend requested port !TRY_PORT! falls into a Windows-restricted range, switching search to 5173+.
+      set /a TRY_PORT=5173
+    )
+  )
+)
+if /I not "%TARGET_VAR%"=="MOCK_PORT" if "!TRY_PORT!"=="%MOCK_PORT%" (
+  set /a TRY_PORT+=1
+  goto select_port_loop
+)
+if /I not "%TARGET_VAR%"=="MOCK_PROXY_PORT" if "!TRY_PORT!"=="%MOCK_PROXY_PORT%" (
+  set /a TRY_PORT+=1
+  goto select_port_loop
+)
+if /I not "%TARGET_VAR%"=="FRONT_PORT" if "!TRY_PORT!"=="%FRONT_PORT%" (
+  set /a TRY_PORT+=1
+  goto select_port_loop
+)
+call :ensure_port_available "!TRY_PORT!" "%TARGET_NAME%"
+if not errorlevel 1 goto select_port_found
+
+if !ATTEMPT! geq !MAX_ATTEMPTS! (
+  echo [ERROR] Could not find an available port for %TARGET_NAME% after !MAX_ATTEMPTS! attempts starting from %BASE_PORT%.
+  exit /b 1
+)
+
+set /a TRY_PORT+=1
+goto select_port_loop
+
+:select_port_found
+if not "!TRY_PORT!"=="%BASE_PORT%" (
+  echo [WARN] %TARGET_NAME% requested port %BASE_PORT% unavailable, using !TRY_PORT! instead.
+)
+endlocal & set "%~1=%TRY_PORT%"
+exit /b 0
+
 :ensure_port_available
 set "CHECK_PORT=%~1"
 set "CHECK_NAME=%~2"
@@ -87,7 +144,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$autoKill=$env:AWGM_DEV_AUTO_KILL;" ^
   "if ([string]::IsNullOrWhiteSpace($autoKill)) { $autoKill='1' };" ^
   "$listeners=Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalAddress -in @('127.0.0.1','0.0.0.0','::1','::') };" ^
-  "if (-not $listeners) { exit 0 };" ^
   "$owningProcessIds=$listeners | Select-Object -ExpandProperty OwningProcess -Unique;" ^
   "foreach ($processId in $owningProcessIds) {" ^
   "  $proc=Get-CimInstance Win32_Process -Filter \"ProcessId=$processId\";" ^
@@ -103,5 +159,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "  Write-Host \"[INFO] Stopping stale AWGM dev process on port ${port}: PID $processId ($exe)\";" ^
   "  Stop-Process -Id $processId -Force -ErrorAction Stop;" ^
   "};" ^
-  "Start-Sleep -Milliseconds 300; exit 0"
+  "Start-Sleep -Milliseconds 300;" ^
+  "$listener=$null;" ^
+  "try {" ^
+  "  $listener=[System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse('127.0.0.1'), $port);" ^
+  "  $listener.Start();" ^
+  "  $listener.Stop();" ^
+  "  exit 0;" ^
+  "} catch {" ^
+  "  if ($listener) { try { $listener.Stop() } catch {} };" ^
+  "  Write-Host \"[WARN] $name port $port is unavailable: $($_.Exception.Message)\";" ^
+  "  exit 2;" ^
+  "}"
 exit /b %ERRORLEVEL%

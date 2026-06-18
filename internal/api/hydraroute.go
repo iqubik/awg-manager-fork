@@ -54,11 +54,13 @@ type GeoFilesResponse struct {
 	Data    []GeoFileEntryDTO `json:"data"`
 }
 
+// GeoUpdateScheduleDTO mirrors frontend GeoUpdateSchedule.
 type GeoUpdateScheduleDTO struct {
 	Interval  string `json:"interval" example:"off"`
 	UpdatedAt string `json:"updatedAt,omitempty" example:"2024-01-15T02:00:00Z"`
 }
 
+// GeoUpdateScheduleResponse is the envelope for /hydraroute/geo-files/schedule.
 type GeoUpdateScheduleResponse struct {
 	Success bool                 `json:"success" example:"true"`
 	Data    GeoUpdateScheduleDTO `json:"data"`
@@ -187,6 +189,7 @@ type SetPolicyOrderRequest struct {
 	Order []string `json:"order" example:"default"`
 }
 
+// SetGeoUpdateScheduleRequest is the body for PUT /hydraroute/geo-files/schedule.
 type SetGeoUpdateScheduleRequest struct {
 	Interval string `json:"interval" example:"daily"`
 }
@@ -310,6 +313,14 @@ func (h *HydraRouteHandler) ListGeoFiles(w http.ResponseWriter, r *http.Request)
 }
 
 // GetGeoUpdateSchedule returns the current geo-data auto-update interval.
+//
+//	@Summary		Get HydraRoute geo file auto-update schedule
+//	@Tags			hydraroute
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Success		200	{object}	GeoUpdateScheduleResponse
+//	@Failure		400	{object}	APIErrorEnvelope
+//	@Router			/hydraroute/geo-files/schedule [get]
 func (h *HydraRouteHandler) GetGeoUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		response.MethodNotAllowed(w)
@@ -326,6 +337,16 @@ func (h *HydraRouteHandler) GetGeoUpdateSchedule(w http.ResponseWriter, r *http.
 }
 
 // SetGeoUpdateSchedule updates the persisted geo-data auto-update interval.
+//
+//	@Summary		Set HydraRoute geo file auto-update schedule
+//	@Tags			hydraroute
+//	@Accept			json
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Param			body	body		SetGeoUpdateScheduleRequest	true	"Geo auto-update schedule interval"
+//	@Success		200		{object}	GeoUpdateScheduleResponse
+//	@Failure		400		{object}	APIErrorEnvelope
+//	@Router			/hydraroute/geo-files/schedule [put]
 func (h *HydraRouteHandler) SetGeoUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		response.MethodNotAllowed(w)

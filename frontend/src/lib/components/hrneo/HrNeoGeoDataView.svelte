@@ -1059,6 +1059,9 @@
 		padding: 8px 10px;
 		border-radius: 6px;
 		font-size: 0.8125rem;
+		min-width: 0;
+		overflow-wrap: anywhere;
+		word-break: break-word;
 	}
 
 	.route-status-live {
@@ -1093,6 +1096,9 @@
 
 	.route-status-head {
 		font-weight: 500;
+		min-width: 0;
+		overflow-wrap: anywhere;
+		word-break: break-word;
 	}
 
 	.add-type-select {
