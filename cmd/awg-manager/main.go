@@ -573,6 +573,7 @@ func main() {
 	orch.SetPingCheck(pingCheckFacade)
 	// dnsRouteService wiring to orchestrator happens later, after ndmsCommands is built.
 	orch.SetClientRoute(clientRouteService)
+	orch.SetHydraRoutePostStart(hydraService)
 
 	// Wire HookNotifier for NDMS Commands — orchestrator exists now.
 	ndmsCommands.SetHookNotifier(orch)
