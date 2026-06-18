@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
-	import type { GeoFileEntry } from '$lib/types';
+	import type { GeoFileEntry, GeoUpdateInterval, GeoUpdateSchedule } from '$lib/types';
 	import { settings as appSettings, reloadSettings } from '$lib/stores/settings';
 	import {
 		downloadOutbounds,
@@ -57,7 +57,7 @@
 	let progressByPath = $derived($geoDownloadProgress);
 
 	type DownloadOperation = {
-		kind: 'add' | 'preset' | 'update' | 'sync';
+		kind: 'add' | 'preset' | 'update' | 'sync' | 'update-all';
 		target: string;
 		routeTag: string;
 		routeKind?: 'direct' | 'awg' | 'singbox' | 'subscription';
@@ -76,6 +76,18 @@
 
 	let activeDownload = $state<DownloadOperation | null>(null);
 	let lastDownload = $state<LastDownload | null>(null);
+	let schedule = $state<GeoUpdateSchedule>({ interval: 'off' });
+	let scheduleDraft = $state<GeoUpdateInterval>('off');
+	let scheduleLoading = $state(true);
+	let scheduleSaving = $state(false);
+
+	const scheduleOptions = [
+		{ value: 'off' as const, label: 'Отключено' },
+		{ value: 'hourly' as const, label: 'Каждый час' },
+		{ value: '6h' as const, label: 'Каждые 6 часов' },
+		{ value: 'daily' as const, label: 'Раз в день 03:00' },
+		{ value: 'weekly' as const, label: 'Раз в неделю Пн 04:00' },
+	];
 
 	function currentRoute(): { tag: string; kind?: 'direct' | 'awg' | 'singbox' | 'subscription' } {
 		const tag = $appSettings?.download?.routeTag?.trim() || 'direct';
@@ -94,6 +106,24 @@
 		await ensureDownloadOutboundsLoaded();
 	}
 
+	async function loadSchedule() {
+		scheduleLoading = true;
+		try {
+			const next = await api.getGeoUpdateSchedule();
+			schedule = next;
+			scheduleDraft = next.interval;
+		} catch (e: unknown) {
+			lastDownload = {
+				ok: false,
+				action: 'Загрузка расписания geo-файлов',
+				routeLabel: 'локально',
+				error: e,
+			};
+		} finally {
+			scheduleLoading = false;
+		}
+	}
+
 	function captureDownloadOperation(kind: DownloadOperation['kind'], target: string): DownloadOperation {
 		const route = currentRoute();
 		return {
@@ -107,6 +137,7 @@
 
 	onMount(() => {
 		void loadRouteDisplayState();
+		void loadSchedule();
 	});
 
 	function progressFor(url: string) {
@@ -119,6 +150,12 @@
 	function fmtPercent(p: { downloaded: number; total: number }): string {
 		if (p.total <= 0) return '';
 		return `${Math.min(100, Math.round((p.downloaded / p.total) * 100))}%`;
+	}
+
+	function formatDateTime(value: string): string {
+		const d = new Date(value);
+		if (Number.isNaN(d.getTime())) return value;
+		return d.toLocaleString('ru-RU');
 	}
 
 	async function add() {
@@ -234,46 +271,94 @@
 		try {
 			try {
 				await api.rescanGeoFiles();
-			} catch (e: unknown) {
-				// Нет HR / hrneo.conf — всё равно обновляем уже известные файлы.
-				notes.push(e instanceof Error ? e.message : String(e));
-			}
-			// Список после rescan — HR External видны даже если update упадёт.
-			await onrefresh();
-
-			try {
-				const upd = await api.updateGeoFile('', { tag: op.routeTag, kind: op.routeKind });
 				await onrefresh();
-				if (upd.partial && upd.error) {
-					notes.push(
-						upd.updated > 0
-							? `Обновлено ${upd.updated}, ошибки: ${upd.error}`
-							: upd.error,
-					);
-				}
 			} catch (e: unknown) {
-				await onrefresh();
 				notes.push(e instanceof Error ? e.message : String(e));
 			}
 
 			if (notes.length > 0) {
 				lastDownload = {
 					ok: false,
-					action: 'Синхронизация geo-файлов',
+					action: 'Синхронизация из HR',
 					routeLabel: op.routeLabel,
 					error: notes.join('; '),
 				};
 			} else {
 				lastDownload = {
 					ok: true,
-					action: 'Синхронизация geo-файлов',
+					action: 'Синхронизация из HR',
 					routeLabel: op.routeLabel,
-					message: 'Синхронизация выполнена',
+					message: 'Пути из hrneo.conf обновлены',
 				};
 			}
 		} finally {
 			busy = null;
 			activeDownload = null;
+		}
+	}
+
+	async function updateAllNow() {
+		if (!routeSettingsReady || routeSettingsError) return;
+		const op = captureDownloadOperation('update-all', 'all');
+		busy = 'update-all';
+		err = '';
+		lastDownload = null;
+		activeDownload = op;
+		try {
+			const upd = await api.updateGeoFile('', { tag: op.routeTag, kind: op.routeKind });
+			await onrefresh();
+			if (upd.partial && upd.error) {
+				lastDownload = {
+					ok: false,
+					action: 'Обновление всех geo-файлов',
+					routeLabel: op.routeLabel,
+					error: upd.updated > 0 ? `Обновлено ${upd.updated}, ошибки: ${upd.error}` : upd.error,
+				};
+				return;
+			}
+			lastDownload = {
+				ok: true,
+				action: 'Обновление всех geo-файлов',
+				routeLabel: op.routeLabel,
+				message: `Обновлено ${upd.updated}`,
+			};
+		} catch (e: unknown) {
+			await onrefresh();
+			lastDownload = {
+				ok: false,
+				action: 'Обновление всех geo-файлов',
+				routeLabel: op.routeLabel,
+				error: e,
+			};
+		} finally {
+			busy = null;
+			activeDownload = null;
+		}
+	}
+
+	async function applySchedule() {
+		scheduleSaving = true;
+		err = '';
+		lastDownload = null;
+		try {
+			const next = await api.setGeoUpdateSchedule(scheduleDraft);
+			schedule = next;
+			scheduleDraft = next.interval;
+			lastDownload = {
+				ok: true,
+				action: 'Сохранение расписания geo-файлов',
+				routeLabel: 'локально',
+				message: 'Расписание применено',
+			};
+		} catch (e: unknown) {
+			lastDownload = {
+				ok: false,
+				action: 'Сохранение расписания geo-файлов',
+				routeLabel: 'локально',
+				error: e,
+			};
+		} finally {
+			scheduleSaving = false;
 		}
 	}
 
@@ -360,9 +445,9 @@
 				disabled={routeActionsDisabled}
 				loading={busy === 'sync'}
 				onclick={syncFromHR}
-				title="Подтянуть пути из hrneo.conf (External) и перекачать файлы AWGM (External не трогаем — обновляйте в HR Neo)"
+				title="Подтянуть пути из hrneo.conf без скачивания файлов"
 			>
-				Синхронизировать
+				Синхронизировать из HR
 			</Button>
 		</div>
 	</header>
@@ -400,6 +485,43 @@
 		{/if}
 	{/if}
 	</div>
+
+	<div class="schedule-box">
+		<div class="schedule-copy">
+			<div class="form-label">Автообновление geo-файлов</div>
+			{#if schedule.updatedAt}
+				<div class="schedule-meta">Последнее изменение расписания: {formatDateTime(schedule.updatedAt)}</div>
+			{/if}
+		</div>
+		<div class="schedule-controls">
+			<div class="schedule-select">
+				<Dropdown
+					bind:value={scheduleDraft}
+					options={scheduleOptions}
+					disabled={scheduleLoading || scheduleSaving}
+					fullWidth
+				/>
+			</div>
+			<Button
+				variant="secondary"
+				size="sm"
+				disabled={scheduleLoading || scheduleSaving || scheduleDraft === schedule.interval}
+				loading={scheduleSaving}
+				onclick={applySchedule}
+			>
+				Применить расписание
+			</Button>
+			<Button
+				variant="secondary"
+				size="sm"
+				disabled={routeActionsDisabled}
+				loading={busy === 'update-all'}
+				onclick={updateAllNow}
+			>
+				Запустить обновление сейчас
+			</Button>
+		</div>
+	</div>
 	
 	{#if files.length === 0}
 		<div class="empty">Файлы не загружены. Добавьте URL ниже.</div>
@@ -410,36 +532,50 @@
 				<div class="file-row">
 					<div class="file-info">
 						<span class="file-type type-{f.type}">{f.type}</span>
-						<button
-							type="button"
-							class="file-name"
-							title={expandedPaths.has(f.path) ? 'Скрыть путь' : f.path}
-							onclick={() => togglePathExpanded(f.path)}
-						>
-							{#if expandedPaths.has(f.path)}
-								<span class="file-path">{fileDir(f.path)}</span><span
-									class="file-basename">{fileName(f.path)}</span
+						<div class="file-body">
+							<div class="file-mainline">
+								<button
+									type="button"
+									class="file-name"
+									title={expandedPaths.has(f.path) ? 'Скрыть путь' : f.path}
+									onclick={() => togglePathExpanded(f.path)}
 								>
-							{:else}
-								{fileName(f.path)}
-							{/if}
-						</button>
-						{#if f.external}
-							<span
-								class="file-external"
-								title="Данный файл управляется HydraRoute Neo"
-							>External</span>
-						{/if}
-						<span class="file-meta">{humanSize(f.size)} · {f.tagCount} тегов</span>
-						{#if busy === f.path && fp}
-							<span class="row-progress">
-								{#if fp.phase === 'download'}
-									{fmtPercent(fp)} {humanSize(fp.downloaded)}
-								{:else if fp.phase === 'validate'}
-									валидация…
+									{#if expandedPaths.has(f.path)}
+										<span class="file-path">{fileDir(f.path)}</span><span
+											class="file-basename">{fileName(f.path)}</span
+										>
+									{:else}
+										{fileName(f.path)}
+									{/if}
+								</button>
+								{#if f.external}
+									<span
+										class="file-external"
+										title="Данный файл управляется HydraRoute Neo"
+									>External</span>
 								{/if}
-							</span>
-						{/if}
+								{#if busy === f.path && fp}
+									<span class="row-progress">
+										{#if fp.phase === 'download'}
+											{fmtPercent(fp)} {humanSize(fp.downloaded)}
+										{:else if fp.phase === 'validate'}
+											валидация…
+										{/if}
+									</span>
+								{/if}
+							</div>
+							<div class="file-meta">{humanSize(f.size)} · {f.tagCount} тегов</div>
+							<div class="file-meta file-meta-secondary">
+								{#if f.url}
+									<a class="file-source" href={f.url} target="_blank" rel="noreferrer" title={f.url}>
+										Источник
+									</a>
+								{/if}
+								{#if f.updated}
+									<span class="file-updated">Обновлено: {formatDateTime(f.updated)}</span>
+								{/if}
+							</div>
+						</div>
 					</div>
 					<div class="file-actions">
 						{#if f.external}
@@ -619,12 +755,45 @@
 
 	.pane-actions {
 		display: flex;
+		gap: 8px;
 		justify-content: flex-end;
 		min-width: 0;
 	}
 
 	.pane-actions :global(.btn) {
 		min-width: 150px;
+	}
+
+	.schedule-box {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 12px;
+		padding: 12px;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		align-items: center;
+	}
+
+	.schedule-copy {
+		min-width: 0;
+	}
+
+	.schedule-meta {
+		color: var(--text-muted);
+		font-size: 0.75rem;
+	}
+
+	.schedule-controls {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+	}
+
+	.schedule-select {
+		min-width: 240px;
 	}
 	.pane-header h2 {
 		margin: 0;
@@ -680,6 +849,22 @@
 		flex: 1;
 	}
 
+	.file-body {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		min-width: 0;
+		flex: 1;
+	}
+
+	.file-mainline {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+		flex-wrap: wrap;
+	}
+
 	.file-type {
 		font-size: 0.6875rem;
 		text-transform: uppercase;
@@ -727,6 +912,31 @@
 	.file-meta {
 		color: var(--text-muted);
 		font-size: 0.75rem;
+	}
+
+	.file-meta-secondary {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px 12px;
+		align-items: center;
+	}
+
+	.file-source {
+		display: inline-block;
+		max-width: 220px;
+		color: var(--accent);
+		text-decoration: none;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.file-source:hover {
+		text-decoration: underline;
+	}
+
+	.file-updated {
+		min-width: 0;
 	}
 
 	.file-external {
@@ -910,10 +1120,24 @@
 
 		.pane-actions {
 			width: 100%;
+			flex-direction: column;
 		}
 
 		.pane-actions :global(.btn) {
 			width: 100%;
+			min-width: 0;
+		}
+
+		.schedule-box {
+			grid-template-columns: 1fr;
+		}
+
+		.schedule-controls {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.schedule-select {
 			min-width: 0;
 		}
 
@@ -923,8 +1147,7 @@
 			gap: 8px;
 		}
 		.file-info {
-			flex-wrap: wrap;
-			row-gap: 4px;
+			align-items: flex-start;
 		}
 		.file-actions {
 			display: grid;
@@ -971,6 +1194,10 @@
 
 		.add-row {
 			grid-template-columns: 1fr;
+		}
+
+		.file-source {
+			max-width: 100%;
 		}
 	}
 </style>
