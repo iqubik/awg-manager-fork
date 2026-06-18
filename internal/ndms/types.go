@@ -6,14 +6,14 @@ import "time"
 // /show/interface/{name} or extracted from /show/interface/.
 type Interface struct {
 	ID            string `json:"id"`
-	SystemName    string `json:"systemName"`  // kernel name, e.g. nwg3
-	Type          string `json:"type"`         // "proxy", "wireguard", "ethernet", ...
+	SystemName    string `json:"systemName"` // kernel name, e.g. nwg3
+	Type          string `json:"type"`       // "proxy", "wireguard", "ethernet", ...
 	Description   string `json:"description"`
-	State         string `json:"state"`        // "up" | "down"
-	Link          string `json:"link"`         // "up" | "down"
-	Connected     string `json:"connected"`    // "yes" | "no" | ""
+	State         string `json:"state"`     // "up" | "down"
+	Link          string `json:"link"`      // "up" | "down"
+	Connected     string `json:"connected"` // "yes" | "no" | ""
 	SecurityLevel string `json:"securityLevel"`
-	IPv4          string `json:"ipv4,omitempty"`    // summary.layer.ipv4 — "running" | ""
+	IPv4          string `json:"ipv4,omitempty"` // summary.layer.ipv4 — "running" | ""
 	Address       string `json:"address,omitempty"`
 	Mask          string `json:"mask,omitempty"`
 	MTU           int    `json:"mtu,omitempty"`
@@ -45,19 +45,19 @@ type ProxyInfo struct {
 // Peer is one peer entry under an NDMS wireguard interface —
 // populated from the .wireguard.peer field of /show/interface/{name}.
 type Peer struct {
-	PublicKey              string    `json:"publicKey"`
-	Description            string    `json:"description,omitempty"`
-	LocalPort              int       `json:"localPort,omitempty"`
-	RemotePort             int       `json:"remotePort,omitempty"`
-	Via                    string    `json:"via,omitempty"`
-	LocalEndpointAddress   string    `json:"localEndpointAddress,omitempty"`
-	RemoteEndpointAddress  string    `json:"remoteEndpointAddress,omitempty"`
-	RxBytes                int64     `json:"rxBytes"`
-	TxBytes                int64     `json:"txBytes"`
-	LastHandshakeSecondsAgo int64    `json:"lastHandshakeSecondsAgo"`
-	Online                 bool      `json:"online"`
-	Enabled                bool      `json:"enabled"`
-	Fwmark                 int64     `json:"fwmark,omitempty"`
+	PublicKey               string `json:"publicKey"`
+	Description             string `json:"description,omitempty"`
+	LocalPort               int    `json:"localPort,omitempty"`
+	RemotePort              int    `json:"remotePort,omitempty"`
+	Via                     string `json:"via,omitempty"`
+	LocalEndpointAddress    string `json:"localEndpointAddress,omitempty"`
+	RemoteEndpointAddress   string `json:"remoteEndpointAddress,omitempty"`
+	RxBytes                 int64  `json:"rxBytes"`
+	TxBytes                 int64  `json:"txBytes"`
+	LastHandshakeSecondsAgo int64  `json:"lastHandshakeSecondsAgo"`
+	Online                  bool   `json:"online"`
+	Enabled                 bool   `json:"enabled"`
+	Fwmark                  int64  `json:"fwmark,omitempty"`
 }
 
 // Policy — NDMS ip policy (from /show/rc/ip/policy).
@@ -164,7 +164,7 @@ type WireguardServer struct {
 type WireguardServerPeer struct {
 	PublicKey     string   `json:"publicKey"`
 	Description   string   `json:"description"`
-	Endpoint      string   `json:"endpoint"`              // "ip:port"
+	Endpoint      string   `json:"endpoint"`             // "ip:port"
 	AllowedIPs    []string `json:"allowedIPs,omitempty"` // enriched from /show/rc/interface
 	RxBytes       int64    `json:"rxBytes"`
 	TxBytes       int64    `json:"txBytes"`
@@ -210,7 +210,7 @@ type SystemWireguardTunnel struct {
 // WireguardPeerInfo is the minimal tunnel-peer view (first peer only, for system-tunnel UI).
 type WireguardPeerInfo struct {
 	PublicKey     string `json:"publicKey"`
-	Endpoint      string `json:"endpoint"` // "ip:port"
+	Endpoint      string `json:"endpoint"`      // "ip:port"
 	Via           string `json:"via,omitempty"` // ISP/connection interface (e.g. "PPPoE0")
 	RxBytes       int64  `json:"rxBytes"`
 	TxBytes       int64  `json:"txBytes"`
@@ -237,6 +237,7 @@ type InterfaceDetails struct {
 	State     string // "up", "down", "error"
 	Link      string // "up", "down"
 	Connected bool
+	Online    bool
 	ConfLayer string // "running", "disabled", "pending"
 	Uptime    int    // seconds since interface came up (0 if down)
 }
@@ -254,18 +255,18 @@ func (d InterfaceDetails) LinkUp() bool { return d.Link == "up" }
 
 // Version — NDMS system version from /show/version. Cached write-once at boot.
 type Version struct {
-	Release      string    `json:"release"`      // e.g. "4.2.5"
-	Title        string    `json:"title"`        // product name
-	HardwareID   string    `json:"hardwareId"`
-	Description  string    `json:"description"`
-	Manufacturer string    `json:"manufacturer,omitempty"`
-	Vendor       string    `json:"vendor,omitempty"`
-	Series       string    `json:"series,omitempty"`
-	Model        string    `json:"model,omitempty"`
-	Device       string    `json:"device,omitempty"`
-	Region       string    `json:"region,omitempty"`
-	Components   []string  `json:"components,omitempty"`
-	Uptime       int64     `json:"uptime,omitempty"` // seconds
+	Release      string   `json:"release"` // e.g. "4.2.5"
+	Title        string   `json:"title"`   // product name
+	HardwareID   string   `json:"hardwareId"`
+	Description  string   `json:"description"`
+	Manufacturer string   `json:"manufacturer,omitempty"`
+	Vendor       string   `json:"vendor,omitempty"`
+	Series       string   `json:"series,omitempty"`
+	Model        string   `json:"model,omitempty"`
+	Device       string   `json:"device,omitempty"`
+	Region       string   `json:"region,omitempty"`
+	Components   []string `json:"components,omitempty"`
+	Uptime       int64    `json:"uptime,omitempty"` // seconds
 	// LastFetched is set by SystemInfoStore.Init (not from NDMS).
 	LastFetched time.Time `json:"lastFetched"`
 }

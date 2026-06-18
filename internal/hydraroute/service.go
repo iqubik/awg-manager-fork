@@ -27,6 +27,17 @@ type Service struct {
 	mu                       sync.Mutex
 	status                   Status
 	restartTimer             *time.Timer
+	postStartTimer           *time.Timer
+	postStartPending         map[string]string
+	postStartRunning         bool
+	postStartLastRestartAt   time.Time
+	postStartDebounce        time.Duration
+	postStartCooldown        time.Duration
+	postStartPollInterval    time.Duration
+	postStartReadyDelay      time.Duration
+	postStartTimeout         time.Duration
+	postStartReadyProbe      func(ctx context.Context, ndmsIface string) (bool, string, error)
+	postStartRestart         func(ctx context.Context) error
 	geodata                  *GeoDataStore
 	dnsListProvider          func() []DnsListInfo
 	queries                  *query.Queries
@@ -42,10 +53,16 @@ const versionCacheTTL = 5 * time.Minute
 // NewService creates a new HydraRoute service. Detects HRNeo on creation.
 func NewService(resolver KernelIfaceResolver, appLogger logging.AppLogger) *Service {
 	s := &Service{
-		resolver: resolver,
-		appLog:   logging.NewScopedLogger(appLogger, logging.GroupRouting, logging.SubHrNeo),
-		status:   Detect(),
+		resolver:              resolver,
+		appLog:                logging.NewScopedLogger(appLogger, logging.GroupRouting, logging.SubHrNeo),
+		status:                Detect(),
+		postStartDebounce:     2 * time.Second,
+		postStartCooldown:     10 * time.Second,
+		postStartPollInterval: time.Second,
+		postStartReadyDelay:   5 * time.Second,
+		postStartTimeout:      60 * time.Second,
 	}
+	s.postStartRestart = s.restartAfterPostStart
 	if s.status.Installed {
 		s.appLog.Info("detect", "", fmt.Sprintf("HrNeo detected (running=%v)", s.status.Running))
 		s.HealInvalidRuntimeConfig()
