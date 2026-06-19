@@ -31,6 +31,15 @@
 			...sortOptions,
 		] satisfies DropdownOption<string>[])
 	);
+
+	function handleSearchKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Escape') return;
+		if (!searchQuery.trim()) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+		searchQuery = '';
+	}
 </script>
 
 <div class="peer-sort-controls" class:hide-sort-on-desktop={hideSortOnDesktop}>
@@ -40,6 +49,7 @@
 			type="text"
 			placeholder="Поиск..."
 			bind:value={searchQuery}
+			onkeydown={handleSearchKeydown}
 		/>
 	{/if}
 	<div class="peer-sort-ui">
