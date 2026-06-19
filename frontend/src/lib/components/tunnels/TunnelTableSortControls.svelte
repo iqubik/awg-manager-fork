@@ -100,6 +100,15 @@
 		}
 		onSortChange(key);
 	}
+
+	function handleSearchKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Escape') return;
+		if (!searchQuery.trim()) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+		onSearchChange('');
+	}
 </script>
 
 <div class="tunnel-sort-controls" class:mobile-sort-only={mobileSortOnly}>
@@ -111,6 +120,7 @@
 				placeholder="Поиск..."
 				value={searchQuery}
 				oninput={(e) => onSearchChange((e.currentTarget as HTMLInputElement).value)}
+				onkeydown={handleSearchKeydown}
 			/>
 			{#if searchQuery.trim()}
 				<button
