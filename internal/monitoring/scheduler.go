@@ -395,20 +395,10 @@ func (s *Scheduler) proberFor(tun Tunnel, isSelf bool) Prober {
 
 // runProbeCell measures latency for one (target × tunnel) cell.
 // Sing-box tunnels go through the Clash API delay endpoint when wired —
-// honest end-to-end through the proxy outbound. Everything else uses the
-// interface-bound Prober.
+// honest end-to-end through the selected proxy outbound, including
+// subscription rows. Everything else uses the interface-bound Prober.
 func (s *Scheduler) runProbeCell(ctx context.Context, t Target, tn Tunnel, isSelf bool) (int, bool) {
 	if tn.Source == "singbox" && s.deps.SingboxDelay != nil && tn.SingboxTag != "" {
-		if tn.Subscription {
-			// Monitoring must stay read-only for sing-box subscription/urltest
-			// rows. Clash /proxies/<tag>/delay mutates runtime delay history and
-			// can influence active-member selection, so subscription cells use
-			// the regular interface-bound prober instead of TestDelay/ClashDelay.
-			if tn.IfaceName == "" {
-				return 0, false
-			}
-			return s.proberFor(tn, isSelf).Probe(ctx, t.Host, tn.IfaceName, s.probeTimeout)
-		}
 		probeURL := t.URL
 		if probeURL == "" && t.Host != "" {
 			probeURL = "https://" + t.Host + "/"
