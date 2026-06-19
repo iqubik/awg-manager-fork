@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { MonitoringSnapshot } from '$lib/types';
+	import { tunnelIsUp } from './status';
 
 	interface Props {
 		snapshot: MonitoringSnapshot;
@@ -16,7 +17,7 @@
 	});
 
 	const total = $derived(snapshot.tunnels.length);
-	const up = $derived(snapshot.tunnels.filter((t) => tunnelHasOk.get(t.id)).length);
+	const up = $derived(snapshot.tunnels.filter((t) => tunnelIsUp(t, !!tunnelHasOk.get(t.id))).length);
 	const failed = $derived(total - up);
 
 	const avgLatency = $derived.by(() => {
