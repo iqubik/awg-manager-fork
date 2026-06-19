@@ -77,24 +77,28 @@
 <div class="desktop-peer-table">
 	<div class="table-wrap">
 		<table class="managed-peer-table">
+			<colgroup>
+				<col class="col-name-col" />
+				<col class="col-ip-col" />
+				<col class="col-endpoint-col" />
+				<col class="col-traffic-col" />
+				{#if showActionsCol}
+					<col class="col-actions-col" />
+				{/if}
+			</colgroup>
 			<thead>
 				<tr>
 					<th class="col-name" aria-sort={peerAriaSort($peerSort, 'name')}>
 						<PeerTableSortHeader label="Имя" sortKey="name" />
 					</th>
-					<th class="col-status">Статус</th>
 					<th class="col-ip" aria-sort={peerAriaSort($peerSort, 'ip')}>
 						<PeerTableSortHeader label="IP" sortKey="ip" />
 					</th>
 					<th class="col-endpoint" aria-sort={peerAriaSort($peerSort, 'endpoint')}>
 						<PeerTableSortHeader label="Endpoint" sortKey="endpoint" />
 					</th>
-					<th class="col-rx" aria-sort={peerAriaSort($peerSort, 'traffic')}>
-						<PeerTableSortHeader label="RX" sortKey="traffic" />
-					</th>
-					<th class="col-tx">TX</th>
-					<th class="col-handshake" aria-sort={peerAriaSort($peerSort, 'handshake')}>
-						<PeerTableSortHeader label="Handshake" sortKey="handshake" />
+					<th class="col-traffic" aria-sort={peerAriaSort($peerSort, 'traffic')}>
+						<PeerTableSortHeader label="Трафик" sortKey="traffic" />
 					</th>
 					{#if showActionsCol}
 						<th class="col-actions">Действия</th>
@@ -155,33 +159,108 @@
 {/if}
 
 <style>
-	.table-wrap { overflow-x: auto; }
-	.managed-peer-table { width: 100%; border-collapse: collapse; }
+	.table-wrap {
+		overflow-x: auto;
+	}
+
+	.managed-peer-table {
+		width: max-content;
+		min-width: 100%;
+		border-collapse: collapse;
+		font-size: 12px;
+		table-layout: auto;
+	}
+
 	.managed-peer-table th {
-		text-align: left;
-		font: 600 0.6875rem/1.2 var(--font-sans);
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--color-text-muted);
-		padding: 0.5rem 0.625rem;
-		border-bottom: 1px solid var(--color-border);
+		text-align: center;
+		background: var(--bg-tertiary, var(--color-bg-tertiary));
+		color: var(--text-muted, var(--color-text-muted));
+		font-weight: 600;
+		padding: 0.65rem 0.75rem;
+		line-height: 1.2;
+		border-bottom: 1px solid var(--border, var(--color-border));
 		white-space: nowrap;
 	}
-	.col-rx, .col-tx { text-align: right; }
-	.managed-peer-table :global(td) {
-		padding: 0.625rem;
-		border-bottom: 1px solid var(--color-border-subtle, var(--color-border));
-		vertical-align: middle;
-	}
-	/* Переключение таблица/карточки по ШИРИНЕ КОНТЕЙНЕРА (а не вьюпорта):
-	   при наличии rail доступная ширина < вьюпорта, поэтому viewport-медиазапрос
-	   ошибается. Десктоп-таблицу показываем только когда она реально влезает. */
-	.peer-views { container-type: inline-size; }
-	.desktop-peer-table { display: none; }
-	.mobile-peer-list { display: flex; flex-direction: column; gap: 0.5rem; }
 
-	@container (min-width: 820px) {
-		.desktop-peer-table { display: block; }
-		.mobile-peer-list { display: none; }
+	.managed-peer-table :global(td) {
+		padding: 0.55rem 0.5rem;
+		border-bottom: 1px solid var(--border, var(--color-border));
+		vertical-align: middle;
+		transition: background-color 0.15s ease;
+	}
+
+	.managed-peer-table :global(tbody tr:hover td),
+	.managed-peer-table :global(tbody tr:focus-within td) {
+		background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+	}
+
+	.managed-peer-table :global(tbody tr.peer-disabled:hover td) {
+		background: color-mix(in srgb, var(--bg-hover) 45%, transparent);
+	}
+
+	.managed-peer-table :global(.peer-disabled) {
+		opacity: 0.5;
+	}
+
+	.managed-peer-table :global(.cell-copy),
+	.managed-peer-table :global(.endpoint-copy) {
+		background: transparent;
+	}
+
+	.managed-peer-table :global(td.peer-name-cell) {
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.managed-peer-table :global(td.peer-name-cell:focus-visible) {
+		outline: 2px solid var(--color-accent);
+		outline-offset: -2px;
+	}
+
+	.managed-peer-table :global(td.peer-name-cell-readonly) {
+		cursor: default;
+	}
+
+	.col-name-col { width: 1%; }
+	.col-ip-col { width: 1%; }
+	.col-endpoint-col { width: auto; }
+	.col-traffic-col { width: 8.5rem; }
+	.col-actions-col { width: 1%; }
+
+	.managed-peer-table :global(.col-name) { width: 1%; }
+	.managed-peer-table :global(.col-ip) { white-space: nowrap; }
+	.managed-peer-table :global(.col-endpoint) { white-space: nowrap; }
+	.managed-peer-table :global(.col-traffic) { white-space: nowrap; }
+	.managed-peer-table :global(.col-actions) { white-space: nowrap; }
+
+	.managed-peer-table :global(td.col-ip),
+	.managed-peer-table :global(td.col-endpoint),
+	.managed-peer-table :global(td.col-traffic),
+	.managed-peer-table :global(td.col-actions) {
+		text-align: center;
+	}
+
+	.peer-views {
+		container-type: inline-size;
+	}
+
+	.desktop-peer-table {
+		display: block;
+	}
+
+	.mobile-peer-list {
+		display: none;
+	}
+
+	@media (max-width: 760px) {
+		.desktop-peer-table {
+			display: none;
+		}
+
+		.mobile-peer-list {
+			display: flex;
+			flex-direction: column;
+			gap: 0.5rem;
+		}
 	}
 </style>
