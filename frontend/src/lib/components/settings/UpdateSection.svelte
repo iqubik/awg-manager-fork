@@ -7,6 +7,7 @@
 	import DownloadErrorNotice from '$lib/components/downloads/DownloadErrorNotice.svelte';
 	import { downloadErrorToText } from '$lib/utils/downloadError';
 	import type { UpdateInfo } from '$lib/types';
+	import { onDestroy } from 'svelte';
 
 	interface Props {
 		updateInfo: UpdateInfo | null;
@@ -28,9 +29,65 @@
 	let upgrading = $state(false);
 	let showConfirm = $state(false);
 	let showChangelog = $state(false);
-	let upgradePhase = $state<'idle' | 'starting' | 'waiting-restart'>('idle');
-	let restartAttempt = $state(0);
+	let upgradePhase = $state<'idle' | 'starting' | 'waiting-restart' | 'finalizing'>('idle');
 	const maxRestartAttempts = 30;
+
+	let upgradeProgress = $state(0);
+	let progressTimer: ReturnType<typeof setInterval> | null = null;
+	let upgradeStartedAt = 0;
+
+	function stopProgressTimer() {
+		if (progressTimer) {
+			clearInterval(progressTimer);
+			progressTimer = null;
+		}
+	}
+
+	function resetUpgradeProgress() {
+		stopProgressTimer();
+		upgradeProgress = 0;
+		upgradeStartedAt = 0;
+	}
+
+	function setProgressAtLeast(value: number) {
+		upgradeProgress = Math.max(upgradeProgress, Math.min(value, 98));
+	}
+
+	function startProgressTimer() {
+		stopProgressTimer();
+		upgradeStartedAt = Date.now();
+		upgradeProgress = 8;
+
+		progressTimer = setInterval(() => {
+			if (!upgrading) return;
+
+			const elapsed = Date.now() - upgradeStartedAt;
+
+			if (upgradePhase === 'starting') {
+				setProgressAtLeast(Math.min(28, 8 + elapsed / 180));
+				return;
+			}
+
+			if (upgradePhase === 'waiting-restart') {
+				const seconds = elapsed / 1000;
+				const eased = 34 + (1 - Math.exp(-seconds / 12)) * 58;
+				setProgressAtLeast(Math.min(94, eased));
+				return;
+			}
+
+			if (upgradePhase === 'finalizing') {
+				setProgressAtLeast(98);
+			}
+		}, 250);
+	}
+
+	function wait(ms: number) {
+		return new Promise<void>((resolve) => setTimeout(resolve, ms));
+	}
+
+	onDestroy(() => {
+		stopProgressTimer();
+	});
 
 	const manualCheckTitle = $derived(
 		updateInfo?.available ? 'Проверить наличие более новой версии' : 'Проверить обновления'
@@ -53,15 +110,6 @@
 			? 'Свежие сборки из ветки разработки, могут быть нестабильны.'
 			: 'Стабильные релизы из GitHub Release.'
 	);
-	const upgradeProgress = $derived.by(() => {
-		if (!upgrading) return 0;
-		if (upgradePhase === 'starting') return 18;
-		if (upgradePhase === 'waiting-restart') {
-			return Math.min(95, 18 + Math.round((restartAttempt / maxRestartAttempts) * 77));
-		}
-		return 0;
-	});
-
 	async function checkForUpdates() {
 		if (checking) return;
 		checking = true;
@@ -94,14 +142,16 @@
 		showConfirm = false;
 		upgrading = true;
 		upgradePhase = 'starting';
-		restartAttempt = 0;
+		startProgressTimer();
 
 		// Capture instanceId before upgrade to detect restart
 		let previousInstanceId = '';
 		try {
 			const status = await api.getBootStatus();
 			previousInstanceId = status.instanceId;
-		} catch { /* proceed anyway */ }
+		} catch {
+			/* proceed anyway */
+		}
 
 		try {
 			await api.applyUpdate();
@@ -109,20 +159,24 @@
 			notifications.error(`Запуск обновления: ${downloadErrorToText(e)}`);
 			upgrading = false;
 			upgradePhase = 'idle';
-			restartAttempt = 0;
+			resetUpgradeProgress();
 			return;
 		}
 
 		// Poll boot-status (public endpoint — no auth, no connection-lost callbacks).
 		// Detect restart via instanceId change, then reload to pick up new frontend.
 		upgradePhase = 'waiting-restart';
+		setProgressAtLeast(34);
 
 		for (let i = 0; i < maxRestartAttempts; i++) {
-			restartAttempt = i + 1;
-			await new Promise(r => setTimeout(r, 2000));
+			await new Promise((r) => setTimeout(r, 2000));
 			try {
 				const status = await api.getBootStatus();
 				if (status.instanceId !== previousInstanceId && !status.initializing) {
+					upgradePhase = 'finalizing';
+					setProgressAtLeast(98);
+					stopProgressTimer();
+					await wait(650);
 					window.location.reload();
 					return;
 				}
@@ -134,7 +188,7 @@
 		notifications.error('Сервер не ответил после обновления');
 		upgrading = false;
 		upgradePhase = 'idle';
-		restartAttempt = 0;
+		resetUpgradeProgress();
 	}
 </script>
 
@@ -144,12 +198,25 @@
 			<span class="setting-description update-status">
 				Обновление... не закрывайте страницу
 			</span>
-			<div class="update-progress" aria-label="Прогресс обновления">
-				<div class="update-progress-bar" style={`width: ${upgradeProgress}%`}></div>
+
+			<div class="update-progress-line" aria-label="Прогресс обновления">
+				<div
+					class="update-progress"
+					role="progressbar"
+					aria-valuemin="0"
+					aria-valuemax="100"
+					aria-valuenow={Math.round(upgradeProgress)}
+				>
+					<div class="update-progress-bar" style={`width: ${upgradeProgress}%`}></div>
+				</div>
+				<div class="update-spinner" aria-hidden="true"></div>
 			</div>
+
 			<span class="setting-description update-progress-caption">
 				{#if upgradePhase === 'starting'}
 					Запускаем обновление...
+				{:else if upgradePhase === 'finalizing'}
+					Завершаем обновление...
 				{:else}
 					Ожидаем перезапуск сервиса...
 				{/if}
@@ -196,10 +263,8 @@
 			/>
 		</div>
 	{/if}
-	<div class="update-actions">
-		{#if upgrading}
-			<div class="update-spinner"></div>
-		{:else}
+	{#if !upgrading}
+		<div class="update-actions">
 			{#if updateInfo?.currentVersion}
 				<Button
 					variant="secondary"
@@ -230,8 +295,8 @@
 					Обновить
 				</Button>
 			{/if}
-		{/if}
-	</div>
+		</div>
+	{/if}
 </div>
 
 <Modal
@@ -325,11 +390,6 @@
 		grid-column: 1 / -1;
 	}
 
-	.update-spinner {
-		grid-column: 1 / -1;
-		justify-self: end;
-	}
-
 	@media (min-width: 641px) {
 		.update-channel :global(.segmented-control) {
 			display: flex;
@@ -372,6 +432,14 @@
 		color: var(--accent) !important;
 	}
 
+	.update-progress-line {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.6rem;
+		width: 100%;
+	}
+
 	.update-progress {
 		width: 100%;
 		height: 0.45rem;
@@ -384,7 +452,8 @@
 		height: 100%;
 		border-radius: inherit;
 		background: var(--accent);
-		transition: width 0.35s ease;
+		transition: width 0.55s ease;
+		will-change: width;
 	}
 
 	.update-progress-caption {
@@ -398,12 +467,13 @@
 	}
 
 	.update-spinner {
-		width: 20px;
-		height: 20px;
-		border: 2px solid var(--border);
+		width: 18px;
+		height: 18px;
+		border: 2px solid color-mix(in srgb, var(--border) 75%, transparent);
 		border-top-color: var(--accent);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
+		flex: 0 0 auto;
 	}
 
 	@keyframes spin {
