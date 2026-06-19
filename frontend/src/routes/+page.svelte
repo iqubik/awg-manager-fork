@@ -2846,7 +2846,7 @@
 		{/snippet}
 
 		<div class="tunnel-section-stack">
-			<section class="tunnel-spoiler">
+			<section class="tunnel-spoiler tunnel-spoiler--awg">
 				<button
 					type="button"
 					class="tunnel-spoiler__header"
@@ -2869,7 +2869,7 @@
 			</section>
 
 			{#if singboxSectionsVisible}
-				<section class="tunnel-spoiler">
+				<section class="tunnel-spoiler tunnel-spoiler--singbox">
 					<button
 						type="button"
 						class="tunnel-spoiler__header"
@@ -2891,7 +2891,7 @@
 					{/if}
 				</section>
 
-				<section class="tunnel-spoiler">
+				<section class="tunnel-spoiler tunnel-spoiler--subscriptions">
 					<button
 						type="button"
 						class="tunnel-spoiler__header"
@@ -3079,10 +3079,51 @@
 	}
 
 	.tunnel-spoiler {
-		border: 1px solid var(--border);
+		position: relative;
+		border: 1px solid var(--section-border, var(--border));
 		border-radius: var(--radius);
-		background: var(--bg-secondary);
+		background:
+			linear-gradient(
+				135deg,
+				var(--section-tint, transparent) 0%,
+				transparent 42%
+			),
+			var(--bg-secondary);
 		overflow: hidden;
+	}
+
+	.tunnel-spoiler::before {
+		content: '';
+		position: absolute;
+		inset: 0 auto 0 0;
+		width: 2px;
+		background: color-mix(in srgb, var(--section-rail, var(--accent)) 70%, transparent);
+		opacity: 0.75;
+		pointer-events: none;
+	}
+
+	.tunnel-spoiler--awg {
+		--section-tint: color-mix(in srgb, var(--accent) 10%, transparent);
+		--section-tint-strong: color-mix(in srgb, var(--accent) 18%, transparent);
+		--section-border: color-mix(in srgb, var(--accent) 28%, var(--border));
+		--section-badge-bg: color-mix(in srgb, var(--accent) 88%, #ffffff 12%);
+		--section-rail: var(--accent);
+	}
+
+	.tunnel-spoiler--singbox {
+		--section-tint: color-mix(in srgb, #22c55e 8%, transparent);
+		--section-tint-strong: color-mix(in srgb, #22c55e 14%, transparent);
+		--section-border: color-mix(in srgb, #22c55e 24%, var(--border));
+		--section-badge-bg: color-mix(in srgb, #22c55e 76%, var(--accent) 24%);
+		--section-rail: #22c55e;
+	}
+
+	.tunnel-spoiler--subscriptions {
+		--section-tint: color-mix(in srgb, #f59e0b 8%, transparent);
+		--section-tint-strong: color-mix(in srgb, #f59e0b 14%, transparent);
+		--section-border: color-mix(in srgb, #f59e0b 24%, var(--border));
+		--section-badge-bg: color-mix(in srgb, #f59e0b 78%, var(--accent) 22%);
+		--section-rail: #f59e0b;
 	}
 
 	.tunnel-spoiler__header {
@@ -3094,7 +3135,13 @@
 		min-height: 3rem;
 		padding: 0.875rem 1rem;
 		border: 0;
-		background: color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-tertiary) 18%);
+		background:
+			linear-gradient(
+				90deg,
+				var(--section-tint-strong, transparent) 0%,
+				transparent 55%
+			),
+			color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-tertiary) 18%);
 		color: var(--text-primary);
 		text-align: left;
 		cursor: pointer;
@@ -3104,7 +3151,13 @@
 	}
 
 	.tunnel-spoiler__header:hover {
-		background: color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-tertiary) 30%);
+		background:
+			linear-gradient(
+				90deg,
+				var(--section-tint-strong, transparent) 0%,
+				transparent 55%
+			),
+			color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-tertiary) 30%);
 	}
 
 	.tunnel-spoiler__header:focus-visible {
@@ -3113,7 +3166,13 @@
 	}
 
 	.tunnel-spoiler__header[aria-expanded="true"] {
-		background: color-mix(in srgb, var(--bg-secondary) 62%, var(--bg-tertiary) 38%);
+		background:
+			linear-gradient(
+				90deg,
+				var(--section-tint-strong, transparent) 0%,
+				transparent 58%
+			),
+			color-mix(in srgb, var(--bg-secondary) 62%, var(--bg-tertiary) 38%);
 	}
 
 	.tunnel-spoiler__title {
@@ -3128,10 +3187,11 @@
 		height: 1.25rem;
 		padding: 0 0.375rem;
 		border-radius: var(--radius-pill);
-		background: var(--accent);
+		background: var(--section-badge-bg, var(--accent));
 		color: var(--color-accent-contrast, #fff);
 		font-size: 0.6875rem;
 		font-weight: 700;
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--section-rail, var(--accent)) 30%, transparent);
 	}
 
 	.tunnel-spoiler__meta {
@@ -3167,14 +3227,14 @@
 
 	.tunnel-spoiler__header:hover .tunnel-spoiler__chevron {
 		color: var(--text-primary);
-		background: color-mix(in srgb, var(--accent) 10%, transparent);
-		border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+		background: color-mix(in srgb, var(--section-rail, var(--accent)) 10%, transparent);
+		border-color: color-mix(in srgb, var(--section-rail, var(--accent)) 22%, transparent);
 	}
 
 	.tunnel-spoiler__header[aria-expanded="true"] .tunnel-spoiler__chevron {
-		color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 12%, transparent);
-		border-color: color-mix(in srgb, var(--accent) 26%, transparent);
+		color: var(--section-rail, var(--accent));
+		background: color-mix(in srgb, var(--section-rail, var(--accent)) 12%, transparent);
+		border-color: color-mix(in srgb, var(--section-rail, var(--accent)) 26%, transparent);
 	}
 
 	.tunnel-spoiler__header[aria-expanded="true"] .tunnel-spoiler__chevron :global(svg) {
