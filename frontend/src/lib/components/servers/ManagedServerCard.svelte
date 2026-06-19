@@ -373,7 +373,7 @@
 	<StatStrip>
 		<Stat value={stats ? formatBytes(totalRx) : '—'} label="RX" />
 		<Stat value={stats ? formatBytes(totalTx) : '—'} label="TX" />
-		<Stat value={`${onlineCount} / ${(server.peers ?? []).length}`} label="Клиенты" sub={onlineCount > 0 ? `${onlineCount} онлайн` : 'нет активных'} />
+		<Stat value={`${onlineCount} / ${(server.peers ?? []).length}`} label="Клиенты" />
 		<Stat value={`UDP :${server.listenPort}`} label="Listen" />
 	</StatStrip>
 
