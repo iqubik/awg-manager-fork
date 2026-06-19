@@ -1924,17 +1924,32 @@ definitions:
   api.MonitoringTargetDTO:
     properties:
       host:
-        example: https://www.google.com
+        example: 8.8.8.8
         type: string
       id:
         example: target_google
         type: string
       name:
-        example: Google
+        example: Google DNS
+        type: string
+      url:
+        example: https://8.8.8.8/
         type: string
     type: object
   api.MonitoringTunnelDTO:
     properties:
+      awgVersion:
+        example: awg1.5
+        type: string
+      backend:
+        example: nativewg
+        type: string
+      clashDelay:
+        example: 428
+        type: integer
+      defaultRoute:
+        example: true
+        type: boolean
       id:
         example: tun_abc123
         type: string
@@ -1947,11 +1962,32 @@ definitions:
       pingcheckTarget:
         example: target_google
         type: string
+      protocol:
+        example: vless
+        type: string
+      security:
+        example: reality
+        type: string
       selfMethod:
         example: http
         type: string
       selfTarget:
         example: target_self_tun_abc123
+        type: string
+      singboxTag:
+        example: veesp
+        type: string
+      source:
+        example: singbox
+        type: string
+      subscription:
+        example: true
+        type: boolean
+      transport:
+        example: tcp
+        type: string
+      urltestGroup:
+        example: auto
         type: string
     type: object
   api.NativePingCheckStatusDTO:
