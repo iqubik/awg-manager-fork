@@ -394,7 +394,7 @@ func TestScheduler_RunOnce_SingboxRowsHaveNoSelfCells(t *testing.T) {
 	}
 }
 
-func TestScheduler_RunProbeCell_SingboxSubscriptionUsesInterfaceProbe(t *testing.T) {
+func TestScheduler_RunProbeCell_SingboxSubscriptionUsesClashDelay(t *testing.T) {
 	clashDelay := &fakeSingboxDelay{delay: 87}
 	httpProber := &fakeProber{ok: true, latency: 14}
 	sched := NewScheduler(SchedulerDeps{
@@ -415,17 +415,24 @@ func TestScheduler_RunProbeCell_SingboxSubscriptionUsesInterfaceProbe(t *testing
 		Subscription: true,
 		IfaceName:    "t2s0",
 	}, false)
-	if !ok || latency != 14 {
-		t.Fatalf("subscription sing-box row must use interface probe, got latency=%d ok=%v", latency, ok)
+	if !ok || latency != 87 {
+		t.Fatalf("subscription sing-box row must use TestDelay, got latency=%d ok=%v", latency, ok)
 	}
-	if clashDelay.calls.Load() != 0 {
-		t.Fatalf("subscription sing-box row must not call TestDelay, got %d calls", clashDelay.calls.Load())
+	if clashDelay.calls.Load() != 1 {
+		t.Fatalf("subscription sing-box row must call TestDelay once, got %d calls", clashDelay.calls.Load())
 	}
-	if httpProber.calls.Load() != 1 {
-		t.Fatalf("subscription sing-box row must call interface prober once, got %d calls", httpProber.calls.Load())
+	if httpProber.calls.Load() != 0 {
+		t.Fatalf("subscription sing-box row must not call interface prober, got %d calls", httpProber.calls.Load())
 	}
-	if got := httpProber.ifaces[0]; got != "t2s0" {
-		t.Fatalf("subscription sing-box row probed iface %q, want t2s0", got)
+	clashDelay.mu.Lock()
+	gotTag := clashDelay.lastTag
+	gotURL := clashDelay.lastURL
+	clashDelay.mu.Unlock()
+	if gotTag != "sub-member" {
+		t.Fatalf("subscription sing-box row called TestDelay with tag %q, want sub-member", gotTag)
+	}
+	if gotURL != "https://1.1.1.1/" {
+		t.Fatalf("subscription sing-box row called TestDelay with url %q, want https://1.1.1.1/", gotURL)
 	}
 
 	latency, ok = sched.runProbeCell(context.Background(), target, Tunnel{
@@ -437,13 +444,49 @@ func TestScheduler_RunProbeCell_SingboxSubscriptionUsesInterfaceProbe(t *testing
 	if !ok || latency != 87 {
 		t.Fatalf("regular sing-box row should use TestDelay, got latency=%d ok=%v", latency, ok)
 	}
-	if clashDelay.calls.Load() != 1 {
-		t.Fatalf("regular sing-box row should call TestDelay once, got %d calls", clashDelay.calls.Load())
+	if clashDelay.calls.Load() != 2 {
+		t.Fatalf("regular sing-box row should produce 2 total TestDelay calls, got %d calls", clashDelay.calls.Load())
 	}
 }
 
-func TestScheduler_RunProbeCell_SingboxSubscriptionWithoutIfaceReturnsNoData(t *testing.T) {
+func TestScheduler_RunProbeCell_SingboxSubscriptionFallsBackToHttpsHostURL(t *testing.T) {
 	clashDelay := &fakeSingboxDelay{delay: 87}
+	httpProber := &fakeProber{ok: true, latency: 14}
+	sched := NewScheduler(SchedulerDeps{
+		Prober:       httpProber,
+		SingboxDelay: clashDelay,
+	}, NewHistory(nil))
+
+	target := Target{
+		ID:   "cf-1.1.1.1",
+		Host: "1.1.1.1",
+	}
+
+	latency, ok := sched.runProbeCell(context.Background(), target, Tunnel{
+		ID:           "sub-member",
+		Source:       "singbox",
+		SingboxTag:   "sub-member",
+		Subscription: true,
+	}, false)
+	if !ok || latency != 87 {
+		t.Fatalf("subscription sing-box row should use https host fallback, got latency=%d ok=%v", latency, ok)
+	}
+	if clashDelay.calls.Load() != 1 {
+		t.Fatalf("subscription host fallback should call TestDelay once, got %d calls", clashDelay.calls.Load())
+	}
+	if httpProber.calls.Load() != 0 {
+		t.Fatalf("subscription host fallback must not call interface prober, got %d calls", httpProber.calls.Load())
+	}
+	clashDelay.mu.Lock()
+	gotURL := clashDelay.lastURL
+	clashDelay.mu.Unlock()
+	if gotURL != "https://1.1.1.1/" {
+		t.Fatalf("subscription host fallback called TestDelay with url %q, want https://1.1.1.1/", gotURL)
+	}
+}
+
+func TestScheduler_RunProbeCell_SingboxSubscriptionDelayErrorReturnsNoData(t *testing.T) {
+	clashDelay := &fakeSingboxDelay{err: errFakeDelay}
 	httpProber := &fakeProber{ok: true, latency: 14}
 	sched := NewScheduler(SchedulerDeps{
 		Prober:       httpProber,
@@ -461,16 +504,15 @@ func TestScheduler_RunProbeCell_SingboxSubscriptionWithoutIfaceReturnsNoData(t *
 		Source:       "singbox",
 		SingboxTag:   "sub-member",
 		Subscription: true,
-		IfaceName:    "",
 	}, false)
 	if ok || latency != 0 {
-		t.Fatalf("subscription sing-box row without iface must return no data, got latency=%d ok=%v", latency, ok)
+		t.Fatalf("subscription sing-box row should return no data on TestDelay error, got latency=%d ok=%v", latency, ok)
 	}
-	if clashDelay.calls.Load() != 0 {
-		t.Fatalf("subscription without iface must not call TestDelay, got %d calls", clashDelay.calls.Load())
+	if clashDelay.calls.Load() != 1 {
+		t.Fatalf("subscription sing-box row should call TestDelay once on error, got %d calls", clashDelay.calls.Load())
 	}
 	if httpProber.calls.Load() != 0 {
-		t.Fatalf("subscription without iface must not call interface prober, got %d calls", httpProber.calls.Load())
+		t.Fatalf("subscription sing-box row must not fall back to interface prober on error, got %d calls", httpProber.calls.Load())
 	}
 }
 
