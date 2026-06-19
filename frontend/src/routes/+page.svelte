@@ -2015,7 +2015,7 @@
 										MTU {tunnel.mtu ?? '—'}
 									</TunnelMetaText>
 									<TunnelMetaText mono>
-										Uptime {tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
+										Uptime: {tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
 									</TunnelMetaText>
 								</div>
 							</div>
@@ -2152,7 +2152,7 @@
 											MTU {tunnel.mtu}
 										</TunnelMetaText>
 										<TunnelMetaText mono>
-											Uptime {tunnel.status === 'up' && tunnel.uptime ? formatDuration(tunnel.uptime) : '—'}
+											Uptime: {tunnel.status === 'up' && tunnel.uptime ? formatDuration(tunnel.uptime) : '—'}
 										</TunnelMetaText>
 									</div>
 								</div>
