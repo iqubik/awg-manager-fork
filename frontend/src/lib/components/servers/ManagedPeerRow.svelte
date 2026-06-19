@@ -4,35 +4,75 @@
 	import { Download, SquarePen, Trash2 } from 'lucide-svelte';
 
 	let { peer, vm, showToggle, showDownload, showActions, toggling, onToggle, onConf, onEdit, onDelete, onCopy }: PeerRowProps = $props();
+
+	function isInsideInlineToggle(event: Event): boolean {
+		return event.target instanceof HTMLElement && !!event.target.closest('.peer-inline-toggle');
+	}
+
+	function toggleFromNameCell(event: Event): void {
+		if (!showToggle || toggling || isInsideInlineToggle(event)) return;
+		onToggle(peer);
+	}
+
+	function keydownNameCell(event: KeyboardEvent): void {
+		if (!showToggle || toggling || isInsideInlineToggle(event)) return;
+		if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			onToggle(peer);
+		}
+	}
 </script>
 
 <tr class="peer-row" class:peer-disabled={!vm.enabled}>
-	<td class="col-name">
+	<td
+		class="col-name peer-name-cell"
+		class:peer-name-cell-readonly={!showToggle}
+		role={showToggle ? 'button' : undefined}
+		tabindex={showToggle ? 0 : undefined}
+		onclick={toggleFromNameCell}
+		onkeydown={keydownNameCell}
+	>
 		<div class="name-cell">
 			{#if showToggle}
 				<span class="peer-inline-toggle">
 					<Toggle checked={vm.enabled} onchange={() => onToggle(peer)} disabled={toggling} size="sm" spinner="none" />
 				</span>
 			{/if}
-			<span class="peer-name">{vm.name}</span>
+			<div class="peer-name-block">
+				<span class="peer-name">{vm.name}</span>
+				<span class="peer-status status-{vm.status}">
+					<span class="status-dot" class:dot-online={vm.status === 'online'} class:dot-offline={vm.status === 'offline'} class:dot-disabled={vm.status === 'disabled'}></span>
+					{STATUS_LABEL[vm.status]}
+				</span>
+				<span class="peer-handshake-sub mono tech-value">
+					{#if vm.handshake}{vm.handshake.main}{:else}-{/if}
+				</span>
+			</div>
 		</div>
-	</td>
-	<td class="col-status">
-		<span class="peer-status status-{vm.status}">
-			<span class="status-dot" class:dot-online={vm.status === 'online'} class:dot-offline={vm.status === 'offline'} class:dot-disabled={vm.status === 'disabled'}></span>
-			{STATUS_LABEL[vm.status]}
-		</span>
 	</td>
 	<td class="col-ip">
 		<button type="button" class="cell-copy mono tech-value" onclick={() => onCopy(vm.ip, 'IP')} title={`Скопировать IP ${vm.ip}`}>
 			{vm.ip}
 		</button>
 	</td>
-	<td class="col-endpoint mono tech-value">{vm.endpointHost}</td>
-	<td class="col-rx mono tech-value">{vm.rx}</td>
-	<td class="col-tx mono tech-value">{vm.tx}</td>
-	<td class="col-handshake mono tech-value">
-		{#if vm.handshake}{vm.handshake.main}{#if vm.handshake.suffix}{" "}{vm.handshake.suffix}{/if}{:else}-{/if}
+	<td class="col-endpoint">
+		<button
+			type="button"
+			class="cell-copy endpoint-copy mono tech-value"
+			onclick={() => onCopy(vm.endpoint, 'Endpoint')}
+			title={vm.endpoint !== '—' ? `Скопировать Endpoint ${vm.endpoint}` : 'Endpoint отсутствует'}
+		>
+			<span class="endpoint-text">{vm.endpointHost}</span>
+			{#if vm.endpointPort}
+				<span class="endpoint-port">{vm.endpointPort}</span>
+			{/if}
+		</button>
+	</td>
+	<td class="col-traffic">
+		<div class="traffic-cell mono tech-value">
+			<span class="traffic-rx">RX: {vm.rx}</span>
+			<span class="traffic-tx">TX: {vm.tx}</span>
+		</div>
 	</td>
 	{#if showDownload || showActions}
 		<td class="col-actions">
@@ -58,8 +98,14 @@
 <style>
 	.name-cell {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: 0.5rem;
+		min-width: 0;
+	}
+	.peer-name-block {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
 		min-width: 0;
 	}
 	.peer-name {
@@ -67,8 +113,10 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.peer-row.peer-disabled {
-		opacity: 0.55;
+	.peer-handshake-sub {
+		color: var(--color-text-muted);
+		font-size: 0.6875rem;
+		line-height: 1.2;
 	}
 	.peer-status {
 		display: inline-flex;
@@ -84,6 +132,29 @@
 	.dot-online { background: var(--color-success); }
 	.dot-offline { background: var(--color-text-muted); }
 	.dot-disabled { background: var(--color-border); }
-	.col-rx, .col-tx { text-align: right; }
+	.endpoint-copy {
+		display: inline-flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.125rem;
+		max-width: 100%;
+	}
+	.endpoint-text,
+	.endpoint-port {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.endpoint-port {
+		font-size: 0.6875rem;
+		color: var(--color-text-muted);
+	}
+	.traffic-cell {
+		display: inline-flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.125rem;
+	}
 	.peer-actions { display: flex; gap: 0.25rem; justify-content: flex-end; }
 </style>
