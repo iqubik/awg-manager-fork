@@ -282,6 +282,14 @@
 					dense
 					onTitleClick={edit}
 				/>
+
+				<TunnelSingboxPingButton
+					layout="dense"
+					label={latText}
+					state={cardState}
+					{checking}
+					onclick={triggerCheck}
+				/>
 			</div>
 			<div class="meta-tags-dense">
 				<span class="iface-dense" title="{tunnel.proxyInterface || 'via sing-box'}{tunnel.kernelInterface ? ` · ${tunnel.kernelInterface}` : ''}">
@@ -295,11 +303,6 @@
 					<span class="badge b-tls">TLS</span>
 				{/if}
 				<span class="badge b-transport">{tunnel.transport.toUpperCase()}</span>
-			</div>
-		</div>
-		<div class="dense-toolbar">
-			<div class="dense-toolbar-bottom">
-				<TunnelSingboxPingButton layout="dense" label={latText} state={cardState} {checking} onclick={triggerCheck} />
 			</div>
 		</div>
 	</div>
@@ -599,9 +602,8 @@
 
 	.card.view-dense .header.header-dense {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: flex-start;
-		gap: 6px;
+		grid-template-columns: minmax(0, 1fr);
+		align-items: start;
 	}
 
 	.header-dense-body {
@@ -612,11 +614,36 @@
 	}
 
 	.title-row-dense {
-		display: grid;
-		grid-template-columns: auto minmax(0, 1fr);
+		display: flex;
 		align-items: center;
 		gap: 6px;
 		min-width: 0;
+	}
+
+	.title-row-dense :global(.ping-btn) {
+		margin-left: auto;
+		flex: 0 0 auto;
+		align-self: center;
+	}
+
+	.card.view-dense .title-row-dense :global(.ping-btn) {
+		min-height: 18px;
+		font-size: 10px;
+		line-height: 1;
+		padding-inline: 4px;
+	}
+
+	.card.view-dense .title-row-dense :global(.tunnel-title-row) {
+		min-width: 0;
+		flex: 1 1 auto;
+	}
+
+	.card.view-dense .title-row-dense :global(.tunnel-title-row__name) {
+		min-width: 0;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.title-dense {
@@ -669,18 +696,6 @@
 		font-size: 9px;
 		padding: 1px 5px;
 		line-height: 1.3;
-	}
-
-	.dense-toolbar {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		flex-shrink: 0;
-	}
-
-	.dense-toolbar-bottom {
-		display: flex;
-		align-items: center;
 	}
 
 	.details-dense-cols {
