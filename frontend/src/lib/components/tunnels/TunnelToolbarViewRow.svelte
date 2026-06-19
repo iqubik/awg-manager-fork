@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import TunnelTableSortControls from '$lib/components/tunnels/TunnelTableSortControls.svelte';
 
-	const TUNNEL_SEARCH_MIN_ROWS = 5;
+	const TUNNEL_SEARCH_MIN_ROWS = 2;
 	type SortOption = {
 		value: string;
 		label: string;
@@ -39,6 +39,18 @@
 	let showEffectiveViewToggle = $derived(showViewToggle);
 	let showMobileSort = $derived(hasMultipleRows && sortOptions.length > 0);
 	let show = $derived(showSearch || showEffectiveViewToggle || showMobileSort);
+
+	$effect(() => {
+		if (sourceRowCount < TUNNEL_SEARCH_MIN_ROWS && searchQuery.trim() !== '') {
+			onSearchChange('');
+		}
+	});
+
+	$effect(() => {
+		if (sourceRowCount < TUNNEL_SEARCH_MIN_ROWS && searchQuery.trim() !== '') {
+			onSearchChange('');
+		}
+	});
 </script>
 
 {#if show && (showSearch || showEffectiveViewToggle || showMobileSort)}
