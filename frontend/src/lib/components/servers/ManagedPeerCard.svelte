@@ -44,13 +44,21 @@
 
 	<div class="mobile-peer-card-middle">
 		<span class="mobile-peer-handshake mono tech-value">
-			{#if vm.handshake}{vm.handshake.main}{#if vm.handshake.suffix}{" "}{vm.handshake.suffix}{/if}{:else}-{/if}
+			{#if vm.handshake}{vm.handshake.main}{#if vm.handshake.suffix} {" "}{vm.handshake.suffix}{/if}{:else}-{/if}
 		</span>
 		<div class="mobile-peer-net-row mono tech-value">
 			<button type="button" class="cell-copy mobile-peer-ip" onclick={() => onCopy(vm.ip, 'IP')} title={`Скопировать IP ${vm.ip}`}>
 				<span class="mobile-label">IP</span> {vm.ip}
 			</button>
-			<span class="mobile-peer-endpoint"><span class="mobile-label">EP</span> {vm.endpointHost}</span>
+			<button
+				type="button"
+				class="cell-copy mobile-peer-endpoint"
+				onclick={() => onCopy(vm.endpoint, 'Endpoint')}
+				title={vm.endpoint !== '—' ? `Скопировать Endpoint ${vm.endpoint}` : 'Endpoint отсутствует'}
+			>
+				<span class="mobile-label">EP</span>
+				<span class="mobile-endpoint-value">{vm.endpoint}</span>
+			</button>
 		</div>
 	</div>
 
@@ -87,6 +95,12 @@
 	.mobile-peer-card-middle { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
 	.mobile-peer-net-row { display: flex; flex-wrap: wrap; gap: 0.75rem; min-width: 0; }
 	.mobile-peer-ip, .mobile-peer-endpoint { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+	.mobile-endpoint-value {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	.mobile-label { color: var(--color-text-muted); margin-right: 0.25rem; }
 	.mobile-peer-card-bottom { display: flex; gap: 1rem; }
 </style>
