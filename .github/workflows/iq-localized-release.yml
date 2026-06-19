@@ -488,11 +488,20 @@ jobs:
         run: |
           set +e
           start_ts=$(date +%s)
-          npm run check 2>&1 | tee /tmp/frontend-check.log
+          NO_COLOR=1 FORCE_COLOR=0 npm run check 2>&1 | tee /tmp/frontend-check.log
           status=${PIPESTATUS[0]}
           end_ts=$(date +%s)
           duration=$((end_ts - start_ts))
-          result_line="$(grep -E 'svelte-check found .* errors? and .* warnings?' /tmp/frontend-check.log | tail -n 1)"
+
+          strip_ansi() {
+            sed -E $'s/\x1B\\[[0-9;?]*[ -/]*[@-~]//g'
+          }
+
+          result_line="$(
+            strip_ansi < /tmp/frontend-check.log \
+              | grep -E 'svelte-check found .* errors? and .* warnings?' \
+              | tail -n 1
+          )"
 
           {
             echo "### Frontend svelte-check"
