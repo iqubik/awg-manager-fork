@@ -222,14 +222,18 @@
 			</div>
 		</td>
 		<td class="list-cell list-cell-badges" data-label="Протокол">
-			<div class="badges-inline">
-				<span class="badge b-{tunnel.protocol}">{protocolLabel}</span>
+			<div class="badges-inline protocol-badge-stack">
+				<span class="badge b-{tunnel.protocol} protocol-badge-main">{protocolLabel}</span>
+
 				{#if tunnel.security === 'reality'}
-					<span class="badge b-reality">Reality</span>
+					<span class="badge b-reality protocol-badge-security">Reality</span>
 				{:else if tunnel.security === 'tls'}
-					<span class="badge b-tls">TLS</span>
+					<span class="badge b-tls protocol-badge-security">TLS</span>
+				{:else}
+					<span class="protocol-badge-spacer" aria-hidden="true"></span>
 				{/if}
-				<span class="badge b-transport">{tunnel.transport.toUpperCase()}</span>
+
+				<span class="badge b-transport protocol-badge-transport">{tunnel.transport.toUpperCase()}</span>
 			</div>
 		</td>
 		<td class="list-cell list-cell-run" data-label="Процесс">
@@ -1221,6 +1225,27 @@
 		width: max-content;
 		max-width: 100%;
 		text-align: center;
+	}
+
+	.protocol-badge-stack {
+		display: inline-grid;
+		grid-template-rows: repeat(3, minmax(0, auto));
+		align-items: center;
+		justify-items: start;
+		gap: 3px;
+		min-width: 0;
+	}
+
+	.protocol-badge-stack .badge {
+		width: fit-content;
+		max-width: 100%;
+		white-space: nowrap;
+	}
+
+	.protocol-badge-spacer {
+		display: block;
+		height: calc(var(--sbx-card-badge, 0.625rem) + 4px);
+		min-height: 14px;
 	}
 	.muted {
 		color: var(--text-muted);
