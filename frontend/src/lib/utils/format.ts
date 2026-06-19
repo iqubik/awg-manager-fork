@@ -43,7 +43,7 @@ export function formatDuration(seconds: number): string {
     const hours = Math.floor(seconds / 3600);
     if (hours < 24) {
         const m = Math.floor((seconds % 3600) / 60);
-        return `${hours}ч ${m} мин`;
+        return `${hours}ч ${m}мин`;
     }
     const days = Math.floor(hours / 24);
     const h = hours % 24;
