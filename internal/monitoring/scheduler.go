@@ -400,6 +400,9 @@ func (s *Scheduler) proberFor(tun Tunnel, isSelf bool) Prober {
 func (s *Scheduler) runProbeCell(ctx context.Context, t Target, tn Tunnel, isSelf bool) (int, bool) {
 	if tn.Source == "singbox" && s.deps.SingboxDelay != nil && tn.SingboxTag != "" {
 		if tn.Subscription {
+			if tn.ClashDelay > 0 {
+				return tn.ClashDelay, true
+			}
 			// Monitoring must stay read-only for sing-box subscription/urltest
 			// rows. Clash /proxies/<tag>/delay mutates runtime delay history and
 			// can influence active-member selection, so subscriptions are skipped.
