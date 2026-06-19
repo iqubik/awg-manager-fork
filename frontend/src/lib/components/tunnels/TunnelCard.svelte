@@ -386,6 +386,7 @@
 								onchange={() => onToggleOnOff?.()}
 								loading={toggleLoading}
 								disabled={toggleDisabled}
+								size="sm"
 								variant="flip"
 								tint={toggleTint}
 							/>
