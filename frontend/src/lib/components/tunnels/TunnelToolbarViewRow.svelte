@@ -36,7 +36,7 @@
 
 	let showSearch = $derived(sourceRowCount >= TUNNEL_SEARCH_MIN_ROWS);
 	let hasMultipleRows = $derived(sourceRowCount > 1);
-	let showEffectiveViewToggle = $derived(showViewToggle && hasMultipleRows);
+	let showEffectiveViewToggle = $derived(showViewToggle);
 	let showMobileSort = $derived(hasMultipleRows && sortOptions.length > 0);
 	let show = $derived(showSearch || showEffectiveViewToggle || showMobileSort);
 </script>
