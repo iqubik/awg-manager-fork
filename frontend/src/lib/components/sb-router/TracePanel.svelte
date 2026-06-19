@@ -58,6 +58,10 @@
     return m?.action ?? '';
   });
 
+  function formatRuleIndex(index: number): string {
+    return `#${index}`;
+  }
+
   function handleDomainChange(e: Event) {
     const v = (e.target as HTMLInputElement).value;
     traceInput.update((cur) => ({ ...cur, domain: v }));
@@ -149,7 +153,7 @@
 
         <TracePathStation
           tone={outcomeTone}
-          kicker={result.matchedRule === -1 ? 'По default' : `Правило #${result.matchedRule + 1}`}
+          kicker={result.matchedRule === -1 ? 'По default' : `Правило ${formatRuleIndex(result.matchedRule)}`}
           title={result.matchedRule === -1 ? 'нет матча' : `match ${matchedRuleAction}`}
         >
           {#snippet icon()}
