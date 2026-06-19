@@ -13,8 +13,9 @@ import (
 // MonitoringTargetDTO mirrors frontend MonitoringTarget.
 type MonitoringTargetDTO struct {
 	ID   string `json:"id" example:"target_google"`
-	Host string `json:"host" example:"https://www.google.com"`
-	Name string `json:"name" example:"Google"`
+	Host string `json:"host" example:"8.8.8.8"`
+	Name string `json:"name" example:"Google DNS"`
+	URL  string `json:"url,omitempty" example:"https://8.8.8.8/"`
 }
 
 // MonitoringTunnelDTO mirrors frontend MonitoringTunnel.
@@ -25,6 +26,17 @@ type MonitoringTunnelDTO struct {
 	PingcheckTarget string `json:"pingcheckTarget" example:"target_google"`
 	SelfTarget      string `json:"selfTarget" example:"target_self_tun_abc123"`
 	SelfMethod      string `json:"selfMethod" example:"http"`
+	Source          string `json:"source,omitempty" example:"singbox"`
+	Backend         string `json:"backend,omitempty" example:"nativewg"`
+	AWGVersion      string `json:"awgVersion,omitempty" example:"awg1.5"`
+	DefaultRoute    bool   `json:"defaultRoute,omitempty" example:"true"`
+	Subscription    bool   `json:"subscription,omitempty" example:"true"`
+	Protocol        string `json:"protocol,omitempty" example:"vless"`
+	Security        string `json:"security,omitempty" example:"reality"`
+	Transport       string `json:"transport,omitempty" example:"tcp"`
+	SingboxTag      string `json:"singboxTag,omitempty" example:"veesp"`
+	ClashDelay      int    `json:"clashDelay,omitempty" example:"428"`
+	UrltestGroup    string `json:"urltestGroup,omitempty" example:"auto"`
 }
 
 // MonitoringCellDTO mirrors frontend MonitoringCell.
