@@ -47,7 +47,7 @@
 	import AddTunnelWizard from '$lib/components/subscriptions/AddTunnelWizard.svelte';
 	import SubscriptionActiveCard from '$lib/components/subscriptions/SubscriptionActiveCard.svelte';
 	import type { ExternalTunnel, Subscription, SubscriptionMember, SystemTunnel, TunnelListItem } from '$lib/types';
-	import { formatBitRate, formatBytes, formatDuration, formatRelativeTime, secondsSince } from '$lib/utils/format';
+	import { formatBitRate, formatBytes, formatDuration, formatRelativeTimeShort, secondsSince } from '$lib/utils/format';
 	import { showOutboundReferencedError } from '$lib/utils/outboundReferenced';
 	import {
 		awgConnectivityDown,
@@ -1993,6 +1993,7 @@
 								size="sm"
 								variant="flip"
 								tint={awgToggleTint(tunnel, connectivity)}
+								ariaLabel={isManagedTunnelOn(tunnel) ? `Выключить туннель ${tunnel.name}` : `Включить туннель ${tunnel.name}`}
 								disabled={(toggleLoading[tunnel.id] ?? false) || tunnel.hasAddressConflict === true}
 								onchange={() => handleToggleOnOff(tunnel.id)}
 							/>
@@ -2017,61 +2018,63 @@
 									<TunnelMetaText>
 										{tunnel.address || '—'}
 										<span class="meta-dot" aria-hidden="true">·</span>
-										{tunnel.interfaceName || tunnel.id}
+										<span title={isEndpointShown ? (tunnel.interfaceName || tunnel.id) : ''}>
+											{isEndpointShown ? (tunnel.interfaceName || tunnel.id) : '••••'}
+										</span>
 										<span class="meta-dot" aria-hidden="true">·</span>
 										MTU {tunnel.mtu ?? '—'}
 									</TunnelMetaText>
-									<TunnelMetaText mono>
-										Uptime: {tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
-									</TunnelMetaText>
+									{#if tunnel.hasAddressConflict}
+										<div class="awg-list-sub awg-list-sub--error">Дублирует адрес уже запущенного туннеля</div>
+									{:else if showConnectivityRow}
+										<div
+											class="awg-list-connectivity-row awg-list-connectivity-row--name"
+											class:recovering={awgRecoveringVisual(tunnel)}
+										>
+											{#if showPing}
+												<TunnelPingButton
+													layout="list"
+													connectivity={connState}
+													latencyMs={connectivity?.latency ?? null}
+													statusNote={pingStatusNote?.text}
+													statusNoteTone={pingStatusNote?.tone}
+													checking={pingChecking[tunnel.id] ?? false}
+													onclick={() => checkPing(tunnel.id)}
+												/>
+											{/if}
+											<button
+												type="button"
+												class="awg-connectivity-gear"
+												onclick={() => openConnectivitySettings(tunnel)}
+												title="Настройки проверки связности"
+											>
+												<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+													<path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
+												</svg>
+											</button>
+										</div>
+									{:else if isActive && checkDisabled}
+										<div class="awg-list-sub">Проверка связи выключена</div>
+									{/if}
 								</div>
 							</div>
 							<div class="awg-list-cell awg-list-cell-status" data-label="Статус">
 								<div class="awg-list-status-stack">
 									<div class="awg-list-status-line">
-									<StatusDot
-										variant={statusDot.variant}
-										pulse={statusDot.pulse}
-										ariaLabel={statusDot.label}
-									/>
-									<span class="awg-list-status-text">{statusDot.label}</span>
+										<StatusDot
+											variant={statusDot.variant}
+											pulse={statusDot.pulse}
+											ariaLabel={statusDot.label}
+										/>
+										<span class="awg-list-status-text">{statusDot.label}</span>
+									</div>
+									<div class="awg-list-sub awg-list-uptime">
+										Uptime {tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
 									</div>
 									<div class="awg-list-sub awg-list-handshake">
-										Handshake {tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
+										Handshake {tunnel.lastHandshake ? formatRelativeTimeShort(tunnel.lastHandshake) : '—'}
 									</div>
-									{#if tunnel.hasAddressConflict}
-								<div class="awg-list-sub awg-list-sub--error">Дублирует адрес уже запущенного туннеля</div>
-							{:else if showConnectivityRow}
-								<div
-									class="awg-list-connectivity-row"
-									class:recovering={awgRecoveringVisual(tunnel)}
-								>
-									{#if showPing}
-										<TunnelPingButton
-											layout="list"
-											connectivity={connState}
-											latencyMs={connectivity?.latency ?? null}
-											statusNote={pingStatusNote?.text}
-											statusNoteTone={pingStatusNote?.tone}
-											checking={pingChecking[tunnel.id] ?? false}
-											onclick={() => checkPing(tunnel.id)}
-										/>
-									{/if}
-									<button
-										type="button"
-										class="awg-connectivity-gear"
-										onclick={() => openConnectivitySettings(tunnel)}
-										title="Настройки проверки связности"
-									>
-										<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-											<path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
-										</svg>
-									</button>
 								</div>
-							{:else if isActive && checkDisabled}
-								<div class="awg-list-sub">Проверка связи выключена</div>
-							{/if}
-							</div>
 							</div>
 							<div class="awg-list-cell" data-label="Endpoint">
 								<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line">
@@ -2100,7 +2103,9 @@
 										<span class="awg-endpoint-port">:{endpointPort(tunnel.endpoint)}</span>
 									{/if}
 								</div>
-								<div class="awg-list-sub">{managedRouteMeta(tunnel)}</div>
+								<div class="awg-list-sub" title={isEndpointShown ? managedRouteMeta(tunnel) : ''}>
+									{isEndpointShown ? managedRouteMeta(tunnel) : '•••••••••'}
+								</div>
 							</div>
 							<div class="awg-list-cell awg-list-cell-rate" data-label="Трафик">
 								<TunnelListTrafficCell
@@ -2172,7 +2177,7 @@
 										<span class="awg-list-status-text">{systemStatusLabel(tunnel)}</span>
 									</div>
 									<div class="awg-list-sub awg-list-handshake">
-										Handshake {tunnel.peer?.lastHandshake ? formatRelativeTime(tunnel.peer.lastHandshake) : '—'}
+										Handshake {tunnel.peer?.lastHandshake ? formatRelativeTimeShort(tunnel.peer.lastHandshake) : '—'}
 									</div>
 									<div class="awg-list-sub">{tunnel.peer?.via || 'Маршрут не определён'}</div>
 								</div>
@@ -2274,7 +2279,7 @@
 										<span class="awg-list-status-text">{externalStatusLabel(tunnel)}</span>
 									</div>
 									<div class="awg-list-sub awg-list-handshake">
-										Handshake {tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
+										Handshake {tunnel.lastHandshake ? formatRelativeTimeShort(tunnel.lastHandshake) : '—'}
 									</div>
 									<div class="awg-list-sub">Не управляется AWG Manager</div>
 								</div>
