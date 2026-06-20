@@ -159,12 +159,12 @@
         {:else}
             <div class="bulk-bar">
                 <div class="bulk-bar-nav">
-                    <button class="bulk-btn bulk-btn-cancel" onclick={exitPolicySelection} disabled={policyBulkLoading}>✕ Отмена</button>
+                    <Button variant="secondary" size="sm" onclick={exitPolicySelection} disabled={policyBulkLoading}>✕ Отмена</Button>
                     <span class="bulk-count">{policySelected.size} выбрано</span>
-                    <button class="bulk-btn bulk-btn-select-all" onclick={policySelectAll} disabled={policyBulkLoading}>Выбрать все</button>
+                    <Button variant="secondary" size="sm" onclick={policySelectAll} disabled={policyBulkLoading}>Выбрать все</Button>
                 </div>
                 <div class="bulk-bar-actions">
-                    <button class="bulk-btn bulk-btn-delete" disabled={policySelected.size === 0 || policyBulkLoading} onclick={() => policyBulkDeleteConfirm = true}>Удалить</button>
+                    <Button variant="danger" size="sm" disabled={policySelected.size === 0 || policyBulkLoading} onclick={() => policyBulkDeleteConfirm = true}>Удалить</Button>
                 </div>
             </div>
         {/if}
