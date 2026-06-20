@@ -18,7 +18,11 @@ vi.mock('$lib/api/client', () => ({
 }));
 
 vi.mock('./addWizardActions', () => ({
-  submitWizard: vi.fn(async () => ({ successes: ['svc:netflix'], failures: [] })),
+  submitWizard: vi.fn(async () => ({
+    successes: ['svc:netflix'],
+    failures: [],
+    resolvedOutboundTag: 'wg-nl',
+  })),
 }));
 
 vi.mock('./settingsActions', () => ({
@@ -48,6 +52,11 @@ describe('emptyStateActions', () => {
 
   it('finishSetup: правила(tunnel) → final=direct → bake defaults(all) → switch(tproxy) → loadAll', async () => {
     const empty = { rulesList: '' };
+    (submitWizard as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      successes: ['svc:netflix'],
+      failures: [],
+      resolvedOutboundTag: 'custom-composite-1',
+    });
     const res = await finishSetup({
       tunnelTag: 'wg-nl',
       selectedTemplates: ['svc:netflix'],
@@ -62,13 +71,16 @@ describe('emptyStateActions', () => {
     expect(api.singboxRouterPutDNSGlobals).toHaveBeenCalledWith(
       expect.objectContaining({ final: 'dns-direct' }),
     );
-    expect(api.singboxRouterSwitchMode).toHaveBeenCalledWith('tproxy');
+    expect(api.singboxRouterAddDNSServer).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: 'dns-tunnel', detour: 'custom-composite-1' }),
+    );
     expect(mergeAndSaveSettings).toHaveBeenCalledWith(
       expect.objectContaining({ deviceMode: 'all', wanAutoDetect: true, wanInterface: '', snifferEnabled: true }),
     );
     expect(api.singboxRouterSwitchMode).toHaveBeenCalledWith('tproxy');
     expect(singboxRouter.loadAll).toHaveBeenCalled();
     expect(res.successes).toContain('svc:netflix');
+    expect(res.resolvedOutboundTag).toBe('custom-composite-1');
   });
 });
 
