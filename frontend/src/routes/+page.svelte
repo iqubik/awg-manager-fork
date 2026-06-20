@@ -70,7 +70,7 @@
 		type TunnelRenderMode,
 	} from '$lib/constants/singboxLayout';
 	import { isMockDevMode as getIsMockDevMode } from '$lib/env';
-	import { ChevronDown, Download } from 'lucide-svelte';
+	import { ChevronDown, Download, Upload } from 'lucide-svelte';
 	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
 	import { formatRunningSub, pluralForm, SUBSCRIPTION_WORDS, TUNNEL_WORDS } from '$lib/utils/pluralize';
 	import {
@@ -1714,6 +1714,10 @@
 	<CreateIcon />
 {/snippet}
 
+{#snippet importIcon()}
+	<Upload size={16} />
+{/snippet}
+
 <svelte:head>
 	<title>Туннели - AWG Manager</title>
 </svelte:head>
@@ -1886,8 +1890,8 @@
 					<Button variant="secondary" size="md" onclick={handleExportAll} disabled={exporting} iconBefore={exportIcon}>
 						Экспорт
 					</Button>
-					<Button variant="primary" size="md" onclick={() => goto('/tunnels/new')} iconBefore={createIcon}>
-						Создать
+					<Button variant="primary" size="md" onclick={() => goto('/tunnels/new')} iconBefore={importIcon}>
+						Импорт
 					</Button>
 				</div>
 			</div>
