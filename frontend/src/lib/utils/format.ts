@@ -145,3 +145,7 @@ export function formatRelativeTime(timestamp: string | Date): string {
     const diffDays = Math.floor(diffSec / 86400);
     return `${diffDays} ${pluralForm(diffDays, DAY_WORDS)} назад`;
 }
+
+export function formatRelativeTimeShort(timestamp: string | Date): string {
+    return formatRelativeTime(timestamp).replace(/\s+назад$/u, '');
+}

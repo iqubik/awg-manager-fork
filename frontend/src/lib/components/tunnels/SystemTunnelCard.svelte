@@ -2,7 +2,7 @@
 	import { untrack } from 'svelte';
 	import type { SystemTunnel, ConnectivityResult } from '$lib/types';
 	import { api } from '$lib/api/client';
-	import { formatRelativeTime, formatDuration, formatBitRate } from '$lib/utils/format';
+	import { formatRelativeTimeShort, formatDuration, formatBitRate } from '$lib/utils/format';
 	import { TrafficChart, TrafficSparkline, Badge, PingButton, TunnelListActions } from '$lib/components/ui';
 	import type { StatusDotVariant } from '$lib/components/ui/StatusDot.svelte';
 	import TunnelTitleRow from '$lib/components/tunnels/TunnelTitleRow.svelte';
@@ -313,7 +313,7 @@
 								<span class="kv-stacked-label">Handshake</span>
 								<span class="kv-stacked-value">
 									{tunnel.peer?.lastHandshake
-										? formatRelativeTime(tunnel.peer.lastHandshake)
+										? formatRelativeTimeShort(tunnel.peer.lastHandshake)
 										: '—'}
 								</span>
 							</div>
@@ -370,7 +370,7 @@
 					<div class="flex flex-col gap-0.5 min-w-0 flex-1 items-end">
 						<span class="detail-label">Handshake</span>
 						<span class="detail-value text-[11px] whitespace-nowrap">
-							{tunnel.peer?.lastHandshake ? formatRelativeTime(tunnel.peer.lastHandshake) : '—'}
+							{tunnel.peer?.lastHandshake ? formatRelativeTimeShort(tunnel.peer.lastHandshake) : '—'}
 						</span>
 					</div>
 				</div>
