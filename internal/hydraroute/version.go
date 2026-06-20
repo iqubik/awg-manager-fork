@@ -15,10 +15,14 @@ var (
 )
 
 func detectVersion(ctx context.Context) string {
+	path := activeBinaryPath()
+	if path == "" {
+		return ""
+	}
 	commands := [][]string{
-		{hrneoBinary, "--version"},
-		{hrneoBinary, "version"},
-		{hrneoBinary, "-v"},
+		{path, "--version"},
+		{path, "version"},
+		{path, "-v"},
 	}
 	for _, c := range commands {
 		result, err := sysexec.RunWithOptions(ctx, c[0], c[1:], sysexec.Options{Timeout: versionProbeTimeout})
