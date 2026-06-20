@@ -336,8 +336,9 @@
 		justify-content: space-between;
 		gap: 0.875rem;
 		width: 100%;
-		padding: 0;
+		padding: 0 0 0.625rem;
 		border: 0;
+		border-bottom: 1px solid var(--color-border);
 		background: transparent;
 		color: inherit;
 		text-align: left;
