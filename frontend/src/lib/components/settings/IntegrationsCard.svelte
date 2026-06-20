@@ -403,7 +403,7 @@
 						<div class="progress-fill" style:width={hydraInstallProgressPct !== null ? `${hydraInstallProgressPct}%` : '100%'}></div>
 					</div>
 				</div>
-			{:else if hydraInstalled && hydraManaged && hydraInstallSupported && !hydraInstalling && onupdateHydra}
+			{:else if hydraInstalled && hydraManaged && hydraInstallSupported && hydraNeedsUpdate && !hydraInstalling && onupdateHydra}
 				<Button variant="primary" size="sm" onclick={onupdateHydra} loading={hydraUpdating}>
 					{hydraUpdating ? 'Обновление...' : 'Обновить'}
 				</Button>
