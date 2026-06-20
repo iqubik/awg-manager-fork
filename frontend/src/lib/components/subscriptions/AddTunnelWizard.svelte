@@ -501,11 +501,11 @@
 
 	{#snippet actions()}
 		{#if kind === 'url' && urlStep === 'preview'}
-			<Button variant="ghost" onclick={() => (urlStep = 'form')} disabled={submitting}>← Назад</Button>
+			<Button variant="secondary" onclick={() => (urlStep = 'form')} disabled={submitting}>← Назад</Button>
 		{:else if kind !== 'choose'}
-			<Button variant="ghost" onclick={backToChoose} disabled={submitting}>← Назад</Button>
+			<Button variant="secondary" onclick={backToChoose} disabled={submitting}>← Назад</Button>
 		{/if}
-		<Button variant="ghost" onclick={close} disabled={submitting}>Отмена</Button>
+	<Button variant="secondary" onclick={close} disabled={submitting}>Отмена</Button>
 		{#if kind === 'single'}
 			<Button
 				variant="primary"
