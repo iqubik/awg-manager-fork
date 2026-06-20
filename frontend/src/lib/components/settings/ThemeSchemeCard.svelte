@@ -83,18 +83,18 @@
 	<div class="card">
 		<button
 			type="button"
-			class="appearance-toggle"
+			class="settings-card-toggle"
 			aria-expanded={appearanceExpanded}
 			aria-controls="appearance-card-body"
 			onclick={() => (appearanceExpanded = !appearanceExpanded)}
 		>
-			<span class="appearance-toggle-label">
+			<span class="settings-card-toggle-label">
 				<SettingsSectionLabel label="Внешний вид" icon={Palette} tone="pink" inline />
 			</span>
-			<span class="appearance-toggle-meta">
-				<span class="current-theme">{currentThemeLabel}</span>
+			<span class="settings-card-toggle-meta">
+				<span class="settings-card-meta-text current-theme">{currentThemeLabel}</span>
 				<svg
-					class="chevron"
+					class="settings-card-chevron"
 					class:open={appearanceExpanded}
 					viewBox="0 0 24 24"
 					fill="none"
@@ -286,15 +286,14 @@
 </div>
 
 <style>
-	.appearance-toggle {
+	.settings-card-toggle {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		width: 100%;
 		min-width: 0;
-		gap: 0.75rem;
-		margin-bottom: 0.75rem;
-		padding-bottom: 0.625rem;
+		gap: 0.875rem;
+		padding: 0 0 0.625rem;
 		border: 0;
 		border-bottom: 1px solid var(--color-border);
 		background: transparent;
@@ -304,24 +303,44 @@
 		cursor: pointer;
 	}
 
-	.appearance-toggle-label {
+	.settings-card-toggle-label {
 		min-width: 0;
 		flex: 1 1 auto;
 	}
 
-	.appearance-toggle-meta {
+	.settings-card-toggle-meta {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.625rem;
 		min-width: 0;
 		max-width: min(42vw, 18rem);
-		color: var(--color-text-muted);
-		font-size: 0.8125rem;
+		color: var(--color-text-secondary);
+		flex: 0 0 auto;
+	}
+
+	.settings-card-meta-text {
+		max-width: 12rem;
+		font-size: 0.75rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.settings-card-chevron {
+		width: 1rem;
+		height: 1rem;
+		flex-shrink: 0;
+		transition: transform var(--t-normal) ease;
+	}
+
+	.settings-card-chevron.open {
+		transform: rotate(180deg);
 	}
 
 	.appearance-body {
 		display: flex;
 		flex-direction: column;
+		padding-top: 0.75rem;
 	}
 
 	.compact-layout-row {
@@ -347,11 +366,11 @@
 	}
 
 	@media (max-width: 640px) {
-		.appearance-toggle {
+		.settings-card-toggle {
 			align-items: flex-start;
 		}
 
-		.appearance-toggle-meta {
+		.settings-card-toggle-meta {
 			max-width: min(50vw, 11rem);
 		}
 
@@ -399,7 +418,7 @@
 		flex: 1 1 auto;
 	}
 
-	.appearance-toggle:focus-visible,
+	.settings-card-toggle:focus-visible,
 	.collapsible-header:focus-visible {
 		outline: 2px solid var(--color-accent);
 		outline-offset: 2px;
@@ -415,7 +434,6 @@
 	}
 
 	.current-theme {
-		color: var(--color-text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
