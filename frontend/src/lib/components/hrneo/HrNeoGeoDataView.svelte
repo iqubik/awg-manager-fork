@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api/client';
-	import type { GeoFileEntry, GeoUpdateInterval, GeoUpdateSchedule } from '$lib/types';
+	import type { GeoFileEntry, GeoFileSettings, Settings } from '$lib/types';
 	import { settings as appSettings, reloadSettings } from '$lib/stores/settings';
 	import {
 		downloadOutbounds,
@@ -22,10 +22,17 @@
 
 	interface Props {
 		files: GeoFileEntry[];
+		settings: Settings | null;
+		saving: boolean;
+		updatingAll: boolean;
 		onrefresh: () => void;
+		onSaveGeoSettings: (next: GeoFileSettings) => void;
+		onUpdateAllNow: () => void;
 	}
 
-	let { files, onrefresh }: Props = $props();
+	type SchedulePreset = 'off' | '6h' | '12h' | '24h' | `daily:${string}` | `interval:${number}`;
+
+	let { files, settings, saving, updatingAll, onrefresh, onSaveGeoSettings, onUpdateAllNow }: Props = $props();
 
 	let addUrl = $state('');
 	let addType = $state<'geoip' | 'geosite'>('geosite');
@@ -79,18 +86,103 @@
 
 	let activeDownload = $state<DownloadOperation | null>(null);
 	let lastDownload = $state<LastDownload | null>(null);
-	let schedule = $state<GeoUpdateSchedule>({ interval: 'off' });
-	let scheduleDraft = $state<GeoUpdateInterval>('off');
-	let scheduleLoading = $state(true);
-	let scheduleSaving = $state(false);
 
-	const scheduleOptions = [
-		{ value: 'off' as const, label: 'Отключено' },
-		{ value: 'hourly' as const, label: 'Каждый час' },
-		{ value: '6h' as const, label: 'Каждые 6 часов' },
-		{ value: 'daily' as const, label: 'Раз в день 03:00' },
-		{ value: 'weekly' as const, label: 'Раз в неделю Пн 04:00' },
-	];
+	function currentGeoSettings(): GeoFileSettings {
+		return settings?.geoFile ?? {
+			autoRefreshEnabled: false,
+			refreshIntervalHours: 0,
+			refreshMode: 'interval',
+			refreshDailyTime: '03:00',
+		};
+	}
+
+	function presetFromSettings(geo: GeoFileSettings): SchedulePreset {
+		if (!geo.autoRefreshEnabled) {
+			return 'off';
+		}
+		if ((geo.refreshMode || 'interval') === 'daily') {
+			return `daily:${geo.refreshDailyTime || '03:00'}`;
+		}
+		switch (geo.refreshIntervalHours || 6) {
+			case 6:
+				return '6h';
+			case 12:
+				return '12h';
+			case 24:
+				return '24h';
+			default:
+				return `interval:${geo.refreshIntervalHours || 6}`;
+		}
+	}
+
+	function scheduleLabel(preset: SchedulePreset): string {
+		if (preset === 'off') return 'Отключено';
+		if (preset === '6h') return 'Каждые 6 часов';
+		if (preset === '12h') return 'Каждые 12 часов';
+		if (preset === '24h') return 'Каждые 24 часа';
+		if (preset.startsWith('daily:')) {
+			return `Ежедневно ${preset.slice('daily:'.length)}`;
+		}
+		return `Каждые ${preset.slice('interval:'.length)} часов`;
+	}
+
+	function settingsFromPreset(preset: SchedulePreset, base: GeoFileSettings): GeoFileSettings {
+		if (preset === 'off') {
+			return {
+				...base,
+				autoRefreshEnabled: false,
+			};
+		}
+		if (preset === '6h' || preset === '12h' || preset === '24h') {
+			return {
+				...base,
+				autoRefreshEnabled: true,
+				refreshMode: 'interval',
+				refreshIntervalHours: Number.parseInt(preset, 10),
+			};
+		}
+		if (preset.startsWith('daily:')) {
+			return {
+				...base,
+				autoRefreshEnabled: true,
+				refreshMode: 'daily',
+				refreshDailyTime: preset.slice('daily:'.length) || '03:00',
+			};
+		}
+		const parsed = Number.parseInt(preset.slice('interval:'.length), 10);
+		return {
+			...base,
+			autoRefreshEnabled: true,
+			refreshMode: 'interval',
+			refreshIntervalHours: Number.isFinite(parsed) && parsed > 0 ? parsed : 6,
+		};
+	}
+
+	function buildScheduleOptions(geo: GeoFileSettings) {
+		const current = presetFromSettings(geo);
+		const options = [
+			{ value: 'off', label: 'Отключено' },
+			{ value: '6h', label: 'Каждые 6 часов' },
+			{ value: '12h', label: 'Каждые 12 часов' },
+			{ value: '24h', label: 'Каждые 24 часа' },
+			{ value: 'daily:03:00', label: 'Ежедневно 03:00' },
+		];
+		if (!options.some((option) => option.value === current)) {
+			options.splice(4, 0, { value: current, label: scheduleLabel(current) });
+		}
+		return options;
+	}
+
+	let savedSchedulePreset = $derived(presetFromSettings(currentGeoSettings()));
+	// svelte-ignore state_referenced_locally
+	let scheduleDraft = $state<SchedulePreset>(savedSchedulePreset);
+	let scheduleOptions = $derived(buildScheduleOptions(currentGeoSettings()));
+	let scheduleChanged = $derived(scheduleDraft !== savedSchedulePreset);
+	let scheduleSummary = $derived(scheduleLabel(savedSchedulePreset));
+
+	$effect(() => {
+		scheduleDraft = savedSchedulePreset;
+	});
 
 	function currentRoute(): { tag: string; kind?: 'direct' | 'awg' | 'singbox' | 'subscription' } {
 		const tag = $appSettings?.download?.routeTag?.trim() || 'direct';
@@ -109,24 +201,6 @@
 		await ensureDownloadOutboundsLoaded();
 	}
 
-	async function loadSchedule() {
-		scheduleLoading = true;
-		try {
-			const next = await api.getGeoUpdateSchedule();
-			schedule = next;
-			scheduleDraft = next.interval;
-		} catch (e: unknown) {
-			lastDownload = {
-				ok: false,
-				action: 'Загрузка расписания geo-файлов',
-				routeLabel: 'локально',
-				error: e,
-			};
-		} finally {
-			scheduleLoading = false;
-		}
-	}
-
 	function captureDownloadOperation(kind: DownloadOperation['kind'], target: string): DownloadOperation {
 		const route = currentRoute();
 		return {
@@ -140,8 +214,11 @@
 
 	onMount(() => {
 		void loadRouteDisplayState();
-		void loadSchedule();
 	});
+
+	function applySchedule() {
+		onSaveGeoSettings(settingsFromPreset(scheduleDraft, currentGeoSettings()));
+	}
 
 	function progressFor(url: string) {
 		// Progress events are keyed by the source URL; we look up by the
@@ -307,71 +384,6 @@
 		}
 	}
 
-	async function updateAllNow() {
-		if (!routeSettingsReady || routeSettingsError) return;
-		const op = captureDownloadOperation('update-all', 'all');
-		busy = 'update-all';
-		err = '';
-		lastDownload = null;
-		activeDownload = op;
-		try {
-			const upd = await api.updateGeoFile('', { tag: op.routeTag, kind: op.routeKind });
-			await onrefresh();
-			if (upd.partial && upd.error) {
-				lastDownload = {
-					ok: false,
-					action: 'Обновление всех geo-файлов',
-					routeLabel: op.routeLabel,
-					error: upd.updated > 0 ? `Обновлено ${upd.updated}, ошибки: ${upd.error}` : upd.error,
-				};
-				return;
-			}
-			lastDownload = {
-				ok: true,
-				action: 'Обновление всех geo-файлов',
-				routeLabel: op.routeLabel,
-				message: `Обновлено ${upd.updated}`,
-			};
-		} catch (e: unknown) {
-			await onrefresh();
-			lastDownload = {
-				ok: false,
-				action: 'Обновление всех geo-файлов',
-				routeLabel: op.routeLabel,
-				error: e,
-			};
-		} finally {
-			busy = null;
-			activeDownload = null;
-		}
-	}
-
-	async function applySchedule() {
-		scheduleSaving = true;
-		err = '';
-		lastDownload = null;
-		try {
-			const next = await api.setGeoUpdateSchedule(scheduleDraft);
-			schedule = next;
-			scheduleDraft = next.interval;
-			lastDownload = {
-				ok: true,
-				action: 'Сохранение расписания geo-файлов',
-				routeLabel: 'локально',
-				message: 'Расписание применено',
-			};
-		} catch (e: unknown) {
-			lastDownload = {
-				ok: false,
-				action: 'Сохранение расписания geo-файлов',
-				routeLabel: 'локально',
-				error: e,
-			};
-		} finally {
-			scheduleSaving = false;
-		}
-	}
-
 	async function confirmTakeControl() {
 		if (!pendingTakeControl) return;
 		const f = pendingTakeControl;
@@ -498,43 +510,38 @@
 	{/if}
 	</div>
 
-	<div class="schedule-box">
-		<div class="schedule-copy">
-			<div class="form-label">Автообновление geo-файлов</div>
-			{#if schedule.updatedAt}
-				<div class="schedule-meta">Последнее изменение расписания: {formatDateTime(schedule.updatedAt)}</div>
-			{/if}
-		</div>
-		<div class="schedule-controls">
-			<div class="schedule-select">
-				<Dropdown
-					bind:value={scheduleDraft}
-					options={scheduleOptions}
-					disabled={scheduleLoading || scheduleSaving}
-					fullWidth
-				/>
+	{#if settings}
+		<div class="schedule-box">
+			<div class="schedule-copy">
+				<div class="form-label">Автообновление geo-файлов</div>
+				<div class="schedule-meta">{scheduleSummary}</div>
 			</div>
-			<Button
-				variant="secondary"
-				size="sm"
-				disabled={scheduleLoading || scheduleSaving || scheduleDraft === schedule.interval}
-				loading={scheduleSaving}
-				onclick={applySchedule}
-			>
-				Применить расписание
-			</Button>
-			<Button
-				variant="secondary"
-				size="sm"
-				disabled={routeActionsDisabled}
-				loading={busy === 'update-all'}
-				onclick={updateAllNow}
-			>
-				Запустить обновление сейчас
-			</Button>
+			<div class="schedule-controls">
+				<div class="schedule-select">
+					<Dropdown bind:value={scheduleDraft} options={scheduleOptions} disabled={saving} fullWidth />
+				</div>
+				<Button
+					variant="secondary"
+					size="sm"
+					disabled={saving || !scheduleChanged}
+					loading={saving}
+					onclick={applySchedule}
+				>
+					Применить расписание
+				</Button>
+				<Button
+					variant="secondary"
+					size="sm"
+					loading={updatingAll}
+					disabled={saving}
+					onclick={onUpdateAllNow}
+				>
+					Запустить обновление сейчас
+				</Button>
+			</div>
 		</div>
-	</div>
-	
+	{/if}
+
 	{#if files.length === 0}
 		<div class="empty">Файлы не загружены. Добавьте URL ниже.</div>
 	{:else}
@@ -832,6 +839,7 @@
 	.schedule-select {
 		min-width: 240px;
 	}
+
 	.pane-header h2 {
 		margin: 0;
 		font-size: 1.0625rem;
