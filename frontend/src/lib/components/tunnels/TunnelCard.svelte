@@ -10,7 +10,7 @@
 	import { tunnels } from '$lib/stores/tunnels';
 	import { api } from '$lib/api/client';
 	import {
-		formatRelativeTime,
+		formatRelativeTimeShort,
 		formatDuration,
 		secondsSince,
 		formatBytes,
@@ -217,7 +217,7 @@
 	);
 
 	function compactRelativeTime(value: string | null | undefined): string {
-		return value ? formatRelativeTime(value).replace(/\s+назад$/u, '') : '—';
+		return value ? formatRelativeTimeShort(value) : '—';
 	}
 
 	$effect(() => {
@@ -296,8 +296,8 @@
 					</TunnelTitleRow>
 				</div>
 				<div class="meta-tags-dense">
-					<span class="iface-plain-dense" title={tunnel.interfaceName || tunnel.id}>
-						{tunnel.interfaceName || tunnel.id}
+					<span class="iface-plain-dense" title={showEndpoint ? (tunnel.interfaceName || tunnel.id) : ''}>
+						{showEndpoint ? (tunnel.interfaceName || tunnel.id) : '••••'}
 					</span>
 					{#if tunnel.awgVersion}
 						<VersionBadge kind="awg" value={tunnel.awgVersion} />
@@ -324,29 +324,30 @@
 					/>
 				</span>
 				</div>
-			<!-- row 2: ping + gear (only when running) -->
-			{#if showConnectivityRow}
-		<div class="dense-toolbar-bottom" class:recovering={pingStatusNote?.tone === 'recovering'}>
-					{#if showPingButton}
-						<TunnelPingButton
-							layout="dense"
-							{connectivity}
-							{latencyMs}
-							statusNote={pingStatusNote?.text}
-							statusNoteTone={pingStatusNote?.tone}
-							checking={manualChecking}
-							onclick={checkConnectivityManual}
-						/>
-					{/if}
-					<button
-						class="connectivity-gear"
-						onclick={() => connectivitySettingsOpen = true}
-						title="Настройки проверки связности"
-					>
-						<svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" /></svg>
-					</button>
-				</div>
-			{/if}
+				{#if showConnectivityRow && view === 'cards'}
+					<div class="dense-toolbar-bottom" class:recovering={pingStatusNote?.tone === 'recovering'}>
+						{#if showPingButton}
+							<TunnelPingButton
+								layout="dense"
+								{connectivity}
+								{latencyMs}
+								statusNote={pingStatusNote?.text}
+								statusNoteTone={pingStatusNote?.tone}
+								checking={manualChecking}
+								onclick={checkConnectivityManual}
+							/>
+						{/if}
+						<button
+							class="connectivity-gear"
+							onclick={() => connectivitySettingsOpen = true}
+							title="Настройки проверки связности"
+						>
+							<svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor">
+								<path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
+							</svg>
+						</button>
+					</div>
+				{/if}
 			</div>
 			{:else}
 				<div class="head-left">
@@ -483,7 +484,9 @@
 						{#if connectionDisplay}
 							<div class="kv-stacked-stat">
 								<span class="kv-stacked-label">Подключение</span>
-								<span class="kv-stacked-value" title={connectionDisplay}>{connectionDisplay}</span>
+								<span class="kv-stacked-value" title={showEndpoint ? connectionDisplay : ''}>
+									{showEndpoint ? connectionDisplay : '•••••••••'}
+								</span>
 							</div>
 						{/if}
 						<div class="kv-stacked-stat">
@@ -549,11 +552,15 @@
 				<div class="kv-row">
 					<div class="kv">
 						<span class="kv-label">Подключение</span>
-						<span class="kv-value">
-							{#if label}
-								{label} <span class="kv-secondary">({iface})</span>
+						<span class="kv-value" title={showEndpoint ? (label ? `${label} (${iface})` : iface) : ''}>
+							{#if showEndpoint}
+								{#if label}
+									{label} <span class="kv-secondary">({iface})</span>
+								{:else}
+									{iface}
+								{/if}
 							{:else}
-								{iface}
+								•••••••••
 							{/if}
 						</span>
 					</div>
@@ -585,7 +592,7 @@
 					<div class="kv kv-grow kv-right">
 						<span class="kv-label">Handshake</span>
 						<span class="kv-value" title={tunnel.lastHandshake || ''}>
-							{tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
+							{tunnel.lastHandshake ? formatRelativeTimeShort(tunnel.lastHandshake) : '—'}
 						</span>
 					</div>
 				</div>
@@ -815,7 +822,12 @@
 	.dense-toolbar-bottom {
 		display: flex;
 		align-items: center;
-		/* gap: 2px; */
+		justify-content: flex-end;
+		gap: 0.25rem;
+	}
+
+	.dense-toolbar-bottom.recovering :global(.ping-btn) {
+		color: var(--color-broken);
 	}
 
 	.meta-tags-dense {
