@@ -136,6 +136,12 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 		return '••••••••-••••-••••-••••-••••••••••••';
 	});
 	const downloadsMeta = $derived(settings ? `Автопроверка: ${settings.updates.checkEnabled ? 'вкл' : 'выкл'}` : '');
+	const loggingMeta = $derived(settings ? (settings.logging.enabled ? 'вкл' : 'выкл') : '');
+	const advancedMeta = $derived.by(() => {
+		if (!settings) return '';
+		if (!settings.authEnabled) return 'авт: выкл';
+		return settings.apiKey?.trim() ? 'API: есть' : 'API: нет';
+	});
 	const actionsMeta = $derived.by(() => {
 		const parts = ['AWGM'];
 		if (singboxInstalled && showSingboxIntegration) parts.push('Sing-box');
@@ -923,6 +929,7 @@ $effect(() => {
 								<SettingsSectionLabel label="Логирование" icon={ScrollText} tone="slate" inline />
 							</span>
 							<span class="settings-card-toggle-meta">
+								<span class="settings-card-meta-text">{loggingMeta}</span>
 								<svg
 									class="settings-card-chevron"
 									class:open={loggingExpanded}
@@ -967,6 +974,7 @@ $effect(() => {
 								<SettingsSectionLabel label="Расширенные" icon={Wrench} tone="indigo" inline />
 							</span>
 							<span class="settings-card-toggle-meta">
+								<span class="settings-card-meta-text">{advancedMeta}</span>
 								<svg
 									class="settings-card-chevron"
 									class:open={advancedExpanded}
@@ -985,42 +993,53 @@ $effect(() => {
 								<div class="setting-row api-key-setting">
 									<div class="flex flex-col gap-1">
 										<span class="font-medium">API Key</span>
-										<span class="setting-description">
-											API ключ для доступа к&nbsp;<code>{origin}/api/</code>, если включена авторизация. Передавайте в заголовке <code>Authorization: Bearer &lt;ключ&gt;</code>.
-										</span>
+										{#if settings.authEnabled}
+											<span class="setting-description">
+												API ключ используется для внешних запросов к&nbsp;<code>{origin}/api/</code>
+												при включённой авторизации. Передавайте его в заголовке
+												<code>Authorization: Bearer &lt;ключ&gt;</code>.
+											</span>
+										{:else}
+											<span class="setting-description api-key-disabled-note">
+												Авторизация выключена. API ключи сейчас не используются.
+												Включите авторизацию, чтобы настроить доступ к API по Bearer-токену.
+											</span>
+										{/if}
 									</div>
-									<div class="api-key-controls">
-										<input
-											type="text"
-											class="api-key-input"
-											value={apiKeyDisplayValue}
-											readonly
-											placeholder="не сгенерирован"
-											onclick={copyApiKey}
-											title={settings.apiKey?.trim()
-												? "Нажмите, чтобы скопировать в буфер обмена"
-												: "Сначала нажмите «Сгенерировать»"}
-										/>
-										<button
-											type="button"
-											class="api-key-visibility-button"
-											aria-label={apiKeyVisible ? 'Скрыть API ключ' : 'Показать API ключ'}
-											title={apiKeyVisible ? 'Скрыть API ключ' : 'Показать API ключ'}
-											disabled={!apiKeyHasValue}
-											onclick={() => (apiKeyVisible = !apiKeyVisible)}
-										>
-											{#if apiKeyVisible}
-												<EyeOff size={18} strokeWidth={2} />
-											{:else}
-												<Eye size={18} strokeWidth={2} />
-											{/if}
-										</button>
-										<div class="api-key-action">
-											<Button variant="secondary" size="md" onclick={generateApiKey} disabled={saving}>
-												Сгенерировать
-											</Button>
+									{#if settings.authEnabled}
+										<div class="api-key-controls">
+											<input
+												type="text"
+												class="api-key-input"
+												value={apiKeyDisplayValue}
+												readonly
+												placeholder="не сгенерирован"
+												onclick={copyApiKey}
+												title={settings.apiKey?.trim()
+													? "Нажмите, чтобы скопировать в буфер обмена"
+													: "Сначала нажмите «Сгенерировать»"}
+											/>
+											<button
+												type="button"
+												class="api-key-visibility-button"
+												aria-label={apiKeyVisible ? 'Скрыть API ключ' : 'Показать API ключ'}
+												title={apiKeyVisible ? 'Скрыть API ключ' : 'Показать API ключ'}
+												disabled={!apiKeyHasValue}
+												onclick={() => (apiKeyVisible = !apiKeyVisible)}
+											>
+												{#if apiKeyVisible}
+													<EyeOff size={18} strokeWidth={2} />
+												{:else}
+													<Eye size={18} strokeWidth={2} />
+												{/if}
+											</button>
+											<div class="api-key-action">
+												<Button variant="secondary" size="md" onclick={generateApiKey} disabled={saving}>
+													Сгенерировать
+												</Button>
+											</div>
 										</div>
-									</div>
+									{/if}
 								</div>
 								{#if settings.updates.channel === 'develop'}
 									<div class="setting-row toggle-inline-row">
@@ -1271,8 +1290,9 @@ $effect(() => {
 		justify-content: space-between;
 		gap: 0.875rem;
 		width: 100%;
-		padding: 0;
+		padding: 0 0 0.625rem;
 		border: 0;
+		border-bottom: 1px solid var(--color-border);
 		background: transparent;
 		color: inherit;
 		text-align: left;
@@ -1541,7 +1561,11 @@ $effect(() => {
 
 	@media (max-width: 480px) {
 		.api-key-controls {
-			grid-template-columns: minmax(0, 1fr);
+			grid-template-columns: minmax(0, 1fr) 2.5rem;
+		}
+
+		.api-key-action {
+			grid-column: 1 / -1;
 		}
 
 		.api-key-action :global(.btn) {
