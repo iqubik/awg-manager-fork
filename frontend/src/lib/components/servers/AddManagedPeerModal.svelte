@@ -104,7 +104,7 @@
 	</div>
 
 	{#snippet actions()}
-		<Button variant="ghost" size="md" onclick={onclose}>Отмена</Button>
+		<Button variant="secondary" size="md" onclick={onclose}>Отмена</Button>
 		<Button variant="primary" size="md" onclick={handleAdd} disabled={!tunnelIP} loading={adding}>
 			Добавить
 		</Button>
