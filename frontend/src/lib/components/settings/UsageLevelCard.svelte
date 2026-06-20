@@ -1,9 +1,13 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
+	import { onMount } from 'svelte';
 	import { Modal, Toggle } from '$lib/components/ui';
 	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
 	import type { UsageLevel } from '$lib/types/usageLevel';
 	import { USAGE_LEVEL_LABELS } from '$lib/types/usageLevel';
-	import { SlidersHorizontal, ChevronDown, Info, Check } from 'lucide-svelte';
+	import { SlidersHorizontal, Check } from 'lucide-svelte';
+
+	const GENERAL_MOBILE_EXPANDED_KEY = 'awgm_settings_general_mobile_expanded_v1';
 
 	interface Props {
 		value: UsageLevel;
@@ -80,8 +84,40 @@
 	const infoOpt = $derived(infoFor ? OPTIONS.find((o) => o.value === infoFor) : null);
 
 	let expanded = $state(false);
+	let isMobile = $state(false);
+	let generalMobileExpanded = $state(true);
+	const generalBodyVisible = $derived(!isMobile || highlighted || initialExpanded || generalMobileExpanded);
+	const generalMeta = $derived(`${USAGE_LEVEL_LABELS[value]} · ${authEnabled ? 'авт: вкл' : 'авт: выкл'}`);
+
 	$effect(() => {
 		expanded = initialExpanded;
+	});
+
+	$effect(() => {
+		if (highlighted || initialExpanded) {
+			generalMobileExpanded = true;
+			if (browser) {
+				localStorage.setItem(GENERAL_MOBILE_EXPANDED_KEY, '1');
+			}
+		}
+	});
+
+	onMount(() => {
+		if (browser) {
+			const saved = localStorage.getItem(GENERAL_MOBILE_EXPANDED_KEY);
+			if (saved !== null) {
+				generalMobileExpanded = saved === '1';
+			}
+		}
+
+		const mq = window.matchMedia('(max-width: 640px)');
+		const sync = () => {
+			isMobile = mq.matches;
+		};
+		sync();
+
+		mq.addEventListener('change', sync);
+		return () => mq.removeEventListener('change', sync);
 	});
 
 	function selectLevel(level: UsageLevel) {
@@ -93,91 +129,142 @@
 		e.stopPropagation();
 		infoFor = level;
 	}
+
+	function toggleGeneralMobile() {
+		if (!isMobile) return;
+		generalMobileExpanded = !generalMobileExpanded;
+		if (browser) {
+			localStorage.setItem(GENERAL_MOBILE_EXPANDED_KEY, generalMobileExpanded ? '1' : '0');
+		}
+	}
 </script>
 
 <div class="settings-block">
 	<div class="card" class:highlighted>
-	<SettingsSectionLabel label="Общие" icon={SlidersHorizontal} tone="slate" header />
-	<div class="setting-row level-header-row">
-		<div class="flex flex-col gap-1">
-			<span class="font-medium">Уровень использования</span>
-			<span class="setting-description">
-				Скрывает разделы, которые вам не нужны. Данные при понижении уровня не удаляются.
-			</span>
-		</div>
 		<button
 			type="button"
-			class="level-expand-control"
-			aria-expanded={expanded}
-			aria-controls="usage-level-picker"
-			aria-label="Показать или скрыть выбор уровня"
-			onclick={() => (expanded = !expanded)}
+			class="settings-card-toggle general-card-toggle"
+			aria-expanded={generalBodyVisible}
+			aria-controls="general-card-body"
+			onclick={toggleGeneralMobile}
 		>
-			<span class="current-level">{USAGE_LEVEL_LABELS[value]}</span>
-			<span class="chevron" class:open={expanded} aria-hidden="true"><ChevronDown size={14} strokeWidth={2} /></span>
+			<span class="settings-card-toggle-label general-card-toggle-label">
+				<SettingsSectionLabel label="Общие" icon={SlidersHorizontal} tone="slate" inline />
+			</span>
+			<span class="settings-card-toggle-meta general-card-toggle-meta">
+				<span class="settings-card-meta-text general-card-meta-text">{generalMeta}</span>
+				<svg
+					class="settings-card-chevron general-card-chevron"
+					class:open={generalBodyVisible}
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<polyline points="6 9 12 15 18 9" />
+				</svg>
+			</span>
 		</button>
-	</div>
 
-	{#if expanded}
-		<div id="usage-level-picker" class="level-picker">
-			<div
-				class="level-grid"
-				role="radiogroup"
-				aria-label="Уровень использования"
-				aria-busy={saving}
-			>
-				{#each OPTIONS as opt (opt.value)}
-					{@const selected = value === opt.value}
+		{#if generalBodyVisible}
+			<div id="general-card-body" class="general-card-body">
+				<div class="setting-row level-header-row">
+					<div class="flex flex-col gap-1">
+						<span class="font-medium">Уровень использования</span>
+						<span class="setting-description">
+							Скрывает разделы, которые вам не нужны. Данные при понижении уровня не удаляются.
+						</span>
+					</div>
 					<button
 						type="button"
-						role="radio"
-						aria-checked={selected}
-						class="level-card"
-						class:selected
-						disabled={saving}
-						onclick={() => selectLevel(opt.value)}
+						class="level-expand-control"
+						aria-expanded={expanded}
+						aria-controls="usage-level-picker"
+						aria-label="Показать или скрыть выбор уровня"
+						onclick={() => (expanded = !expanded)}
 					>
-						<span
-							class="info-btn"
-							role="button"
-							tabindex="0"
-							aria-label={`Подробнее про уровень «${opt.title}»`}
-							onclick={(e) => openInfo(e, opt.value)}
-							onkeydown={(e) => {
-								if (e.key === 'Enter' || e.key === ' ') {
-									openInfo(e, opt.value);
-								}
-							}}
+						<span class="current-level">{USAGE_LEVEL_LABELS[value]}</span>
+						<svg
+							class="chevron"
+							class:open={expanded}
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							aria-hidden="true"
 						>
-							<Info size={12} strokeWidth={2} aria-hidden="true" />
-						</span>
-
-						<div class="level-title">{opt.title}</div>
-
-						{#if selected}
-							<span class="level-check" aria-hidden="true">
-								<Check size={14} strokeWidth={2} />
-							</span>
-						{/if}
+							<polyline points="6 9 12 15 18 9" />
+						</svg>
 					</button>
-				{/each}
-			</div>
-		</div>
-	{/if}
+				</div>
 
-	<div class="setting-row toggle-inline-row general-access-row">
-		<div class="flex flex-col gap-1">
-			<span class="font-medium">Авторизация</span>
-			<span class="setting-description">
-				Требовать вход через учётную запись роутера для доступа к панели управления.
-			</span>
-		</div>
-		<Toggle
-			checked={authEnabled}
-			onchange={(enabled) => onToggleAuth?.(enabled)}
-			disabled={saving || !onToggleAuth}
-		/>
-	</div>
+				{#if expanded}
+					<div id="usage-level-picker" class="level-picker">
+						<div
+							class="level-grid"
+							role="radiogroup"
+							aria-label="Уровень использования"
+							aria-busy={saving}
+						>
+							{#each OPTIONS as opt (opt.value)}
+								{@const selected = value === opt.value}
+								<button
+									type="button"
+									role="radio"
+									aria-checked={selected}
+									class="level-card"
+									class:selected
+									disabled={saving}
+									onclick={() => selectLevel(opt.value)}
+								>
+									<span
+										class="info-btn"
+										role="button"
+										tabindex="0"
+										aria-label={`Подробнее про уровень «${opt.title}»`}
+										onclick={(e) => openInfo(e, opt.value)}
+										onkeydown={(e) => {
+											if (e.key === 'Enter' || e.key === ' ') {
+												openInfo(e, opt.value);
+											}
+										}}
+									>
+										<svg viewBox="0 0 24 24" aria-hidden="true">
+											<circle cx="12" cy="12" r="10" />
+											<line x1="12" y1="11" x2="12" y2="17" />
+											<circle cx="12" cy="7.5" r="0.8" />
+										</svg>
+									</span>
+
+									<div class="level-title">{opt.title}</div>
+
+									{#if selected}
+										<span class="level-check" aria-hidden="true">
+											<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+										</span>
+									{/if}
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				<div class="setting-row toggle-inline-row general-access-row">
+					<div class="flex flex-col gap-1">
+						<span class="font-medium">Авторизация</span>
+						<span class="setting-description">
+							Требовать вход через учётную запись роутера для доступа к панели управления.
+						</span>
+					</div>
+					<Toggle
+						checked={authEnabled}
+						onchange={(enabled) => onToggleAuth?.(enabled)}
+						disabled={saving || !onToggleAuth}
+					/>
+				</div>
+			</div>
+		{/if}
 	</div>
 </div>
 
@@ -212,11 +299,90 @@
 </Modal>
 
 <style>
+	.settings-card-toggle.general-card-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.875rem;
+		width: 100%;
+		padding: 0 0 0.625rem;
+		border: 0;
+		border-bottom: 1px solid var(--color-border);
+		background: transparent;
+		color: inherit;
+		text-align: left;
+		cursor: default;
+	}
+
+	.settings-card-toggle.general-card-toggle:focus-visible {
+		outline: 2px solid var(--color-accent);
+		outline-offset: 2px;
+		border-radius: var(--radius-sm);
+	}
+
+	.settings-card-toggle.general-card-toggle .settings-card-toggle-label,
+	.settings-card-toggle.general-card-toggle .settings-card-toggle-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.625rem;
+		min-width: 0;
+	}
+
+	.settings-card-toggle.general-card-toggle .settings-card-toggle-label {
+		flex: 1 1 auto;
+	}
+
+	.settings-card-toggle.general-card-toggle .settings-card-toggle-meta {
+		color: var(--color-text-secondary);
+		flex: 0 0 auto;
+	}
+
+	.settings-card-toggle.general-card-toggle .settings-card-meta-text {
+		font-size: 0.75rem;
+		color: var(--color-text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 11rem;
+	}
+
+	.settings-card-toggle.general-card-toggle .settings-card-chevron {
+		width: 1rem;
+		height: 1rem;
+		flex-shrink: 0;
+		transition: transform var(--t-normal) ease;
+	}
+
+	.settings-card-toggle.general-card-toggle .settings-card-chevron.open {
+		transform: rotate(180deg);
+	}
+
+	.settings-card-toggle.general-card-toggle .settings-card-chevron {
+		display: none;
+	}
+
+	.settings-card-toggle.general-card-toggle :global(.settings-section-label) {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.general-card-body {
+		margin-top: 0.75rem;
+	}
+
 	.level-header-row {
 		align-items: center;
 	}
 
 	@media (max-width: 640px) {
+		.settings-card-toggle.general-card-toggle {
+			cursor: pointer;
+		}
+
+		.settings-card-toggle.general-card-toggle .settings-card-chevron {
+			display: inline-flex;
+		}
+
 		.level-header-row {
 			flex-direction: row;
 			align-items: center;
