@@ -308,6 +308,64 @@ func geoFileSettingsFromLegacyInterval(
 // state changes publish `routing.hydrarouteStatus` hints.
 func (h *HydraRouteHandler) SetEventBus(bus *events.Bus) { h.bus = bus }
 
+// Install installs the official HydraRoute Neo package through opkg and
+// returns the fresh status snapshot.
+//
+//	@Summary		Install HydraRoute Neo package
+//	@Tags			hydraroute
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Success		200	{object}	HydraRouteStatusResponse
+//	@Failure		405	{object}	APIErrorEnvelope
+//	@Failure		500	{object}	APIErrorEnvelope
+//	@Router			/hydraroute/install [post]
+func (h *HydraRouteHandler) Install(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.MethodNotAllowed(w)
+		return
+	}
+	if h.svc == nil {
+		response.InternalError(w, "HydraRoute service is not configured")
+		return
+	}
+	if err := h.svc.Install(r.Context()); err != nil {
+		response.InternalError(w, err.Error())
+		return
+	}
+	status := h.svc.RefreshStatus()
+	publishInvalidated(h.bus, ResourceRoutingHydrarouteStatus, "installed")
+	response.Success(w, hydraRouteStatusData(status))
+}
+
+// Update updates the installed HydraRoute Neo package through opkg and returns
+// the fresh status.
+//
+//	@Summary		Update HydraRoute Neo package
+//	@Tags			hydraroute
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Success		200	{object}	HydraRouteStatusResponse
+//	@Failure		405	{object}	APIErrorEnvelope
+//	@Failure		500	{object}	APIErrorEnvelope
+//	@Router			/hydraroute/update [post]
+func (h *HydraRouteHandler) Update(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.MethodNotAllowed(w)
+		return
+	}
+	if h.svc == nil {
+		response.InternalError(w, "HydraRoute service is not configured")
+		return
+	}
+	if err := h.svc.Update(r.Context()); err != nil {
+		response.InternalError(w, err.Error())
+		return
+	}
+	status := h.svc.RefreshStatus()
+	publishInvalidated(h.bus, ResourceRoutingHydrarouteStatus, "updated")
+	response.Success(w, hydraRouteStatusData(status))
+}
+
 // GetConfig returns the current HydraRoute config.
 //
 //	@Summary		Get HydraRoute config

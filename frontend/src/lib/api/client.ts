@@ -471,6 +471,14 @@ class ApiClient {
 		});
 	}
 
+	async installHydraRoute(): Promise<HydraRouteStatus> {
+		return this.request('/hydraroute/install', { method: 'POST' });
+	}
+
+	async updateHydraRoute(): Promise<HydraRouteStatus> {
+		return this.request('/hydraroute/update', { method: 'POST' });
+	}
+
 	async getHydraRouteConfig(): Promise<HydraRouteConfig> {
 		return this.request('/hydraroute/config');
 	}
