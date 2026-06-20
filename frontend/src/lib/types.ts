@@ -540,13 +540,6 @@ export interface GeoFileEntry {
 	external?: boolean;
 }
 
-export type GeoUpdateInterval = 'off' | 'hourly' | '6h' | 'daily' | 'weekly';
-
-export interface GeoUpdateSchedule {
-	interval: GeoUpdateInterval;
-	updatedAt?: string;
-}
-
 export interface DownloadRoute {
 	tag: string;
 	kind?: 'direct' | 'awg' | 'singbox' | 'subscription';
