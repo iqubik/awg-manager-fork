@@ -429,7 +429,6 @@ func main() {
 	geoDataStore := hydraroute.NewGeoDataStore(*dataDir)
 	geoDataStore.SetAppLogger(loggingService)
 	hydraService.SetGeoDataStore(geoDataStore)
-	geoDataScheduler := hydraroute.NewGeoDataScheduler(geoDataStore, hydraService)
 	// Adopt any geo files already listed in hrneo.conf (e.g. added manually
 	// before awg-manager was installed) so they show up in the UI. Adoption
 	// is stat-only — TagCount is populated lazily in the background.
@@ -1340,10 +1339,6 @@ func main() {
 	// Shutdown context — cancelled on shutdown
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	defer shutdownCancel()
-
-	if geoDataScheduler != nil {
-		geoDataScheduler.Start(shutdownCtx)
-	}
 
 	// Start the monitoring scheduler now that shutdownCtx exists.
 	monitoringService.Start(shutdownCtx)
