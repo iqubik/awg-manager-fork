@@ -21,8 +21,6 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 		SettingsFooter,
 		UsageLevelCard,
 		DevelopChannelGateModal,
-		ExperimentalSettingsCard,
-		PukhososPatrol,
 		SettingsSectionLabel,
 	} from "$lib/components/settings";
 	import { setSettings as setGlobalSettings } from "$lib/stores/settings";
@@ -51,7 +49,6 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	import { waitForBackendRestart } from "$lib/restartRecovery";
 	import { hasDevelopChannelQuizPassed } from "$lib/utils/developChannelGate";
 	import { developFeedbackFabVisible } from "$lib/stores/developFeedbackFab";
-	import { experimentalSettingsUnlocked } from "$lib/stores/experimentalSettingsUnlocked";
 	import { settingsUpdateHighlight } from "$lib/stores/settingsUpdateHighlight";
 	import { pluralize, AVAILABLE_WORDS, TUNNEL_WORDS } from "$lib/utils/pluralize";
 	import {
@@ -109,7 +106,6 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	let systemInfoUpdatedAt = $state<string | null>(null);
 	let systemInfoInFlight: Promise<void> | null = null;
 	let developGateOpen = $state(false);
-	let footerPatrolWidth = $state(0);
 	let apiKeyVisible = $state(false);
 
 	const singboxStatusValue = $derived($singboxStatus.data ?? null);
@@ -1084,9 +1080,6 @@ $effect(() => {
 					</div>
 				</div>
 
-				{#if $experimentalSettingsUnlocked}
-					<ExperimentalSettingsCard />
-				{/if}
 				{/if}
 			</main>
 		</div>
@@ -1188,8 +1181,7 @@ $effect(() => {
 		</div>
 
 		<div class="settings-doc-block" id="settings-footer-block">
-			<div class="settings-footer-patrol-host" bind:clientWidth={footerPatrolWidth}>
-				<PukhososPatrol trackWidth={footerPatrolWidth} />
+			<div class="settings-footer-patrol-host">
 				<SettingsFooter />
 			</div>
 		</div>
