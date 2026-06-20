@@ -73,6 +73,10 @@ export async function parseCustomList(rulesList: string): Promise<Record<string,
   return parsed.rules;
 }
 
+export interface WizardSubmitResult extends SubmitResult {
+  resolvedOutboundTag: string;
+}
+
 export interface SubmitWizardArgs {
   selectedTemplates: string[];
   customFields: CustomMatcherFields;
@@ -83,21 +87,26 @@ export interface SubmitWizardArgs {
   existingOutbounds: SingboxRouterOutbound[];
 }
 
-export async function submitWizard(args: SubmitWizardArgs): Promise<SubmitResult> {
-  const outbound = await resolveOutbound(
-    args.outboundCategory,
-    args.tunnelTags,
-    args.existingOutbounds,
-  );
+export async function submitWizard(args: SubmitWizardArgs): Promise<WizardSubmitResult> {
   const hasCustom = !isInlineRuleListEmpty(args.customFields.rulesList);
 
   if (args.selectedTemplates.length === 0 && !hasCustom) {
     throw new ValidationError('Выберите шаблон или опишите правило');
   }
 
+  if (args.selectedTemplates.length > 0) {
+    validateSelectedTemplateIds(args.groups, args.selectedTemplates);
+  }
+
   // Кастом валидируем ДО любых сетевых вызовов — никаких частичных провалов из-за невалидного ввода.
   let customRules: Record<string, unknown>[] | null = null;
   if (hasCustom) customRules = await parseCustomList(args.customFields.rulesList);
+
+  const outbound = await resolveOutbound(
+    args.outboundCategory,
+    args.tunnelTags,
+    args.existingOutbounds,
+  );
 
   let combined: SubmitResult = { successes: [], failures: [] };
 
@@ -124,7 +133,7 @@ export async function submitWizard(args: SubmitWizardArgs): Promise<SubmitResult
     }
   }
 
-  return combined;
+  return { ...combined, resolvedOutboundTag: outbound };
 }
 
 function findTemplateItem(groups: TemplateGroup[], id: string): TemplateItem | undefined {
@@ -133,6 +142,13 @@ function findTemplateItem(groups: TemplateGroup[], id: string): TemplateItem | u
     if (found) return found;
   }
   return undefined;
+}
+
+function validateSelectedTemplateIds(groups: TemplateGroup[], selectedTemplates: string[]) {
+  const missing = selectedTemplates.filter((id) => !findTemplateItem(groups, id));
+  if (missing.length > 0) {
+    throw new ValidationError('Шаблон не найден');
+  }
 }
 
 function ruleSetTagFromTemplateId(
@@ -170,34 +186,39 @@ export interface SubmitWizardEditArgs {
 }
 
 /** Сохраняет простое правило из визарда редактирования. */
-export async function submitWizardEdit(args: SubmitWizardEditArgs): Promise<void> {
-  const outbound = await resolveOutbound(
-    args.outboundCategory,
-    args.tunnelTags,
-    args.existingOutbounds,
-  );
-
+export async function submitWizardEdit(args: SubmitWizardEditArgs): Promise<string> {
   if (args.editMode === 'external') {
     if (args.selectedTemplates.length !== 1) {
       throw new ValidationError('Выберите один шаблон');
     }
     const tag = ruleSetTagFromTemplateId(args.selectedTemplates[0]!, args.groups, args.presets);
     if (!tag) throw new ValidationError('Шаблон не найден');
+    const outbound = await resolveOutbound(
+      args.outboundCategory,
+      args.tunnelTags,
+      args.existingOutbounds,
+    );
     await api.singboxRouterUpdateRule(args.ruleIndex, buildRoutedRule(outbound, [tag]));
-    return;
+    return outbound;
   }
 
   const customRules = await parseCustomList(args.customFields.rulesList);
+  const outbound = await resolveOutbound(
+    args.outboundCategory,
+    args.tunnelTags,
+    args.existingOutbounds,
+  );
 
   if (args.existingInlineRuleSetTag && !args.wasInlineText) {
     const tag = args.existingInlineRuleSetTag;
     await api.singboxRouterUpdateRuleSet(tag, { tag, type: 'inline', rules: customRules });
     await api.singboxRouterUpdateRule(args.ruleIndex, buildRoutedRule(outbound, [tag]));
-    return;
+    return outbound;
   }
 
   const tag = nextCustomRuleSetTag(args.existingRuleSetTags);
   const rs: SingboxRouterRuleSet = { tag, type: 'inline', rules: customRules };
   await api.singboxRouterAddRuleSet(rs);
   await api.singboxRouterUpdateRule(args.ruleIndex, buildRoutedRule(outbound, [tag]));
+  return outbound;
 }

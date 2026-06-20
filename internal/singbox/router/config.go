@@ -644,10 +644,9 @@ func (c *RouterConfig) renameOutboundReferences(oldTag, newTag string) {
 func (c *RouterConfig) removeOutboundReferences(tag string) {
 	rules := make([]Rule, 0, len(c.Route.Rules))
 	for _, r := range c.Route.Rules {
-		if r.Outbound == tag {
+		if !pruneNestedRuleOutboundRef(&r, tag) {
 			continue
 		}
-		removeOutboundRefsInNestedRules(&r, tag)
 		rules = append(rules, r)
 	}
 	c.Route.Rules = rules
@@ -744,13 +743,32 @@ func renameOutboundRefsInRule(r *Rule, oldTag, newTag string) {
 	}
 }
 
-func removeOutboundRefsInNestedRules(r *Rule, tag string) {
-	for i := range r.Rules {
-		if r.Rules[i].Outbound == tag {
-			r.Rules[i].Outbound = ""
-		}
-		removeOutboundRefsInNestedRules(&r.Rules[i], tag)
+func pruneNestedRuleOutboundRef(r *Rule, tag string) bool {
+	if r.Outbound == tag {
+		return false
 	}
+	if len(r.Rules) > 0 {
+		filtered := r.Rules[:0]
+		for i := range r.Rules {
+			nested := r.Rules[i]
+			if !pruneNestedRuleOutboundRef(&nested, tag) {
+				continue
+			}
+			filtered = append(filtered, nested)
+		}
+		if len(filtered) == 0 {
+			r.Rules = nil
+		} else {
+			r.Rules = filtered
+		}
+	}
+	if len(r.Rules) == 0 && !r.hasAnyMatcher() && r.Action == "" {
+		return false
+	}
+	if r.Type == "logical" && len(r.Rules) == 0 {
+		return false
+	}
+	return true
 }
 
 func rewriteTagSlice(tags []string, from, to string) []string {

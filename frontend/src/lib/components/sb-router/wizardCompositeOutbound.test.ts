@@ -21,6 +21,8 @@ describe('findMatchingComposite', () => {
   const outbounds: SingboxRouterOutbound[] = [
     { type: 'selector', tag: 'custom-composite-1', outbounds: ['warp', 'awg10'] },
     { type: 'urltest', tag: 'fast', outbounds: ['awg10', 'awg20'] },
+    { type: 'selector', tag: 'manual-selector', outbounds: ['warp', 'awg20'] },
+    { type: 'loadbalance', tag: 'manual-loadbalance', outbounds: ['warp', 'awg30'] },
     { type: 'direct', tag: 'direct-home', bind_interface: 'eth0' },
   ];
 
@@ -30,6 +32,46 @@ describe('findMatchingComposite', () => {
 
   it('не находит при другом составе', () => {
     expect(findMatchingComposite(outbounds, ['warp'])).toBeUndefined();
+  });
+
+  it('не reuse-ит произвольный selector с теми же участниками', () => {
+    expect(findMatchingComposite(outbounds, ['awg20', 'warp'])?.tag).not.toBe('manual-selector');
+  });
+
+  it('не reuse-ит произвольный loadbalance с теми же участниками', () => {
+    expect(findMatchingComposite(outbounds, ['awg30', 'warp'])?.tag).not.toBe('manual-loadbalance');
+  });
+
+  it('reuse-ит только urltest с wizard-совместимыми параметрами', () => {
+    const reusable = findMatchingComposite([
+      {
+        type: 'urltest',
+        tag: 'shared-urltest',
+        outbounds: ['warp', 'awg50'],
+        url: 'https://www.gstatic.com/generate_204',
+        interval: '60s',
+        tolerance: 50,
+      },
+      {
+        type: 'urltest',
+        tag: 'custom-url',
+        outbounds: ['warp', 'awg60'],
+        url: 'https://example.com/ping',
+        interval: '60s',
+        tolerance: 50,
+      },
+    ], ['awg50', 'warp']);
+    expect(reusable?.tag).toBe('shared-urltest');
+    expect(findMatchingComposite([
+      {
+        type: 'urltest',
+        tag: 'custom-url',
+        outbounds: ['warp', 'awg60'],
+        url: 'https://example.com/ping',
+        interval: '60s',
+        tolerance: 50,
+      },
+    ], ['awg60', 'warp'])).toBeUndefined();
   });
 });
 

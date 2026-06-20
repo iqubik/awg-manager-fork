@@ -687,15 +687,15 @@
   }
 
   function handleDragPointerDown(index: number, card: RuleCardData, event: PointerEvent) {
-    event.preventDefault();
-    event.stopPropagation();
+    if (event.button !== 0) return;
     if (moveInFlight || dropCommitPending) return;
     if (card.isSystem) return;
     if (deleteBusy || textMatchersEditIndex !== null || rsEditTag !== null || deleteTarget) return;
-    if (event.button !== 0) return;
     const shell = rowElements.get(card.id);
     const handleEl = event.currentTarget as HTMLElement | null;
     if (!shell || !handleEl) return;
+    event.preventDefault();
+    event.stopPropagation();
     const rect = shell.getBoundingClientRect();
 
     dragState = {
