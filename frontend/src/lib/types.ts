@@ -510,6 +510,20 @@ export interface HydraRouteStatus {
 	stalePid?: number;
 	processState?: 'not_installed' | 'stopped' | 'running' | 'dead';
 	lastError?: string;
+	managed?: boolean;
+	legacy?: boolean;
+	currentVersion?: string;
+	requiredVersion?: string;
+	currentSha256?: string;
+	requiredSha256?: string;
+	versionMatchesRequired?: boolean;
+	checksumMatchesRequired?: boolean;
+	customBuild?: boolean;
+	updateAvailable?: boolean;
+	installState?: string;
+	requiredBytes?: number;
+	freeBytes?: number;
+	installSupported?: boolean;
 }
 
 export interface HydraRouteConfig {

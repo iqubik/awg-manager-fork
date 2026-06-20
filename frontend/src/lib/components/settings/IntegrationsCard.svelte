@@ -3,6 +3,7 @@
 	import { Button, Modal, StatusDot } from '$lib/components/ui';
 	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
 	import { copyToClipboard } from '$lib/utils/clipboard';
+	import { hydraRouteInstallProgress } from '$lib/stores/hydrarouteInstall';
 	import { singboxInstallProgress } from '$lib/stores/singboxInstall';
 	import { formatBytes } from '$lib/utils/format';
 	import { stripAnsi } from '$lib/utils/ansi';
@@ -16,12 +17,18 @@
 		hydraStatus: HydraRouteStatus | null;
 		hydraStatusLoading?: boolean;
 		hydraStatusError?: string | null;
+		hydraInstalling?: boolean;
+		hydraUpdating?: boolean;
+		hydraInstallError?: string | null;
+		hydraUpdateError?: string | null;
 		singboxInstalling: boolean;
 		singboxUpdating?: boolean;
 		singboxInstallError: string | null;
 		singboxUpdateError?: string | null;
 		oninstallSingbox: () => void;
 		onupdateSingbox?: () => void;
+		oninstallHydra?: () => void;
+		onupdateHydra?: () => void;
 		showSingbox?: boolean;
 		showHydra?: boolean;
 	}
@@ -34,12 +41,18 @@
 		hydraStatus,
 		hydraStatusLoading = false,
 		hydraStatusError = null,
+		hydraInstalling = false,
+		hydraUpdating = false,
+		hydraInstallError = null,
+		hydraUpdateError = null,
 		singboxInstalling,
 		singboxUpdating = false,
 		singboxInstallError,
 		singboxUpdateError = null,
 		oninstallSingbox,
 		onupdateSingbox,
+		oninstallHydra,
+		onupdateHydra,
 		showSingbox = true,
 		showHydra = true,
 	}: Props = $props();
@@ -50,6 +63,14 @@
 	const singboxCustomBuild = $derived(singboxStatus?.customBuild ?? false);
 	const hydraInstalled = $derived(hydraStatus?.installed ?? false);
 	const hydraRunning = $derived(hydraStatus?.running ?? false);
+	const hydraNeedsUpdate = $derived(hydraStatus?.updateAvailable ?? false);
+	const hydraCustomBuild = $derived(hydraStatus?.customBuild ?? false);
+	const hydraManaged = $derived(hydraStatus?.managed ?? false);
+	const hydraLegacy = $derived(hydraStatus?.legacy ?? false);
+	const hydraInstallSupported = $derived(hydraStatus?.installSupported ?? false);
+	const hydraNoSpace = $derived(
+		hydraStatus?.installState === 'missing_no_space' || hydraStatus?.installState === 'outdated_no_space'
+	);
 	const hydraProcessState = $derived(
 		hydraStatus?.processState ?? (hydraStatus?.running ? 'running' : hydraStatus?.installed ? 'stopped' : 'not_installed')
 	);
@@ -69,6 +90,7 @@
 	});
 
 	const installProgress = $derived($singboxInstallProgress);
+	const hydraInstallProgress = $derived($hydraRouteInstallProgress);
 	const installPhaseLabel = $derived.by(() => {
 		const p = installProgress;
 		if (!p) return '';
@@ -98,7 +120,45 @@
 		if (!p || p.phase !== 'download' || p.total <= 0) return null;
 		return Math.min(100, Math.round((p.downloaded / p.total) * 100));
 	});
-	const errorModalTitle = $derived(singboxUpdateError ? 'Не удалось обновить sing-box' : 'Не удалось установить sing-box');
+	const hydraInstallPhaseLabel = $derived.by(() => {
+		const p = hydraInstallProgress;
+		if (!p) return '';
+		switch (p.phase) {
+			case 'prepare':
+				return 'Подготовка репозитория…';
+			case 'download':
+				return 'Подготовка репозитория…';
+			case 'activate':
+			case 'install':
+				return 'Установка пакета…';
+			case 'upgrade':
+				return 'Обновление пакета…';
+			case 'stop':
+				return 'Остановка HydraRoute…';
+			case 'start':
+				return 'Запуск HydraRoute…';
+			case 'done':
+				return 'Готово';
+			case 'error':
+				return p.error ? `Ошибка: ${p.error}` : 'Ошибка';
+			default:
+				return '';
+		}
+	});
+	const hydraInstallProgressPct = $derived.by(() => {
+		const p = hydraInstallProgress;
+		if (!p || p.phase !== 'download' || p.total <= 0) return null;
+		return Math.min(100, Math.round((p.downloaded / p.total) * 100));
+	});
+	const activeErrorDetails = $derived(
+		hydraUpdateError ?? hydraInstallError ?? singboxUpdateError ?? singboxInstallError ?? ''
+	);
+	const errorModalTitle = $derived.by(() => {
+		if (hydraUpdateError) return 'Не удалось обновить HydraRoute';
+		if (hydraInstallError) return 'Не удалось установить HydraRoute';
+		if (singboxUpdateError) return 'Не удалось обновить sing-box';
+		return 'Не удалось установить sing-box';
+	});
 
 	let errorModalOpen = $state(false);
 
@@ -107,15 +167,19 @@
 	}
 
 	async function copyError() {
-		const err = singboxInstallError ?? singboxUpdateError;
-		if (err) {
-			await copyToClipboard(err);
+		if (activeErrorDetails) {
+			await copyToClipboard(activeErrorDetails);
 		}
 	}
 
 	// Auto-close modal when the upstream error is cleared (e.g. successful retry).
 	$effect(() => {
-		if (singboxInstallError === null && singboxUpdateError === null) {
+		if (
+			singboxInstallError === null &&
+			singboxUpdateError === null &&
+			hydraInstallError === null &&
+			hydraUpdateError === null
+		) {
 			errorModalOpen = false;
 		}
 	});
@@ -267,7 +331,7 @@
 							<span class="integration-sub">получаю данные…</span>
 						{:else if hydraInstalled}
 							<span class="integration-sub">
-								v{hydraStatus?.version ?? '?'}
+								v{hydraStatus?.currentVersion ?? hydraStatus?.version ?? '?'}
 								{#if hydraRunning && hydraStatus?.pid}
 									· pid {hydraStatus.pid}
 								{:else if hydraProcessState === 'dead' && hydraStatus?.stalePid}
@@ -279,29 +343,87 @@
 						{:else}
 							<span class="integration-sub">не установлен</span>
 						{/if}
+						{#if hydraInstalled && hydraNeedsUpdate}
+							<span class="setting-description warning">
+								Требуется обновление: {hydraStatus?.currentVersion ?? '—'} → {hydraStatus?.requiredVersion ?? '—'}
+							</span>
+						{:else if hydraInstalled && hydraLegacy && hydraInstallSupported}
+							<span class="setting-description">
+								Обнаружена внешняя или нестандартная установка HydraRoute Neo. AWGM не заменяет её автоматически.
+							</span>
+						{:else if hydraInstalled && hydraCustomBuild}
+							<span class="setting-description">
+								{hydraManaged
+									? `Установлен отличный от ожидаемого пакет HydraRoute ${hydraStatus?.currentVersion ?? hydraStatus?.version ?? '—'}`
+									: `Установлена внешняя сборка HydraRoute ${hydraStatus?.currentVersion ?? hydraStatus?.version ?? '—'}`}
+							</span>
+						{:else if !hydraInstalled && hydraInstallSupported}
+							<span class="setting-description">
+								HydraRoute Neo не установлен. Можно установить официальный пакет из репозитория.
+							</span>
+						{:else if !hydraInstalled}
+							<span class="setting-description">
+								Для этой архитектуры или окружения установка HydraRoute Neo из AWGM пока недоступна.
+							</span>
+						{/if}
+						{#if hydraNoSpace}
+							<span class="setting-description warning">
+								Недостаточно места:
+								нужно {formatBytes(hydraStatus?.requiredBytes ?? 0)},
+								доступно {formatBytes(hydraStatus?.freeBytes ?? 0)}
+							</span>
+						{/if}
 						{#if !hydraRunning && hydraStatus?.lastError}
 							<span class="setting-description warning" title={hydraStatus.lastError}>{hydraStatus.lastError}</span>
 						{/if}
 						{#if !hydraStatusLoading && !hydraStatus && hydraStatusError}
 							<span class="setting-description warning">нет ответа: {hydraStatusError}</span>
 						{/if}
+						{#if hydraUpdateError}
+							<span class="install-error-row">
+								<span class="install-error-label">Не удалось обновить</span>
+								<Button variant="ghost" size="sm" onclick={showErrorDetails}>
+									Подробнее
+								</Button>
+							</span>
+						{:else if hydraInstallError}
+							<span class="install-error-row">
+								<span class="install-error-label">Не удалось установить</span>
+								<Button variant="ghost" size="sm" onclick={showErrorDetails}>
+									Подробнее
+								</Button>
+							</span>
+						{/if}
 					</div>
 				</div>
-				{#if hydraInstalled}
-					<Button variant="secondary" size="sm" href="/routing?tab=hrneo">Открыть</Button>
-				{:else if hydraStatusLoading}
-					<Button variant="secondary" size="sm" disabled>Ожидание…</Button>
-				{:else}
-					<Button
-						variant="outline-primary"
-						size="sm"
-						href="https://github.com/Ground-Zerro/HydraRoute"
-						target="_blank"
-						rel="noopener noreferrer"
-					>
-						Установить
-					</Button>
-				{/if}
+			{#if hydraInstallProgress}
+				<div class="progress-widget" class:progress-error={hydraInstallProgress.phase === 'error'} class:progress-done={hydraInstallProgress.phase === 'done'}>
+					<div class="progress-label">{hydraInstallPhaseLabel}</div>
+					<div class="progress-bar" class:indeterminate={hydraInstallProgressPct === null && hydraInstallProgress.phase !== 'done' && hydraInstallProgress.phase !== 'error'}>
+						<div class="progress-fill" style:width={hydraInstallProgressPct !== null ? `${hydraInstallProgressPct}%` : '100%'}></div>
+					</div>
+				</div>
+			{:else if hydraInstalled && hydraManaged && hydraInstallSupported && !hydraInstalling && onupdateHydra}
+				<Button variant="primary" size="sm" onclick={onupdateHydra} loading={hydraUpdating}>
+					{hydraUpdating ? 'Обновление...' : 'Обновить'}
+				</Button>
+			{:else if hydraInstalled && hydraLegacy && hydraInstallSupported && !hydraInstalling && oninstallHydra}
+				<Button variant="primary" size="sm" onclick={oninstallHydra} loading={hydraInstalling}>
+					{hydraInstalling ? 'Установка...' : 'Установить официально'}
+				</Button>
+			{:else if hydraInstalled && !hydraUpdating}
+				<Button variant="secondary" size="sm" href="/routing?tab=hrneo">Открыть</Button>
+			{:else if hydraStatusLoading}
+				<Button variant="secondary" size="sm" disabled>Ожидание…</Button>
+			{:else if hydraInstallSupported && !hydraNoSpace && oninstallHydra}
+				<Button variant="primary" size="sm" onclick={oninstallHydra} loading={hydraInstalling}>
+					{hydraInstalling ? 'Установка...' : 'Установить'}
+				</Button>
+			{:else}
+				<Button variant="secondary" size="sm" disabled>
+					Недоступно
+				</Button>
+			{/if}
 			</div>
 		{/if}
 		</div>
@@ -316,7 +438,7 @@
 	size="lg"
 	onclose={() => (errorModalOpen = false)}
 >
-	<pre class="error-pre">{singboxInstallError ?? singboxUpdateError ?? ''}</pre>
+	<pre class="error-pre">{activeErrorDetails}</pre>
 	{#snippet actions()}
 		<Button variant="ghost" size="sm" onclick={copyError}>Скопировать</Button>
 		<Button variant="primary" size="sm" onclick={() => (errorModalOpen = false)}>
