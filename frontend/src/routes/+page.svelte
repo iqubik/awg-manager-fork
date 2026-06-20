@@ -3272,7 +3272,7 @@
 	.tunnels-toolbar {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		gap: 1rem;
 		margin-bottom: 1rem;
 	}
 
@@ -3302,8 +3302,15 @@
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
+		flex: 1 1 auto;
+		min-width: 0;
 		flex-wrap: wrap;
 		gap: 0.5rem;
+	}
+
+	.toolbar-actions :global(.toolbar-view-row.has-search) {
+		flex: 1 1 auto;
+		min-width: 220px;
 	}
 
 	.toolbar-actions :global(.btn.size-md) {

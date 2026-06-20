@@ -54,7 +54,7 @@
 </script>
 
 {#if show && (showSearch || showEffectiveViewToggle || showMobileSort)}
-	<div class="toolbar-view-row">
+	<div class="toolbar-view-row" class:has-search={showSearch}>
 		{#if showSearch}
 			<div class="tunnel-toolbar-search">
 				<TunnelTableSortControls
@@ -101,10 +101,14 @@
 		min-width: 0;
 	}
 
+	.toolbar-view-row.has-search {
+		flex: 1 1 auto;
+	}
+
 	.tunnel-toolbar-search {
-		flex: 1 1 160px;
-		min-width: 120px;
-		max-width: 220px;
+		flex: 1 1 auto;
+		min-width: 160px;
+		max-width: none;
 	}
 
 	.tunnel-toolbar-search :global(.tunnel-sort-controls) {
