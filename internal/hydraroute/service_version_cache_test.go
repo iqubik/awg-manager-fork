@@ -23,14 +23,14 @@ func TestRefreshStatus_EmptyVersionCachedWithinTTL(t *testing.T) {
 		t.Fatalf("write fake hrneo: %v", err)
 	}
 
-	oldBin, oldPID, oldNeo := hrneoBinary, pidFile, neoCommand
-	hrneoBinary = fakeHrneo
+	oldLegacyBin, oldLegacyNeo, oldPID := legacyHrneoBinary, legacyNeoCommand, pidFile
+	legacyHrneoBinary = fakeHrneo
 	pidFile = fakePID
-	neoCommand = fakeNeo
+	legacyNeoCommand = fakeNeo
 	t.Cleanup(func() {
-		hrneoBinary = oldBin
+		legacyHrneoBinary = oldLegacyBin
 		pidFile = oldPID
-		neoCommand = oldNeo
+		legacyNeoCommand = oldLegacyNeo
 	})
 
 	s := NewService(nil, nil)
@@ -86,14 +86,14 @@ func TestRefreshStatus_ReprobesWhenBinaryFingerprintChanges(t *testing.T) {
 
 	writeScript("2.4.1", "")
 
-	oldBin, oldPID, oldNeo := hrneoBinary, pidFile, neoCommand
-	hrneoBinary = fakeHrneo
+	oldLegacyBin, oldLegacyNeo, oldPID := legacyHrneoBinary, legacyNeoCommand, pidFile
+	legacyHrneoBinary = fakeHrneo
 	pidFile = fakePID
-	neoCommand = fakeNeo
+	legacyNeoCommand = fakeNeo
 	t.Cleanup(func() {
-		hrneoBinary = oldBin
+		legacyHrneoBinary = oldLegacyBin
 		pidFile = oldPID
-		neoCommand = oldNeo
+		legacyNeoCommand = oldLegacyNeo
 	})
 
 	s := NewService(nil, nil)

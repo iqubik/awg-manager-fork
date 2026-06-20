@@ -3,16 +3,16 @@ package hydraroute
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/hoaxisr/awg-manager/internal/hydraroute/installer"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/ndms/command"
 	"github.com/hoaxisr/awg-manager/internal/ndms/query"
 	"github.com/hoaxisr/awg-manager/internal/sys/exec"
+	"github.com/hoaxisr/awg-manager/internal/sys/semver"
 )
 
 // KernelIfaceResolver resolves tunnel IDs to kernel interface names.
@@ -46,6 +46,8 @@ type Service struct {
 	versionCached            string
 	versionFetchedAt         time.Time
 	versionBinaryFingerprint string
+	inst                     *installer.Installer
+	installProgress          InstallProgressFn
 }
 
 const versionCacheTTL = 5 * time.Minute
@@ -89,7 +91,7 @@ func (s *Service) HealInvalidRuntimeConfig() {
 func (s *Service) GetStatus() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	status := s.status
+	status := s.enrichStatusLocked(s.status)
 	if status.Running {
 		status.LastError = ""
 	} else {
@@ -104,6 +106,7 @@ func (s *Service) RefreshStatus() Status {
 	defer s.mu.Unlock()
 	s.status = Detect()
 	s.status.Version = s.getVersionCachedLocked()
+	s.status = s.enrichStatusLocked(s.status)
 	if s.status.Running {
 		s.status.LastError = ""
 	} else {
@@ -120,6 +123,112 @@ func (s *Service) SetStatusForTest(installed bool) {
 	s.status.Installed = installed
 }
 
+func (s *Service) SetInstaller(inst *installer.Installer) { s.inst = inst }
+
+type InstallProgressFn func(op, phase string, downloaded, total int64, errMsg string)
+
+func (s *Service) SetInstallProgressReporter(fn InstallProgressFn) {
+	s.installProgress = fn
+}
+
+func (s *Service) RequiredVersion() string {
+	status := s.GetStatus()
+	return status.RequiredVersion
+}
+
+func (s *Service) Install(ctx context.Context) error {
+	if s.inst == nil || !s.inst.Supported() {
+		return fmt.Errorf("установка HydraRoute Neo из AWGM недоступна для этой архитектуры или окружения")
+	}
+	status := s.RefreshStatus()
+	wasRunning := status.Running
+	if wasRunning {
+		s.reportInstallProgress("install", "stop", 0, 0, "")
+		if err := s.Control("stop"); err != nil {
+			s.reportInstallProgress("install", "error", 0, 0, err.Error())
+			return fmt.Errorf("stop HydraRoute: %w", err)
+		}
+	}
+	s.reportInstallProgress("install", "prepare", 0, 0, "")
+	if err := s.inst.EnsureFeed(ctx); err != nil {
+		s.reportInstallProgress("install", "error", 0, 0, err.Error())
+		if wasRunning {
+			_ = s.Control("start")
+		}
+		return fmt.Errorf("prepare HydraRoute install: %w", err)
+	}
+	s.reportInstallProgress("install", "install", 0, 0, "")
+	if err := s.inst.InstallPackage(ctx); err != nil {
+		s.reportInstallProgress("install", "error", 0, 0, err.Error())
+		if wasRunning {
+			_ = s.Control("start")
+		}
+		return fmt.Errorf("install HydraRoute: %w", err)
+	}
+	s.refreshVersionCacheAfterSwap()
+	if wasRunning {
+		s.reportInstallProgress("install", "start", 0, 0, "")
+		if err := s.Control("start"); err != nil {
+			s.reportInstallProgress("install", "error", 0, 0, err.Error())
+			return fmt.Errorf("start HydraRoute: %w", err)
+		}
+	}
+	s.mu.Lock()
+	s.status = Detect()
+	s.status.Version = s.getVersionCachedLocked()
+	s.status = s.enrichStatusLocked(s.status)
+	s.mu.Unlock()
+	s.reportInstallProgress("install", "done", 0, 0, "")
+	return nil
+}
+
+func (s *Service) Update(ctx context.Context) error {
+	if s.inst == nil || !s.inst.Supported() {
+		return fmt.Errorf("обновление HydraRoute Neo из AWGM недоступно для этой архитектуры или окружения")
+	}
+	status := s.RefreshStatus()
+	if status.Legacy {
+		return fmt.Errorf("обнаружена внешняя или нестандартная установка HydraRoute Neo: используйте «Установить», чтобы перейти на официальный пакет")
+	}
+	if !status.Managed {
+		return fmt.Errorf("HydraRoute Neo не установлен как пакет, обновление невозможно")
+	}
+	wasRunning := status.Running
+	if wasRunning {
+		s.reportInstallProgress("update", "stop", 0, 0, "")
+		if err := s.Control("stop"); err != nil {
+			s.reportInstallProgress("update", "error", 0, 0, err.Error())
+			return fmt.Errorf("stop HydraRoute: %w", err)
+		}
+	}
+	s.reportInstallProgress("update", "prepare", 0, 0, "")
+	if err := s.inst.EnsureFeed(ctx); err != nil {
+		s.reportInstallProgress("update", "error", 0, 0, err.Error())
+		if wasRunning {
+			_ = s.Control("start")
+		}
+		return fmt.Errorf("prepare HydraRoute update: %w", err)
+	}
+	s.reportInstallProgress("update", "upgrade", 0, 0, "")
+	if err := s.inst.UpgradePackage(ctx); err != nil {
+		s.reportInstallProgress("update", "error", 0, 0, err.Error())
+		if wasRunning {
+			_ = s.Control("start")
+		}
+		return fmt.Errorf("upgrade HydraRoute: %w", err)
+	}
+	s.refreshVersionCacheAfterSwap()
+	if wasRunning {
+		s.reportInstallProgress("update", "start", 0, 0, "")
+		if err := s.Control("start"); err != nil {
+			s.reportInstallProgress("update", "error", 0, 0, err.Error())
+			return fmt.Errorf("start HydraRoute: %w", err)
+		}
+	}
+	s.reportInstallProgress("update", "done", 0, 0, "")
+	return nil
+}
+
 // Control starts/stops/restarts the HydraRoute daemon.
 func (s *Service) Control(action string) error {
 	s.mu.Lock()
@@ -133,7 +242,13 @@ func (s *Service) Control(action string) error {
 
 	switch action {
 	case "start", "stop", "restart":
-		result, err := exec.Run(context.Background(), neoCommand, action)
+		controlPath := activeControlPath()
+		if controlPath == "" {
+			err := fmt.Errorf("HydraRoute control command is not available")
+			s.lastError = err.Error()
+			return err
+		}
+		result, err := exec.Run(context.Background(), controlPath, action)
 		if err != nil {
 			formatted := fmt.Errorf("neo %s: %w", action, exec.FormatError(result, err))
 			s.lastError = formatted.Error()
@@ -141,6 +256,7 @@ func (s *Service) Control(action string) error {
 		}
 		s.status = Detect()
 		s.status.Version = s.getVersionCachedLocked()
+		s.status = s.enrichStatusLocked(s.status)
 		s.lastError = ""
 		return nil
 	default:
@@ -175,7 +291,15 @@ func (s *Service) scheduleRestart(reason string) {
 		s.restartTimer = nil
 		s.mu.Unlock()
 
-		result, err := exec.Run(context.Background(), neoCommand, "restart")
+		controlPath := activeControlPath()
+		if controlPath == "" {
+			s.appLog.Warn("restart", "", "neo restart skipped: control command not found")
+			s.mu.Lock()
+			s.lastError = "neo restart: control command not found"
+			s.mu.Unlock()
+			return
+		}
+		result, err := exec.Run(context.Background(), controlPath, "restart")
 		if err != nil {
 			s.appLog.Warn("restart", "neo", exec.FormatError(result, err).Error())
 			s.appLog.Warn("restart", "", fmt.Sprintf("neo restart failed: %v", exec.FormatError(result, err)))
@@ -192,6 +316,7 @@ func (s *Service) scheduleRestart(reason string) {
 		s.mu.Lock()
 		s.status = Detect()
 		s.status.Version = s.getVersionCachedLocked()
+		s.status = s.enrichStatusLocked(s.status)
 		if s.status.Running {
 			s.status.LastError = ""
 		} else {
@@ -243,17 +368,7 @@ func (s *Service) getVersionCachedLocked() string {
 }
 
 func hydraBinaryFingerprint() string {
-	st, err := os.Stat(hrneoBinary)
-	if err != nil || st.IsDir() {
-		return ""
-	}
-	return fmt.Sprintf(
-		"%s|%s|%s|%d",
-		filepath.Clean(hrneoBinary),
-		st.ModTime().UTC().Format(time.RFC3339Nano),
-		st.Mode().String(),
-		st.Size(),
-	)
+	return binaryFingerprint(activeBinaryPath())
 }
 
 // SetGeoDataStore sets the GeoDataStore used for syncing geo file paths to config.
@@ -261,6 +376,73 @@ func (s *Service) SetGeoDataStore(gds *GeoDataStore) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.geodata = gds
+}
+
+func (s *Service) reportInstallProgress(op, phase string, downloaded, total int64, errMsg string) {
+	if s.installProgress != nil {
+		s.installProgress(op, phase, downloaded, total, errMsg)
+	}
+}
+
+func (s *Service) refreshVersionCacheAfterSwap() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.versionCached = ""
+	s.versionFetchedAt = time.Time{}
+	s.versionBinaryFingerprint = ""
+}
+
+func (s *Service) enrichStatusLocked(st Status) Status {
+	st.CurrentVersion = st.Version
+	st.Version = st.CurrentVersion
+	if s.inst == nil {
+		return st
+	}
+
+	ctx := context.Background()
+	pkg := s.inst.PackageState(ctx, false)
+	st.Managed = st.Managed || pkg.Installed
+	st.Legacy = st.Legacy || (!pkg.Installed && isExecutableFile(s.inst.BinaryPath()))
+	if free, ok := s.inst.FreeBytes(); ok {
+		st.FreeBytes = free
+	}
+	st.InstallSupported = s.inst.Supported()
+	if sha, err := s.inst.CurrentSHA256(); err == nil {
+		st.CurrentSHA256 = sha
+	}
+	if pkg.Version != "" {
+		st.CurrentVersion = pkg.Version
+		st.Version = pkg.Version
+	} else {
+		st.CurrentVersion = st.Version
+		st.Version = st.CurrentVersion
+	}
+
+	if pkg.UpdateAvailable {
+		st.RequiredVersion = pkg.CandidateVersion
+		st.UpdateAvailable = true
+		if st.CurrentVersion != "" {
+			st.VersionMatchesRequired = semver.Compare(st.CurrentVersion, pkg.CandidateVersion) == 0
+		}
+	} else if st.CurrentVersion != "" {
+		st.RequiredVersion = st.CurrentVersion
+		st.VersionMatchesRequired = true
+	}
+	if strings.TrimSpace(st.RequiredSHA256) == "" {
+		st.ChecksumMatchesRequired = true
+	} else if st.CurrentSHA256 != "" {
+		st.ChecksumMatchesRequired = strings.EqualFold(st.CurrentSHA256, st.RequiredSHA256)
+	}
+
+	if st.Legacy {
+		st.CustomBuild = true
+		st.UpdateAvailable = false
+	} else if st.Managed {
+		st.CustomBuild = false
+	}
+
+	st.InstallState = string(s.inst.EvaluateInstallState())
+	return st
 }
 
 // SetDnsListProvider sets the function that returns current DNS list info for ipset usage calculation.
