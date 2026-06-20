@@ -424,10 +424,10 @@
 	{/if}
 
 	{#snippet actions()}
-		{#if kind !== 'choose'}
-			<Button variant="ghost" onclick={backToChoose} disabled={submitting}>← Назад</Button>
-		{/if}
-		<Button variant="ghost" onclick={close} disabled={submitting}>Отмена</Button>
+	{#if kind !== 'choose'}
+		<Button variant="secondary" onclick={backToChoose} disabled={submitting}>← Назад</Button>
+	{/if}
+	<Button variant="secondary" onclick={close} disabled={submitting}>Отмена</Button>
 		{#if kind === 'single'}
 			<Button
 				variant="primary"
