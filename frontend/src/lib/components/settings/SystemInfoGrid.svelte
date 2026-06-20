@@ -146,17 +146,18 @@
 
 <div class="settings-block sysinfo-block">
 	<div class="card sysinfo-card">
-		<div class="head-row settings-card-head">
-			<button
-				type="button"
-				class="section-collapse-btn"
-				onclick={() => (collapsed = !collapsed)}
-				aria-expanded={!collapsed}
-				aria-label={collapsed ? 'Развернуть информацию о системе' : 'Свернуть информацию о системе'}
-			>
-				<SettingsSectionLabel label="Система" icon={Router} tone="blue" inline />
-				<span class="section-chevron system-collapse-marker" class:open={!collapsed} aria-hidden="true"><ChevronDown size={14} strokeWidth={2} /></span>
-			</button>
+	<div class="head-row settings-card-head system-card-head">
+		<button
+			type="button"
+			class="section-collapse-btn"
+			onclick={() => (collapsed = !collapsed)}
+			aria-expanded={!collapsed}
+			aria-label={collapsed ? 'Развернуть информацию о системе' : 'Свернуть информацию о системе'}
+		>
+			<SettingsSectionLabel label="Система" icon={Router} tone="blue" inline />
+		</button>
+
+		<div class="system-card-head-meta">
 			{#if !isBasic}
 				<div class="head-actions">
 					{#if updatedLabel}
@@ -189,7 +190,28 @@
 					{/if}
 				</div>
 			{/if}
+
+			<button
+				type="button"
+				class="system-collapse-marker-btn"
+				onclick={() => (collapsed = !collapsed)}
+				aria-expanded={!collapsed}
+				aria-label={collapsed ? 'Развернуть информацию о системе' : 'Свернуть информацию о системе'}
+			>
+			<svg
+				class="settings-card-chevron system-collapse-marker"
+					class:open={!collapsed}
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<polyline points="6 9 12 15 18 9" />
+				</svg>
+			</button>
 		</div>
+	</div>
 
 		<div class="collapsible-body" class:body-hidden={collapsed}>
 	<div class="setting-row">
@@ -290,6 +312,21 @@
 		padding: 1rem;
 	}
 
+	.system-card-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+	.system-card-head-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex: 0 0 auto;
+		min-width: 0;
+	}
+
 	.settings-card-head {
 		display: flex;
 		align-items: center;
@@ -312,7 +349,6 @@
 		pointer-events: none;
 	}
 
-	.section-chevron,
 	.more-chevron {
 		display: inline-flex;
 		width: 14px;
@@ -322,7 +358,6 @@
 		transition: transform var(--t-fast) ease, color var(--t-fast) ease;
 	}
 
-	.section-chevron.open,
 	.more-chevron.open {
 		transform: rotate(180deg);
 	}
@@ -331,8 +366,23 @@
 		display: none;
 	}
 
-	.section-collapse-btn:hover .section-chevron {
-		color: var(--color-text-primary);
+	.system-collapse-marker-btn {
+		display: none;
+		align-items: center;
+		justify-content: center;
+		width: 1rem;
+		height: 1rem;
+		flex: 0 0 1rem;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: inherit;
+	}
+
+	.system-collapse-marker-btn:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+		outline-offset: 2px;
 	}
 
 	.collapsible-body {
@@ -349,6 +399,15 @@
 		}
 
 		.section-collapse-btn:hover {
+			color: var(--color-text-primary);
+		}
+
+		.system-collapse-marker-btn {
+			display: inline-flex;
+			cursor: pointer;
+		}
+
+		.system-collapse-marker-btn:hover {
 			color: var(--color-text-primary);
 		}
 
