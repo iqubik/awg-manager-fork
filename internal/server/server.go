@@ -721,6 +721,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		hrHandler.SetEventBus(s.bus)
 		mux.HandleFunc("/api/hydraroute/config", guarded(hrHandler.GetConfig))
 		mux.HandleFunc("/api/hydraroute/config/update", guarded(hrHandler.UpdateConfig))
+		mux.HandleFunc("/api/hydraroute/install", guarded(hrHandler.Install))
+		mux.HandleFunc("/api/hydraroute/update", guarded(hrHandler.Update))
 		mux.HandleFunc("/api/hydraroute/geo-files", guarded(hrHandler.ListGeoFiles))
 		mux.HandleFunc("/api/hydraroute/geo-files/schedule", guarded(
 			func(w http.ResponseWriter, r *http.Request) {

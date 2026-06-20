@@ -8,8 +8,7 @@ import (
 )
 
 func TestDetect_NotInstalled(t *testing.T) {
-	bin, pid := withFakeHydraPaths(t)
-	_ = pid
+	bin, _ := withFakeHydraPaths(t)
 	_ = bin
 
 	got := Detect()
@@ -99,19 +98,40 @@ func TestParseVersionOutput(t *testing.T) {
 	}
 }
 
+func TestResolvePaths_UsesOfficialLayout(t *testing.T) {
+	tmp := t.TempDir()
+	oldLegacyBin, oldLegacyNeo, oldPID := legacyHrneoBinary, legacyNeoCommand, pidFile
+	legacyHrneoBinary = filepath.Join(tmp, "opt", "bin", "hrneo")
+	legacyNeoCommand = filepath.Join(tmp, "opt", "bin", "neo")
+	pidFile = filepath.Join(tmp, "var", "run", "hrneo.pid")
+	t.Cleanup(func() {
+		legacyHrneoBinary = oldLegacyBin
+		legacyNeoCommand = oldLegacyNeo
+		pidFile = oldPID
+	})
+
+	mustWriteExecutable(t, legacyHrneoBinary)
+	mustWriteExecutable(t, legacyNeoCommand)
+
+	got := ResolvePaths()
+	if got.Binary != legacyHrneoBinary || got.Control != legacyNeoCommand {
+		t.Fatalf("ResolvePaths()=%+v want official legacy paths", got)
+	}
+}
+
 func withFakeHydraPaths(t *testing.T) (string, string) {
 	t.Helper()
 	tmp := t.TempDir()
-	oldBin, oldNeo, oldPID := hrneoBinary, neoCommand, pidFile
-	hrneoBinary = filepath.Join(tmp, "hrneo")
-	neoCommand = filepath.Join(tmp, "neo")
+	oldLegacyBin, oldLegacyNeo, oldPID := legacyHrneoBinary, legacyNeoCommand, pidFile
+	legacyHrneoBinary = filepath.Join(tmp, "hrneo")
+	legacyNeoCommand = filepath.Join(tmp, "neo")
 	pidFile = filepath.Join(tmp, "hrneo.pid")
 	t.Cleanup(func() {
-		hrneoBinary = oldBin
-		neoCommand = oldNeo
+		legacyHrneoBinary = oldLegacyBin
+		legacyNeoCommand = oldLegacyNeo
 		pidFile = oldPID
 	})
-	return hrneoBinary, pidFile
+	return legacyHrneoBinary, pidFile
 }
 
 func mustWriteExecutable(t *testing.T, path string) {
@@ -124,6 +144,9 @@ func mustWriteExecutable(t *testing.T, path string) {
 
 func mustWriteText(t *testing.T, path string, data []byte) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
