@@ -1725,6 +1725,10 @@
 	<CreateIcon />
 {/snippet}
 
+{#snippet importIcon()}
+	<Upload size={16} />
+{/snippet}
+
 <svelte:head>
 	<title>Туннели - AWG Manager</title>
 </svelte:head>
@@ -1889,8 +1893,8 @@
 					<Button variant="secondary" size="md" onclick={handleExportAll} disabled={exporting} iconBefore={exportIcon}>
 						Экспорт
 					</Button>
-					<Button variant="primary" size="md" onclick={() => goto('/tunnels/new')} iconBefore={createIcon}>
-						Создать
+					<Button variant="primary" size="md" onclick={() => goto('/tunnels/new')} iconBefore={importIcon}>
+						Импорт
 					</Button>
 				</div>
 			</div>
