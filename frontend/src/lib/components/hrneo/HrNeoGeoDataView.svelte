@@ -18,7 +18,13 @@
 	import { geoDownloadProgress } from '$lib/stores/geoDownload';
 	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
 	import DownloadErrorNotice from '$lib/components/downloads/DownloadErrorNotice.svelte';
-	import { Link } from 'lucide-svelte';
+	import {
+		buildGeoScheduleOptions,
+		geoSettingsFromPreset,
+		presetFromGeoSettings,
+		schedulePresetLabel,
+		type SchedulePreset,
+	} from './geoRefreshPresets';
 
 	interface Props {
 		files: GeoFileEntry[];
@@ -29,8 +35,6 @@
 		onSaveGeoSettings: (next: GeoFileSettings) => void;
 		onUpdateAllNow: () => void;
 	}
-
-	type SchedulePreset = 'off' | '6h' | '12h' | '24h' | `daily:${string}` | `interval:${number}`;
 
 	let { files, settings, saving, updatingAll, onrefresh, onSaveGeoSettings, onUpdateAllNow }: Props = $props();
 
@@ -96,89 +100,12 @@
 		};
 	}
 
-	function presetFromSettings(geo: GeoFileSettings): SchedulePreset {
-		if (!geo.autoRefreshEnabled) {
-			return 'off';
-		}
-		if ((geo.refreshMode || 'interval') === 'daily') {
-			return `daily:${geo.refreshDailyTime || '03:00'}`;
-		}
-		switch (geo.refreshIntervalHours || 6) {
-			case 6:
-				return '6h';
-			case 12:
-				return '12h';
-			case 24:
-				return '24h';
-			default:
-				return `interval:${geo.refreshIntervalHours || 6}`;
-		}
-	}
-
-	function scheduleLabel(preset: SchedulePreset): string {
-		if (preset === 'off') return 'Отключено';
-		if (preset === '6h') return 'Каждые 6 часов';
-		if (preset === '12h') return 'Каждые 12 часов';
-		if (preset === '24h') return 'Каждые 24 часа';
-		if (preset.startsWith('daily:')) {
-			return `Ежедневно ${preset.slice('daily:'.length)}`;
-		}
-		return `Каждые ${preset.slice('interval:'.length)} часов`;
-	}
-
-	function settingsFromPreset(preset: SchedulePreset, base: GeoFileSettings): GeoFileSettings {
-		if (preset === 'off') {
-			return {
-				...base,
-				autoRefreshEnabled: false,
-			};
-		}
-		if (preset === '6h' || preset === '12h' || preset === '24h') {
-			return {
-				...base,
-				autoRefreshEnabled: true,
-				refreshMode: 'interval',
-				refreshIntervalHours: Number.parseInt(preset, 10),
-			};
-		}
-		if (preset.startsWith('daily:')) {
-			return {
-				...base,
-				autoRefreshEnabled: true,
-				refreshMode: 'daily',
-				refreshDailyTime: preset.slice('daily:'.length) || '03:00',
-			};
-		}
-		const parsed = Number.parseInt(preset.slice('interval:'.length), 10);
-		return {
-			...base,
-			autoRefreshEnabled: true,
-			refreshMode: 'interval',
-			refreshIntervalHours: Number.isFinite(parsed) && parsed > 0 ? parsed : 6,
-		};
-	}
-
-	function buildScheduleOptions(geo: GeoFileSettings) {
-		const current = presetFromSettings(geo);
-		const options = [
-			{ value: 'off', label: 'Отключено' },
-			{ value: '6h', label: 'Каждые 6 часов' },
-			{ value: '12h', label: 'Каждые 12 часов' },
-			{ value: '24h', label: 'Каждые 24 часа' },
-			{ value: 'daily:03:00', label: 'Ежедневно 03:00' },
-		];
-		if (!options.some((option) => option.value === current)) {
-			options.splice(4, 0, { value: current, label: scheduleLabel(current) });
-		}
-		return options;
-	}
-
-	let savedSchedulePreset = $derived(presetFromSettings(currentGeoSettings()));
+	let savedSchedulePreset = $derived(presetFromGeoSettings(currentGeoSettings()));
 	// svelte-ignore state_referenced_locally
 	let scheduleDraft = $state<SchedulePreset>(savedSchedulePreset);
-	let scheduleOptions = $derived(buildScheduleOptions(currentGeoSettings()));
+	let scheduleOptions = $derived(buildGeoScheduleOptions(currentGeoSettings()));
 	let scheduleChanged = $derived(scheduleDraft !== savedSchedulePreset);
-	let scheduleSummary = $derived(scheduleLabel(savedSchedulePreset));
+	let scheduleSummary = $derived(schedulePresetLabel(savedSchedulePreset));
 
 	$effect(() => {
 		scheduleDraft = savedSchedulePreset;
@@ -217,7 +144,7 @@
 	});
 
 	function applySchedule() {
-		onSaveGeoSettings(settingsFromPreset(scheduleDraft, currentGeoSettings()));
+		onSaveGeoSettings(geoSettingsFromPreset(scheduleDraft, currentGeoSettings()));
 	}
 
 	function progressFor(url: string) {
@@ -533,7 +460,7 @@
 					variant="secondary"
 					size="sm"
 					loading={updatingAll}
-					disabled={saving}
+					disabled={saving || updatingAll || routeActionsDisabled}
 					onclick={onUpdateAllNow}
 				>
 					Запустить обновление сейчас
