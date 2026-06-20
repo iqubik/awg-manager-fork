@@ -275,6 +275,10 @@
 	flex-wrap: wrap;
 }
 
+.awg-list-connectivity-row--name {
+	margin-top: 0.125rem;
+}
+
 .tunnel-list-connectivity-row.recovering :global(.ping-btn),
 .awg-list-connectivity-row.recovering :global(.ping-btn) {
 	color: var(--color-broken);
