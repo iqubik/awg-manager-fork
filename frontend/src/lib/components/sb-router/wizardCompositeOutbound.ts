@@ -1,6 +1,7 @@
 import { DEFAULT_SUBSCRIPTION_URLTEST, type SingboxRouterOutbound } from '$lib/types';
 
 const COMPOSITE_TYPES = new Set(['selector', 'urltest', 'loadbalance']);
+const MANAGED_COMPOSITE_PREFIX = 'custom-composite-';
 
 export function sameOutboundMemberSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -15,6 +16,21 @@ export function isCompositeOutboundType(type: string): boolean {
   return COMPOSITE_TYPES.has(type);
 }
 
+function isManagedWizardComposite(tag: string): boolean {
+  return tag.startsWith(MANAGED_COMPOSITE_PREFIX);
+}
+
+function isReusableWizardUrltest(outbound: SingboxRouterOutbound): boolean {
+  return (
+    outbound.type === 'urltest'
+    && outbound.url === DEFAULT_SUBSCRIPTION_URLTEST.url
+    && outbound.interval === `${DEFAULT_SUBSCRIPTION_URLTEST.intervalSec}s`
+    && outbound.tolerance === DEFAULT_SUBSCRIPTION_URLTEST.toleranceMs
+    && !outbound.default
+    && !outbound.strategy
+  );
+}
+
 /** Ищет composite outbound с ровно тем же набором участников (порядок не важен). */
 export function findMatchingComposite(
   outbounds: SingboxRouterOutbound[],
@@ -22,6 +38,7 @@ export function findMatchingComposite(
 ): SingboxRouterOutbound | undefined {
   return outbounds.find((o) => {
     if (!isCompositeOutboundType(o.type)) return false;
+    if (!isManagedWizardComposite(o.tag) && !isReusableWizardUrltest(o)) return false;
     const members = o.outbounds ?? [];
     return sameOutboundMemberSet(members, tunnelTags);
   });
