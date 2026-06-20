@@ -13,6 +13,7 @@
 	import { api } from '$lib/api/client';
 	import { connectSSE } from '$lib/api/events';
 	import { geoDownloadProgress } from '$lib/stores/geoDownload';
+	import { hydraRouteInstallProgress } from '$lib/stores/hydrarouteInstall';
 	import { singboxInstallProgress } from '$lib/stores/singboxInstall';
 	import { serverOnline } from '$lib/stores/events';
 	import { healthMonitor } from '$lib/stores/health';
@@ -124,6 +125,7 @@
 				// store would otherwise stay non-null forever and keep the
 				// install button hidden behind the progress widget.
 				singboxInstallProgress.clear();
+				hydraRouteInstallProgress.clear();
 			},
 
 			// System events
@@ -179,6 +181,7 @@
 
 			// HydraRoute geo download progress
 			onHydraRouteGeoProgress: (data) => geoDownloadProgress.ingest(data),
+			onHydraRouteInstallProgress: (data) => hydraRouteInstallProgress.ingest(data),
 			onSingboxInstallProgress: (data) => singboxInstallProgress.ingest(data),
 
 			// DNS-route failover — user-visible notification, not a state stream
