@@ -94,6 +94,10 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 	let restarting = $state(false);
 	let restartConfirmOpen = $state(false);
 	let hydraBusy = $state(false);
+	let hydraInstalling = $state(false);
+	let hydraInstallError = $state<string | null>(null);
+	let hydraUpdating = $state(false);
+	let hydraUpdateError = $state<string | null>(null);
 	let singboxInstalling = $state(false);
 	let singboxInstallError = $state<string | null>(null);
 	let singboxUpdating = $state(false);
@@ -222,6 +226,34 @@ import { Toggle, Modal, Button, ConfirmModal } from "$lib/components/ui";
 			singboxInstallError = e instanceof Error ? e.message : String(e);
 		} finally {
 			singboxInstalling = false;
+		}
+	}
+
+	async function installHydra() {
+		hydraInstalling = true;
+		hydraInstallError = null;
+		try {
+			const fresh = await api.installHydraRoute();
+			hydrarouteStatus.applyMutationResponse(fresh);
+			notifications.success("HydraRoute установлен");
+		} catch (e) {
+			hydraInstallError = e instanceof Error ? e.message : String(e);
+		} finally {
+			hydraInstalling = false;
+		}
+	}
+
+	async function updateHydra() {
+		hydraUpdating = true;
+		hydraUpdateError = null;
+		try {
+			const fresh = await api.updateHydraRoute();
+			hydrarouteStatus.applyMutationResponse(fresh);
+			notifications.success("HydraRoute обновлён");
+		} catch (e) {
+			hydraUpdateError = e instanceof Error ? e.message : String(e);
+		} finally {
+			hydraUpdating = false;
 		}
 	}
 
@@ -820,10 +852,16 @@ $effect(() => {
 					hydraStatus={hydraStatusValue}
 					{hydraStatusLoading}
 					hydraStatusError={hydraStatusError}
+					{hydraInstalling}
+					{hydraInstallError}
+					{hydraUpdating}
+					{hydraUpdateError}
 					{singboxInstalling}
 					{singboxUpdating}
 					{singboxInstallError}
 					{singboxUpdateError}
+					oninstallHydra={installHydra}
+					onupdateHydra={updateHydra}
 					oninstallSingbox={installSingbox}
 					onupdateSingbox={updateSingbox}
 					showSingbox={showSingboxIntegration}

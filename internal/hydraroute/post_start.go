@@ -391,13 +391,30 @@ func (s *Service) schedulePostStartAfterLocked(delay time.Duration) {
 }
 
 func (s *Service) restartAfterPostStart(ctx context.Context) error {
-	result, err := exec.Run(ctx, neoCommand, "restart")
+	controlPath := activeControlPath()
+	if controlPath == "" {
+		err := fmt.Errorf("neo restart: control command not found")
+		s.mu.Lock()
+		s.lastError = err.Error()
+		s.status = Detect()
+		s.status.Version = s.getVersionCachedLocked()
+		s.status = s.enrichStatusLocked(s.status)
+		if s.status.Running {
+			s.status.LastError = ""
+		} else {
+			s.status.LastError = s.lastError
+		}
+		s.mu.Unlock()
+		return err
+	}
+	result, err := exec.Run(ctx, controlPath, "restart")
 	if err != nil {
 		formatted := fmt.Errorf("neo restart: %w", exec.FormatError(result, err))
 		s.mu.Lock()
 		s.lastError = formatted.Error()
 		s.status = Detect()
 		s.status.Version = s.getVersionCachedLocked()
+		s.status = s.enrichStatusLocked(s.status)
 		if s.status.Running {
 			s.status.LastError = ""
 		} else {
@@ -411,6 +428,7 @@ func (s *Service) restartAfterPostStart(ctx context.Context) error {
 	s.lastError = ""
 	s.status = Detect()
 	s.status.Version = s.getVersionCachedLocked()
+	s.status = s.enrichStatusLocked(s.status)
 	if s.status.Running {
 		s.status.LastError = ""
 	} else {
