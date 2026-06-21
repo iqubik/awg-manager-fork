@@ -2,7 +2,8 @@
 	import type { TrafficPeriod } from '$lib/api/client';
 	import { formatBitRate, formatBytes } from '$lib/utils/format';
 	import { fetchTrafficDetail, subscribeTraffic, getTrafficRates } from '$lib/stores/traffic';
-	import Modal from './Modal.svelte';
+	import SideDrawer from './SideDrawer.svelte';
+	import Button from './Button.svelte';
 
 	interface Props {
 		open: boolean;
@@ -364,7 +365,7 @@
 	});
 </script>
 
-<Modal {open} title={tunnelName || tunnelId} size="xl" {onclose}>
+<SideDrawer {open} title={tunnelName || tunnelId} width={760} onClose={onclose}>
 	<div class="meta-row">
 		<div class="meta-pills">
 			{#if ifaceName}<span class="pill">{ifaceName}</span>{/if}
@@ -566,7 +567,10 @@
 			</div>
 		{/if}
 	</div>
-</Modal>
+	{#snippet footer()}
+		<Button variant="secondary" onclick={onclose}>Закрыть</Button>
+	{/snippet}
+</SideDrawer>
 
 <style>
 	.meta-row {

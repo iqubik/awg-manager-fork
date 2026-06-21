@@ -65,10 +65,10 @@
     }
 
     function handleKeydown(e: KeyboardEvent) {
-        if (e.key === 'Escape') {
-            if (confirmOpen) return; // ConfirmModal owns Esc while open
-            attemptClose();
-        }
+        if (!open) return;
+        if (e.key !== 'Escape') return;
+        if (confirmOpen) return; // ConfirmModal owns Esc while open
+        attemptClose();
     }
 
     // Tracks whether the current pointer gesture started on the backdrop.

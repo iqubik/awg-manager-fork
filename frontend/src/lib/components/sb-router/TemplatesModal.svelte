@@ -4,11 +4,11 @@
 -->
 
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
   import { get } from 'svelte/store';
   import { singboxRouter as singboxRouterStore } from '$lib/stores/singboxRouter';
   import { notifications } from '$lib/stores/notifications';
-  import { Search, X as XIcon } from 'lucide-svelte';
+  import { Search } from 'lucide-svelte';
+  import { SideDrawer } from '$lib/components/ui';
   import {
     templatesOpen, templatesSelection, templatesFilter, templatesQuery, templatesOutbound,
     closeTemplatesModal, dismissTemplatesModal, toggleTemplate, clearSelection, setFilter, setQuery, setOutbound,
@@ -107,134 +107,112 @@
     }
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (!$templatesOpen) return;
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      if (mode === 'collect') {
-        handleDone();
-      } else {
-        closeTemplatesModal();
-      }
-    }
-  }
-
-  onMount(() => {
-    window.addEventListener('keydown', handleKeydown);
-  });
-
-  onDestroy(() => {
-    window.removeEventListener('keydown', handleKeydown);
-  });
-
   function failureFor(id: string): string | undefined {
     return lastFailures.find((f) => f.id === id)?.error;
   }
+
+  const closeDrawer = () => {
+    if (mode === 'collect') {
+      handleDone();
+      return;
+    }
+    closeTemplatesModal();
+  };
 </script>
 
-{#if $templatesOpen}
-  <div
-    class="overlay"
-    role="presentation"
-    onclick={(e) => {
-      if (e.target !== e.currentTarget) return;
-      if (mode === 'collect') handleDone();
-      else closeTemplatesModal();
-    }}
-  >
-    <div class="box" role="dialog" aria-modal="true" aria-label="Готовые шаблоны">
-      <header class="head">
-        <div class="head-text">
-          <div class="title">Готовые шаблоны</div>
-          <div class="sub">
-            Сервисы и сервисные наборы. Выбирайте несколько за раз — каждый создаст своё правило.
-          </div>
-        </div>
-        <button type="button" class="icon-btn" onclick={closeTemplatesModal} aria-label="Закрыть">
-          <XIcon size={18} />
-        </button>
-      </header>
+<SideDrawer
+  open={$templatesOpen}
+  title="Готовые шаблоны"
+  width={960}
+  bodyClass="drawer-body-fill"
+  onClose={closeDrawer}
+>
+  <div class="drawer-intro">
+    Сервисы и сервисные наборы. Выбирайте несколько за раз — каждый создаст своё правило.
+  </div>
 
-      <div class="search-row">
-        <div class="search">
-          <Search size={14} color="var(--text-muted)" />
-          <input
-            type="search"
-            placeholder="netflix, geoip, telegram..."
-            value={$templatesQuery}
-            oninput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)}
-          />
-          <span class="search-count">{pluralize(counts.all, TEMPLATE_WORDS)}</span>
-        </div>
-        {#if !servicesOnly}
-          <div class="chips">
-            <TemplatesFilterChip label="Все" value="all" active={$templatesFilter === 'all'} count={counts.all} onclick={() => setFilter('all')} />
-            <TemplatesFilterChip label="Сервисы" value="services" active={$templatesFilter === 'services'} count={counts.services} onclick={() => setFilter('services')} />
-            <TemplatesFilterChip label="Наборы доменов и CIDR" value="rulesets" active={$templatesFilter === 'rulesets'} count={counts.rulesets} onclick={() => setFilter('rulesets')} />
+  <div class="search-row">
+    <div class="search">
+      <Search size={14} color="var(--text-muted)" />
+      <input
+        type="search"
+        placeholder="netflix, geoip, telegram..."
+        value={$templatesQuery}
+        oninput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)}
+      />
+      <span class="search-count">{pluralize(counts.all, TEMPLATE_WORDS)}</span>
+    </div>
+    {#if !servicesOnly}
+      <div class="chips">
+        <TemplatesFilterChip label="Все" value="all" active={$templatesFilter === 'all'} count={counts.all} onclick={() => setFilter('all')} />
+        <TemplatesFilterChip label="Сервисы" value="services" active={$templatesFilter === 'services'} count={counts.services} onclick={() => setFilter('services')} />
+        <TemplatesFilterChip label="Наборы доменов и CIDR" value="rulesets" active={$templatesFilter === 'rulesets'} count={counts.rulesets} onclick={() => setFilter('rulesets')} />
+      </div>
+    {/if}
+  </div>
+
+  <div class="body">
+    {#if visibleGroups.length === 0}
+      <div class="empty">По запросу ничего не нашлось.</div>
+    {/if}
+
+    {#each visibleGroups as group (group.category)}
+      {@const selectedInGroup = group.items.filter((it) => $templatesSelection.has(it.id)).length}
+      <TemplatesGroup
+        title={group.title}
+        hint={group.hint}
+        selectedCount={selectedInGroup}
+        totalCount={group.items.length}
+        onSelectAll={() => handleSelectAll(group.category)}
+      >
+        {#if group.category === 'services'}
+          <div class="grid">
+            {#each group.items as item (item.id)}
+              {#if item.category === 'services'}
+                <div class="cell">
+                  <TemplateServiceTile
+                    templateId={item.id}
+                    presetId={item.presetId}
+                    iconSlug={item.iconSlug}
+                    name={item.name}
+                    sub={item.category_hint}
+                    selected={$templatesSelection.has(item.id)}
+                    onclick={() => toggleTemplate(item.id)}
+                  />
+                  {#if failureFor(item.id)}
+                    <div class="fail">{failureFor(item.id)}</div>
+                  {/if}
+                </div>
+              {/if}
+            {/each}
+          </div>
+        {:else}
+          <div class="rs-list">
+            {#each group.items as item (item.id)}
+              {#if item.category === 'rulesets'}
+                <div>
+                  <TemplateRsRow
+                    templateId={item.id}
+                    tag={item.tag}
+                    type={item.type}
+                    selected={$templatesSelection.has(item.id)}
+                    onclick={() => toggleTemplate(item.id)}
+                  />
+                  {#if failureFor(item.id)}
+                    <div class="fail">{failureFor(item.id)}</div>
+                  {/if}
+                </div>
+              {/if}
+            {/each}
           </div>
         {/if}
-      </div>
+      </TemplatesGroup>
+    {/each}
+  </div>
 
-      <div class="body">
-        {#if visibleGroups.length === 0}
-          <div class="empty">По запросу ничего не нашлось.</div>
-        {/if}
-
-        {#each visibleGroups as group (group.category)}
-          {@const selectedInGroup = group.items.filter((it) => $templatesSelection.has(it.id)).length}
-          <TemplatesGroup
-            title={group.title}
-            hint={group.hint}
-            selectedCount={selectedInGroup}
-            totalCount={group.items.length}
-            onSelectAll={() => handleSelectAll(group.category)}
-          >
-            {#if group.category === 'services'}
-              <div class="grid">
-                {#each group.items as item (item.id)}
-                  {#if item.category === 'services'}
-                    <div class="cell">
-                      <TemplateServiceTile
-                        templateId={item.id}
-                        presetId={item.presetId}
-                        iconSlug={item.iconSlug}
-                        name={item.name}
-                        sub={item.category_hint}
-                        selected={$templatesSelection.has(item.id)}
-                        onclick={() => toggleTemplate(item.id)}
-                      />
-                      {#if failureFor(item.id)}
-                        <div class="fail">{failureFor(item.id)}</div>
-                      {/if}
-                    </div>
-                  {/if}
-                {/each}
-              </div>
-            {:else}
-              <div class="rs-list">
-                {#each group.items as item (item.id)}
-                  {#if item.category === 'rulesets'}
-                    <div>
-                      <TemplateRsRow
-                        templateId={item.id}
-                        tag={item.tag}
-                        type={item.type}
-                        selected={$templatesSelection.has(item.id)}
-                        onclick={() => toggleTemplate(item.id)}
-                      />
-                      {#if failureFor(item.id)}
-                        <div class="fail">{failureFor(item.id)}</div>
-                      {/if}
-                    </div>
-                  {/if}
-                {/each}
-              </div>
-            {/if}
-          </TemplatesGroup>
-        {/each}
-      </div>
-
-      {#if mode === 'submit'}
+  {#snippet footer()}
+    {#if mode === 'submit'}
+      <div class="drawer-footer-full">
         <TemplatesFooter
           selectedIds={Array.from($templatesSelection)}
           outbounds={$outbounds}
@@ -245,70 +223,24 @@
           onSubmit={handleSubmit}
           {submitting}
         />
-      {:else}
-        {@const count = $templatesSelection.size}
-        <div class="footer-collect">
-          <span class="hint">Выбрано: {count}</span>
-          <button type="button" class="btn-primary" disabled={count === 0} onclick={handleDone}>
-            Готово ({count})
-          </button>
-        </div>
-      {/if}
-    </div>
-  </div>
-{/if}
+      </div>
+    {:else}
+      {@const count = $templatesSelection.size}
+      <div class="footer-collect drawer-footer-full">
+        <span class="hint">Выбрано: {count}</span>
+        <button type="button" class="btn-primary" disabled={count === 0} onclick={handleDone}>
+          Готово ({count})
+        </button>
+      </div>
+    {/if}
+  {/snippet}
+</SideDrawer>
 
 <style>
-  .overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: var(--sp-5);
-  }
-  .box {
-    width: min(820px, 100%);
-    max-height: 92%;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  .head {
-    padding: var(--sp-4) var(--sp-5);
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: var(--sp-4);
-  }
-  .title {
-    font-size: var(--fs-h5);
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-  .sub {
-    margin-top: 2px;
+  .drawer-intro {
+    padding: var(--sp-4) var(--sp-5) 0;
     font-size: var(--fs-sm);
     color: var(--text-muted);
-  }
-  .icon-btn {
-    background: transparent;
-    border: 0;
-    color: var(--text-secondary);
-    padding: 4px;
-    cursor: pointer;
-    border-radius: var(--radius-sm);
-  }
-  .icon-btn:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
   }
   .search-row {
     padding: var(--sp-3) var(--sp-5);
@@ -406,16 +338,8 @@
   }
 
   @media (max-width: 768px) {
-    .overlay {
-      padding: 0 !important;
-    }
-    .box {
-      width: 100% !important;
-      max-width: none !important;
-      max-height: 100% !important;
-      height: 100%;
-      border-radius: 0 !important;
-      border: 0 !important;
+    .drawer-intro {
+      padding: var(--sp-3) var(--sp-3) 0;
     }
     .search-row {
       padding: var(--sp-3);

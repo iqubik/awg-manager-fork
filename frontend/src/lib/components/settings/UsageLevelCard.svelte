@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
-	import { Modal, Toggle } from '$lib/components/ui';
+	import { SideDrawer, Toggle } from '$lib/components/ui';
 	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
 	import type { UsageLevel } from '$lib/types/usageLevel';
 	import { USAGE_LEVEL_LABELS } from '$lib/types/usageLevel';
@@ -268,11 +268,11 @@
 	</div>
 </div>
 
-<Modal
+<SideDrawer
 	open={infoFor !== null}
 	title={infoOpt ? `Уровень: ${infoOpt.title}` : ''}
-	size="md"
-	onclose={() => (infoFor = null)}
+	width={480}
+	onClose={() => (infoFor = null)}
 >
 	{#if infoOpt}
 		<div class="level-info-panel">
@@ -298,7 +298,7 @@
 			</div>
 		</div>
 	{/if}
-</Modal>
+</SideDrawer>
 
 <style>
 	.settings-card-toggle.general-card-toggle {

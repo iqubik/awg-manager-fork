@@ -3,7 +3,7 @@
 	import { api } from '$lib/api/client';
 	import { servers } from '$lib/stores/servers';
 	import { notifications } from '$lib/stores/notifications';
-	import { Modal } from '$lib/components/ui';
+	import { SideDrawer } from '$lib/components/ui';
 	import { LoadingSpinner } from '$lib/components/layout';
 
 	interface Props {
@@ -53,7 +53,7 @@
 	}
 </script>
 
-<Modal {open} title="Добавить интерфейс" size="sm" {onclose}>
+<SideDrawer {open} title="Добавить интерфейс" width={400} onClose={onclose}>
 	{#if loading}
 		<div class="flex justify-center py-4">
 			<LoadingSpinner size="sm" />
@@ -85,7 +85,7 @@
 			{/each}
 		</div>
 	{/if}
-</Modal>
+</SideDrawer>
 
 <style>
 	.tunnel-list {
