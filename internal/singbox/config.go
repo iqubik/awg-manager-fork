@@ -10,12 +10,17 @@ import (
 	"strings"
 
 	"github.com/hoaxisr/awg-manager/internal/storage"
+	"github.com/hoaxisr/awg-manager/internal/sys/portprobe"
 )
 
 const (
 	firstPort        = 1080
 	proxyIfacePrefix = "Proxy"
 )
+
+var localListenPortAvailable = func(port int) bool {
+	return portprobe.LocalTCPUDPFree("127.0.0.1", port)
+}
 
 // Config is an in-memory mutable representation of config.json.
 // We use map[string]any because sing-box config has many optional fields
@@ -480,23 +485,16 @@ func (c *Config) allocPort() (int, error) {
 			used[p] = true
 		}
 	}
-	// Find lowest free
-	ports := make([]int, 0, len(used))
-	for p := range used {
-		ports = append(ports, p)
-	}
-	sort.Ints(ports)
-	cand := firstPort
-	for _, p := range ports {
-		if cand < p {
-			break
+	for cand := firstPort; cand <= 65535; cand++ {
+		if used[cand] {
+			continue
 		}
-		cand = p + 1
+		if !localListenPortAvailable(cand) {
+			continue
+		}
+		return cand, nil
 	}
-	if cand > 65535 {
-		return 0, fmt.Errorf("no free listen_port available (exhausted range %d-65535)", firstPort)
-	}
-	return cand, nil
+	return 0, fmt.Errorf("no free listen_port available (exhausted range %d-65535)", firstPort)
 }
 
 // Helpers
