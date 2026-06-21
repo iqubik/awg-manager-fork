@@ -23,7 +23,11 @@
 	}
 </script>
 
-<tr class="peer-row" class:peer-disabled={!vm.enabled}>
+<tr
+	class="peer-row"
+	class:peer-offline={vm.status === 'offline'}
+	class:peer-disabled={!vm.enabled}
+>
 	<td
 		class="col-name peer-name-cell"
 		class:peer-name-cell-readonly={!showToggle}
@@ -132,6 +136,24 @@
 	.dot-online { background: var(--color-success); }
 	.dot-offline { background: var(--color-text-muted); }
 	.dot-disabled { background: var(--color-border); }
+	.peer-row.peer-offline .peer-name,
+	.peer-row.peer-offline .peer-status,
+	.peer-row.peer-offline .peer-handshake-sub,
+	.peer-row.peer-offline .cell-copy,
+	.peer-row.peer-offline .endpoint-copy,
+	.peer-row.peer-offline .endpoint-text,
+	.peer-row.peer-offline .endpoint-port,
+	.peer-row.peer-offline .traffic-cell,
+	.peer-row.peer-offline .traffic-rx,
+	.peer-row.peer-offline .traffic-tx {
+		color: var(--color-text-muted);
+		font-weight: 400;
+		opacity: 0.78;
+	}
+	.peer-row.peer-offline .status-dot.dot-offline {
+		background: var(--color-text-muted);
+		opacity: 0.7;
+	}
 	.endpoint-copy {
 		display: inline-flex;
 		flex-direction: column;

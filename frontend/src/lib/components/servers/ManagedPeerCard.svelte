@@ -6,7 +6,11 @@
 	let { peer, vm, showToggle, showDownload, showActions, toggling, onToggle, onConf, onEdit, onDelete, onCopy }: PeerRowProps = $props();
 </script>
 
-<article class="mobile-peer-card" class:peer-disabled={!vm.enabled}>
+<article
+	class="mobile-peer-card"
+	class:peer-offline={vm.status === 'offline'}
+	class:peer-disabled={!vm.enabled}
+>
 	<div class="mobile-peer-card-top">
 		<div class="mobile-peer-title-row">
 			{#if showToggle}
@@ -91,6 +95,23 @@
 	.dot-online { background: var(--color-success); }
 	.dot-offline { background: var(--color-text-muted); }
 	.dot-disabled { background: var(--color-border); }
+	.mobile-peer-card.peer-offline .mobile-peer-name,
+	.mobile-peer-card.peer-offline .peer-status-sub,
+	.mobile-peer-card.peer-offline .mobile-peer-handshake,
+	.mobile-peer-card.peer-offline .cell-copy,
+	.mobile-peer-card.peer-offline .mobile-peer-ip,
+	.mobile-peer-card.peer-offline .mobile-peer-endpoint,
+	.mobile-peer-card.peer-offline .mobile-endpoint-value,
+	.mobile-peer-card.peer-offline .mobile-peer-card-bottom,
+	.mobile-peer-card.peer-offline .mobile-peer-card-bottom span {
+		color: var(--color-text-muted);
+		font-weight: 400;
+		opacity: 0.78;
+	}
+	.mobile-peer-card.peer-offline .status-dot.dot-offline {
+		background: var(--color-text-muted);
+		opacity: 0.7;
+	}
 	.mobile-peer-actions { display: flex; gap: 0.25rem; flex-shrink: 0; }
 	.mobile-peer-card-middle { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
 	.mobile-peer-net-row { display: flex; flex-wrap: wrap; gap: 0.75rem; min-width: 0; }

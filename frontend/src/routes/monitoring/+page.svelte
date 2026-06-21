@@ -455,7 +455,7 @@ import {
 				<svg class="refresh-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
 					<path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
 				</svg>
-				<span>Обновить</span>
+				<span class="refresh-label">Обновить</span>
 			</button>
 		</div>
 	</div>
@@ -795,6 +795,19 @@ import {
 		z-index: 1;
 		width: 14px;
 		height: 14px;
+	}
+
+	@media (max-width: 640px) {
+		.refresh-btn {
+			width: 28px;
+			min-width: 28px;
+			padding: 0;
+			gap: 0;
+		}
+
+		.refresh-label {
+			display: none;
+		}
 	}
 
 	.planning-drawer {

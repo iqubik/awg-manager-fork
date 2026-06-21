@@ -86,13 +86,54 @@ export function dayBucket(ts: number, now: number): DayBucket {
   return 'earlier';
 }
 
+function parseGeneratedId(id: string): number {
+  const match = /^nc-(\d+)$/.exec(id);
+  return match ? Number(match[1]) : 0;
+}
+
+function maxGeneratedId(entries: CenterEntry[]): number {
+  return entries.reduce((max, e) => Math.max(max, parseGeneratedId(e.id)), 0);
+}
+
+function ensureUniqueIds(entries: CenterEntry[]): CenterEntry[] {
+  const seen = new Set<string>();
+  let counter = maxGeneratedId(entries);
+
+  return entries.map((e) => {
+    if (!seen.has(e.id)) {
+      seen.add(e.id);
+      return e;
+    }
+
+    let id: string;
+    do {
+      id = `nc-${++counter}`;
+    } while (seen.has(id));
+
+    seen.add(id);
+    return { ...e, id };
+  });
+}
+
 export function createNotificationCenterStore() {
-  let counter = 0;
-  const { subscribe, update, set } = writable<CenterEntry[]>(prune(loadStored(), Date.now()));
+  const initialEntries = ensureUniqueIds(prune(loadStored(), Date.now()));
+  let counter = maxGeneratedId(initialEntries);
+  const { subscribe, update, set } = writable<CenterEntry[]>(initialEntries);
 
   function commit(entries: CenterEntry[]): CenterEntry[] {
     writeStored(entries);
     return entries;
+  }
+
+  function allocateId(entries: CenterEntry[]): string {
+    const existing = new Set(entries.map((e) => e.id));
+    let id: string;
+
+    do {
+      id = `nc-${++counter}`;
+    } while (existing.has(id));
+
+    return id;
   }
 
   function record(input: RecordInput) {
@@ -117,7 +158,7 @@ export function createNotificationCenterStore() {
       } else {
         next = [
           {
-            id: `nc-${++counter}`,
+            id: allocateId(entries),
             type: input.type,
             message: input.message,
             action: input.action,
