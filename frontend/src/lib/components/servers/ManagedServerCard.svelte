@@ -54,6 +54,10 @@
 
 	let searchQuery = $state('');
 
+	function formatBytesCompact(bytes: number): string {
+		return formatBytes(bytes, 1).replace(/\s+/g, '');
+	}
+
 	function getPeerStats(publicKey: string): ManagedPeerStats | undefined {
 		return stats?.peers?.find(p => p.publicKey === publicKey);
 	}
@@ -371,10 +375,10 @@
 	</div>
 
 	<StatStrip>
-		<Stat value={stats ? formatBytes(totalRx) : '—'} label="RX" />
-		<Stat value={stats ? formatBytes(totalTx) : '—'} label="TX" />
-		<Stat value={`${onlineCount} / ${(server.peers ?? []).length}`} label="Клиенты" />
-		<Stat value={`UDP :${server.listenPort}`} label="Listen" />
+		<Stat value={stats ? formatBytesCompact(totalRx) : '—'} label="RX" mobileInline />
+		<Stat value={stats ? formatBytesCompact(totalTx) : '—'} label="TX" mobileInline />
+		<Stat value={`${onlineCount}/${(server.peers ?? []).length}`} label="Клиенты" mobileInline />
+		<Stat value={`UDP:${server.listenPort}`} label="Listen" mobileInline />
 	</StatStrip>
 
 	<!-- Settings -->
