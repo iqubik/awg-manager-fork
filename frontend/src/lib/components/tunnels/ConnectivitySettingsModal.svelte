@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
-	import { Modal, Button, Dropdown } from '$lib/components/ui';
+	import { SideDrawer, Button, Dropdown } from '$lib/components/ui';
 	import type { AWGTunnel, ConnectivityCheckConfig } from '$lib/types';
 
 	interface Props {
@@ -71,7 +71,7 @@
 	}
 </script>
 
-<Modal {open} title="Проверка связности" size="sm" {onclose}>
+<SideDrawer {open} title="Проверка связности" width={400} onClose={onclose}>
 	{#if loading}
 		<div class="loading-state">Загрузка...</div>
 	{:else}
@@ -106,13 +106,13 @@
 		</div>
 	{/if}
 
-	{#snippet actions()}
+	{#snippet footer()}
 		<Button variant="secondary" onclick={onclose}>Отмена</Button>
 		<Button variant="primary" onclick={handleSave} disabled={loading} loading={saving}>
 			Сохранить
 		</Button>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
 	.form-fields {

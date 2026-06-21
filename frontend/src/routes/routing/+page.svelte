@@ -18,7 +18,7 @@
     import { notifications } from '$lib/stores/notifications';
     import { PageContainer, PageHeader } from '$lib/components/layout';
     import { Search } from 'lucide-svelte';
-    import { Tabs, Button, Modal, MobileTabRail } from '$lib/components/ui';
+    import { Tabs, Button, Modal, MobileTabRail, SideDrawer } from '$lib/components/ui';
     import { RoutingSearch } from '$lib/components/routing';
     import DnsRoutesTab from './DnsRoutesTab.svelte';
     import IpRoutesTab from './IpRoutesTab.svelte';
@@ -374,11 +374,11 @@
     {/snippet}
 </Modal>
 
-<Modal
+<SideDrawer
     open={searchOpen}
-    onclose={() => (searchOpen = false)}
+    onClose={() => (searchOpen = false)}
     title="Поиск по правилам маршрутизации NDMS"
-    size="xl"
+    width={760}
 >
     <RoutingSearch
         {dnsRoutes}
@@ -386,7 +386,7 @@
         tunnels={routingTunnels}
         onRuleClick={handleSearchRuleClick}
     />
-</Modal>
+</SideDrawer>
 
 {#snippet searchIcon()}
     <Search size={16} strokeWidth={2} aria-hidden="true" />
