@@ -948,6 +948,9 @@
 			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 			width: 100%;
 			gap: 8px;
+			padding-top: 10px;
+			margin-top: 2px;
+			border-top: 1px solid var(--color-border, var(--border));
 		}
 
 		.header-left :global(.back-link.variant-accent) {

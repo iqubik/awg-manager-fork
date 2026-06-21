@@ -272,9 +272,10 @@
 }
 
 .server-detail-card .peers-header {
-	display: flex;
-	justify-content: space-between;
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
 	align-items: center;
+	gap: 0.75rem;
 	margin-bottom: 0.75rem;
 }
 
@@ -282,12 +283,15 @@
 	display: flex;
 	align-items: center;
 	justify-content: flex-end;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
+	justify-self: stretch;
 	gap: 0.375rem;
 	min-width: 0;
 }
 
 .server-detail-card .peers-controls :global(.peer-sort-controls) {
+	flex: 1 1 auto;
+	width: auto;
 	min-width: 0;
 }
 
@@ -295,6 +299,16 @@
 	font-size: 0.875rem;
 	font-weight: 600;
 	color: var(--text-secondary);
+	flex: 0 0 auto;
+}
+
+.server-detail-card .peers-controls :global(.peer-search-wrap) {
+	width: 100%;
+	min-width: 0;
+}
+
+.server-detail-card .peers-controls :global(.btn) {
+	flex: 0 0 auto;
 }
 
 .server-detail-card .empty-peers {
@@ -362,6 +376,7 @@
 	}
 
 	.server-detail-card .peers-header {
+		display: flex;
 		flex-direction: column;
 		align-items: stretch;
 		gap: 0.5rem;
@@ -375,8 +390,8 @@
 	}
 
 	.server-detail-card .peers-controls :global(.btn) {
-		grid-column: 2;
-		grid-row: 1;
+		grid-column: 1 / -1;
+		grid-row: 2;
 		width: 100%;
 		min-width: 0;
 	}
