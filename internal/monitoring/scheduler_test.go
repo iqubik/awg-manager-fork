@@ -447,6 +447,7 @@ func TestScheduler_RunProbeCell_SingboxSubscriptionUsesClashDelay(t *testing.T) 
 		ID:           "sub-member",
 		Source:       "singbox",
 		SingboxTag:   "sub-member",
+		ProbeTag:     "sub-iq0-selector",
 		Subscription: true,
 		IfaceName:    "t2s0",
 	}, false)
@@ -463,11 +464,11 @@ func TestScheduler_RunProbeCell_SingboxSubscriptionUsesClashDelay(t *testing.T) 
 	gotTag := clashDelay.lastTag
 	gotURL := clashDelay.lastURL
 	clashDelay.mu.Unlock()
-	if gotTag != "sub-member" {
-		t.Fatalf("subscription sing-box row called TestDelay with tag %q, want sub-member", gotTag)
+	if gotTag != "sub-iq0-selector" {
+		t.Fatalf("subscription sing-box row called TestDelay with tag %q, want sub-iq0-selector", gotTag)
 	}
-	if gotURL != "https://1.1.1.1/" {
-		t.Fatalf("subscription sing-box row called TestDelay with url %q, want https://1.1.1.1/", gotURL)
+	if gotURL != singboxDefaultDelayURL {
+		t.Fatalf("subscription sing-box row called TestDelay with url %q, want %q", gotURL, singboxDefaultDelayURL)
 	}
 
 	latency, ok = sched.runProbeCell(context.Background(), target, Tunnel{
@@ -482,9 +483,19 @@ func TestScheduler_RunProbeCell_SingboxSubscriptionUsesClashDelay(t *testing.T) 
 	if clashDelay.calls.Load() != 2 {
 		t.Fatalf("regular sing-box row should produce 2 total TestDelay calls, got %d calls", clashDelay.calls.Load())
 	}
+	clashDelay.mu.Lock()
+	gotTag = clashDelay.lastTag
+	gotURL = clashDelay.lastURL
+	clashDelay.mu.Unlock()
+	if gotTag != "plain-singbox" {
+		t.Fatalf("regular sing-box row called TestDelay with tag %q, want plain-singbox", gotTag)
+	}
+	if gotURL != "https://1.1.1.1/" {
+		t.Fatalf("regular sing-box row called TestDelay with url %q, want https://1.1.1.1/", gotURL)
+	}
 }
 
-func TestScheduler_RunProbeCell_SingboxSubscriptionFallsBackToHttpsHostURL(t *testing.T) {
+func TestScheduler_RunProbeCell_SingboxSubscriptionUsesStableDelayURLFallback(t *testing.T) {
 	clashDelay := &fakeSingboxDelay{delay: 87}
 	httpProber := &fakeProber{ok: true, latency: 14}
 	sched := NewScheduler(SchedulerDeps{
@@ -501,22 +512,27 @@ func TestScheduler_RunProbeCell_SingboxSubscriptionFallsBackToHttpsHostURL(t *te
 		ID:           "sub-member",
 		Source:       "singbox",
 		SingboxTag:   "sub-member",
+		ProbeTag:     "sub-iq0-selector",
 		Subscription: true,
 	}, false)
 	if !ok || latency != 87 {
-		t.Fatalf("subscription sing-box row should use https host fallback, got latency=%d ok=%v", latency, ok)
+		t.Fatalf("subscription sing-box row should use stable delay fallback, got latency=%d ok=%v", latency, ok)
 	}
 	if clashDelay.calls.Load() != 1 {
-		t.Fatalf("subscription host fallback should call TestDelay once, got %d calls", clashDelay.calls.Load())
+		t.Fatalf("subscription delay fallback should call TestDelay once, got %d calls", clashDelay.calls.Load())
 	}
 	if httpProber.calls.Load() != 0 {
-		t.Fatalf("subscription host fallback must not call interface prober, got %d calls", httpProber.calls.Load())
+		t.Fatalf("subscription delay fallback must not call interface prober, got %d calls", httpProber.calls.Load())
 	}
 	clashDelay.mu.Lock()
+	gotTag := clashDelay.lastTag
 	gotURL := clashDelay.lastURL
 	clashDelay.mu.Unlock()
-	if gotURL != "https://1.1.1.1/" {
-		t.Fatalf("subscription host fallback called TestDelay with url %q, want https://1.1.1.1/", gotURL)
+	if gotTag != "sub-iq0-selector" {
+		t.Fatalf("subscription delay fallback called TestDelay with tag %q, want sub-iq0-selector", gotTag)
+	}
+	if gotURL != singboxDefaultDelayURL {
+		t.Fatalf("subscription delay fallback called TestDelay with url %q, want %q", gotURL, singboxDefaultDelayURL)
 	}
 }
 
@@ -578,5 +594,60 @@ func TestScheduler_AugmentSingboxClashData_PopulatesUrltestMembers(t *testing.T)
 	}
 	if tunnels[2].ClashDelay != 0 || tunnels[2].UrltestGroup != "" {
 		t.Errorf("nwg0 (non-singbox): expected no augmentation, got %+v", tunnels[2])
+	}
+}
+
+func TestScheduler_AugmentSingboxClashData_SubscriptionUsesProbeTagWithoutURLTestMembership(t *testing.T) {
+	s := NewScheduler(SchedulerDeps{
+		Composites: &fakeComposites{items: []CompositeOutboundInfo{}},
+		ClashState: &fakeClashState{delays: map[string]int{
+			"sub-iq0-selector": 215,
+		}},
+	}, nil)
+	tunnels := []Tunnel{
+		{
+			ID:           "member-de",
+			Name:         "IQ0",
+			Source:       "singbox",
+			SingboxTag:   "member-de",
+			ProbeTag:     "sub-iq0-selector",
+			Subscription: true,
+		},
+	}
+
+	s.augmentSingboxClashData(context.Background(), tunnels)
+
+	if tunnels[0].ClashDelay != 215 {
+		t.Fatalf("subscription ClashDelay=%d want 215", tunnels[0].ClashDelay)
+	}
+	if tunnels[0].UrltestGroup == "" {
+		t.Fatalf("subscription UrltestGroup should be populated from ProbeTag fallback")
+	}
+}
+
+func TestScheduler_AugmentSingboxClashData_SubscriptionUsesProbeTagWhenCompositesNil(t *testing.T) {
+	s := NewScheduler(SchedulerDeps{
+		ClashState: &fakeClashState{delays: map[string]int{
+			"sub-iq0-selector": 215,
+		}},
+	}, nil)
+	tunnels := []Tunnel{
+		{
+			ID:           "member-de",
+			Name:         "IQ0",
+			Source:       "singbox",
+			SingboxTag:   "member-de",
+			ProbeTag:     "sub-iq0-selector",
+			Subscription: true,
+		},
+	}
+
+	s.augmentSingboxClashData(context.Background(), tunnels)
+
+	if tunnels[0].ClashDelay != 215 {
+		t.Fatalf("subscription ClashDelay=%d want 215", tunnels[0].ClashDelay)
+	}
+	if tunnels[0].UrltestGroup != "sub-iq0-selector" {
+		t.Fatalf("subscription UrltestGroup=%q want sub-iq0-selector", tunnels[0].UrltestGroup)
 	}
 }
