@@ -1262,6 +1262,11 @@
 		visibleSystemList.filter((t) => t.status === 'up').length +
 		externalList.filter((t) => !!t.lastHandshake).length,
 	);
+	let awgSummarySystemLabel = $derived(isAwgMobile ? 'sys.' : 'system');
+	let awgSummaryExternalLabel = $derived(isAwgMobile ? 'ext.' : 'external');
+	let awgSummaryBreakdown = $derived(
+		`AWG ${awgList.length} · ${awgSummarySystemLabel} ${visibleSystemList.length} · ${awgSummaryExternalLabel} ${externalList.length}`,
+	);
 
 	let awgSummaryPeak = $derived.by(() => {
 		let rate = 0;
@@ -1903,7 +1908,7 @@
 						<Stat
 							value={`${awgSummaryActive}/${awgSummaryTotal}`}
 							label={pluralForm(awgSummaryActive, TUNNEL_WORDS)}
-							sub={`AWG ${awgList.length} · system ${visibleSystemList.length} · external ${externalList.length}`}
+							sub={awgSummaryBreakdown}
 						/>
 						<Stat
 							value={formatBitRate(awgSummaryPeak.rate)}

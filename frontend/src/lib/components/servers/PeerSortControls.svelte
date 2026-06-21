@@ -3,6 +3,7 @@
 	import { peerSort } from '$lib/stores/peerSort';
 	import { DEFAULT_SORT_VALUE } from '$lib/utils/tableSort';
 	import { Dropdown, type DropdownOption } from '$lib/components/ui';
+	import { X } from 'lucide-svelte';
 
 	interface Props {
 		searchQuery: string;
@@ -40,17 +41,35 @@
 		event.stopPropagation();
 		searchQuery = '';
 	}
+
+	function clearSearch(): void {
+		searchQuery = '';
+	}
 </script>
 
 <div class="peer-sort-controls" class:hide-sort-on-desktop={hideSortOnDesktop}>
 	{#if showSearch}
-		<input
-			class="peer-search"
-			type="text"
-			placeholder="Поиск..."
-			bind:value={searchQuery}
-			onkeydown={handleSearchKeydown}
-		/>
+		<div class="peer-search-wrap">
+			<input
+				class="peer-search"
+				type="text"
+				placeholder="Поиск..."
+				bind:value={searchQuery}
+				onkeydown={handleSearchKeydown}
+			/>
+
+			{#if searchQuery.length > 0}
+				<button
+					type="button"
+					class="peer-search-clear"
+					onclick={clearSearch}
+					aria-label="Очистить поиск"
+					title="Очистить поиск"
+				>
+					<X size={14} strokeWidth={2} aria-hidden="true" />
+				</button>
+			{/if}
+		</div>
 	{/if}
 	<div class="peer-sort-ui">
 		<div class="peer-sort-select">
@@ -89,13 +108,30 @@
 		display: none;
 	}
 
+	.peer-sort-controls.hide-sort-on-desktop {
+		flex: 1 1 auto;
+		width: 100%;
+		min-width: 0;
+	}
+
+	.peer-search-wrap {
+		position: relative;
+		width: 120px;
+		min-width: 0;
+	}
+
+	.peer-sort-controls.hide-sort-on-desktop .peer-search-wrap {
+		width: 100%;
+		flex: 1 1 auto;
+	}
+
 	.peer-search {
 		box-sizing: border-box;
-		width: 120px;
+		width: 100%;
 		height: 28px;
 		min-height: 28px;
 		max-height: 28px;
-		padding: 0 0.5rem;
+		padding: 0 1.75rem 0 0.5rem;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
 		background: var(--bg-primary);
@@ -106,6 +142,34 @@
 
 	.peer-search::placeholder {
 		color: var(--text-muted);
+	}
+
+	.peer-search-clear {
+		position: absolute;
+		right: 4px;
+		top: 50%;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 20px;
+		height: 20px;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--text-muted);
+		cursor: pointer;
+		transform: translateY(-50%);
+	}
+
+	.peer-search-clear:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.peer-search-clear:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 1px;
 	}
 
 	.peer-sort-select {
@@ -146,9 +210,14 @@
 			width: 100%;
 		}
 
-		.peer-search {
+		.peer-search-wrap {
 			grid-column: 1;
 			grid-row: 1;
+			width: 100%;
+			min-width: 0;
+		}
+
+		.peer-search {
 			width: 100%;
 			min-width: 0;
 		}
@@ -171,7 +240,7 @@
 			width: 100%;
 		}
 
-		.peer-sort-controls:not(.hide-sort-on-desktop) .peer-search {
+		.peer-sort-controls:not(.hide-sort-on-desktop) .peer-search-wrap {
 			grid-column: 1 / -1;
 		}
 	}
