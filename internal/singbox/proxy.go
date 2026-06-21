@@ -92,6 +92,34 @@ func (pm *ProxyManager) NextFreeIndex(ctx context.Context, reserved map[int]bool
 	return 0, fmt.Errorf("no free Proxy slot (scanned %d)", maxProxySlots)
 }
 
+// NextFreeTunnelIndex returns the lowest ProxyN slot that is free both in NDMS
+// and on the corresponding local tunnel listen port (127.0.0.1:firstPort+N).
+// This is only for regular sing-box tunnels where ProxyN is derived from the
+// tunnel listen-port slot. Subscription composites use independent port ranges
+// and must keep using NextFreeIndex.
+func (pm *ProxyManager) NextFreeTunnelIndex(ctx context.Context, reserved map[int]bool) (int, error) {
+	defer markProxyMgrDur("NextFreeTunnelIndex", time.Now())
+	ifaces, err := pm.queries.Interfaces.List(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list interfaces: %w", err)
+	}
+	used := make(map[int]bool)
+	for idx := range reserved {
+		used[idx] = true
+	}
+	for _, iface := range ifaces {
+		if !strings.HasPrefix(iface.ID, proxyIfacePrefix) {
+			continue
+		}
+		var idx int
+		if n, err := fmt.Sscanf(iface.ID, proxyIfacePrefix+"%d", &idx); err != nil || n != 1 {
+			continue
+		}
+		used[idx] = true
+	}
+	return nextFreePortSlot(used)
+}
+
 // RemoveProxy tears down ProxyN.
 func (pm *ProxyManager) RemoveProxy(ctx context.Context, index int) error {
 	defer markProxyMgrDur(fmt.Sprintf("RemoveProxy(%d)", index), time.Now())
@@ -216,6 +244,19 @@ func nativeProxyKernelNames(proxies []proxyEntry, tunnelTags map[string]bool, ou
 		out = append(out, p.kernel)
 	}
 	return out
+}
+
+func nextFreePortSlot(used map[int]bool) (int, error) {
+	for i := 0; i < maxProxySlots; i++ {
+		if used[i] {
+			continue
+		}
+		if !localListenPortAvailable(firstPort + i) {
+			continue
+		}
+		return i, nil
+	}
+	return 0, fmt.Errorf("no free Proxy/listen_port slot: scanned %d slots from port %d", maxProxySlots, firstPort)
 }
 
 // SyncProxies reconciles NDMS Proxy interfaces with current config.json tunnels.

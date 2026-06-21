@@ -9,6 +9,13 @@ import (
 	"testing"
 )
 
+func withTestLocalListenPortAvailability(t *testing.T, fn func(int) bool) {
+	t.Helper()
+	prev := localListenPortAvailable
+	localListenPortAvailable = fn
+	t.Cleanup(func() { localListenPortAvailable = prev })
+}
+
 func TestConfig_NewEmpty(t *testing.T) {
 	c := NewConfig()
 	if len(c.Tunnels()) != 0 {
@@ -212,6 +219,21 @@ func TestConfig_AllocPort_Exhausted(t *testing.T) {
 	_, err := c.allocPort()
 	if err == nil {
 		t.Fatal("expected error on exhausted port range")
+	}
+}
+
+func TestConfig_AllocPort_SkipsOccupiedLocalPort(t *testing.T) {
+	withTestLocalListenPortAvailability(t, func(port int) bool {
+		return port != firstPort
+	})
+
+	c := NewConfig()
+	got, err := c.allocPort()
+	if err != nil {
+		t.Fatalf("allocPort: %v", err)
+	}
+	if got != firstPort+1 {
+		t.Fatalf("allocPort = %d, want %d", got, firstPort+1)
 	}
 }
 
