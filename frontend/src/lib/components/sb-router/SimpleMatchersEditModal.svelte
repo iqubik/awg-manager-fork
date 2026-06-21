@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Modal from '$lib/components/ui/Modal.svelte';
+  import SideDrawer from '$lib/components/ui/SideDrawer.svelte';
   import { Button } from '$lib/components/ui';
   import InlineRuleListEditor from '$lib/components/routing/singboxRouter/InlineRuleListEditor.svelte';
   import { isInlineRuleListEmpty, stringifyInlineRuleListForWizard } from '$lib/utils/singboxInlineRules';
@@ -69,11 +69,11 @@
   }
 </script>
 
-<Modal
+<SideDrawer
   open
   title="Список доменов и адресов"
-  size="lg"
-  onclose={onClose}
+  width={640}
+  onClose={onClose}
   closeOnBackdrop={false}
   hasUnsavedChanges={hasUnsavedChanges}
 >
@@ -90,13 +90,13 @@
 
   <InlineRuleListEditor bind:value={rulesList} />
 
-  {#snippet actions()}
+  {#snippet footer()}
     <Button variant="ghost" size="md" onclick={onClose} disabled={busy}>Отмена</Button>
     <Button variant="primary" size="md" onclick={handleSave} disabled={!canSave || busy}>
       Сохранить
     </Button>
   {/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
   .hint {
