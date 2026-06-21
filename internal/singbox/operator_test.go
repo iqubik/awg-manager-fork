@@ -1724,6 +1724,8 @@ func newOperatorForTest(t *testing.T, opts ...operatorOpt) *Operator {
 // requires a live sing-box binary (preflight + startAndWait fork/exec) — out
 // of scope for a unit test; manual scenarios (Task 23, S2) cover that path.
 func TestNextFreeListenPortSlot(t *testing.T) {
+	withTestLocalListenPortAvailability(t, func(int) bool { return true })
+
 	tests := []struct {
 		name     string
 		existing []int // existing listen ports
@@ -1740,11 +1742,43 @@ func TestNextFreeListenPortSlot(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := newTestConfigWithListenPorts(t, tc.existing)
-			got := nextFreeListenPortSlot(cfg, tc.reserved)
+			got, err := nextFreeListenPortSlot(cfg, tc.reserved)
+			if err != nil {
+				t.Fatalf("nextFreeListenPortSlot: %v", err)
+			}
 			if got != tc.want {
 				t.Errorf("nextFreeListenPortSlot = %d, want %d", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestNextFreeListenPortSlot_SkipsOccupiedPort_WhenNDMSProxyDisabled(t *testing.T) {
+	withTestLocalListenPortAvailability(t, func(port int) bool {
+		return port != firstPort
+	})
+
+	cfg := newTestConfigWithListenPorts(t, nil)
+	got, err := nextFreeListenPortSlot(cfg, nil)
+	if err != nil {
+		t.Fatalf("nextFreeListenPortSlot: %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("nextFreeListenPortSlot = %d, want 1", got)
+	}
+}
+
+func TestNextFreePortSlot_SkipsOccupiedLocalPort(t *testing.T) {
+	withTestLocalListenPortAvailability(t, func(port int) bool {
+		return port != firstPort
+	})
+
+	got, err := nextFreePortSlot(map[int]bool{})
+	if err != nil {
+		t.Fatalf("nextFreePortSlot: %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("nextFreePortSlot = %d, want 1", got)
 	}
 }
 
