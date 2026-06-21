@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { DnsRoute, DnsRouteTarget, DnsRouteSubscription, RoutingTunnel } from '$lib/types';
-	import { Modal, Button, Dropdown } from '$lib/components/ui';
+	import { SideDrawer, Button, Dropdown } from '$lib/components/ui';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import DnsRouteDomainEditor from './DnsRouteDomainEditor.svelte';
 	import ServiceIcon from './ServiceIcon.svelte';
@@ -410,7 +410,7 @@
 	<CreateIcon />
 {/snippet}
 
-<Modal {open} {title} size="lg" onclose={onclose} hasUnsavedChanges={() => isDirty}>
+<SideDrawer {open} {title} width={640} onClose={onclose} hasUnsavedChanges={() => isDirty}>
 	<!-- Name -->
 	<div class="form-group" class:field-error={nameError}>
 		<!-- svelte-ignore a11y_label_has_associated_control -->
@@ -681,14 +681,14 @@ Ctrl+/ или Cmd+/ комментирует выбранные строки.</s
 		</div>
 	{/if}
 
-	{#snippet actions()}
+	{#snippet footer()}
 		<Button variant="secondary" onclick={onclose}>Отмена</Button>
 		<!-- TODO Phase 1: shake animation on save when invalid (was class:shake={shaking}) -->
 		<Button variant="primary" onclick={handleSave} loading={saving}>
 			Сохранить
 		</Button>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <IconPickerModal
 	open={iconPickerOpen}

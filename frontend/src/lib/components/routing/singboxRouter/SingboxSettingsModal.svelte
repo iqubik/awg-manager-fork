@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import Modal from '$lib/components/ui/Modal.svelte';
+	import SideDrawer from '$lib/components/ui/SideDrawer.svelte';
 	import './singboxSettingsForm.css';
 
 	interface Props {
@@ -27,22 +27,30 @@
 		children,
 		actions,
 	}: Props = $props();
+
+	const widthBySize = {
+		sm: 420,
+		md: 520,
+		lg: 640,
+		xl: 760,
+		wide: 960,
+	} as const;
 </script>
 
-<Modal
+<SideDrawer
 	{open}
-	onclose={onClose}
+	onClose={onClose}
 	{title}
-	{size}
-	{bodyLayout}
+	width={widthBySize[size]}
+	bodyClass={bodyLayout === 'fill' ? 'drawer-body-fill' : ''}
 	{hasUnsavedChanges}
 	{closeOnBackdrop}
-	{actions}
+	footer={actions}
 >
 	<div class="sbr-settings-form">
 		{@render children()}
 	</div>
-</Modal>
+</SideDrawer>
 
 <style>
 	/*
