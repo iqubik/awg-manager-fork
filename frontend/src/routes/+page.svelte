@@ -1867,26 +1867,28 @@
 					<StoreStatusBadge store={tunnels} />
 				</div>
 				<div class="toolbar-actions">
-					<TunnelToolbarViewRow
-						sourceRowCount={awgSourceRowCount}
-						showViewToggle={showAwgViewModeSwitch}
-						searchQuery={awgListSearchQuery}
-						sortKey={$awgTunnelTableSort.sortBy}
-						sortAsc={$awgTunnelTableSort.sortAsc}
-						sortOptions={awgSortOptions}
-						onSearchChange={(value) => (awgListSearchQuery = value)}
-						onSortChange={(key) => key === null ? awgTunnelTableSort.setSort(null) : awgTunnelTableSort.setSort(key as AwgTunnelSortKey)}
-						onToggleDir={() => awgTunnelTableSort.toggleDirection()}
-					>
-						{#snippet viewToggle()}
-							<LayoutViewToggle
-								value={awgViewMode}
-								denseValue="cards"
-								ariaLabel="Вид туннелей"
-								onchange={(mode) => (awgViewMode = mode)}
-							/>
-						{/snippet}
-					</TunnelToolbarViewRow>
+					<div class="toolbar-view-row-desktop">
+						<TunnelToolbarViewRow
+							sourceRowCount={awgSourceRowCount}
+							showViewToggle={showAwgViewModeSwitch}
+							searchQuery={awgListSearchQuery}
+							sortKey={$awgTunnelTableSort.sortBy}
+							sortAsc={$awgTunnelTableSort.sortAsc}
+							sortOptions={awgSortOptions}
+							onSearchChange={(value) => (awgListSearchQuery = value)}
+							onSortChange={(key) => key === null ? awgTunnelTableSort.setSort(null) : awgTunnelTableSort.setSort(key as AwgTunnelSortKey)}
+							onToggleDir={() => awgTunnelTableSort.toggleDirection()}
+						>
+							{#snippet viewToggle()}
+								<LayoutViewToggle
+									value={awgViewMode}
+									denseValue="cards"
+									ariaLabel="Вид туннелей"
+									onchange={(mode) => (awgViewMode = mode)}
+								/>
+							{/snippet}
+						</TunnelToolbarViewRow>
+					</div>
 					<Button variant="secondary" size="md" onclick={handleExportAll} disabled={exporting} iconBefore={exportIcon}>
 						Экспорт
 					</Button>
@@ -2416,26 +2418,28 @@
 							{pluralForm(subscriptionsList.length, SUBSCRIPTION_WORDS)}
 						</span>
 						<div class="toolbar-actions">
-							<TunnelToolbarViewRow
-								sourceRowCount={singboxSubscriptionsSourceRowCount}
-								showViewToggle={subscriptionsList.length > 0}
-								searchQuery={singboxSubscriptionsSearchQuery}
-								sortKey={$singboxSubscriptionTableSort.sortBy}
-								sortAsc={$singboxSubscriptionTableSort.sortAsc}
-								sortOptions={subscriptionSortOptions}
-								onSearchChange={(value) => (singboxSubscriptionsSearchQuery = value)}
-								onSortChange={(key) => key === null ? singboxSubscriptionTableSort.setSort(null) : singboxSubscriptionTableSort.setSort(key as SubscriptionSortKey)}
-								onToggleDir={() => singboxSubscriptionTableSort.toggleDirection()}
-							>
-								{#snippet viewToggle()}
-									<LayoutViewToggle
-										value={singboxSubscriptionsLayoutMode}
-										showListOption={showSingboxGridListToggle}
-										ariaLabel="Вид подписок"
-										onchange={(v) => (singboxSubscriptionsLayoutMode = v)}
-									/>
-								{/snippet}
-							</TunnelToolbarViewRow>
+							<div class="toolbar-view-row-desktop">
+								<TunnelToolbarViewRow
+									sourceRowCount={singboxSubscriptionsSourceRowCount}
+									showViewToggle={subscriptionsList.length > 0}
+									searchQuery={singboxSubscriptionsSearchQuery}
+									sortKey={$singboxSubscriptionTableSort.sortBy}
+									sortAsc={$singboxSubscriptionTableSort.sortAsc}
+									sortOptions={subscriptionSortOptions}
+									onSearchChange={(value) => (singboxSubscriptionsSearchQuery = value)}
+									onSortChange={(key) => key === null ? singboxSubscriptionTableSort.setSort(null) : singboxSubscriptionTableSort.setSort(key as SubscriptionSortKey)}
+									onToggleDir={() => singboxSubscriptionTableSort.toggleDirection()}
+								>
+									{#snippet viewToggle()}
+										<LayoutViewToggle
+											value={singboxSubscriptionsLayoutMode}
+											showListOption={showSingboxGridListToggle}
+											ariaLabel="Вид подписок"
+											onchange={(v) => (singboxSubscriptionsLayoutMode = v)}
+										/>
+									{/snippet}
+								</TunnelToolbarViewRow>
+							</div>
 							<Button
 								variant="primary"
 								size="md"
@@ -2658,26 +2662,28 @@
 						{pluralForm(singboxTunnelsList.length, TUNNEL_WORDS)}
 					</span>
 					<div class="toolbar-actions">
-						<TunnelToolbarViewRow
-							sourceRowCount={singboxTunnelsSourceRowCount}
-							showViewToggle={singboxTunnelsList.length > 0}
-							searchQuery={singboxTunnelsSearchQuery}
-							sortKey={$singboxTunnelTableSort.sortBy}
-							sortAsc={$singboxTunnelTableSort.sortAsc}
-							sortOptions={singboxTunnelSortOptions}
-							onSearchChange={(value) => (singboxTunnelsSearchQuery = value)}
-							onSortChange={(key) => key === null ? singboxTunnelTableSort.setSort(null) : singboxTunnelTableSort.setSort(key as SingboxTunnelSortKey)}
-							onToggleDir={() => singboxTunnelTableSort.toggleDirection()}
-						>
-							{#snippet viewToggle()}
-								<LayoutViewToggle
-									value={singboxTunnelsLayoutMode}
-									showListOption={showSingboxGridListToggle}
-									ariaLabel="Вид туннелей"
-									onchange={(v) => (singboxTunnelsLayoutMode = v)}
-								/>
-							{/snippet}
-						</TunnelToolbarViewRow>
+						<div class="toolbar-view-row-desktop">
+							<TunnelToolbarViewRow
+								sourceRowCount={singboxTunnelsSourceRowCount}
+								showViewToggle={singboxTunnelsList.length > 0}
+								searchQuery={singboxTunnelsSearchQuery}
+								sortKey={$singboxTunnelTableSort.sortBy}
+								sortAsc={$singboxTunnelTableSort.sortAsc}
+								sortOptions={singboxTunnelSortOptions}
+								onSearchChange={(value) => (singboxTunnelsSearchQuery = value)}
+								onSortChange={(key) => key === null ? singboxTunnelTableSort.setSort(null) : singboxTunnelTableSort.setSort(key as SingboxTunnelSortKey)}
+								onToggleDir={() => singboxTunnelTableSort.toggleDirection()}
+							>
+								{#snippet viewToggle()}
+									<LayoutViewToggle
+										value={singboxTunnelsLayoutMode}
+										showListOption={showSingboxGridListToggle}
+										ariaLabel="Вид туннелей"
+										onchange={(v) => (singboxTunnelsLayoutMode = v)}
+									/>
+								{/snippet}
+							</TunnelToolbarViewRow>
+						</div>
 						<Button
 							variant="primary"
 							size="md"
@@ -2868,22 +2874,98 @@
 	{/if}
 		{/snippet}
 
+		{#snippet awgHeaderMobileControls()}
+			<TunnelToolbarViewRow
+				sourceRowCount={awgSourceRowCount}
+				showViewToggle={showAwgViewModeSwitch}
+				searchQuery={awgListSearchQuery}
+				sortKey={$awgTunnelTableSort.sortBy}
+				sortAsc={$awgTunnelTableSort.sortAsc}
+				sortOptions={awgSortOptions}
+				onSearchChange={(value) => (awgListSearchQuery = value)}
+				onSortChange={(key) => key === null ? awgTunnelTableSort.setSort(null) : awgTunnelTableSort.setSort(key as AwgTunnelSortKey)}
+				onToggleDir={() => awgTunnelTableSort.toggleDirection()}
+			>
+				{#snippet viewToggle()}
+					<LayoutViewToggle
+						value={awgViewMode}
+						denseValue="cards"
+						ariaLabel="Вид туннелей"
+						onchange={(mode) => (awgViewMode = mode)}
+					/>
+				{/snippet}
+			</TunnelToolbarViewRow>
+		{/snippet}
+
+		{#snippet singboxHeaderMobileControls()}
+			<TunnelToolbarViewRow
+				sourceRowCount={singboxTunnelsSourceRowCount}
+				showViewToggle={singboxTunnelsList.length > 0}
+				searchQuery={singboxTunnelsSearchQuery}
+				sortKey={$singboxTunnelTableSort.sortBy}
+				sortAsc={$singboxTunnelTableSort.sortAsc}
+				sortOptions={singboxTunnelSortOptions}
+				onSearchChange={(value) => (singboxTunnelsSearchQuery = value)}
+				onSortChange={(key) => key === null ? singboxTunnelTableSort.setSort(null) : singboxTunnelTableSort.setSort(key as SingboxTunnelSortKey)}
+				onToggleDir={() => singboxTunnelTableSort.toggleDirection()}
+			>
+				{#snippet viewToggle()}
+					<LayoutViewToggle
+						value={singboxTunnelsLayoutMode}
+						showListOption={showSingboxGridListToggle}
+						ariaLabel="Вид туннелей"
+						onchange={(v) => (singboxTunnelsLayoutMode = v)}
+					/>
+				{/snippet}
+			</TunnelToolbarViewRow>
+		{/snippet}
+
+		{#snippet subscriptionsHeaderMobileControls()}
+			<TunnelToolbarViewRow
+				sourceRowCount={singboxSubscriptionsSourceRowCount}
+				showViewToggle={subscriptionsList.length > 0}
+				searchQuery={singboxSubscriptionsSearchQuery}
+				sortKey={$singboxSubscriptionTableSort.sortBy}
+				sortAsc={$singboxSubscriptionTableSort.sortAsc}
+				sortOptions={subscriptionSortOptions}
+				onSearchChange={(value) => (singboxSubscriptionsSearchQuery = value)}
+				onSortChange={(key) => key === null ? singboxSubscriptionTableSort.setSort(null) : singboxSubscriptionTableSort.setSort(key as SubscriptionSortKey)}
+				onToggleDir={() => singboxSubscriptionTableSort.toggleDirection()}
+			>
+				{#snippet viewToggle()}
+					<LayoutViewToggle
+						value={singboxSubscriptionsLayoutMode}
+						showListOption={showSingboxGridListToggle}
+						ariaLabel="Вид подписок"
+						onchange={(v) => (singboxSubscriptionsLayoutMode = v)}
+					/>
+				{/snippet}
+			</TunnelToolbarViewRow>
+		{/snippet}
+
 		<div class="tunnel-section-stack">
 			<section class="tunnel-spoiler tunnel-spoiler--awg">
-				<button
-					type="button"
-					class="tunnel-spoiler__header"
-					aria-expanded={isSectionOpen('awg')}
-					aria-controls="tunnel-section-awg"
-					onclick={() => toggleSection('awg')}
-				>
-					<span class="tunnel-spoiler__title">AWG</span>
-					<span class="tunnel-spoiler__badge">{awgSummaryTotal}</span>
-					<span class="tunnel-spoiler__meta">{awgSummaryActive}/{awgSummaryTotal} активны</span>
-					<span class="tunnel-spoiler__chevron" aria-hidden="true">
-						<ChevronDown size={16} strokeWidth={2.25} />
-					</span>
-				</button>
+				<div class="tunnel-spoiler__header">
+					<button
+						type="button"
+						class="tunnel-spoiler__summary"
+						aria-expanded={isSectionOpen('awg')}
+						aria-controls="tunnel-section-awg"
+						onclick={() => toggleSection('awg')}
+					>
+						<span class="tunnel-spoiler__title">AWG</span>
+						<span class="tunnel-spoiler__badge">{awgSummaryTotal}</span>
+						<span class="tunnel-spoiler__meta">{awgSummaryActive}/{awgSummaryTotal} активны</span>
+						<span class="tunnel-spoiler__chevron" aria-hidden="true">
+							<ChevronDown size={16} strokeWidth={2.25} />
+						</span>
+					</button>
+					{#if isSectionOpen('awg')}
+						<div class="tunnel-spoiler__mobile-controls">
+							{@render awgHeaderMobileControls()}
+						</div>
+					{/if}
+				</div>
 				{#if isSectionOpen('awg')}
 					<div id="tunnel-section-awg" class="tunnel-spoiler__body">
 						{@render awgSectionContent()}
@@ -2893,20 +2975,27 @@
 
 			{#if singboxSectionsVisible}
 				<section class="tunnel-spoiler tunnel-spoiler--singbox">
-					<button
-						type="button"
-						class="tunnel-spoiler__header"
-						aria-expanded={isSectionOpen('singbox')}
-						aria-controls="tunnel-section-singbox"
-						onclick={() => toggleSection('singbox')}
-					>
-						<span class="tunnel-spoiler__title">Sing-box туннели</span>
-						<span class="tunnel-spoiler__badge">{singboxTunnelsList.length}</span>
-						<span class="tunnel-spoiler__meta">{singboxTunnelListStats.running}/{singboxTunnelListStats.count} активны</span>
-						<span class="tunnel-spoiler__chevron" aria-hidden="true">
-							<ChevronDown size={16} strokeWidth={2.25} />
-						</span>
-					</button>
+					<div class="tunnel-spoiler__header">
+						<button
+							type="button"
+							class="tunnel-spoiler__summary"
+							aria-expanded={isSectionOpen('singbox')}
+							aria-controls="tunnel-section-singbox"
+							onclick={() => toggleSection('singbox')}
+						>
+							<span class="tunnel-spoiler__title">Sing-box туннели</span>
+							<span class="tunnel-spoiler__badge">{singboxTunnelsList.length}</span>
+							<span class="tunnel-spoiler__meta">{singboxTunnelListStats.running}/{singboxTunnelListStats.count} активны</span>
+							<span class="tunnel-spoiler__chevron" aria-hidden="true">
+								<ChevronDown size={16} strokeWidth={2.25} />
+							</span>
+						</button>
+						{#if isSectionOpen('singbox')}
+							<div class="tunnel-spoiler__mobile-controls">
+								{@render singboxHeaderMobileControls()}
+							</div>
+						{/if}
+					</div>
 					{#if isSectionOpen('singbox')}
 						<div id="tunnel-section-singbox" class="tunnel-spoiler__body">
 							{@render singboxSectionContent()}
@@ -2915,20 +3004,27 @@
 				</section>
 
 				<section class="tunnel-spoiler tunnel-spoiler--subscriptions">
-					<button
-						type="button"
-						class="tunnel-spoiler__header"
-						aria-expanded={isSectionOpen('subscriptions')}
-						aria-controls="tunnel-section-subscriptions"
-						onclick={() => toggleSection('subscriptions')}
-					>
-						<span class="tunnel-spoiler__title">Sing-box подписки</span>
-						<span class="tunnel-spoiler__badge">{subscriptionsList.length}</span>
-						<span class="tunnel-spoiler__meta">{subscriptionsActiveCards.length}/{subscriptionsList.length} активны</span>
-						<span class="tunnel-spoiler__chevron" aria-hidden="true">
-							<ChevronDown size={16} strokeWidth={2.25} />
-						</span>
-					</button>
+					<div class="tunnel-spoiler__header">
+						<button
+							type="button"
+							class="tunnel-spoiler__summary"
+							aria-expanded={isSectionOpen('subscriptions')}
+							aria-controls="tunnel-section-subscriptions"
+							onclick={() => toggleSection('subscriptions')}
+						>
+							<span class="tunnel-spoiler__title">Sing-box подписки</span>
+							<span class="tunnel-spoiler__badge">{subscriptionsList.length}</span>
+							<span class="tunnel-spoiler__meta">{subscriptionsActiveCards.length}/{subscriptionsList.length} активны</span>
+							<span class="tunnel-spoiler__chevron" aria-hidden="true">
+								<ChevronDown size={16} strokeWidth={2.25} />
+							</span>
+						</button>
+						{#if isSectionOpen('subscriptions')}
+							<div class="tunnel-spoiler__mobile-controls">
+								{@render subscriptionsHeaderMobileControls()}
+							</div>
+						{/if}
+					</div>
 					{#if isSectionOpen('subscriptions')}
 						<div id="tunnel-section-subscriptions" class="tunnel-spoiler__body">
 							{@render subscriptionsSectionContent()}
@@ -3154,6 +3250,16 @@
 	}
 
 	.tunnel-spoiler__header {
+		background:
+			linear-gradient(
+				90deg,
+				var(--section-tint-strong, transparent) 0%,
+				transparent 55%
+			),
+			color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-tertiary) 18%);
+	}
+
+	.tunnel-spoiler__summary {
 		width: 100%;
 		display: grid;
 		grid-template-columns: auto auto minmax(0, 1fr) 2rem;
@@ -3162,13 +3268,7 @@
 		min-height: 3rem;
 		padding: 0.875rem 1rem;
 		border: 0;
-		background:
-			linear-gradient(
-				90deg,
-				var(--section-tint-strong, transparent) 0%,
-				transparent 55%
-			),
-			color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-tertiary) 18%);
+		background: transparent;
 		color: var(--text-primary);
 		text-align: left;
 		cursor: pointer;
@@ -3177,7 +3277,7 @@
 			box-shadow 0.16s ease;
 	}
 
-	.tunnel-spoiler__header:hover {
+	.tunnel-spoiler__summary:hover {
 		background:
 			linear-gradient(
 				90deg,
@@ -3187,12 +3287,12 @@
 			color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-tertiary) 30%);
 	}
 
-	.tunnel-spoiler__header:focus-visible {
+	.tunnel-spoiler__summary:focus-visible {
 		outline: none;
 		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
 	}
 
-	.tunnel-spoiler__header[aria-expanded="true"] {
+	.tunnel-spoiler__summary[aria-expanded="true"] {
 		background:
 			linear-gradient(
 				90deg,
@@ -3200,6 +3300,10 @@
 				transparent 58%
 			),
 			color-mix(in srgb, var(--bg-secondary) 62%, var(--bg-tertiary) 38%);
+	}
+
+	.tunnel-spoiler__mobile-controls {
+		display: none;
 	}
 
 	.tunnel-spoiler__title {
@@ -3252,19 +3356,19 @@
 		transition: transform 0.16s ease;
 	}
 
-	.tunnel-spoiler__header:hover .tunnel-spoiler__chevron {
+	.tunnel-spoiler__summary:hover .tunnel-spoiler__chevron {
 		color: var(--text-primary);
 		background: color-mix(in srgb, var(--section-rail, var(--accent)) 10%, transparent);
 		border-color: color-mix(in srgb, var(--section-rail, var(--accent)) 22%, transparent);
 	}
 
-	.tunnel-spoiler__header[aria-expanded="true"] .tunnel-spoiler__chevron {
+	.tunnel-spoiler__summary[aria-expanded="true"] .tunnel-spoiler__chevron {
 		color: var(--section-rail, var(--accent));
 		background: color-mix(in srgb, var(--section-rail, var(--accent)) 12%, transparent);
 		border-color: color-mix(in srgb, var(--section-rail, var(--accent)) 26%, transparent);
 	}
 
-	.tunnel-spoiler__header[aria-expanded="true"] .tunnel-spoiler__chevron :global(svg) {
+	.tunnel-spoiler__summary[aria-expanded="true"] .tunnel-spoiler__chevron :global(svg) {
 		transform: rotate(180deg);
 	}
 
@@ -3281,14 +3385,36 @@
 		margin-bottom: 1rem;
 	}
 
+	.toolbar-view-row-desktop {
+		display: contents;
+	}
+
 	@media (max-width: 760px) {
-		.tunnel-spoiler__header {
+		.tunnel-spoiler__summary {
 			grid-template-columns: auto auto minmax(0, 1fr) 2rem;
-			padding: 0.8rem 0.85rem;
+			padding: 0.8rem 0.85rem 0.45rem;
+		}
+
+		.tunnel-spoiler__mobile-controls {
+			display: block;
+			padding: 0 0.85rem 0.75rem;
+		}
+
+		.tunnel-spoiler__mobile-controls :global(.toolbar-view-row) {
+			width: 100%;
 		}
 
 		.tunnel-spoiler__body {
 			padding: 0.65rem 0.75rem 0.85rem;
+		}
+
+		.tunnels-toolbar > .tunnel-count,
+		.count-group > .tunnel-count {
+			display: none;
+		}
+
+		.toolbar-view-row-desktop {
+			display: none;
 		}
 	}
 
