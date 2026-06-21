@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { Modal, Button, Dropdown } from '$lib/components/ui';
+	import { SideDrawer, Button, Dropdown } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { singboxStatus, singboxTunnels } from '$lib/stores/singbox';
 	import { subscriptionsStore } from '$lib/stores/subscriptions';
@@ -230,7 +230,7 @@
 	}
 </script>
 
-<Modal {open} title={titleByKind[kind]} size="lg" onclose={close} hasUnsavedChanges={() => isDirty}>
+<SideDrawer {open} title={titleByKind[kind]} width={640} onClose={close} hasUnsavedChanges={() => isDirty}>
 	{#if kind === 'choose'}
 		<p class="lead">Что добавить?</p>
 		<div class="kind-grid">
@@ -423,7 +423,7 @@
 		</form>
 	{/if}
 
-	{#snippet actions()}
+  {#snippet footer()}
 	{#if kind !== 'choose'}
 		<Button variant="secondary" onclick={backToChoose} disabled={submitting}>← Назад</Button>
 	{/if}
@@ -447,8 +447,8 @@
 				{submitting ? 'Создаём...' : 'Создать'}
 			</Button>
 		{/if}
-	{/snippet}
-</Modal>
+  {/snippet}
+</SideDrawer>
 
 <style>
 	.lead { color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5; margin: 0 0 0.8rem; }

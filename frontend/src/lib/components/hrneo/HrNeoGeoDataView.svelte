@@ -12,7 +12,7 @@
 		ensureDownloadOutboundsLoaded,
 		resolveDownloadRouteLabel,
 	} from '$lib/stores/downloadRoute';
-	import { ConfirmModal, Button, Dropdown, IconButton, Modal } from '$lib/components/ui';
+	import { ConfirmModal, Button, Dropdown, IconButton, SideDrawer } from '$lib/components/ui';
 	import { formatRelativeTime } from '$lib/utils/format';
 	import { copyToClipboard } from '$lib/utils/clipboard';
 	import { geoDownloadProgress } from '$lib/stores/geoDownload';
@@ -690,14 +690,14 @@
 {/if}
 
 {#if sourceModalFile}
-	<Modal open title="Источник гео-файла" size="md" onclose={() => (sourceModalFile = null)}>
+	<SideDrawer open title="Источник гео-файла" width={480} onClose={() => (sourceModalFile = null)}>
 		<div class="source-modal">
 			<code class="source-url">{sourceModalFile.url}</code>
 			<Button variant="secondary" size="sm" onclick={copySource}>
 				{copiedSource ? 'Скопировано' : 'Копировать'}
 			</Button>
 		</div>
-	</Modal>
+	</SideDrawer>
 {/if}
 
 <style>

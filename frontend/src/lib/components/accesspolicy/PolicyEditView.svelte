@@ -265,39 +265,17 @@
 <style>
 	.edit-layout {
 		display: grid;
-		grid-template-columns: 1.3fr 1fr;
-		flex: 1;
+		grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.9fr);
+		flex: 1 1 auto;
 		min-height: 0;
 		height: 100%;
 		overflow: hidden;
 	}
 
-	@media (max-width: 768px) {
-		.edit-layout {
-			display: flex;
-			flex-direction: column;
-			height: auto;
-			min-height: 100%;
-			overflow: visible;
-		}
-
-		.left-panel {
-			border-right: none !important;
-			border-bottom: 1px solid var(--border);
-			overflow: visible;
-			min-height: auto;
-			flex: none;
-		}
-
-		.right-panel {
-			overflow: visible;
-			min-height: auto;
-			flex: none;
-		}
-
-		.right-panel-hr {
-			overflow-y: visible;
-		}
+	.left-panel,
+	.right-panel {
+		min-width: 0;
+		min-height: 0;
 	}
 
 	.left-panel {
@@ -306,21 +284,44 @@
 		gap: 16px;
 		padding: 16px;
 		border-right: 1px solid var(--border);
-		min-height: 0;
 		overflow-y: auto;
 	}
 
 	.right-panel {
 		display: flex;
 		flex-direction: column;
-		min-height: 0;
-		overflow: hidden;
 		padding: 16px;
 		background: var(--bg-primary);
+		overflow: hidden;
 	}
 
 	.right-panel-hr {
 		overflow-y: auto;
+	}
+
+	@media (max-width: 768px) {
+		.edit-layout {
+			display: flex;
+			flex-direction: column;
+			height: auto;
+			min-height: 0;
+			overflow: visible;
+		}
+
+		.left-panel,
+		.right-panel {
+			overflow: visible;
+			min-height: auto;
+			border-right: none !important;
+		}
+
+		.left-panel {
+			border-bottom: 1px solid var(--border);
+		}
+
+		.right-panel-hr {
+			overflow-y: visible;
+		}
 	}
 
 	.hr-side {
