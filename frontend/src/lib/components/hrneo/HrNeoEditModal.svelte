@@ -6,7 +6,7 @@
 		RoutingTunnel,
 	} from '$lib/types';
 	import type { CatalogPreset } from '$lib/types';
-	import { Modal, Button, Dropdown, type DropdownOption } from '$lib/components/ui';
+	import { SideDrawer, Button, Dropdown, type DropdownOption } from '$lib/components/ui';
 	import { IconPickerModal, ServiceIcon } from '$lib/components/dnsroutes';
 	import { presetCatalog } from '$lib/stores/presets';
 	import {
@@ -393,7 +393,7 @@
 	}
 </script>
 
-<Modal {open} {title} size="lg" {onclose} hasUnsavedChanges={() => isDirty}>
+<SideDrawer {open} {title} width={640} onClose={onclose} hasUnsavedChanges={() => isDirty}>
 	{#if showCatalogEntry}
 		<div class="catalog-entry">
 			{#if selectedPreset}
@@ -633,13 +633,13 @@
 		<div class="form-hint">CIDR · geoip:TAG — строкой на запись. Блок в ip.list.</div>
 	</section>
 
-	{#snippet actions()}
+	{#snippet footer()}
 		<Button variant="secondary" onclick={onclose}>Отмена</Button>
 		<Button variant="primary" onclick={handleSave} disabled={!canSave} loading={saving}>
 			Сохранить
 		</Button>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <IconPickerModal
 	open={iconPickerOpen}
