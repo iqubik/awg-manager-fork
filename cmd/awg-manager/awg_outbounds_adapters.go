@@ -223,6 +223,7 @@ func (a *monitoringSingboxTunnelAdapter) List(ctx context.Context) ([]monitoring
 	out := make([]monitoring.SingboxTunnelInfo, 0, len(tunnels))
 	seen := make(map[string]bool, len(tunnels))
 	subLabelByActiveTag := make(map[string]string)
+	probeTagByMemberTag := make(map[string]string)
 	subMemberByTag := make(map[string]subscription.MemberInfo)
 	type tunnelMeta struct {
 		protocol  string
@@ -265,6 +266,7 @@ func (a *monitoringSingboxTunnelAdapter) List(ctx context.Context) ([]monitoring
 			}
 			if sub.ActiveMember != "" {
 				subLabelByActiveTag[sub.ActiveMember] = label
+				probeTagByMemberTag[sub.ActiveMember] = strings.TrimSpace(sub.SelectorTag)
 			}
 			for _, tag := range sub.MemberTags {
 				tag = strings.TrimSpace(tag)
@@ -273,6 +275,9 @@ func (a *monitoringSingboxTunnelAdapter) List(ctx context.Context) ([]monitoring
 				}
 				if _, exists := subLabelByActiveTag[tag]; !exists {
 					subLabelByActiveTag[tag] = label
+				}
+				if _, exists := probeTagByMemberTag[tag]; !exists {
+					probeTagByMemberTag[tag] = strings.TrimSpace(sub.SelectorTag)
 				}
 			}
 			for _, member := range sub.Members {
@@ -283,6 +288,9 @@ func (a *monitoringSingboxTunnelAdapter) List(ctx context.Context) ([]monitoring
 				subMemberByTag[tag] = member
 				if _, exists := subLabelByActiveTag[tag]; !exists {
 					subLabelByActiveTag[tag] = label
+				}
+				if _, exists := probeTagByMemberTag[tag]; !exists {
+					probeTagByMemberTag[tag] = strings.TrimSpace(sub.SelectorTag)
 				}
 			}
 		}
@@ -302,8 +310,13 @@ func (a *monitoringSingboxTunnelAdapter) List(ctx context.Context) ([]monitoring
 				name = label
 			}
 			member := subMemberByTag[tag]
+			probeTag := strings.TrimSpace(probeTagByMemberTag[tag])
+			if probeTag == "" {
+				probeTag = tag
+			}
 			out = append(out, monitoring.SingboxTunnelInfo{
 				Tag:           tag,
+				ProbeTag:      probeTag,
 				Name:          name,
 				InterfaceName: "",
 				Subscription:  true,
@@ -319,6 +332,11 @@ func (a *monitoringSingboxTunnelAdapter) List(ctx context.Context) ([]monitoring
 				continue
 			}
 			out[i].Subscription = true
+			probeTag := strings.TrimSpace(probeTagByMemberTag[out[i].Tag])
+			if probeTag == "" {
+				probeTag = strings.TrimSpace(out[i].Tag)
+			}
+			out[i].ProbeTag = probeTag
 			if member, ok := subMemberByTag[out[i].Tag]; ok {
 				if out[i].Protocol == "" {
 					out[i].Protocol = strings.TrimSpace(member.Protocol)

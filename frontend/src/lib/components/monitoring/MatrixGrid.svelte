@@ -85,6 +85,10 @@
 			: `Исключить «${name}» из матрицы мониторинга`;
 	}
 
+	function clashSourceTitle(tunnel: MonitoringTunnel): string {
+		return `Источник: ${tunnel.urltestGroup || tunnel.probeTag || tunnel.singboxTag || ''}`;
+	}
+
 	type TunnelBadge = {
 		label: string;
 		variant: BadgeVariant;
@@ -217,7 +221,7 @@
 										variant={latencyTier(t.clashDelay)}
 										size="sm"
 										mono
-										title={`Источник: urltest группа "${t.urltestGroup ?? ''}"`}
+										title={clashSourceTitle(t)}
 									>
 										<span class="clash-num">clash: <span class="clash-val">{t.clashDelay}</span>ms</span>
 										<LatencySparkline
@@ -318,7 +322,7 @@
 												variant={latencyTier(tunnel.clashDelay)}
 												size="sm"
 												mono
-												title={`Источник: urltest группа "${tunnel.urltestGroup ?? ''}"`}
+												title={clashSourceTitle(tunnel)}
 											>
 												<span class="clash-num">clash: <span class="clash-val">{tunnel.clashDelay}</span>ms</span>
 												<LatencySparkline

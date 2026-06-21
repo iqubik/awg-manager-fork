@@ -9,11 +9,11 @@ package monitoring
 
 // Target is a single monitoring probe target.
 //
-// URL is the HTTPS endpoint used by sing-box rows (Clash API
-// /proxies/<tag>/delay). HTTP is unsafe — sing-box upstream
-// forces HTTPS in this endpoint (sagernet/sing-box#3604) — so
-// callers must pass HTTPS URLs only. AWG rows ignore URL and
-// probe Host directly via HTTP bound to the tunnel interface.
+// URL is the preferred test endpoint for sing-box rows (Clash API
+// /proxies/<tag>/delay). When empty, the scheduler falls back to the
+// same stable generate_204 URL used by the sing-box delay checker.
+// AWG rows ignore URL and probe Host directly via HTTP bound to the
+// tunnel interface.
 type Target struct {
 	ID   string `json:"id"`
 	Host string `json:"host"`
@@ -48,10 +48,15 @@ type Tunnel struct {
 	Protocol  string `json:"protocol,omitempty"`
 	Security  string `json:"security,omitempty"`
 	Transport string `json:"transport,omitempty"`
-	// SingboxTag is the sing-box outbound tag (e.g. "veesp") for
-	// Source=="singbox" tunnels; empty otherwise. Lets the frontend
-	// reach into the per-member latency history map keyed by tag.
+	// SingboxTag is the rendered sing-box row tag (e.g. member tag or
+	// standalone outbound tag) for Source=="singbox" tunnels; empty
+	// otherwise.
 	SingboxTag string `json:"singboxTag,omitempty"`
+	// ProbeTag is the outbound tag the monitoring scheduler should
+	// probe through Clash delay. For regular sing-box rows this equals
+	// SingboxTag; for subscription rows it prefers the selector/urltest
+	// tag so monitoring matches the stable subscription-card delay path.
+	ProbeTag string `json:"probeTag,omitempty"`
 	// ClashDelay is the last-recorded sing-box urltest delay (ms) for
 	// this tunnel. 0 means: not a urltest member, or no delay recorded
 	// yet, or Clash unreachable.
