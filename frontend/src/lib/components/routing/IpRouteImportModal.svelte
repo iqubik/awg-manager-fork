@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Modal, Button, Dropdown, type DropdownOption } from '$lib/components/ui';
+	import { SideDrawer, Button, Dropdown, type DropdownOption } from '$lib/components/ui';
 	import { parseStaticRouteImport, type PortableStaticRoute } from '$lib/utils/staticroute-export';
 	import type { RoutingTunnel } from '$lib/types';
 	import { pluralize, ROUTE_WORDS } from '$lib/utils/pluralize';
@@ -94,7 +94,7 @@
 	}
 </script>
 
-<Modal {open} title="Загрузить набор маршрутов" size="lg" {onclose}>
+<SideDrawer {open} title="Загрузить набор маршрутов" width={640} onClose={onclose}>
 	{#if !parsed}
 		<RoutingImportDropZone
 			subject="IP-маршрутами"
@@ -165,7 +165,7 @@
 		</div>
 	{/if}
 
-	{#snippet actions()}
+	{#snippet footer()}
 		<Button variant="ghost" onclick={onclose} disabled={importing}>Отмена</Button>
 		{#if parsed}
 			<Button variant="primary" onclick={handleImport} disabled={selectedCount === 0 || noTunnels} loading={importing}>
@@ -173,4 +173,4 @@
 			</Button>
 		{/if}
 	{/snippet}
-</Modal>
+</SideDrawer>

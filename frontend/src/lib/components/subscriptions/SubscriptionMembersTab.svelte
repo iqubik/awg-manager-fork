@@ -5,7 +5,7 @@
 	import { Ban, CheckLine, PanelBottomClose, RefreshCcw } from 'lucide-svelte';
 	import { api } from '$lib/api/client';
 	import { MAX_SUBSCRIPTION_INFO_ITEMS } from '$lib/constants/subscription';
-	import { Button, Modal, Stat, StatStrip } from '$lib/components/ui';
+	import { Button, Modal, SideDrawer, Stat, StatStrip } from '$lib/components/ui';
 	import { runWithConcurrency } from '$lib/utils/runWithConcurrency';
 	import { singboxDelayHistory, triggerDelayCheck } from '$lib/stores/singbox';
 	import { notifications } from '$lib/stores/notifications';
@@ -524,11 +524,11 @@
 		/>
 	{/if}
 
-<Modal
+<SideDrawer
 	open={addOpen}
 	title="Добавить сервер"
-	size="md"
-	onclose={() => {
+	width={480}
+	onClose={() => {
 		if (adding) return;
 		addOpen = false;
 		addLink = '';
@@ -555,7 +555,7 @@
 		</label>
 		{#if addError}<div class="err">{addError}</div>{/if}
 	</form>
-	{#snippet actions()}
+	{#snippet footer()}
 		<Button
 			variant="ghost"
 			disabled={adding}
@@ -571,7 +571,7 @@
 			{adding ? 'Добавляем...' : 'Добавить'}
 		</Button>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <Modal
 	open={pendingRemove !== null}

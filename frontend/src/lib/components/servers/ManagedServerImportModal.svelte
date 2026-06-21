@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Modal, Toggle } from '$lib/components/ui';
+	import { Button, SideDrawer, Toggle } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import type { ManagedServerBackupFile, RestoreOutcome } from '$lib/types';
@@ -49,7 +49,7 @@
 	}
 </script>
 
-<Modal {open} title="Импорт резервной копии" size="md" {onclose}>
+<SideDrawer {open} title="Импорт резервной копии" width={480} onClose={onclose}>
 	{#if outcomes.length === 0}
 		<p>Файл содержит {file.managedServers.length} сервер(а/ов), {peerCount} пир(а/ов).</p>
 		<Toggle
@@ -80,7 +80,7 @@
 		</div>
 	{/if}
 
-	{#snippet actions()}
+	{#snippet footer()}
 		{#if outcomes.length === 0}
 			<Button variant="secondary" size="md" onclick={onclose}>Отмена</Button>
 			<Button variant="outline-primary" size="md" onclick={runImport} loading={importing}>Импортировать</Button>
@@ -88,7 +88,7 @@
 			<Button variant="secondary" size="md" onclick={onclose}>Закрыть</Button>
 		{/if}
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
 	.results {
