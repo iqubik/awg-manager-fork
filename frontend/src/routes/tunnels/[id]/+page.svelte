@@ -9,7 +9,8 @@
 	import { copyToClipboard } from '$lib/utils/clipboard';
 	import type { AWGTunnel, SystemInfo, WANInterface, RouterInterface, TunnelListItem } from '$lib/types';
 	import { PageContainer, LoadingSpinner } from '$lib/components/layout';
-	import { Toggle, Dropdown, Tabs, SensitiveBlockEye, type DropdownOption } from '$lib/components/ui';
+	import { Toggle, Dropdown, Tabs, MobileTabRail, SensitiveBlockEye, type DropdownOption } from '$lib/components/ui';
+	import { readTunnelMobileLayout, subscribeTunnelMobileLayout } from '$lib/constants/singboxLayout';
 	import { superForm } from 'sveltekit-superforms';
 	import { zod4Client } from 'sveltekit-superforms/adapters';
 	import { editTunnelSchema } from '$lib/schemas/tunnel';
@@ -36,6 +37,8 @@
 
 	type TunnelDetailTab = 'basic' | 'obfuscation' | 'routing' | 'awgConfig';
 	let activeTab = $state<TunnelDetailTab>('basic');
+	let isMobileTabs = $state(readTunnelMobileLayout());
+	let unsubMobileTabs: (() => void) | undefined;
 	const detailTabs = [
 		{ id: 'basic', label: 'Основное' },
 		{ id: 'obfuscation', label: 'Обфускация' },
@@ -118,12 +121,16 @@
 
 	onMount(async () => {
 		window.addEventListener('keydown', handleKeydown);
+		unsubMobileTabs = subscribeTunnelMobileLayout((mobile) => {
+			isMobileTabs = mobile;
+		});
 		api.getSystemInfo().then(info => systemInfo = info).catch(() => null);
 		await loadTunnel();
 		loadWanData().catch(() => {});
 	});
 
 	onDestroy(() => {
+		unsubMobileTabs?.();
 		window.removeEventListener('keydown', handleKeydown);
 	});
 
@@ -348,13 +355,24 @@
 			onSaveAndStart={handleSaveAndStart}
 		/>
 
-		<Tabs
-			tabs={detailTabs}
-			active={activeTab}
-			onchange={(id) => (activeTab = id as TunnelDetailTab)}
-			urlParam="tab"
-			defaultTab="basic"
-		/>
+		{#if isMobileTabs}
+			<MobileTabRail
+				tabs={detailTabs}
+				active={activeTab}
+				onchange={(id) => (activeTab = id as TunnelDetailTab)}
+				urlParam="tab"
+				defaultTab="basic"
+				ariaLabel="Разделы редактирования AWG"
+			/>
+		{:else}
+			<Tabs
+				tabs={detailTabs}
+				active={activeTab}
+				onchange={(id) => (activeTab = id as TunnelDetailTab)}
+				urlParam="tab"
+				defaultTab="basic"
+			/>
+		{/if}
 
 		<div class="tab-content">
 			{#if activeTab === 'basic'}
