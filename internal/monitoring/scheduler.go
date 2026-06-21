@@ -65,6 +65,7 @@ type SingboxTunnelLister interface {
 // sing-box outbound to render a matrix row.
 type SingboxTunnelInfo struct {
 	Tag           string // sing-box outbound tag, e.g. "veesp"
+	ProbeTag      string // preferred Clash-delay probe tag (selector/urltest for subscriptions)
 	Name          string // human-readable name (often equals Tag)
 	InterfaceName string // kernel iface, e.g. "t2s0"
 	Subscription  bool
@@ -72,6 +73,8 @@ type SingboxTunnelInfo struct {
 	Security      string
 	Transport     string
 }
+
+const singboxDefaultDelayURL = "http://www.gstatic.com/generate_204"
 
 // CompositeOutboundLister exposes the router's composite outbound
 // list so the scheduler can identify which sing-box tunnels are
@@ -398,20 +401,35 @@ func (s *Scheduler) proberFor(tun Tunnel, isSelf bool) Prober {
 	return s.deps.Prober
 }
 
+func singboxDelayURL(t Target) string {
+	probeURL := strings.TrimSpace(t.URL)
+	if probeURL != "" {
+		return probeURL
+	}
+	return singboxDefaultDelayURL
+}
+
 // runProbeCell measures latency for one (target × tunnel) cell.
 // Sing-box tunnels go through the Clash API delay endpoint when wired —
 // honest end-to-end through the selected proxy outbound, including
 // subscription rows. Everything else uses the interface-bound Prober.
 func (s *Scheduler) runProbeCell(ctx context.Context, t Target, tn Tunnel, isSelf bool) (int, bool) {
 	if tn.Source == "singbox" && s.deps.SingboxDelay != nil && tn.SingboxTag != "" {
-		probeURL := t.URL
-		if probeURL == "" && t.Host != "" {
-			probeURL = "https://" + t.Host + "/"
+		probeTag := strings.TrimSpace(tn.ProbeTag)
+		if probeTag == "" {
+			probeTag = strings.TrimSpace(tn.SingboxTag)
+		}
+		if probeTag == "" {
+			return 0, false
+		}
+		probeURL := singboxDefaultDelayURL
+		if !tn.Subscription {
+			probeURL = singboxDelayURL(t)
 		}
 		if probeURL == "" {
 			return 0, false
 		}
-		d, err := s.deps.SingboxDelay.TestDelay(tn.SingboxTag, probeURL, s.probeTimeout)
+		d, err := s.deps.SingboxDelay.TestDelay(probeTag, probeURL, s.probeTimeout)
 		if err != nil || d <= 0 {
 			return 0, false
 		}
@@ -557,6 +575,7 @@ func (s *Scheduler) collectTunnels(ctx context.Context) []Tunnel {
 					// with Clash data.
 					Source:       "singbox",
 					SingboxTag:   sbt.Tag,
+					ProbeTag:     sbt.ProbeTag,
 					Subscription: sbt.Subscription,
 					Protocol:     sbt.Protocol,
 					Security:     sbt.Security,
@@ -593,11 +612,7 @@ func (s *Scheduler) collectTunnels(ctx context.Context) []Tunnel {
 // Mutates `tunnels` in place. Safe to call when Composites or
 // ClashState deps are nil — short-circuits.
 func (s *Scheduler) augmentSingboxClashData(ctx context.Context, tunnels []Tunnel) {
-	if s.deps.Composites == nil || s.deps.ClashState == nil {
-		return
-	}
-	composites, err := s.deps.Composites.List(ctx)
-	if err != nil {
+	if s.deps.ClashState == nil {
 		return
 	}
 	// Build memberTag → urltestGroupTag map. First urltest group wins
@@ -605,19 +620,35 @@ func (s *Scheduler) augmentSingboxClashData(ctx context.Context, tunnels []Tunne
 	// appear in multiple groups but only one urltest tracks its delay
 	// authoritatively).
 	urltestOf := make(map[string]string)
-	for _, c := range composites {
-		if strings.ToLower(c.Type) != "urltest" {
-			continue
-		}
-		for _, m := range c.Members {
-			if _, exists := urltestOf[m]; !exists {
-				urltestOf[m] = c.Tag
+	if s.deps.Composites != nil {
+		composites, err := s.deps.Composites.List(ctx)
+		if err == nil {
+			for _, c := range composites {
+				if strings.ToLower(c.Type) != "urltest" {
+					continue
+				}
+				for _, m := range c.Members {
+					if _, exists := urltestOf[m]; !exists {
+						urltestOf[m] = c.Tag
+					}
+				}
 			}
 		}
 	}
 	for i := range tunnels {
 		if tunnels[i].Source != "singbox" {
 			continue
+		}
+		probeTag := strings.TrimSpace(tunnels[i].ProbeTag)
+		if probeTag == "" {
+			probeTag = strings.TrimSpace(tunnels[i].SingboxTag)
+		}
+		if tunnels[i].Subscription && probeTag != "" {
+			if delay, hasDelay := s.deps.ClashState.LatencyForOutbound(ctx, probeTag); hasDelay {
+				tunnels[i].ClashDelay = delay
+				tunnels[i].UrltestGroup = probeTag
+				continue
+			}
 		}
 		group, ok := urltestOf[tunnels[i].SingboxTag]
 		if !ok {

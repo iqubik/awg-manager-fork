@@ -35,6 +35,7 @@ type MonitoringTunnelDTO struct {
 	Security        string `json:"security,omitempty" example:"reality"`
 	Transport       string `json:"transport,omitempty" example:"tcp"`
 	SingboxTag      string `json:"singboxTag,omitempty" example:"veesp"`
+	ProbeTag        string `json:"probeTag,omitempty" example:"sub-iq0-selector"`
 	ClashDelay      int    `json:"clashDelay,omitempty" example:"428"`
 	UrltestGroup    string `json:"urltestGroup,omitempty" example:"auto"`
 }
