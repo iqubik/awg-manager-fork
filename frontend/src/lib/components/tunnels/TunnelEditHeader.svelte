@@ -271,6 +271,11 @@
 		.title-row {
 			min-width: 0;
 			flex: 1;
+			gap: 12px;
+		}
+
+		.tunnel-state-badge {
+			flex: 0 0 auto;
 		}
 
 		.page-title {
@@ -283,6 +288,9 @@
 			grid-template-columns: repeat(2, minmax(0, 1fr));
 			gap: 8px;
 			align-items: stretch;
+			padding-top: 10px;
+			margin-top: 2px;
+			border-top: 1px solid var(--color-border, var(--border));
 		}
 
 		.header-actions :global(.btn) {
