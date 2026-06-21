@@ -662,7 +662,7 @@ jobs:
           cat /tmp/delta.md "$PREV" > dist/CHANGELOG.md
 
           {
-            echo "IQ localized development build ${{ needs.version.outputs.ipk_version }}"
+            echo "IQ devbuild ${{ needs.version.outputs.ipk_version }}"
             echo
             echo "Commit: ${GITHUB_SHA}"
             echo "Release channel: iq-latest"
