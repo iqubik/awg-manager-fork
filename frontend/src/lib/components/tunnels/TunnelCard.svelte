@@ -325,7 +325,7 @@
 					/>
 				</span>
 				</div>
-				{#if showConnectivityRow && view === 'cards'}
+				{#if showConnectivityRow && (view === 'cards' || view === 'list')}
 					<div class="dense-toolbar-bottom" class:recovering={pingStatusNote?.tone === 'recovering'}>
 						{#if showPingButton}
 							<TunnelPingButton
