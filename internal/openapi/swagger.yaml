@@ -2004,6 +2004,9 @@ definitions:
       pingcheckTarget:
         example: target_google
         type: string
+      probeTag:
+        example: sub-iq0-selector
+        type: string
       protocol:
         example: vless
         type: string
