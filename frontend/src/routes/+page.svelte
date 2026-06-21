@@ -3379,7 +3379,7 @@
 
 		.tunnel-spoiler__mobile-controls {
 			display: block;
-			padding: 0 0.85rem 0.75rem;
+			padding: 0.35rem 0.85rem 0.75rem;
 		}
 
 		.tunnel-spoiler__mobile-controls :global(.toolbar-view-row) {
