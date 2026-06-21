@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Modal } from '$lib/components/ui';
+	import { SideDrawer } from '$lib/components/ui';
 	import { copyToClipboard } from '$lib/utils/clipboard';
 	import type { GeoTag } from '$lib/types';
 
@@ -74,7 +74,7 @@
 	}
 </script>
 
-<Modal {open} {title} size="lg" onclose={handleClose}>
+<SideDrawer {open} {title} width={640} onClose={handleClose}>
 	<div class="modal-content">
 		{#if fileType === 'geoip' && ifaceName}
 			<div class="ipset-bar-wrap">
@@ -134,7 +134,7 @@
 			{/if}
 		</div>
 	</div>
-</Modal>
+</SideDrawer>
 
 <style>
 	.modal-content {
