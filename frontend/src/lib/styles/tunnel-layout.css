@@ -332,6 +332,11 @@
 	min-width: 0;
 }
 
+.awg-list-endpoint-primary {
+	font-size: var(--tunnel-list-meta-size);
+	line-height: 1.2;
+}
+
 .awg-endpoint-value {
 	min-width: 0;
 	overflow: hidden;
