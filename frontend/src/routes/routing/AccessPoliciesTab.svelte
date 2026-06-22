@@ -217,6 +217,10 @@
                     policy={editingPolicyData}
                     devices={policyDevices}
                     globalInterfaces={policyInterfaces}
+                    onback={() => {
+                        editingPolicy = null;
+                        editingPolicyData = null;
+                    }}
                     onupdate={refreshPolicyData}
                     ondeviceassigned={handleDeviceAssigned}
                     ondeviceunassigned={handleDeviceUnassigned}
