@@ -14,6 +14,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/sys/httpclient"
 	"github.com/hoaxisr/awg-manager/internal/sys/ndmsinfo"
 	"github.com/hoaxisr/awg-manager/internal/sys/osdetect"
+	testingpkg "github.com/hoaxisr/awg-manager/internal/testing"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/netutil"
 )
 
@@ -595,6 +596,22 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 			}
 		}
 		out = append(out, altProbe)
+
+		ipProbe := TestResult{
+			Name:        "singbox_tunnel_ip_location",
+			Description: "Публичный IP / локация",
+			TunnelID:    tunnelID,
+			TunnelName:  tunnelName,
+		}
+		geo, geoErr := testingpkg.CheckIPByProxy(ctx, proxy, "")
+		if geoErr != nil || geo == nil || strings.TrimSpace(geo.IP) == "" {
+			ipProbe.Status = StatusWarn
+			ipProbe.Detail = "Не удалось определить публичный IP через local proxy"
+		} else {
+			ipProbe.Status = StatusPass
+			ipProbe.Detail = formatGeoDetailLine("IP", geo)
+		}
+		out = append(out, ipProbe)
 	}
 
 	return out
@@ -761,26 +778,44 @@ func (r *Runner) testTunnelConnectivity(ctx context.Context, t TunnelInfo) TestR
 		return res
 	}
 
-	// Try multiple IP check services. Egress uses default route (WAN).
-	urls := []string{"https://ifconfig.me", "https://icanhazip.com", "https://ip.me"}
-	for _, url := range urls {
-		result, err := httpclient.DefaultClient.Do(ctx, httpclient.CallConfig{
-			URL:     url,
-			MaxTime: 5 * time.Second,
-		})
-		if err == nil {
-			ip := strings.TrimSpace(result.Body)
-			if ip != "" {
-				res.Status = StatusPass
-				res.Detail = fmt.Sprintf("IP: %s (via %s)", ip, url)
-				return res
-			}
-		}
+	probe, err := testingpkg.CheckIPByInterface(ctx, t.InterfaceName, "")
+	if err != nil {
+		res.Status = StatusSkip
+		res.Detail = "Все IP-сервисы недоступны"
+		return res
 	}
 
-	res.Status = StatusSkip
-	res.Detail = "Все IP-сервисы недоступны"
+	lines := make([]string, 0, 2)
+	if probe.VpnGeo != nil && strings.TrimSpace(probe.VpnGeo.IP) != "" {
+		lines = append(lines, formatGeoDetailLine("VPN IP", probe.VpnGeo))
+	}
+	if probe.DirectGeo != nil && strings.TrimSpace(probe.DirectGeo.IP) != "" {
+		lines = append(lines, formatGeoDetailLine("Direct IP", probe.DirectGeo))
+	}
+	if len(lines) == 0 {
+		res.Status = StatusSkip
+		res.Detail = "Все IP-сервисы недоступны"
+		return res
+	}
+
+	if probe.IPChanged {
+		res.Status = StatusPass
+	} else {
+		res.Status = StatusWarn
+	}
+	res.Detail = strings.Join(lines, "\n")
 	return res
+}
+
+func formatGeoDetailLine(label string, info *testingpkg.IPGeoInfo) string {
+	if info == nil {
+		return label + ": недоступно"
+	}
+	line := label + ": " + strings.TrimSpace(info.IP)
+	if summary := testingpkg.FormatIPGeoSummary(info); summary != "" {
+		line += " — " + summary
+	}
+	return line
 }
 
 func (r *Runner) testFirewallRules(t TunnelInfo) TestResult {
