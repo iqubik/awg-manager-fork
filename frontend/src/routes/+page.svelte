@@ -2084,7 +2084,7 @@
 								</div>
 							</div>
 							<div class="awg-list-cell" data-label="Endpoint">
-								<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line">
+								<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line awg-list-endpoint-primary">
 									<span class="awg-endpoint-value" title={isEndpointShown ? endpointHost(tunnel.endpoint) : ''}>
 										{#if tunnel.endpoint}
 											{isEndpointShown ? endpointHost(tunnel.endpoint) : '•••••••••'}
@@ -2092,11 +2092,15 @@
 											—
 										{/if}
 									</span>
+									{#if endpointPort(tunnel.endpoint)}
+										<span class="awg-endpoint-port">:{endpointPort(tunnel.endpoint)}</span>
+									{/if}
 									{#if tunnel.endpoint}
 										<button
 											type="button"
 											class="awg-endpoint-eye"
 											onclick={() => toggleEndpointVisible('managed', tunnel.id)}
+											aria-label={isEndpointShown ? 'Скрыть endpoint' : 'Показать endpoint'}
 											title={isEndpointShown ? 'Скрыть' : 'Показать'}
 										>
 											{#if isEndpointShown}
@@ -2105,9 +2109,6 @@
 												<EyeOff size={14} aria-hidden="true" />
 											{/if}
 										</button>
-									{/if}
-									{#if endpointPort(tunnel.endpoint)}
-										<span class="awg-endpoint-port">:{endpointPort(tunnel.endpoint)}</span>
 									{/if}
 								</div>
 								<div class="awg-list-sub" title={isEndpointShown ? managedRouteMeta(tunnel) : ''}>
@@ -2189,7 +2190,7 @@
 									<div class="awg-list-sub">{tunnel.peer?.via || 'Маршрут не определён'}</div>
 								</div>
 								<div class="awg-list-cell" data-label="Endpoint">
-								<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line">
+								<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line awg-list-endpoint-primary">
 									<span class="awg-endpoint-value" title={isEndpointShown ? endpointHost(tunnel.peer?.endpoint) : ''}>
 										{#if tunnel.peer?.endpoint}
 											{isEndpointShown ? endpointHost(tunnel.peer.endpoint) : '•••••••••'}
@@ -2197,11 +2198,15 @@
 											—
 										{/if}
 									</span>
+									{#if endpointPort(tunnel.peer?.endpoint)}
+										<span class="awg-endpoint-port">:{endpointPort(tunnel.peer?.endpoint)}</span>
+									{/if}
 									{#if tunnel.peer?.endpoint}
 										<button
 											type="button"
 											class="awg-endpoint-eye"
 											onclick={() => toggleEndpointVisible('system', tunnel.id)}
+											aria-label={isEndpointShown ? 'Скрыть endpoint' : 'Показать endpoint'}
 											title={isEndpointShown ? 'Скрыть' : 'Показать'}
 										>
 											{#if isEndpointShown}
@@ -2210,9 +2215,6 @@
 												<EyeOff size={14} aria-hidden="true" />
 											{/if}
 										</button>
-									{/if}
-									{#if endpointPort(tunnel.peer?.endpoint)}
-										<span class="awg-endpoint-port">:{endpointPort(tunnel.peer?.endpoint)}</span>
 									{/if}
 								</div>
 									<div class="awg-list-sub">{tunnel.address || '—'}</div>
@@ -2291,7 +2293,7 @@
 									<div class="awg-list-sub">Не управляется AWG Manager</div>
 								</div>
 								<div class="awg-list-cell" data-label="Endpoint">
-									<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line">
+									<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line awg-list-endpoint-primary">
 										<span class="awg-endpoint-value" title={isEndpointShown ? endpointHost(tunnel.endpoint) : ''}>
 											{#if tunnel.endpoint}
 												{isEndpointShown ? endpointHost(tunnel.endpoint) : '•••••••••'}
@@ -2299,11 +2301,15 @@
 												—
 											{/if}
 										</span>
+										{#if endpointPort(tunnel.endpoint)}
+											<span class="awg-endpoint-port">:{endpointPort(tunnel.endpoint)}</span>
+										{/if}
 										{#if tunnel.endpoint}
 											<button
 												type="button"
 												class="awg-endpoint-eye"
 												onclick={() => toggleEndpointVisible('external', tunnel.interfaceName)}
+												aria-label={isEndpointShown ? 'Скрыть endpoint' : 'Показать endpoint'}
 												title={isEndpointShown ? 'Скрыть' : 'Показать'}
 											>
 												{#if isEndpointShown}
@@ -2312,9 +2318,6 @@
 													<EyeOff size={14} aria-hidden="true" />
 												{/if}
 											</button>
-										{/if}
-										{#if endpointPort(tunnel.endpoint)}
-											<span class="awg-endpoint-port">:{endpointPort(tunnel.endpoint)}</span>
 										{/if}
 									</div>
 									<div class="awg-list-sub">WG интерфейс</div>

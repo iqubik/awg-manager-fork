@@ -16,6 +16,7 @@
 	<span class="tunnel-list-endpoint-host" class:tunnel-list-endpoint-host--muted={!show}>
 		{show ? host : '••••••••'}
 	</span>
+	<span class="tunnel-list-endpoint-port">:{port}</span>
 	<button
 		type="button"
 		class="tunnel-list-endpoint-eye"
@@ -33,10 +34,4 @@
 			<EyeOff size={12} aria-hidden="true" />
 		{/if}
 	</button>
-	<span
-		class="tunnel-list-endpoint-port"
-		class:tunnel-list-endpoint-port--muted={!show}
-	>
-		{show ? `:${port}` : ':•••••'}
-	</span>
 </div>
