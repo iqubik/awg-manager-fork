@@ -8,6 +8,7 @@
   import { Button, Badge } from '$lib/components/ui';
   import { ChevronRight, Trash2, Edit3 } from 'lucide-svelte';
   import { api } from '$lib/api/client';
+  import { notifications } from '$lib/stores/notifications';
   import type {
     DeviceProxyRuntime,
     DeviceProxyInstance,
@@ -35,8 +36,10 @@
   let listenChoices = $state<ListenChoices | null>(null);
   let loadError = $state<string | null>(null);
   let loaded = $state(false);
+  let applyingById = $state<Record<string, boolean>>({});
 
-  onMount(async () => {
+  async function loadData() {
+    loadError = null;
     try {
       const [ins, choices] = await Promise.all([
         api.listDeviceProxyInstances(),
@@ -61,6 +64,10 @@
     } finally {
       loaded = true;
     }
+  }
+
+  onMount(() => {
+    void loadData();
   });
 
   function runtimeFor(id: string): DeviceProxyRuntime {
@@ -89,50 +96,116 @@
     return `${clientListenHost(in_)}:${in_.port}`;
   }
 
-  function outboundLabelFor(in_: DeviceProxyInstance): string {
+  type OutboundState = {
+    savedTag: string;
+    defaultTag: string;
+    activeTag: string;
+    label: string;
+    isDrift: boolean;
+  };
+
+  function outboundStateFor(in_: DeviceProxyInstance): OutboundState {
     const rt = runtimeFor(in_.id);
-    return rt.activeTag || rt.defaultTag || in_.selectedOutbound || '—';
+    const savedTag = in_.selectedOutbound || 'direct';
+    const defaultTag = rt.defaultTag || savedTag;
+    const activeTag = rt.activeTag || '';
+    return {
+      savedTag,
+      defaultTag,
+      activeTag,
+      label: activeTag || defaultTag || savedTag || '—',
+      isDrift: !!activeTag && !!defaultTag && activeTag !== defaultTag,
+    };
   }
 
   function outboundVariantFor(tag: string): 'accent' | 'muted' {
     return tag === 'direct' || tag === '—' ? 'muted' : 'accent';
   }
+
+  async function applyOutbound(in_: DeviceProxyInstance, target: string): Promise<void> {
+    if (applyingById[in_.id]) return;
+    applyingById = { ...applyingById, [in_.id]: true };
+    try {
+      await api.selectDeviceProxyInstanceRuntime(in_.id, target);
+      await loadData();
+      notifications.success('Маршрут inbound применён');
+    } catch (e) {
+      notifications.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      const { [in_.id]: _, ...rest } = applyingById;
+      applyingById = rest;
+    }
+  }
 </script>
 
 {#snippet icon()}<ChevronRight size={12} />{/snippet}
+{#snippet proxyContent(in_: DeviceProxyInstance, outboundState: OutboundState)}
+  <div class="proxy-info">
+    <div class="proxy-main">
+      <span class="ty">mixed</span>
+      <span class="mono listen" title={listenLabelFor(in_)}>{listenLabelFor(in_)}</span>
+    </div>
+    <div class="proxy-sub">
+      {#if isInstanceActive(in_)}
+        <Badge variant="success" size="sm" mono>active</Badge>
+      {:else}
+        <Badge variant="muted" size="sm" mono>выкл</Badge>
+      {/if}
+      <span class="arrow">→</span>
+      <span class="outbound-wrap">
+        <Badge variant={outboundVariantFor(outboundState.label)} size="sm" mono>{outboundState.label}</Badge>
+      </span>
+      {#if outboundState.isDrift}
+        <Badge variant="warning" size="sm" mono>не применено</Badge>
+      {/if}
+    </div>
+    {#if outboundState.isDrift}
+      <div class="proxy-drift">
+        <span class="mono drift-line">active: {outboundState.activeTag}</span>
+        <span class="mono drift-line">default: {outboundState.defaultTag}</span>
+        <button
+          type="button"
+          class="apply-link"
+          onclick={(event) => {
+            event.stopPropagation();
+            void applyOutbound(in_, outboundState.defaultTag);
+          }}
+          disabled={applyingById[in_.id]}
+        >
+          {applyingById[in_.id] ? 'Применяем...' : 'Сделать активным'}
+        </button>
+      </div>
+    {/if}
+  </div>
+{/snippet}
 
 <div class="panel" class:bare>
   {#if instances.length > 0}
     <div class="proxy-list">
       {#each instances as in_ (in_.id)}
-        {@const outboundLabel = outboundLabelFor(in_)}
+        {@const outboundState = outboundStateFor(in_)}
         <div class="proxy-row">
           <span class="dot" data-tone={toneFor(in_)}></span>
-          <button
-            type="button"
-            class="proxy-click"
-            class:clickable={!!onSelect}
-            onclick={() => onSelect?.(in_)}
-            disabled={!onSelect}
-          >
-            <div class="proxy-info">
-              <div class="proxy-main">
-                <span class="ty">mixed</span>
-                <span class="mono listen" title={listenLabelFor(in_)}>{listenLabelFor(in_)}</span>
-              </div>
-              <div class="proxy-sub">
-                {#if isInstanceActive(in_)}
-                  <Badge variant="success" size="sm" mono>active</Badge>
-                {:else}
-                  <Badge variant="muted" size="sm" mono>выкл</Badge>
-                {/if}
-                <span class="arrow">→</span>
-                <span class="outbound-wrap">
-                  <Badge variant={outboundVariantFor(outboundLabel)} size="sm" mono>{outboundLabel}</Badge>
-                </span>
-              </div>
+          {#if onSelect}
+            <div
+              class="proxy-click clickable"
+              onclick={() => onSelect(in_)}
+              onkeydown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onSelect(in_);
+                }
+              }}
+              role="button"
+              tabindex="0"
+            >
+              {@render proxyContent(in_, outboundState)}
             </div>
-          </button>
+          {:else}
+            <div class="proxy-click">
+              {@render proxyContent(in_, outboundState)}
+            </div>
+          {/if}
           <div class="proxy-actions">
             {#if onSelect}
               <button
@@ -146,7 +219,7 @@
               </button>
             {/if}
 
-            {#if onDelete}
+            {#if onDelete && in_.id !== 'default'}
               <button
                 type="button"
                 class="route-action-btn danger"
@@ -277,6 +350,30 @@
   .proxy-info {
     display: grid;
     gap: 0.25rem;
+  }
+  .proxy-drift {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .drift-line {
+    color: var(--text-secondary);
+  }
+  .apply-link {
+    border: 0;
+    background: transparent;
+    color: var(--color-accent, var(--accent));
+    cursor: pointer;
+    padding: 0;
+    font: inherit;
+  }
+  .apply-link:disabled {
+    cursor: progress;
+    opacity: 0.7;
   }
   .title {
     font-weight: 600;
