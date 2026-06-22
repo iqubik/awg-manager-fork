@@ -68,6 +68,7 @@
 		saving = true;
 		try {
 			const saved = await onSaveConfig(draft);
+			draft = structuredClone(saved);
 			onSaved(saved);
 			notifications.success('Настройки сохранены');
 		} catch (e) {
@@ -81,10 +82,10 @@
 	async function toggleEnabled(next: boolean) {
 		if (togglingEnabled) return;
 		togglingEnabled = true;
-		const payload = { ...config, enabled: next };
+		const payload = { ...structuredClone(draft), enabled: next };
 		try {
 			const saved = await onSaveConfig(payload);
-			draft = structuredClone(payload);
+			draft = structuredClone(saved);
 			onSaved(saved);
 			notifications.success(next ? 'Прокси включён' : 'Прокси выключен');
 		} catch (e) {
