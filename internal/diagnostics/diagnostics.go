@@ -372,6 +372,7 @@ var testLevels = map[string]string{
 	"singbox_tunnel_latency":      LevelBasic,
 	"singbox_proxy_port":          LevelBasic,
 	"singbox_alt_connectivity":    LevelBasic,
+	"singbox_tunnel_ip_location":  LevelBasic,
 }
 
 func testLevel(name string) string {

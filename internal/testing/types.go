@@ -9,10 +9,25 @@ const (
 
 // IPResult from test/ip endpoint
 type IPResult struct {
-	DirectIP   string `json:"directIp"`
-	VpnIP      string `json:"vpnIp"`
-	EndpointIP string `json:"endpointIp"`
-	IPChanged  bool   `json:"ipChanged"`
+	DirectIP    string     `json:"directIp"`
+	VpnIP       string     `json:"vpnIp"`
+	EndpointIP  string     `json:"endpointIp"`
+	IPChanged   bool       `json:"ipChanged"`
+	DirectGeo   *IPGeoInfo `json:"directGeo,omitempty"`
+	VpnGeo      *IPGeoInfo `json:"vpnGeo,omitempty"`
+	EndpointGeo *IPGeoInfo `json:"endpointGeo,omitempty"`
+}
+
+type IPGeoInfo struct {
+	IP          string `json:"ip,omitempty"`
+	Location    string `json:"location,omitempty"`
+	City        string `json:"city,omitempty"`
+	Region      string `json:"region,omitempty"`
+	Country     string `json:"country,omitempty"`
+	CountryCode string `json:"countryCode,omitempty"`
+	ISP         string `json:"isp,omitempty"`
+	Hostname    string `json:"hostname,omitempty"`
+	Source      string `json:"source,omitempty"`
 }
 
 // ConnectivityResult from test/connectivity endpoint
@@ -38,10 +53,10 @@ type IPCheckService struct {
 // SpeedTestResult from test/speed endpoint.
 type SpeedTestResult struct {
 	Server      string  `json:"server"`
-	Direction   string  `json:"direction"`   // "download" or "upload"
-	Bandwidth   float64 `json:"bandwidth"`   // Mbps
+	Direction   string  `json:"direction"` // "download" or "upload"
+	Bandwidth   float64 `json:"bandwidth"` // Mbps
 	Bytes       int64   `json:"bytes"`
-	Duration    float64 `json:"duration"`    // seconds
+	Duration    float64 `json:"duration"` // seconds
 	Retransmits int     `json:"retransmits"`
 }
 
