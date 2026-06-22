@@ -405,10 +405,17 @@ func singboxDelayURL(t Target) string {
 }
 
 // runProbeCell measures latency for one (target × tunnel) cell.
-// Sing-box tunnels go through the Clash API delay endpoint when wired —
-// honest end-to-end through the selected proxy outbound, including
-// subscription rows. Everything else uses the interface-bound Prober.
+// Subscription sing-box rows use cached ClashDelay; non-subscription
+// sing-box rows go through the Clash API delay endpoint when wired.
+// Everything else uses the interface-bound Prober.
 func (s *Scheduler) runProbeCell(ctx context.Context, t Target, tn Tunnel, isSelf bool) (int, bool) {
+	if tn.Source == "singbox" && tn.Subscription {
+		if tn.ClashDelay > 0 {
+			return tn.ClashDelay, true
+		}
+		return 0, false
+	}
+
 	if tn.Source == "singbox" && s.deps.SingboxDelay != nil && tn.SingboxTag != "" {
 		probeTag := strings.TrimSpace(tn.ProbeTag)
 		if probeTag == "" {
@@ -417,19 +424,19 @@ func (s *Scheduler) runProbeCell(ctx context.Context, t Target, tn Tunnel, isSel
 		if probeTag == "" {
 			return 0, false
 		}
-		probeURL := singboxDefaultDelayURL
-		if !tn.Subscription {
-			probeURL = singboxDelayURL(t)
-		}
+
+		probeURL := singboxDelayURL(t)
 		if probeURL == "" {
 			return 0, false
 		}
+
 		d, err := s.deps.SingboxDelay.TestDelay(probeTag, probeURL, s.probeTimeout)
 		if err != nil || d <= 0 {
 			return 0, false
 		}
 		return d, true
 	}
+
 	return s.proberFor(tn, isSelf).Probe(ctx, t.Host, tn.IfaceName, s.probeTimeout)
 }
 
@@ -560,14 +567,16 @@ func (s *Scheduler) collectTunnels(ctx context.Context) []Tunnel {
 				if sbt.InterfaceName != "" && seenIface[sbt.InterfaceName] {
 					continue
 				}
+				clashDelay := 0
+				if sbt.Subscription && s.deps.ClashState != nil {
+					if d, ok := s.deps.ClashState.LatencyForOutbound(ctx, sbt.Tag); ok && d > 0 {
+						clashDelay = d
+					}
+				}
 				out = append(out, Tunnel{
-					ID:        sbt.Tag, // tag is unique per outbound; safe as ID
-					Name:      sbt.Name,
-					IfaceName: sbt.InterfaceName,
-					// PingcheckTarget / SelfTarget left empty — sing-box
-					// tunnels don't have a per-tunnel restart pingcheck;
-					// matrix row uses BaseTargets only, augmented later
-					// with Clash data.
+					ID:           sbt.Tag,
+					Name:         sbt.Name,
+					IfaceName:    sbt.InterfaceName,
 					Source:       "singbox",
 					SingboxTag:   sbt.Tag,
 					ProbeTag:     sbt.ProbeTag,
@@ -575,6 +584,7 @@ func (s *Scheduler) collectTunnels(ctx context.Context) []Tunnel {
 					Protocol:     sbt.Protocol,
 					Security:     sbt.Security,
 					Transport:    sbt.Transport,
+					ClashDelay:   clashDelay,
 				})
 				seenID[sbt.Tag] = true
 				if sbt.InterfaceName != "" {
