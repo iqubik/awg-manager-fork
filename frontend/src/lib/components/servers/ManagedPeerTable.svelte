@@ -245,22 +245,34 @@
 	}
 
 	.desktop-peer-table {
-		display: none;
+		display: block;
 	}
 
 	.mobile-peer-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
+		display: none;
 	}
 
-	@container (min-width: 820px) {
+	@container (max-width: 819px) {
 		.desktop-peer-table {
-			display: block;
+			display: none;
 		}
 
 		.mobile-peer-list {
+			display: flex;
+			flex-direction: column;
+			gap: 0.5rem;
+		}
+	}
+
+	@media (max-width: 760px) {
+		.desktop-peer-table {
 			display: none;
+		}
+
+		.mobile-peer-list {
+			display: flex;
+			flex-direction: column;
+			gap: 0.5rem;
 		}
 	}
 </style>
