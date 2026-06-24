@@ -311,7 +311,7 @@
         <Button variant={tproxyOn ? 'danger' : 'primary'} size="sm" fullWidth disabled={switchBusy} onclick={handleToggleClick}>
           {tproxyOn ? 'Выключить' : 'Включить'}
         </Button>
-        <Button variant="ghost" size="sm" fullWidth onclick={restartEngine}>Перезапустить</Button>
+        <Button variant="danger" size="sm" fullWidth onclick={restartEngine}>Перезапустить</Button>
       </div>
       {#if isExpert}
         <span class="save-status" class:err={lastError}>
@@ -481,5 +481,37 @@
   .chip.active { background: var(--accent-soft); border-color: var(--accent); }
   .chip-label { font-size: 12.5px; font-weight: 600; }
   .chip-desc { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+  .footer-actions {
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+  }
+
+  .footer-btns {
+	width: 100%;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.5rem;
+	align-items: stretch;
+  }
+
+  .footer-btns :global(.btn) {
+	width: 100%;
+	min-width: 0;
+	justify-content: center;
+  }
+
+  .save-status {
+	align-self: flex-end;
+	font-size: 11px;
+	color: var(--text-muted);
+	line-height: 1.2;
+  }
+
+  .save-status.err {
+	color: var(--color-error, var(--error));
+  }
 
 </style>
