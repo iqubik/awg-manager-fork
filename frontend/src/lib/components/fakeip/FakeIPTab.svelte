@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
-	import { PageContainer } from '$lib/components/layout';
 	import { Button } from '$lib/components/ui';
 	import { Plus } from 'lucide-svelte';
 	import { singboxRouter } from '$lib/stores/singboxRouter';
@@ -114,7 +113,7 @@
 	}
 </script>
 
-<PageContainer>
+<div class="fakeip-tab">
 	<!--
 		Шапка (PageHeader) заменена на FakeIPHero внутри FakeIPPageShell — мокап
 		fakeip-page-layout-v2: kick + title + hsub + панель действий.
@@ -294,9 +293,14 @@
 		{/if}
 		</FakeIPPageShell>
 	{/if}
-</PageContainer>
+</div>
 
 <style>
+	.fakeip-tab {
+		width: 100%;
+		min-width: 0;
+	}
+
 	.chip-stub {
 		padding: 2rem;
 		border: 1px dashed var(--border);
