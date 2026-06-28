@@ -37,7 +37,7 @@
 	// System tunnels and sing-box t2sX are read-only — neither has NDMS-side
 	// pingcheck (Keenetic owns the system case; sing-box uses Clash urltest).
 	function tunnelHref(t: MonitoringTunnel): string {
-		return `/diagnostics?tab=monitoring&pingcheck=${encodeURIComponent(t.id)}`;
+		return `/monitoring?pingcheck=${encodeURIComponent(t.id)}`;
 	}
 
 	const cellByKey = $derived.by(() => {
