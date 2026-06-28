@@ -43,8 +43,10 @@ func decideBoot(state *State) []Action {
 			// reconcile around it. Otherwise cold start from scratch.
 			if t.Running {
 				actions = append(actions, Action{Type: ActionReconcileKernel, Tunnel: t.ID})
+				actions = appendHydraRoutePostStart(actions, t, "boot-reconcile")
 			} else {
 				actions = append(actions, Action{Type: ActionColdStartKernel, Tunnel: t.ID})
+				actions = appendHydraRoutePostStart(actions, t, "boot-start")
 			}
 			actions = appendPostStartActions(actions, t)
 
@@ -56,6 +58,7 @@ func decideBoot(state *State) []Action {
 				// the proxy for the #183 case (NDMS brought the interface up
 				// without our kmod proxy → conf=running but no handshake).
 				actions = append(actions, Action{Type: ActionReconcileNativeWG, Tunnel: t.ID})
+				actions = appendHydraRoutePostStart(actions, t, "boot-reconcile")
 				actions = appendPostStartActions(actions, t)
 			}
 		}
@@ -80,6 +83,7 @@ func decideReconnect(state *State) []Action {
 			case "kernel":
 				// Re-apply NDMS config, firewall, routing around the running process.
 				actions = append(actions, Action{Type: ActionReconcileKernel, Tunnel: t.ID})
+				actions = appendHydraRoutePostStart(actions, t, "reconnect-reconcile")
 			case "nativewg":
 				if state.supportsASC {
 					// KeenOS 5+ ASC mode has no kmod proxy to restore. A running
@@ -87,6 +91,7 @@ func decideReconnect(state *State) []Action {
 					// restart/update so ASC bindings, routes and persistence are
 					// refreshed without first dropping NDMS to conf=disabled.
 					actions = append(actions, Action{Type: ActionStartNativeWG, Tunnel: t.ID})
+					actions = appendHydraRoutePostStart(actions, t, "reconnect-start")
 					actions = appendPostStartActions(actions, t)
 				} else {
 					// KeenOS 4 proxy/kmod mode is more sensitive: the NDMS
@@ -118,6 +123,7 @@ func decideReconnect(state *State) []Action {
 		switch t.Backend {
 		case "kernel":
 			actions = append(actions, Action{Type: ActionColdStartKernel, Tunnel: t.ID})
+			actions = appendHydraRoutePostStart(actions, t, "reconnect-start")
 			actions = appendPostStartActions(actions, t)
 		case "nativewg":
 			// Reconnect must restore desired state from storage regardless of
@@ -125,6 +131,7 @@ func decideReconnect(state *State) []Action {
 			// tunnel may be down and NDMS might not emit a fresh conf=running
 			// edge by itself, so we explicitly start it.
 			actions = append(actions, Action{Type: ActionStartNativeWG, Tunnel: t.ID})
+			actions = appendHydraRoutePostStart(actions, t, "reconnect-start")
 			actions = appendPostStartActions(actions, t)
 		}
 	}
@@ -152,6 +159,7 @@ func decideStart(event Event, state *State) []Action {
 		actions = append(actions, Action{Type: ActionStartNativeWG, Tunnel: t.ID})
 	}
 
+	actions = appendHydraRoutePostStart(actions, t, "manual-start")
 	actions = appendPostStartActions(actions, t)
 	return actions
 }
@@ -265,12 +273,15 @@ func decideWANUp(event Event, state *State) []Action {
 				//   need to re-resolve WAN and refresh endpoint route via the new WAN.
 				if t.ISPInterface == "" {
 					actions = append(actions, Action{Type: ActionReconcileKernel, Tunnel: t.ID})
+					actions = appendHydraRoutePostStart(actions, t, "wan-up-reconcile")
 				} else {
 					actions = append(actions, Action{Type: ActionResumeKernel, Tunnel: t.ID})
+					actions = appendHydraRoutePostStart(actions, t, "wan-up-resume")
 				}
 			} else {
 				// Stopped — start from scratch.
 				actions = append(actions, Action{Type: ActionColdStartKernel, Tunnel: t.ID})
+				actions = appendHydraRoutePostStart(actions, t, "wan-up-start")
 				actions = appendPostStartActions(actions, t)
 			}
 
@@ -291,6 +302,7 @@ func decideWANUp(event Event, state *State) []Action {
 				continue
 			}
 			actions = append(actions, Action{Type: ActionStartNativeWG, Tunnel: t.ID})
+			actions = appendHydraRoutePostStart(actions, t, "wan-up-start")
 			actions = appendPostStartActions(actions, t)
 		}
 	}
@@ -330,6 +342,7 @@ func decideWANDown(event Event, state *State) []Action {
 		for _, id := range nwgSuspended {
 			t := state.tunnels[id]
 			actions = append(actions, Action{Type: ActionStartNativeWG, Tunnel: t.ID})
+			actions = appendHydraRoutePostStart(actions, t, "wan-failover-start")
 			actions = appendPostStartActions(actions, t)
 		}
 	}
@@ -427,6 +440,7 @@ func decideRestart(event Event, state *State) []Action {
 	case "nativewg":
 		actions = append(actions, Action{Type: ActionStartNativeWG, Tunnel: t.ID})
 	}
+	actions = appendHydraRoutePostStart(actions, t, "restart")
 	actions = appendPostStartActions(actions, t)
 
 	return actions
@@ -458,4 +472,17 @@ func appendPostStartActions(actions []Action, t *tunnelState) []Action {
 	actions = append(actions, Action{Type: ActionPersistRunning, Tunnel: t.ID})
 
 	return actions
+}
+
+func appendHydraRoutePostStart(actions []Action, t *tunnelState, reason string) []Action {
+	if t == nil {
+		return actions
+	}
+	return append(actions, Action{
+		Type:   ActionHydraRoutePostStart,
+		Tunnel: t.ID,
+		NDMS:   t.ndmsName(),
+		Iface:  t.ifaceName(),
+		Reason: reason,
+	})
 }

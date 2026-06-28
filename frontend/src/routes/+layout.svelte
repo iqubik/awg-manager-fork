@@ -13,6 +13,7 @@
 	import { api } from '$lib/api/client';
 	import { connectSSE } from '$lib/api/events';
 	import { geoDownloadProgress } from '$lib/stores/geoDownload';
+	import { hydraRouteInstallProgress } from '$lib/stores/hydrarouteInstall';
 	import { singboxInstallProgress } from '$lib/stores/singboxInstall';
 	import { serverOnline } from '$lib/stores/events';
 	import { healthMonitor } from '$lib/stores/health';
@@ -33,6 +34,8 @@
 	import { loadPresetCatalog } from '$lib/stores/presets';
 	import { donateModalOpen, openDonateModal, closeDonateModal } from '$lib/stores/donateModal';
 	import { outboundReferenced } from '$lib/stores/outboundReferenced';
+	import { isMockDevMode } from '$lib/env';
+	import { isStaleAssetError, reloadOnceForStaleAssets } from '$lib/utils/staleAssetReload';
 	import TunnelReferencedModal from '$lib/components/tunnels/TunnelReferencedModal.svelte';
 	import { TriangleAlert } from 'lucide-svelte';
 	import DevelopFeedbackFab from '$lib/components/layout/DevelopFeedbackFab.svelte';
@@ -44,7 +47,7 @@
 	} from '$lib/types/usageLevel';
 	import type { UpdateInfo } from '$lib/types';
 	import LoginForm from '$lib/components/LoginForm.svelte';
-	import { SideDrawer } from '$lib/components/ui';
+	import { Modal } from '$lib/components/ui';
 	import { AppHeader } from '$lib/components/layout';
 	import '../app.css';
 
@@ -125,6 +128,7 @@
 				// store would otherwise stay non-null forever and keep the
 				// install button hidden behind the progress widget.
 				singboxInstallProgress.clear();
+				hydraRouteInstallProgress.clear();
 			},
 
 			// System events
@@ -181,6 +185,7 @@
 
 			// HydraRoute geo download progress
 			onHydraRouteGeoProgress: (data) => geoDownloadProgress.ingest(data),
+			onHydraRouteInstallProgress: (data) => hydraRouteInstallProgress.ingest(data),
 			onSingboxInstallProgress: (data) => singboxInstallProgress.ingest(data),
 
 			// DNS-route failover — user-visible notification, not a state stream
@@ -356,12 +361,34 @@
 		void goto('/', { replaceState: true });
 	});
 
-	onMount(async () => {
+	onMount(() => {
+		const onPreloadError = (event: Event) => {
+			event.preventDefault();
+			reloadOnceForStaleAssets('vite:preloadError');
+		};
+
+		const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+			if (!isStaleAssetError(event.reason)) {
+				return;
+			}
+
+			event.preventDefault();
+			reloadOnceForStaleAssets('dynamic import failed');
+		};
+
+		window.addEventListener('vite:preloadError', onPreloadError);
+		window.addEventListener('unhandledrejection', onUnhandledRejection);
+
 		theme.init();
 		compactLayout.init();
 		settingsSectionIconMode.init();
 		serviceLetterIcons.init();
-		await auth.checkStatus();
+		void auth.checkStatus();
+
+		return () => {
+			window.removeEventListener('vite:preloadError', onPreloadError);
+			window.removeEventListener('unhandledrejection', onUnhandledRejection);
+		};
 	});
 
 	onDestroy(() => {
@@ -400,6 +427,7 @@
 		{hasUpdate}
 		{isPreRelease}
 		bind:mobileMenuOpen
+		showDonateButton={isMockDevMode()}
 		onToggleThemeMode={() => theme.toggleMode()}
 		onLogout={() => auth.logout()}
 		onOpenDonate={openDonateModal}
@@ -439,35 +467,35 @@
 
 	{/if}
 
-	<SideDrawer
+	<Modal
 		open={$donateModalOpen}
 		title="Поддержать проект"
-		width={400}
-		onClose={closeDonateModal}
+		size="sm"
+		onclose={closeDonateModal}
 	>
 		<div class="donate-wallets">
 			<div class="donate-wallet">
 				<span class="donate-wallet-label">USDT / ETH</span>
-				<code class="donate-wallet-addr">0x7eae43b82157f2e4ea233eddf5d9ce19a1064f04</code>
+				<code class="donate-wallet-addr">TODO_PROJECT_USDT_ETH_ADDRESS</code>
 			</div>
 			<div class="donate-wallet">
 				<span class="donate-wallet-label">USDT ERC20</span>
-				<code class="donate-wallet-addr">0x35eC46d51f06DAf2DDbfA2a1b9B28a360643fEa8</code>
+				<code class="donate-wallet-addr">TODO_PROJECT_USDT_ERC20_ADDRESS</code>
 			</div>
 			<div class="donate-wallet">
 				<span class="donate-wallet-label">USDT / TRC20</span>
-				<code class="donate-wallet-addr">TEpJh2p9j3fp6MigyqGvq1gC5D3CsxBeJw</code>
+				<code class="donate-wallet-addr">TODO_PROJECT_USDT_TRC20_ADDRESS</code>
 			</div>
 			<div class="donate-wallet">
-				<span class="donate-wallet-label">Boosty</span>
-				<a class="donate-wallet-link" href="https://boosty.to/awgm_hoaxisr/donate" target="_blank" rel="noopener">boosty.to/awgm_hoaxisr/donate</a>
+				<span class="donate-wallet-label">Support link 1</span>
+				<code class="donate-wallet-addr">TODO_PROJECT_SUPPORT_URL_1</code>
 			</div>
 			<div class="donate-wallet">
-				<span class="donate-wallet-label">ЮMoney</span>
-				<a class="donate-wallet-link" href="https://yoomoney.ru/fundraise/1GF36UHR07L.260312" target="_blank" rel="noopener">yoomoney.ru/fundraise</a>
+				<span class="donate-wallet-label">Support link 2</span>
+				<code class="donate-wallet-addr">TODO_PROJECT_SUPPORT_URL_2</code>
 			</div>
 		</div>
-	</SideDrawer>
+	</Modal>
 
 	<TunnelReferencedModal
 		open={$outboundReferenced !== null}
@@ -604,4 +632,5 @@
 	.donate-wallet-link:hover {
 		text-decoration: underline;
 	}
+
 </style>
