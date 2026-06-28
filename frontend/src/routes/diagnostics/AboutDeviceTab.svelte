@@ -258,11 +258,34 @@
 
 </script>
 
+{#snippet refreshIcon()}
+	<svg
+		width="14"
+		height="14"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2"
+		aria-hidden="true"
+	>
+		<path d="M21 12a9 9 0 1 1-2.64-6.36M21 4v6h-6" stroke-linecap="round" stroke-linejoin="round" />
+	</svg>
+{/snippet}
+
 <div class="about-toolbar">
-	<Button variant="secondary" size="sm" onclick={() => refresh()} loading={refreshing}>
-		Обновить
-	</Button>
-	<Button variant="ghost" size="sm" onclick={copyReport} disabled={refreshing || !sysInfo}>
+	<span class="about-refresh-action">
+		<Button
+			variant="secondary"
+			size="sm"
+			onclick={() => refresh()}
+			loading={refreshing}
+			iconBefore={refreshIcon}
+			title="Обновить"
+		>
+			Обновить
+		</Button>
+	</span>
+	<Button variant="secondary" size="sm" onclick={copyReport} disabled={refreshing || !sysInfo}>
 		Скопировать данные
 	</Button>
 </div>
@@ -302,6 +325,38 @@
 		margin-bottom: 0.75rem;
 	}
 
+	.about-refresh-action {
+		display: inline-flex;
+		min-width: 0;
+	}
+
+	@media (min-width: 641px) {
+		.about-refresh-action {
+			width: 28px;
+			min-width: 28px;
+		}
+
+		.about-refresh-action :global(.btn) {
+			position: relative;
+			width: 28px;
+			min-width: 28px;
+			padding-inline: 0;
+		}
+
+		.about-refresh-action :global(.label) {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			padding: 0;
+			margin: -1px;
+			overflow: hidden;
+			clip: rect(0 0 0 0);
+			clip-path: inset(50%);
+			white-space: nowrap;
+			border: 0;
+		}
+	}
+
 	.about-hint {
 		margin: 0 0 0.75rem;
 		font-size: 0.8125rem;
@@ -331,6 +386,27 @@
 	}
 
 	@media (max-width: 640px) {
+		.about-toolbar {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			width: 100%;
+		}
+
+		.about-refresh-action,
+		.about-toolbar > :global(.btn) {
+			min-width: 0;
+		}
+
+		.about-refresh-action :global(.btn),
+		.about-toolbar > :global(.btn) {
+			width: 100%;
+			justify-content: center;
+		}
+
+		.about-refresh-action :global(.icon-before) {
+			display: none;
+		}
+
 		.about-grid {
 			column-count: 1;
 		}

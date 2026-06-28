@@ -371,6 +371,9 @@ var testLevels = map[string]string{
 	"singbox_tunnel_latency":      LevelBasic,
 	"singbox_proxy_port":          LevelBasic,
 	"singbox_alt_connectivity":    LevelBasic,
+	"singbox_ip_literal_connectivity":       LevelBasic,
+	"singbox_tunnel_ip_location":  LevelBasic,
+	"singbox_subscription_dns_detour_warning": LevelBasic,
 }
 
 func testLevel(name string) string {
@@ -413,10 +416,16 @@ type SingboxForDiag interface {
 // active-member detection itself failed and diagnostics must not guess.
 type SingboxSubMember struct {
 	Tag string
+
+	// GroupTag is the subscription composite outbound tag, e.g. sub-1a656a35.
+	// It is used to detect DNS detours through a degraded subscription.
+	GroupTag string
+
+	// Mode is the stored/effective subscription mode: selector or urltest.
+	Mode string
+
 	// ListenPort is the subscription's mixed-inbound port (one per
-	// subscription, shared by all members via the selector). Same value
-	// is propagated to every SingboxSubMember of the same subscription;
-	// only meaningful for probing the currently-active member.
+	// subscription, shared by all members via the selector/urltest group).
 	ListenPort  int
 	Enabled     bool
 	Active      bool
