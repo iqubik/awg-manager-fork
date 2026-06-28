@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { WireguardServer } from '$lib/types';
-	import { SideDrawer, Button } from '$lib/components/ui';
+	import { Modal, Button } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { servers } from '$lib/stores/servers';
@@ -61,7 +61,7 @@
 	}
 </script>
 
-<SideDrawer {open} title="Добавить клиента" width={420} onClose={onclose}>
+<Modal {open} title="Добавить клиента" size="sm" {onclose}>
 	<div class="form-fields">
 		<div class="form-group">
 			<label class="label" for="ssp-desc">Имя / описание</label>
@@ -73,13 +73,13 @@
 		</div>
 	</div>
 
-	{#snippet footer()}
+	{#snippet actions()}
 		<Button variant="secondary" size="md" onclick={onclose}>Отмена</Button>
 		<Button variant="primary" size="md" onclick={handleAdd} loading={adding} disabled={!tunnelIP}>
 			Добавить
 		</Button>
 	{/snippet}
-</SideDrawer>
+</Modal>
 
 <style>
 	.form-fields {

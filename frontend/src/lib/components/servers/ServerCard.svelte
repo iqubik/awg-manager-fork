@@ -70,6 +70,10 @@
 	let loadingBuiltinWanIP = $state(false);
 	let builtinWanIPLoadedFor = $state('');
 
+	function formatBytesCompact(bytes: number): string {
+		return formatBytes(bytes, 1).replace(/\s+/g, '');
+	}
+
 	let natMode = $derived(resolveNatMode(server.natMode, server.natEnabled));
 	// Keenetic exposes NAT as on/off; internet-only is normalized to "on" in the UI.
 	let natEnabled = $derived(natMode !== 'none');
@@ -380,10 +384,10 @@
 	</div>
 
 	<StatStrip>
-		<Stat value={formatBytes(totalRx)} label="RX" />
-		<Stat value={formatBytes(totalTx)} label="TX" />
-		<Stat value={`${onlineCount} / ${totalPeers}`} label="Клиенты" sub={onlineCount > 0 ? `${onlineCount} онлайн` : 'нет активных'} />
-		<Stat value={`UDP :${server.listenPort}`} label="Listen" />
+		<Stat value={formatBytesCompact(totalRx)} label="RX" mobileInline />
+		<Stat value={formatBytesCompact(totalTx)} label="TX" mobileInline />
+		<Stat value={`${onlineCount}/${totalPeers}`} label="Клиенты" mobileInline />
+		<Stat value={`UDP:${server.listenPort}`} label="Listen" mobileInline />
 	</StatStrip>
 
 	{#if isBuiltIn}

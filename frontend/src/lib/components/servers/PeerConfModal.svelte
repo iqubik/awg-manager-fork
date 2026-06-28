@@ -142,13 +142,13 @@
 
 	{#snippet actions()}
 		<div class="actions-grid">
-			<Button variant="ghost" size="md" onclick={toggleQR} disabled={!conf} loading={qrGenerating}>
+			<Button variant="secondary" size="md" onclick={toggleQR} disabled={!conf} loading={qrGenerating}>
 				{viewMode === 'qr' ? 'Конфиг' : 'QR-код'}
 			</Button>
-			<Button variant="ghost" size="md" onclick={toggleAnalysis} disabled={!conf}>
+			<Button variant="secondary" size="md" onclick={toggleAnalysis} disabled={!conf}>
 				{viewMode === 'analysis' ? 'Конфиг' : 'Проверить'}
 			</Button>
-			<Button variant="ghost" size="md" onclick={copyConf} disabled={!conf}>
+			<Button variant="secondary" size="md" onclick={copyConf} disabled={!conf}>
 				Копировать
 			</Button>
 			<Button variant="primary" size="md" onclick={downloadConf} disabled={!conf}>
