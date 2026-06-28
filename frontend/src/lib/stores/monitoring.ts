@@ -1,6 +1,9 @@
 import { writable } from 'svelte/store';
 import * as v from 'valibot';
-import type { MonitoringSnapshot } from '$lib/types';
+import type { MonitoringSnapshot, MonitoringSample } from '$lib/types';
+import { DEFAULT_MONITORING_SETTINGS, getMonitoringHistoryCapacity } from '$lib/constants/monitoring';
+
+const DEFAULT_HISTORY_LIMIT = getMonitoringHistoryCapacity(DEFAULT_MONITORING_SETTINGS);
 
 const CACHE_KEY = 'awgm_monitoring_snapshot_v1';
 
@@ -113,3 +116,33 @@ function createMonitoringStore() {
 }
 
 export const monitoringStore = createMonitoringStore();
+
+// History cache is intentionally in-memory only: it speeds up reopening the
+// same matrix cell during one UI session without persisting per-cell telemetry
+// into localStorage.
+const historyCache = new Map<string, MonitoringSample[]>();
+
+function cacheKey(targetId: string, tunnelId: string, limit = DEFAULT_HISTORY_LIMIT): string {
+	return `${targetId}|${tunnelId}|${limit}`;
+}
+
+export function getCachedHistory(
+	targetId: string,
+	tunnelId: string,
+	limit = DEFAULT_HISTORY_LIMIT,
+): MonitoringSample[] | null {
+	return historyCache.get(cacheKey(targetId, tunnelId, limit)) ?? null;
+}
+
+export function setCachedHistory(
+	targetId: string,
+	tunnelId: string,
+	samples: MonitoringSample[],
+	limit = DEFAULT_HISTORY_LIMIT,
+) {
+	historyCache.set(cacheKey(targetId, tunnelId, limit), samples);
+}
+
+export function clearHistoryCache() {
+	historyCache.clear();
+}
