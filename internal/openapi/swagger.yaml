@@ -398,24 +398,26 @@ definitions:
   api.ChangelogEntryDTO:
     properties:
       date:
-        example: "2024-01-15"
+        example: "2026-06-12"
         type: string
       groups:
         items:
           $ref: '#/definitions/api.ChangelogGroupDTO'
         type: array
       version:
-        example: 2.5.0
+        example: 2.12.3.10+r2
         type: string
     type: object
   api.ChangelogGroupDTO:
     properties:
       heading:
-        example: Bug Fixes
+        example: Исправлено
         type: string
       items:
         example:
-        - Fixed tunnel restart loop
+        - |-
+          fix(dev): align local build version with VERSION file
+          Комментарий: локальная dev-сборка теперь берёт base VERSION и добавляет +r0 сама.
         items:
           type: string
         type: array
@@ -1368,6 +1370,23 @@ definitions:
         example: true
         type: boolean
     type: object
+  api.GeoUpdateScheduleDTO:
+    properties:
+      interval:
+        example: "off"
+        type: string
+      updatedAt:
+        example: "2024-01-15T02:00:00Z"
+        type: string
+    type: object
+  api.GeoUpdateScheduleResponse:
+    properties:
+      data:
+        $ref: '#/definitions/api.GeoUpdateScheduleDTO'
+      success:
+        example: true
+        type: boolean
+    type: object
   api.HealthData:
     properties:
       instanceId:
@@ -1958,6 +1977,40 @@ definitions:
         example: tun_abc123
         type: string
     type: object
+  api.MonitoringHistoryResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/api.MonitoringSampleDTO'
+        type: array
+      success:
+        example: true
+        type: boolean
+    type: object
+  api.MonitoringSampleDTO:
+    properties:
+      latencyMs:
+        example: 42
+        type: integer
+      ok:
+        example: true
+        type: boolean
+      ts:
+        example: "2024-01-15T10:30:00Z"
+        type: string
+    type: object
+  api.MonitoringSettingsDTO:
+    properties:
+      historyHours:
+        example: 24
+        type: integer
+      matrixRefreshIntervalSec:
+        example: 60
+        type: integer
+      sampleIntervalSec:
+        example: 60
+        type: integer
+    type: object
   api.MonitoringSnapshotData:
     properties:
       cells:
@@ -1987,17 +2040,32 @@ definitions:
   api.MonitoringTargetDTO:
     properties:
       host:
-        example: https://www.google.com
+        example: 8.8.8.8
         type: string
       id:
         example: target_google
         type: string
       name:
-        example: Google
+        example: Google DNS
+        type: string
+      url:
+        example: https://8.8.8.8/
         type: string
     type: object
   api.MonitoringTunnelDTO:
     properties:
+      awgVersion:
+        example: awg1.5
+        type: string
+      backend:
+        example: nativewg
+        type: string
+      clashDelay:
+        example: 428
+        type: integer
+      defaultRoute:
+        example: true
+        type: boolean
       id:
         example: tun_abc123
         type: string
@@ -2010,11 +2078,32 @@ definitions:
       pingcheckTarget:
         example: target_google
         type: string
+      protocol:
+        example: vless
+        type: string
+      security:
+        example: reality
+        type: string
       selfMethod:
         example: http
         type: string
       selfTarget:
         example: target_self_tun_abc123
+        type: string
+      singboxTag:
+        example: veesp
+        type: string
+      source:
+        example: singbox
+        type: string
+      subscription:
+        example: true
+        type: boolean
+      transport:
+        example: tcp
+        type: string
+      urltestGroup:
+        example: auto
         type: string
     type: object
   api.NativePingCheckStatusDTO:
@@ -2787,6 +2876,12 @@ definitions:
         example: Policy0
         type: string
     type: object
+  api.SetGeoUpdateScheduleRequest:
+    properties:
+      interval:
+        example: daily
+        type: string
+    type: object
   api.SetInterfaceUpRequest:
     properties:
       name:
@@ -2872,6 +2967,8 @@ definitions:
         $ref: '#/definitions/api.GeoFileSettingsDTO'
       logging:
         $ref: '#/definitions/api.LoggingSettingsDTO'
+      monitoring:
+        $ref: '#/definitions/api.MonitoringSettingsDTO'
       monitoringExcludedTunnels:
         example:
         - tn-1
@@ -4238,12 +4335,18 @@ definitions:
     type: object
   api.SingboxStatusData:
     properties:
+      checksumMatchesRequired:
+        example: true
+        type: boolean
       currentSha256:
         example: 76e67bb07b5c2bf4cef108c2f21a5ffaa684d124c21ffe220fc89b39cf1de934
         type: string
       currentVersion:
         example: 1.13.11
         type: string
+      customBuild:
+        example: false
+        type: boolean
       features:
         example:
         - with_quic
@@ -4292,6 +4395,9 @@ definitions:
       version:
         example: 1.9.3
         type: string
+      versionMatchesRequired:
+        example: true
+        type: boolean
     type: object
   api.SingboxStatusResponse:
     properties:
@@ -7476,6 +7582,50 @@ paths:
       summary: Rescan HydraRoute geo files from hrneo.conf
       tags:
       - hydraroute
+  /hydraroute/geo-files/schedule:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GeoUpdateScheduleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Get HydraRoute geo file auto-update schedule
+      tags:
+      - hydraroute
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Geo auto-update schedule interval
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SetGeoUpdateScheduleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GeoUpdateScheduleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Set HydraRoute geo file auto-update schedule
+      tags:
+      - hydraroute
   /hydraroute/geo-files/take-control:
     post:
       consumes:
@@ -8602,6 +8752,49 @@ paths:
       summary: Restore drifted managed servers
       tags:
       - managed
+  /monitoring/history:
+    get:
+      description: Returns up to `limit` (default current monitoring capacity) most-recent
+        samples for a single (target, tunnelId) pair, oldest-first.
+      parameters:
+      - description: Target identifier
+        in: query
+        name: target
+        required: true
+        type: string
+      - description: Tunnel identifier
+        in: query
+        name: tunnelId
+        required: true
+        type: string
+      - description: Max samples to return (default current monitoring capacity)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.MonitoringHistoryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Get monitoring history
+      tags:
+      - monitoring
   /monitoring/matrix:
     get:
       description: Returns the latest cross-tunnel × cross-target latency/loss matrix
