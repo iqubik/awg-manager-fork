@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Modal, Button } from '$lib/components/ui';
+	import { SideDrawer, Button } from '$lib/components/ui';
 	import AwgConfigAnalyzer from '$lib/components/diagnostics/AwgConfigAnalyzer.svelte';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
@@ -111,7 +111,7 @@
 	}
 </script>
 
-<Modal {open} title="Конфигурация клиента" size="md" {onclose}>
+<SideDrawer {open} title="Конфигурация клиента" width={720} onClose={onclose}>
 	{#if loading}
 		<div class="loading">Загрузка...</div>
 	{:else if conf}
@@ -140,8 +140,8 @@
 		<div class="loading">Нет данных</div>
 	{/if}
 
-	{#snippet actions()}
-		<div class="actions-grid">
+	{#snippet footer()}
+		<div class="actions-grid drawer-footer-full">
 			<Button variant="secondary" size="md" onclick={toggleQR} disabled={!conf} loading={qrGenerating}>
 				{viewMode === 'qr' ? 'Конфиг' : 'QR-код'}
 			</Button>
@@ -156,7 +156,7 @@
 			</Button>
 		</div>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
 	.actions-grid {
