@@ -133,12 +133,13 @@
     });
   }
 
-  async function syncDnsAfterSave() {
+  async function syncDnsAfterSave(resolvedOutboundTag: string | null) {
     if (get(mode) !== 'beginner') return;
     try {
       const cat = get(wizardOutboundCategory);
-      const tags = get(wizardTunnelTags);
-      if (cat === 'tunnel' && tags.length > 0) await ensureTunnelDnsInfra(tags[0]!);
+      if (cat === 'tunnel' && resolvedOutboundTag) {
+        await ensureTunnelDnsInfra(resolvedOutboundTag);
+      }
       await syncTunnelDnsRule();
     } catch (e) {
       notifications.error(`DNS: ${e instanceof Error ? e.message : String(e)}`);
@@ -151,7 +152,7 @@
     try {
       const editIndex = get(wizardEditRuleIndex);
       if (editIndex !== null && get(wizardEditMode)) {
-        await submitWizardEdit({
+        const resolvedOutboundTag = await submitWizardEdit({
           ruleIndex: editIndex,
           editMode: get(wizardEditMode)!,
           selectedTemplates: Array.from(get(templatesSelection)),
@@ -165,7 +166,7 @@
           existingInlineRuleSetTag: get(wizardExistingInlineRuleSetTag),
           wasInlineText: get(wizardWasInlineText),
         });
-        await syncDnsAfterSave();
+        await syncDnsAfterSave(resolvedOutboundTag);
         notifications.success('Правило обновлено');
         clearSelection();
         closeAddWizard();
@@ -183,7 +184,7 @@
         existingOutbounds: get(outbounds),
       });
       if (result.failures.length === 0) {
-        await syncDnsAfterSave();
+        await syncDnsAfterSave(result.resolvedOutboundTag);
         const created = result.successes.length;
         if (continueAfter) {
           notifications.success(`Создано ${pluralize(created, RULE_WORDS)}. Можно добавить ещё одно.`);

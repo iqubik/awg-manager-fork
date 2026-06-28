@@ -153,9 +153,17 @@
 	let rxRates = $state<number[]>([]);
 	let txRates = $state<number[]>([]);
 	let tunnelTag = $derived(tunnel.tag);
+	const hiddenEndpointText = '••••••••:•••••';
+	const visibleEndpointText = $derived(`${tunnel.server}:${tunnel.port}`);
 
 	let inlineRxRate = $derived(rxRates.length > 0 ? rxRates[rxRates.length - 1] : 0);
 	let inlineTxRate = $derived(txRates.length > 0 ? txRates[txRates.length - 1] : 0);
+	let mobileEndpointText = $derived(
+		`${showServer ? visibleEndpointText : hiddenEndpointText}${tunnel.sni ? ` · SNI ${showServer ? tunnel.sni : '••••••••'}` : ''}`,
+	);
+	let mobileTrafficText = $derived(
+		`↓ ${formatBitRate(inlineRxRate)} · ↑ ${formatBitRate(inlineTxRate)}`,
+	);
 
 	$effect(() => {
 		const tag = tunnelTag;
@@ -215,14 +223,18 @@
 			</div>
 		</td>
 		<td class="list-cell list-cell-badges" data-label="Протокол">
-			<div class="badges-inline">
-				<span class="badge b-{tunnel.protocol}">{protocolLabel}</span>
+			<div class="badges-inline protocol-badge-stack">
+				<span class="badge b-{tunnel.protocol} protocol-badge-main">{protocolLabel}</span>
+
 				{#if tunnel.security === 'reality'}
-					<span class="badge b-reality">Reality</span>
+					<span class="badge b-reality protocol-badge-security">Reality</span>
 				{:else if tunnel.security === 'tls'}
-					<span class="badge b-tls">TLS</span>
+					<span class="badge b-tls protocol-badge-security">TLS</span>
+				{:else}
+					<span class="protocol-badge-spacer" aria-hidden="true"></span>
 				{/if}
-				<span class="badge b-transport">{tunnel.transport.toUpperCase()}</span>
+
+				<span class="badge b-transport protocol-badge-transport">{tunnel.transport.toUpperCase()}</span>
 			</div>
 		</td>
 		<td class="list-cell list-cell-run" data-label="Процесс">
@@ -275,6 +287,14 @@
 					dense
 					onTitleClick={edit}
 				/>
+
+				<TunnelSingboxPingButton
+					layout="dense"
+					label={latText}
+					state={cardState}
+					{checking}
+					onclick={triggerCheck}
+				/>
 			</div>
 			<div class="meta-tags-dense">
 				<span class="iface-dense" title="{tunnel.proxyInterface || 'via sing-box'}{tunnel.kernelInterface ? ` · ${tunnel.kernelInterface}` : ''}">
@@ -290,14 +310,35 @@
 				<span class="badge b-transport">{tunnel.transport.toUpperCase()}</span>
 			</div>
 		</div>
-		<div class="dense-toolbar">
-			<div class="dense-toolbar-bottom">
-				<TunnelSingboxPingButton layout="dense" label={latText} state={cardState} {checking} onclick={triggerCheck} />
-			</div>
-		</div>
 	</div>
 
-	{#if renderMode !== 'list-card'}
+	{#if renderMode === 'list-card'}
+	<div class="mobile-list-facts">
+		<div class="mobile-list-fact">
+			<span class="mobile-list-fact-label">Endpoint</span>
+			<span class="mobile-list-fact-value mobile-list-fact-value-endpoint" title={mobileEndpointText}>
+				<span class="mobile-list-fact-text">{mobileEndpointText}</span>
+				<button
+					class="icon-btn mobile-list-eye"
+					onclick={() => (showServer = !showServer)}
+					aria-label={showServer ? 'Скрыть' : 'Показать'}
+				>
+					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						{#if showServer}
+							<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+						{:else}
+							<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+						{/if}
+					</svg>
+				</button>
+			</span>
+		</div>
+		<div class="mobile-list-fact">
+			<span class="mobile-list-fact-label">Трафик</span>
+			<span class="mobile-list-fact-value" title={mobileTrafficText}>{mobileTrafficText}</span>
+		</div>
+	</div>
+	{:else}
 	<div class="details">
 	<div class="details-dense-cols">
 		<div class="details-dense-col details-dense-col-lead">
@@ -331,7 +372,7 @@
 		<div class="details-dense-col details-dense-col-right">
 			<div class="kv-stacked-stat">
 				<span class="kv-stacked-label">Порт</span>
-				<span class="kv-stacked-value">:{tunnel.port}</span>
+				<span class="kv-stacked-value">{showServer ? `:${tunnel.port}` : ':•••••'}</span>
 			</div>
 			<div class="kv-stacked-stat">
 				<span class="kv-stacked-label">Delay</span>
@@ -442,7 +483,7 @@
 			<button class="icon-btn" onclick={() => (showServer = !showServer)} aria-label={showServer ? 'Скрыть' : 'Показать'}>
 				<Eye size={12} aria-hidden="true" />
 			</button>
-			<span class="port">:{tunnel.port}</span>
+			<span class="port">{showServer ? `:${tunnel.port}` : ':•••••'}</span>
 		</div>
 	</div>
 
@@ -561,9 +602,8 @@
 
 	.card.view-dense .header.header-dense {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: flex-start;
-		gap: 6px;
+		grid-template-columns: minmax(0, 1fr);
+		align-items: start;
 	}
 
 	.header-dense-body {
@@ -574,11 +614,36 @@
 	}
 
 	.title-row-dense {
-		display: grid;
-		grid-template-columns: auto minmax(0, 1fr);
+		display: flex;
 		align-items: center;
 		gap: 6px;
 		min-width: 0;
+	}
+
+	.title-row-dense :global(.ping-btn) {
+		margin-left: auto;
+		flex: 0 0 auto;
+		align-self: center;
+	}
+
+	.card.view-dense .title-row-dense :global(.ping-btn) {
+		min-height: 18px;
+		font-size: 10px;
+		line-height: 1;
+		padding-inline: 4px;
+	}
+
+	.card.view-dense .title-row-dense :global(.tunnel-title-row) {
+		min-width: 0;
+		flex: 1 1 auto;
+	}
+
+	.card.view-dense .title-row-dense :global(.tunnel-title-row__name) {
+		min-width: 0;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.title-dense {
@@ -631,18 +696,6 @@
 		font-size: 9px;
 		padding: 1px 5px;
 		line-height: 1.3;
-	}
-
-	.dense-toolbar {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		flex-shrink: 0;
-	}
-
-	.dense-toolbar-bottom {
-		display: flex;
-		align-items: center;
 	}
 
 	.details-dense-cols {
@@ -698,6 +751,57 @@
 		padding: 4px 0;
 		border-top: 1px solid var(--color-border);
 		border-bottom: 1px solid var(--color-border);
+	}
+
+	.mobile-list-facts {
+		display: grid;
+		gap: 0.35rem;
+		margin-top: 0.2rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid var(--color-border);
+	}
+
+	.mobile-list-fact {
+		display: grid;
+		grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr);
+		gap: 0.5rem;
+		align-items: baseline;
+		min-width: 0;
+	}
+
+	.mobile-list-fact-label {
+		font-size: 0.68rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--color-text-muted);
+	}
+
+	.mobile-list-fact-value {
+		min-width: 0;
+		font-size: 0.78rem;
+		color: var(--color-text-secondary);
+		font-family: var(--font-mono, monospace);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.mobile-list-fact-value-endpoint {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.mobile-list-fact-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.mobile-list-eye {
+		padding: 0;
+		flex-shrink: 0;
 	}
 
 	.charts-dense {
@@ -1117,6 +1221,27 @@
 		width: max-content;
 		max-width: 100%;
 		text-align: center;
+	}
+
+	.protocol-badge-stack {
+		display: inline-grid;
+		grid-template-rows: repeat(3, minmax(0, auto));
+		align-items: center;
+		justify-items: start;
+		gap: 3px;
+		min-width: 0;
+	}
+
+	.protocol-badge-stack .badge {
+		width: fit-content;
+		max-width: 100%;
+		white-space: nowrap;
+	}
+
+	.protocol-badge-spacer {
+		display: block;
+		height: calc(var(--sbx-card-badge, 0.625rem) + 4px);
+		min-height: 14px;
 	}
 	.muted {
 		color: var(--text-muted);
