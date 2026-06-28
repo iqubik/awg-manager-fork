@@ -12,13 +12,12 @@
 		policy: AccessPolicy;
 		devices: PolicyDevice[];
 		globalInterfaces: PolicyGlobalInterface[];
-		onback: () => void;
 		onupdate: () => Promise<void>;
 		ondeviceassigned: (mac: string, policyName: string) => void;
 		ondeviceunassigned: (mac: string, fromPolicy: string) => void;
 	}
 
-	let { policy, devices, globalInterfaces, onback, onupdate, ondeviceassigned, ondeviceunassigned }: Props = $props();
+	let { policy, devices, globalInterfaces, onupdate, ondeviceassigned, ondeviceunassigned }: Props = $props();
 
 	let isHrPolicy = $derived(isHydraRouteAccessPolicy(policy));
 
@@ -140,7 +139,6 @@
 			<ArrowLeft size={15} />
 			Назад к списку
 		</button>
-
 		{#if !isHrPolicy}
 			<div class="field-group">
 				<label class="field-label">Описание
@@ -267,36 +265,17 @@
 <style>
 	.edit-layout {
 		display: grid;
-		grid-template-columns: 1.3fr 1fr;
-		flex: 1;
+		grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.9fr);
+		flex: 1 1 auto;
 		min-height: 0;
 		height: 100%;
 		overflow: hidden;
 	}
 
-	@media (max-width: 768px) {
-		.edit-layout {
-			grid-template-columns: 1fr;
-			grid-template-rows: auto;
-			height: auto;
-			overflow: visible;
-		}
-
-		.left-panel {
-			border-right: none !important;
-			border-bottom: 1px solid var(--border);
-			overflow: visible;
-			min-height: auto;
-		}
-
-		.right-panel {
-			overflow: visible;
-			min-height: auto;
-		}
-
-		.right-panel-hr {
-			overflow-y: visible;
-		}
+	.left-panel,
+	.right-panel {
+		min-width: 0;
+		min-height: 0;
 	}
 
 	.left-panel {
@@ -305,21 +284,44 @@
 		gap: 16px;
 		padding: 16px;
 		border-right: 1px solid var(--border);
-		min-height: 0;
 		overflow-y: auto;
 	}
 
 	.right-panel {
 		display: flex;
 		flex-direction: column;
-		min-height: 0;
-		overflow: hidden;
 		padding: 16px;
 		background: var(--bg-primary);
+		overflow: hidden;
 	}
 
 	.right-panel-hr {
 		overflow-y: auto;
+	}
+
+	@media (max-width: 768px) {
+		.edit-layout {
+			display: flex;
+			flex-direction: column;
+			height: auto;
+			min-height: 0;
+			overflow: visible;
+		}
+
+		.left-panel,
+		.right-panel {
+			overflow: visible;
+			min-height: auto;
+			border-right: none !important;
+		}
+
+		.left-panel {
+			border-bottom: 1px solid var(--border);
+		}
+
+		.right-panel-hr {
+			overflow-y: visible;
+		}
 	}
 
 	.hr-side {
@@ -333,22 +335,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
-	}
-
-	.back-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		background: none;
-		border: none;
-		color: var(--accent);
-		cursor: pointer;
-		font-size: 0.8125rem;
-		padding: 0;
-	}
-
-	.back-btn:hover {
-		text-decoration: underline;
 	}
 
 	.field-group {

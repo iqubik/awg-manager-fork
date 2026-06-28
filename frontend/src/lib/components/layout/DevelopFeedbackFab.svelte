@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { Button, Modal } from '$lib/components/ui';
+	import { Button, SideDrawer } from '$lib/components/ui';
 	import { isMockDevMode } from '$lib/env';
 	import { developFeedbackFabVisible } from '$lib/stores/developFeedbackFab';
 	import { requestDevelopFeedbackIncident } from '$lib/stores/developFeedbackIncident';
@@ -44,7 +44,7 @@
 	</button>
 {/if}
 
-<Modal open={modalOpen} title="Обратная связь" size="md" onclose={closeModal}>
+<SideDrawer open={modalOpen} title="Обратная связь" width={480} onClose={closeModal}>
 	<div class="body">
 		<p>
 			Вы можете создать тикет на GitHub: сообщить об ошибке, предложить улучшение
@@ -57,7 +57,7 @@
 		</p>
 	</div>
 
-	{#snippet actions()}
+	{#snippet footer()}
 		<div class="feedback-actions">
 			<Button
 				variant="secondary"
@@ -81,7 +81,7 @@
 			</Button>
 		</div>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
 	.fab {

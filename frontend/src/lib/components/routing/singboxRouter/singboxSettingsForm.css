@@ -1,6 +1,7 @@
 /* Shared sing-box settings modal form — label above field, no row dividers */
 
-.modal-body:has(> .sbr-settings-form) {
+.modal-body:has(> .sbr-settings-form),
+.drawer-body:has(> .sbr-settings-form) {
 	padding: 0.875rem 1rem;
 }
 
@@ -377,7 +378,8 @@
 }
 
 @media (max-width: 640px) {
-	.modal-body:has(> .sbr-settings-form) {
+	.modal-body:has(> .sbr-settings-form),
+	.drawer-body:has(> .sbr-settings-form) {
 		padding: 0.75rem 0.875rem;
 	}
 
