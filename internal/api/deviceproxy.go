@@ -523,6 +523,10 @@ func (h *DeviceProxyHandler) SaveInstance(w http.ResponseWriter, r *http.Request
 
 	in := fromDeviceProxyInstanceData(body)
 	if err := h.svc.SaveInstance(r.Context(), in); err != nil {
+		if errors.Is(err, deviceproxy.ErrOutboundUnavailable) {
+			response.ErrorWithStatus(w, http.StatusBadRequest, err.Error(), "OUTBOUND_UNAVAILABLE")
+			return
+		}
 		if errors.Is(err, singbox.ErrSingboxNotRunning) {
 			response.ErrorWithStatus(w, http.StatusConflict, err.Error(), "SINGBOX_DOWN")
 			return
@@ -561,6 +565,10 @@ func (h *DeviceProxyHandler) DeleteInstance(w http.ResponseWriter, r *http.Reque
 	}
 	applied, err := h.svc.DeleteInstance(r.Context(), id)
 	if err != nil {
+		if errors.Is(err, deviceproxy.ErrDefaultInstanceDelete) {
+			response.ErrorWithStatus(w, http.StatusBadRequest, err.Error(), "DEFAULT_INSTANCE_DELETE_FORBIDDEN")
+			return
+		}
 		response.Error(w, err.Error(), "DELETE_INSTANCE_FAILED")
 		return
 	}

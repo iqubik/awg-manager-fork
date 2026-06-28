@@ -25,6 +25,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/sys/env"
 	"github.com/hoaxisr/awg-manager/internal/sys/ndmsinfo"
 	"github.com/hoaxisr/awg-manager/internal/sys/perftrace"
+	"github.com/hoaxisr/awg-manager/internal/sys/semver"
 )
 
 // maxSingboxBootWait caps how long startAndWait polls the Clash API
@@ -1554,13 +1555,22 @@ func (o *Operator) GetStatus(ctx context.Context) Status {
 	}
 	s.CurrentVersion = s.Version
 	s.RequiredVersion = o.RequiredVersion()
-	if o.inst != nil && s.CurrentVersion != "" && s.RequiredVersion != "" {
-		s.CurrentSHA256, _ = o.inst.CurrentSHA256()
+	if o.inst != nil {
 		s.RequiredSHA256 = o.inst.RequiredSHA256()
-		s.UpdateAvailable = s.CurrentVersion != s.RequiredVersion ||
-			(s.CurrentSHA256 != "" && s.RequiredSHA256 != "" && !strings.EqualFold(s.CurrentSHA256, s.RequiredSHA256))
-	} else {
-		s.UpdateAvailable = s.CurrentVersion != "" && s.RequiredVersion != "" && s.CurrentVersion != s.RequiredVersion
+		if s.CurrentVersion != "" {
+			s.CurrentSHA256, _ = o.inst.CurrentSHA256()
+		}
+	}
+	if s.CurrentVersion != "" && s.RequiredVersion != "" {
+		cmp := semver.Compare(s.CurrentVersion, s.RequiredVersion)
+		s.VersionMatchesRequired = cmp == 0
+		shaMismatch := false
+		if s.CurrentSHA256 != "" && s.RequiredSHA256 != "" {
+			s.ChecksumMatchesRequired = strings.EqualFold(s.CurrentSHA256, s.RequiredSHA256)
+			shaMismatch = !s.ChecksumMatchesRequired
+		}
+		s.CustomBuild = (s.VersionMatchesRequired && shaMismatch) || cmp > 0
+		s.UpdateAvailable = cmp < 0
 	}
 	if o.inst != nil {
 		s.InstallState = string(o.inst.EvaluateInstallState())
@@ -1905,7 +1915,7 @@ func outboundJSONWithTag(raw json.RawMessage, tag string) (json.RawMessage, erro
 // (relative to firstPort) among existing tunnels and reserved
 // (slots handed out earlier in the same batch). NDMS-free counterpart
 // to proxyMgr.NextFreeIndex used when the NDMS Proxy toggle is off.
-func nextFreeListenPortSlot(cfg *Config, reserved map[int]bool) int {
+func nextFreeListenPortSlot(cfg *Config, reserved map[int]bool) (int, error) {
 	used := make(map[int]bool, len(reserved))
 	for k := range reserved {
 		used[k] = true
@@ -1916,12 +1926,7 @@ func nextFreeListenPortSlot(cfg *Config, reserved map[int]bool) int {
 			used[slot] = true
 		}
 	}
-	for i := 0; i < maxProxySlots; i++ {
-		if !used[i] {
-			return i
-		}
-	}
-	return 0
+	return nextFreePortSlot(used)
 }
 
 // AddTunnels parses one or more links and atomically adds them.
@@ -1979,17 +1984,23 @@ func (o *Operator) AddTunnels(ctx context.Context, linksText string) ([]TunnelIn
 				existingFps[fp] = p.Tag // защита от повтора внутри одного batch
 			}
 		}
-		alloc := func() (int, error) {
-			if ndmsProxyEnabled {
-				return o.proxyMgr.NextFreeIndex(ctx, reserved)
+		var freeIdx int
+		if ndmsProxyEnabled {
+			var idxErr error
+			freeIdx, idxErr = o.proxyMgr.NextFreeTunnelIndex(ctx, reserved)
+			if idxErr != nil {
+				parseErrs = append(parseErrs, BatchError{Input: p.Tag, Err: fmt.Errorf("allocate proxy slot: %w", idxErr)})
+				continue
 			}
-			return nextFreeListenPortSlot(cfg, reserved), nil
+		} else {
+			var idxErr error
+			freeIdx, idxErr = nextFreeListenPortSlot(cfg, reserved)
+			if idxErr != nil {
+				parseErrs = append(parseErrs, BatchError{Input: p.Tag, Err: fmt.Errorf("allocate listen_port slot: %w", idxErr)})
+				continue
+			}
 		}
-		freeIdx, listenPort, allocErr := allocBindableSlot(reserved, alloc)
-		if allocErr != nil {
-			parseErrs = append(parseErrs, BatchError{Input: p.Tag, Err: fmt.Errorf("allocate listen port: %w", allocErr)})
-			continue
-		}
+		listenPort := firstPort + freeIdx
 		tag := allocUniqueTunnelTag(tagOccupied, p.Tag)
 		outbound, jerr := outboundJSONWithTag(p.Outbound, tag)
 		if jerr != nil {
@@ -2627,7 +2638,8 @@ func (o *Operator) Update(ctx context.Context) error {
 	if o.inst == nil {
 		return fmt.Errorf("installer not wired")
 	}
-	if o.inst.MatchesRequired(ctx) {
+	status := o.GetStatus(ctx)
+	if status.VersionMatchesRequired || status.CustomBuild {
 		return nil
 	}
 	if o.inst.EvaluateInstallState() == installer.InstallStateOutdatedNoSpace {
