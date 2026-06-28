@@ -1563,17 +1563,53 @@ definitions:
         example: https://ipinfo.io/ip
         type: string
     type: object
+  api.IPGeoInfoData:
+    properties:
+      city:
+        example: Frankfurt am Main
+        type: string
+      country:
+        example: Germany
+        type: string
+      countryCode:
+        example: DE
+        type: string
+      hostname:
+        example: host.example.net
+        type: string
+      ip:
+        example: 203.0.113.1
+        type: string
+      isp:
+        example: Hetzner Online GmbH
+        type: string
+      location:
+        example: Frankfurt am Main, Germany
+        type: string
+      region:
+        example: Hesse
+        type: string
+      source:
+        example: http://myip.wtf/json
+        type: string
+    type: object
   api.IPResultData:
     properties:
+      directGeo:
+        $ref: '#/definitions/api.IPGeoInfoData'
       directIp:
         example: 203.0.113.1
         type: string
+      endpointGeo:
+        $ref: '#/definitions/api.IPGeoInfoData'
       endpointIp:
         example: 203.0.113.42
         type: string
       ipChanged:
         example: true
         type: boolean
+      vpnGeo:
+        $ref: '#/definitions/api.IPGeoInfoData'
       vpnIp:
         example: 185.220.101.1
         type: string
@@ -2125,6 +2161,9 @@ definitions:
         type: string
       pingcheckTarget:
         example: target_google
+        type: string
+      probeTag:
+        example: sub-iq0-selector
         type: string
       protocol:
         example: vless
