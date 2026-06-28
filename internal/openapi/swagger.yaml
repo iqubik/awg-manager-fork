@@ -1477,12 +1477,39 @@ definitions:
     type: object
   api.HydraRouteStatusData:
     properties:
+      checksumMatchesRequired:
+        example: true
+        type: boolean
+      currentSha256:
+        example: 0123abcd
+        type: string
+      currentVersion:
+        example: 2.4.1
+        type: string
+      customBuild:
+        example: false
+        type: boolean
+      freeBytes:
+        example: 8221456
+        type: integer
+      installState:
+        example: installed
+        type: string
+      installSupported:
+        example: true
+        type: boolean
       installed:
         example: true
         type: boolean
       lastError:
         example: 'neo restart: exit status 1'
         type: string
+      legacy:
+        example: false
+        type: boolean
+      managed:
+        example: true
+        type: boolean
       pid:
         example: 12345
         type: integer
@@ -1494,15 +1521,30 @@ definitions:
         - dead
         example: running
         type: string
+      requiredBytes:
+        example: 32145678
+        type: integer
+      requiredSha256:
+        example: 89ef4567
+        type: string
+      requiredVersion:
+        example: 2.4.1
+        type: string
       running:
         example: true
         type: boolean
       stalePid:
         example: 12345
         type: integer
+      updateAvailable:
+        example: false
+        type: boolean
       version:
         example: 2.4.1
         type: string
+      versionMatchesRequired:
+        example: true
+        type: boolean
     type: object
   api.HydraRouteStatusResponse:
     properties:
@@ -2083,6 +2125,9 @@ definitions:
         type: string
       pingcheckTarget:
         example: target_google
+        type: string
+      probeTag:
+        example: sub-iq0-selector
         type: string
       protocol:
         example: vless
@@ -7753,6 +7798,28 @@ paths:
       summary: HydraRoute geo tags
       tags:
       - hydraroute
+  /hydraroute/install:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.HydraRouteStatusResponse'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Install HydraRoute Neo package
+      tags:
+      - hydraroute
   /hydraroute/ipset-usage:
     get:
       produces:
@@ -7818,6 +7885,28 @@ paths:
       security:
       - CookieAuth: []
       summary: Set HydraRoute policy order
+      tags:
+      - hydraroute
+  /hydraroute/update:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.HydraRouteStatusResponse'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Update HydraRoute Neo package
       tags:
       - hydraroute
   /import/conf:
