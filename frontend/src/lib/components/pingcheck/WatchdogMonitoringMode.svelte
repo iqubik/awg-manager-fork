@@ -798,26 +798,34 @@
 		}
 
 		.wd-spoiler__summary {
-			grid-template-columns: 1fr auto;
-			row-gap: 0.5rem;
+			grid-template-columns: minmax(0, auto) auto minmax(0, 1fr) 2rem;
+			column-gap: 0.5rem;
+			row-gap: 0.35rem;
+			align-items: center;
 		}
 
 		.wd-spoiler__title {
 			grid-column: 1;
-		}
-
-		.wd-spoiler__chevron {
-			grid-column: 2;
-			grid-row: 1;
+			min-width: 0;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
 		}
 
 		.wd-spoiler__badge {
-			grid-column: 1;
+			grid-column: 2;
+			grid-row: 1;
 			justify-self: start;
+		}
+
+		.wd-spoiler__chevron {
+			grid-column: 4;
+			grid-row: 1;
 		}
 
 		.wd-spoiler__meta {
 			grid-column: 1 / -1;
+			grid-row: 2;
 			white-space: normal;
 		}
 	}
