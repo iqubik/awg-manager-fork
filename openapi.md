@@ -1,4 +1,4 @@
-# OpenAPI / Swagger: краткий гайд
+# OpenAPI / Swagger: краткий гайд 
 
 Проект генерирует OpenAPI (Swagger) YAML из Go-аннотаций через `swag`.
 
