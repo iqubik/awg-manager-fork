@@ -284,6 +284,7 @@ const { default: WatchdogMonitoringMode } = await import('./WatchdogMonitoringMo
 describe('WatchdogMonitoringMode', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		localStorage.clear();
 		loadPingLogs.mockResolvedValue(undefined);
 		getTunnelsAll.mockResolvedValue({ tunnels: [] });
 		getTunnel.mockResolvedValue({
@@ -318,7 +319,7 @@ describe('WatchdogMonitoringMode', () => {
 
 		render(WatchdogMonitoringMode);
 
-		expect(await screen.findByRole('heading', { name: /Sing-box/ })).toBeTruthy();
+		expect(await screen.findByRole('button', { name: /Sing-box/i })).toBeTruthy();
 		expect(await screen.findByText('sb-main')).toBeTruthy();
 		expect(screen.getAllByText('125ms').length).toBeGreaterThan(0);
 		expect(loadHistory).toHaveBeenCalledWith('sb-main');
@@ -350,7 +351,8 @@ describe('WatchdogMonitoringMode', () => {
 		await waitFor(() => {
 			expect(screen.getByText('AWG Alpha')).toBeTruthy();
 		});
-		expect(screen.getByRole('heading', { name: /Sing-box/ })).toBeTruthy();
+		expect(screen.getByRole('button', { name: /AWG \/ NativeWG/i })).toBeTruthy();
+		expect(screen.getByRole('button', { name: /Sing-box/i })).toBeTruthy();
 		expect(screen.getByText('sb-main')).toBeTruthy();
 	});
 
@@ -397,7 +399,7 @@ describe('WatchdogMonitoringMode', () => {
 
 		render(WatchdogMonitoringMode);
 
-		expect(await screen.findByRole('heading', { name: /Sing-box/ })).toBeTruthy();
+		expect(await screen.findByRole('button', { name: /Sing-box/i })).toBeTruthy();
 		expect(screen.getByText('America Pool')).toBeTruthy();
 		expect(screen.getByText('Подписка · URLTest')).toBeTruthy();
 		expect(screen.getAllByText('155ms').length).toBeGreaterThan(0);
@@ -444,6 +446,72 @@ describe('WatchdogMonitoringMode', () => {
 		render(WatchdogMonitoringMode);
 
 		expect(screen.queryByText(/Sing-box/)).toBeNull();
+	});
+
+	it('collapses AWG spoiler and hides AWG cards', async () => {
+		setPingStatuses([
+			{
+				tunnelId: 'awg-1',
+				tunnelName: 'AWG Alpha',
+				enabled: true,
+				backend: 'kernel',
+				status: 'alive',
+				method: 'icmp',
+				lastLatency: 42,
+				failCount: 0,
+				failThreshold: 3,
+				restartCount: 0,
+			},
+		]);
+		getTunnelsAll.mockResolvedValue({ tunnels: [sampleAwgMeta] });
+
+		render(WatchdogMonitoringMode);
+
+		const awgToggle = await screen.findByRole('button', { name: /AWG \/ NativeWG/i });
+		expect(screen.getByText('AWG Alpha')).toBeTruthy();
+
+		await fireEvent.click(awgToggle);
+
+		expect(awgToggle.getAttribute('aria-expanded')).toBe('false');
+		expect(screen.queryByText('AWG Alpha')).toBeNull();
+	});
+
+	it('collapses sing-box spoiler and hides sing-box content', async () => {
+		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
+		setSingboxTunnels([sampleSingboxTunnel]);
+		setSubscriptions([]);
+
+		render(WatchdogMonitoringMode);
+
+		const singboxToggle = await screen.findByRole('button', { name: /Sing-box/i });
+		expect(await screen.findByText('sb-main')).toBeTruthy();
+
+		await fireEvent.click(singboxToggle);
+
+		expect(singboxToggle.getAttribute('aria-expanded')).toBe('false');
+		expect(screen.queryByText('sb-main')).toBeNull();
+	});
+
+	it('persists collapsed sing-box spoiler state in localStorage', async () => {
+		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
+		setSingboxTunnels([sampleSingboxTunnel]);
+		setSubscriptions([]);
+
+		const firstRender = render(WatchdogMonitoringMode);
+		const singboxToggle = await screen.findByRole('button', { name: /Sing-box/i });
+		await screen.findByText('sb-main');
+
+		await fireEvent.click(singboxToggle);
+
+		expect(localStorage.getItem('watchdog_monitoring_sections_open_v1')).toContain('"singbox":false');
+
+		firstRender.unmount();
+
+		render(WatchdogMonitoringMode);
+
+		const remountedToggle = await screen.findByRole('button', { name: /Sing-box/i });
+		expect(remountedToggle.getAttribute('aria-expanded')).toBe('false');
+		expect(screen.queryByText('sb-main')).toBeNull();
 	});
 
 	it('runs initial auto-check once for running sing-box cards', async () => {

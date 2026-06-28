@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ChevronDown } from 'lucide-svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { api } from '$lib/api/client';
 	import { pingCheckStatus, pingCheckLogs, loadPingLogs } from '$lib/stores/pingcheck';
@@ -37,6 +38,13 @@
 	let singboxAutoDelayCheckNonce = $state(0);
 	let lastSingboxAutoCheckKey = '';
 	const URLTEST_POLL_MS = 5000;
+	type WatchdogSectionId = 'awg' | 'singbox';
+	const WATCHDOG_SECTIONS_OPEN_STORAGE_KEY = 'watchdog_monitoring_sections_open_v1';
+	let watchdogSectionsHydrated = $state(false);
+	let openSections = $state<Record<WatchdogSectionId, boolean>>({
+		awg: true,
+		singbox: true,
+	});
 	let liveActives = $state<Record<string, string>>({});
 
 	const statuses = $derived($pingCheckStatus.data ?? []);
@@ -123,6 +131,21 @@
 		unsubSubscriptions = subscriptionsStore.subscribe(() => {});
 
 		try {
+			const raw = localStorage.getItem(WATCHDOG_SECTIONS_OPEN_STORAGE_KEY);
+			if (raw) {
+				openSections = normalizeWatchdogOpenSections(
+					JSON.parse(raw) as Partial<Record<WatchdogSectionId, boolean>>,
+				);
+			} else {
+				openSections = normalizeWatchdogOpenSections(null);
+			}
+		} catch {
+			openSections = normalizeWatchdogOpenSections(null);
+		} finally {
+			watchdogSectionsHydrated = true;
+		}
+
+		try {
 			await loadPingLogs();
 			const snap = await api.getTunnelsAll();
 			tunnelMeta = snap.tunnels ?? [];
@@ -137,6 +160,19 @@
 		unsubSingboxStatus?.();
 		unsubSingboxTunnels?.();
 		unsubSubscriptions?.();
+	});
+
+	$effect(() => {
+		const normalized = normalizeWatchdogOpenSections(openSections);
+
+		if (normalized.awg !== openSections.awg || normalized.singbox !== openSections.singbox) {
+			openSections = normalized;
+		}
+	});
+
+	$effect(() => {
+		if (typeof window === 'undefined' || !watchdogSectionsHydrated) return;
+		localStorage.setItem(WATCHDOG_SECTIONS_OPEN_STORAGE_KEY, JSON.stringify(openSections));
 	});
 
 	$effect(() => {
@@ -261,6 +297,46 @@
 
 		return order;
 	});
+
+	function isWatchdogSectionAvailable(id: WatchdogSectionId): boolean {
+		return id === 'awg' ? awgCards.length > 0 : singboxSectionVisible;
+	}
+
+	function normalizeWatchdogOpenSections(
+		value: Partial<Record<WatchdogSectionId, boolean>> | null | undefined,
+	): Record<WatchdogSectionId, boolean> {
+		return {
+			awg: awgCards.length > 0 ? (value?.awg ?? true) : false,
+			singbox: singboxSectionVisible ? (value?.singbox ?? true) : false,
+		};
+	}
+
+	function isWatchdogSectionOpen(id: WatchdogSectionId): boolean {
+		return isWatchdogSectionAvailable(id) && openSections[id];
+	}
+
+	function setWatchdogSectionOpen(id: WatchdogSectionId, open: boolean): void {
+		const nextValue = isWatchdogSectionAvailable(id) ? open : false;
+		if (openSections[id] === nextValue) return;
+
+		openSections = {
+			...openSections,
+			[id]: nextValue,
+		};
+	}
+
+	function toggleWatchdogSection(id: WatchdogSectionId): void {
+		setWatchdogSectionOpen(id, !isWatchdogSectionOpen(id));
+	}
+
+	const awgWatchdogTotal = $derived(awgCards.length);
+	const awgWatchdogActive = $derived(
+		awgCards.filter((card) => card.kind === 'pc' && card.isWatchdog).length,
+	);
+	const singboxWatchdogTotal = $derived(singboxCards.length);
+	const singboxWatchdogRunning = $derived(
+		singboxCards.filter((card) => card.running).length,
+	);
 
 	const singboxLoading = $derived.by(() => {
 		if (!singboxSectionVisible) return false;
@@ -387,7 +463,7 @@
 </script>
 
 {#if loading}
-	<div class="wd-grid">
+	<div class="wd-grid wd-grid--loading">
 		{#each Array(4) as _, i (i)}
 			<div class="wd-skel"></div>
 		{/each}
@@ -396,71 +472,125 @@
 	{#if awgCards.length === 0 && !singboxSectionVisible}
 		<EmptyState title="Нет туннелей" description="Создайте туннель, чтобы видеть мониторинг." />
 	{:else}
-		{#if awgCards.length > 0}
-			<div class="wd-grid">
-				{#each awgCards as card (card.id)}
-					{#if card.kind === 'pc'}
-						<WatchdogCard
-							name={card.name}
-							backend={card.backend}
-							awgVersion={card.awgVersion}
-							statusKind={card.statusKind}
-							hasPingcheck={card.configured}
-							isWatchdog={card.isWatchdog}
-							configLine={card.configLine}
-							stats={card.stats}
-							onConfigure={() => openConfig(card.id, card.name, card.backend)}
-							onCheckNow={checkNow}
-							onDisable={() => disablePingcheck(card.id, card.name, card.backend)}
-							onEnable={() => enablePingcheck(card.id, card.name, card.backend)}
-						/>
-					{:else}
-						<WatchdogCard
-							name={card.name}
-							backend={card.backend}
-							awgVersion={card.awgVersion}
-							statusKind="disabled"
-							hasPingcheck={false}
-							isWatchdog={false}
-							configLine=""
-							stats={null}
-							onConfigure={() => openConfig(card.id, card.name, card.backend)}
-							onCheckNow={checkNow}
-							onDisable={() => {}}
-							onEnable={() => {}}
-						/>
-					{/if}
-				{/each}
-			</div>
-		{/if}
-
-		{#if singboxSectionVisible}
-			<section class="wd-section">
-				<div class="wd-section-head">
-					<h3>Sing-box{#if !singboxLoading && singboxInstalled} · {singboxCards.length}{/if}</h3>
-				</div>
-
-				{#if singboxLoading}
-					<div class="wd-notice">Загрузка данных Sing-box…</div>
-				{:else if singboxErrorMessage}
-					<div class="wd-notice wd-notice--error">{singboxErrorMessage}</div>
-				{:else if !singboxInstalled}
-					<div class="wd-notice">Sing-box не установлен.</div>
-				{:else if singboxCards.length === 0}
-					<div class="wd-notice">Нет Sing-box туннелей.</div>
-				{:else}
-					<div class="wd-grid">
-						{#each singboxCards as card (card.id)}
-							<SingboxWatchdogCard
-								{card}
-								autoDelayCheckNonce={singboxAutoCheckOrder.has(card.id) ? singboxAutoDelayCheckNonce : 0}
-								autoDelayCheckDelayMs={(singboxAutoCheckOrder.get(card.id) ?? 0) * 180}
-							/>
-						{/each}
+		<div class="wd-section-stack">
+			{#if awgCards.length > 0}
+				<section class="wd-spoiler wd-spoiler--awg">
+					<div class="wd-spoiler__header">
+						<button
+							type="button"
+							class="wd-spoiler__summary"
+							aria-expanded={isWatchdogSectionOpen('awg')}
+							aria-controls="watchdog-section-awg"
+							onclick={() => toggleWatchdogSection('awg')}
+						>
+							<span class="wd-spoiler__title">AWG / NativeWG</span>
+							<span class="wd-spoiler__badge">{awgWatchdogTotal}</span>
+							<span class="wd-spoiler__meta">{awgWatchdogActive}/{awgWatchdogTotal} watchdog активны</span>
+							<span class="wd-spoiler__chevron" aria-hidden="true">
+								<ChevronDown size={16} strokeWidth={2.25} />
+							</span>
+						</button>
 					</div>
-				{/if}
-			</section>
-		{/if}
+
+					{#if isWatchdogSectionOpen('awg')}
+						<div id="watchdog-section-awg" class="wd-spoiler__body">
+							<div class="wd-grid">
+								{#each awgCards as card (card.id)}
+									{#if card.kind === 'pc'}
+										<WatchdogCard
+											name={card.name}
+											backend={card.backend}
+											awgVersion={card.awgVersion}
+											statusKind={card.statusKind}
+											hasPingcheck={card.configured}
+											isWatchdog={card.isWatchdog}
+											configLine={card.configLine}
+											stats={card.stats}
+											onConfigure={() => openConfig(card.id, card.name, card.backend)}
+											onCheckNow={checkNow}
+											onDisable={() => disablePingcheck(card.id, card.name, card.backend)}
+											onEnable={() => enablePingcheck(card.id, card.name, card.backend)}
+										/>
+									{:else}
+										<WatchdogCard
+											name={card.name}
+											backend={card.backend}
+											awgVersion={card.awgVersion}
+											statusKind="disabled"
+											hasPingcheck={false}
+											isWatchdog={false}
+											configLine=""
+											stats={null}
+											onConfigure={() => openConfig(card.id, card.name, card.backend)}
+											onCheckNow={checkNow}
+											onDisable={() => {}}
+											onEnable={() => {}}
+										/>
+									{/if}
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</section>
+			{/if}
+
+			{#if singboxSectionVisible}
+				<section class="wd-spoiler wd-spoiler--singbox">
+					<div class="wd-spoiler__header">
+						<button
+							type="button"
+							class="wd-spoiler__summary"
+							aria-expanded={isWatchdogSectionOpen('singbox')}
+							aria-controls="watchdog-section-singbox"
+							onclick={() => toggleWatchdogSection('singbox')}
+						>
+							<span class="wd-spoiler__title">Sing-box</span>
+							<span class="wd-spoiler__badge">
+								{#if !singboxLoading && singboxInstalled}{singboxWatchdogTotal}{:else}—{/if}
+							</span>
+							<span class="wd-spoiler__meta">
+								{#if singboxLoading}
+									загрузка данных
+								{:else if singboxErrorMessage}
+									ошибка загрузки
+								{:else if !singboxInstalled}
+									не установлен
+								{:else}
+									{singboxWatchdogRunning}/{singboxWatchdogTotal} активны
+								{/if}
+							</span>
+							<span class="wd-spoiler__chevron" aria-hidden="true">
+								<ChevronDown size={16} strokeWidth={2.25} />
+							</span>
+						</button>
+					</div>
+
+					{#if isWatchdogSectionOpen('singbox')}
+						<div id="watchdog-section-singbox" class="wd-spoiler__body">
+							{#if singboxLoading}
+								<div class="wd-notice">Загрузка данных Sing-box…</div>
+							{:else if singboxErrorMessage}
+								<div class="wd-notice wd-notice--error">{singboxErrorMessage}</div>
+							{:else if !singboxInstalled}
+								<div class="wd-notice">Sing-box не установлен.</div>
+							{:else if singboxCards.length === 0}
+								<div class="wd-notice">Нет Sing-box туннелей.</div>
+							{:else}
+								<div class="wd-grid">
+									{#each singboxCards as card (card.id)}
+										<SingboxWatchdogCard
+											{card}
+											autoDelayCheckNonce={singboxAutoCheckOrder.has(card.id) ? singboxAutoDelayCheckNonce : 0}
+											autoDelayCheckDelayMs={(singboxAutoCheckOrder.get(card.id) ?? 0) * 180}
+										/>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</section>
+			{/if}
+		</div>
 	{/if}
 {/if}
 
@@ -483,28 +613,165 @@
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
 		gap: 16px;
+	}
+
+	.wd-grid--loading {
 		padding-top: 16px;
 	}
 
-	.wd-section {
+	.wd-section-stack {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
-		padding-top: 20px;
+		gap: 0.875rem;
+		padding-top: 0.35rem;
 	}
 
-	.wd-section-head {
-		display: flex;
+	.wd-spoiler {
+		position: relative;
+		border: 1px solid var(--section-border, var(--color-border));
+		border-radius: 12px;
+		background:
+			linear-gradient(135deg, var(--section-tint, transparent) 0%, transparent 42%),
+			var(--color-bg-tertiary);
+		overflow: hidden;
+	}
+
+	.wd-spoiler::before {
+		content: '';
+		position: absolute;
+		inset: 0 auto 0 0;
+		width: 2px;
+		background: color-mix(in srgb, var(--section-rail, var(--color-accent)) 70%, transparent);
+		opacity: 0.75;
+		pointer-events: none;
+	}
+
+	.wd-spoiler--awg {
+		--section-tint: color-mix(in srgb, var(--color-accent) 10%, transparent);
+		--section-tint-strong: color-mix(in srgb, var(--color-accent) 18%, transparent);
+		--section-border: color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+		--section-badge-bg: color-mix(in srgb, var(--color-accent) 88%, #ffffff 12%);
+		--section-rail: var(--color-accent);
+	}
+
+	.wd-spoiler--singbox {
+		--section-tint: color-mix(in srgb, #22c55e 8%, transparent);
+		--section-tint-strong: color-mix(in srgb, #22c55e 14%, transparent);
+		--section-border: color-mix(in srgb, #22c55e 24%, var(--color-border));
+		--section-badge-bg: color-mix(in srgb, #22c55e 76%, var(--color-accent) 24%);
+		--section-rail: #22c55e;
+	}
+
+	.wd-spoiler__header {
+		background:
+			linear-gradient(90deg, var(--section-tint-strong, transparent) 0%, transparent 55%),
+			color-mix(in srgb, var(--color-bg-tertiary) 82%, var(--color-bg-secondary) 18%);
+	}
+
+	.wd-spoiler__summary {
+		width: 100%;
+		display: grid;
+		grid-template-columns: auto auto minmax(0, 1fr) 2rem;
 		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
+		gap: 0.625rem;
+		min-height: 3rem;
+		padding: 0.875rem 1rem;
+		border: 0;
+		background: transparent;
+		color: var(--color-text-primary);
+		text-align: left;
+		cursor: pointer;
+		transition:
+			background 0.16s ease,
+			box-shadow 0.16s ease;
 	}
 
-	.wd-section-head h3 {
-		margin: 0;
-		font-size: 14px;
-		font-weight: 600;
+	.wd-spoiler__summary:hover {
+		background:
+			linear-gradient(90deg, var(--section-tint-strong, transparent) 0%, transparent 55%),
+			color-mix(in srgb, var(--color-bg-tertiary) 70%, var(--color-bg-secondary) 30%);
+	}
+
+	.wd-spoiler__summary:focus-visible {
+		outline: none;
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 42%, transparent);
+	}
+
+	.wd-spoiler__summary[aria-expanded="true"] {
+		background:
+			linear-gradient(90deg, var(--section-tint-strong, transparent) 0%, transparent 58%),
+			color-mix(in srgb, var(--color-bg-tertiary) 62%, var(--color-bg-secondary) 38%);
+	}
+
+	.wd-spoiler__title {
+		font-weight: 700;
+	}
+
+	.wd-spoiler__badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 1.25rem;
+		height: 1.25rem;
+		padding: 0 0.375rem;
+		border-radius: 999px;
+		background: var(--section-badge-bg, var(--color-accent));
+		color: var(--color-accent-contrast, #fff);
+		font-size: 0.6875rem;
+		font-weight: 700;
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--section-rail, var(--color-accent)) 30%, transparent);
+	}
+
+	.wd-spoiler__meta {
+		min-width: 0;
+		color: var(--color-text-muted);
+		font-size: 0.8125rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.wd-spoiler__chevron {
+		justify-self: end;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		border-radius: 0.5rem;
+		color: var(--color-text-muted);
+		border: 1px solid transparent;
+		background: transparent;
+		transition:
+			color 0.16s ease,
+			background 0.16s ease,
+			border-color 0.16s ease;
+	}
+
+	.wd-spoiler__chevron :global(svg) {
+		display: block;
+		transition: transform 0.16s ease;
+	}
+
+	.wd-spoiler__summary:hover .wd-spoiler__chevron {
 		color: var(--color-text-primary);
+		background: color-mix(in srgb, var(--section-rail, var(--color-accent)) 10%, transparent);
+		border-color: color-mix(in srgb, var(--section-rail, var(--color-accent)) 22%, transparent);
+	}
+
+	.wd-spoiler__summary[aria-expanded="true"] .wd-spoiler__chevron {
+		color: var(--section-rail, var(--color-accent));
+		background: color-mix(in srgb, var(--section-rail, var(--color-accent)) 12%, transparent);
+		border-color: color-mix(in srgb, var(--section-rail, var(--color-accent)) 26%, transparent);
+	}
+
+	.wd-spoiler__summary[aria-expanded="true"] .wd-spoiler__chevron :global(svg) {
+		transform: rotate(180deg);
+	}
+
+	.wd-spoiler__body {
+		padding: 0.75rem 1rem 1rem;
+		background: transparent;
 	}
 
 	.wd-notice {
@@ -536,6 +803,30 @@
 	@media (max-width: 640px) {
 		.wd-grid {
 			grid-template-columns: 1fr;
+		}
+
+		.wd-spoiler__summary {
+			grid-template-columns: 1fr auto;
+			row-gap: 0.5rem;
+		}
+
+		.wd-spoiler__title {
+			grid-column: 1;
+		}
+
+		.wd-spoiler__chevron {
+			grid-column: 2;
+			grid-row: 1;
+		}
+
+		.wd-spoiler__badge {
+			grid-column: 1;
+			justify-self: start;
+		}
+
+		.wd-spoiler__meta {
+			grid-column: 1 / -1;
+			white-space: normal;
 		}
 	}
 </style>
