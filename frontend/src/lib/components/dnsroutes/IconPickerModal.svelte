@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Modal, Button } from '$lib/components/ui';
+	import { SideDrawer, Button } from '$lib/components/ui';
 	import {
 		QURE_ICONS,
 		QURE_CDN_BASE,
@@ -296,7 +296,7 @@
 	</div>
 {/snippet}
 
-<Modal {open} {onclose} title="Выбрать иконку" size="lg">
+<SideDrawer {open} onClose={onclose} title="Выбрать иконку" width={640}>
 	<div class="picker">
 		<div class="tabs" role="tablist" aria-label="Источник иконки">
 			<button
@@ -435,7 +435,7 @@
 		{/if}
 	</div>
 
-	{#snippet actions()}
+	{#snippet footer()}
 		<div class="footer-left">
 			{#if iconUrl}
 				<Button variant="ghost" size="sm" onclick={handleReset}>&#x21BA; Сбросить (на авто)</Button>
@@ -446,7 +446,7 @@
 			<Button variant="primary" onclick={handleApply} disabled={!canApply}>Применить</Button>
 		</div>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
 	.picker {
