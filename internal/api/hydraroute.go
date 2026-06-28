@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/hoaxisr/awg-manager/internal/downloader"
 	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/hydraroute"
 	"github.com/hoaxisr/awg-manager/internal/response"
+	"github.com/hoaxisr/awg-manager/internal/storage"
 )
 
 // ── Response DTOs ────────────────────────────────────────────────
@@ -52,6 +55,18 @@ type GeoFileEntryDTO struct {
 type GeoFilesResponse struct {
 	Success bool              `json:"success" example:"true"`
 	Data    []GeoFileEntryDTO `json:"data"`
+}
+
+// GeoUpdateScheduleDTO mirrors frontend GeoUpdateSchedule.
+type GeoUpdateScheduleDTO struct {
+	Interval  string `json:"interval" example:"off"`
+	UpdatedAt string `json:"updatedAt,omitempty" example:"2024-01-15T02:00:00Z"`
+}
+
+// GeoUpdateScheduleResponse is the envelope for /hydraroute/geo-files/schedule.
+type GeoUpdateScheduleResponse struct {
+	Success bool                 `json:"success" example:"true"`
+	Data    GeoUpdateScheduleDTO `json:"data"`
 }
 
 // GeoTagDTO mirrors frontend GeoTag.
@@ -177,21 +192,32 @@ type SetPolicyOrderRequest struct {
 	Order []string `json:"order" example:"default"`
 }
 
+// SetGeoUpdateScheduleRequest is the body for PUT /hydraroute/geo-files/schedule.
+type SetGeoUpdateScheduleRequest struct {
+	Interval string `json:"interval" example:"daily"`
+}
+
 // HydraRouteHandler handles HydraRoute Neo settings API endpoints.
 type HydraRouteHandler struct {
 	svc         *hydraroute.Service
 	bus         *events.Bus
 	downloadSvc *downloader.Service
+	settings    *storage.SettingsStore
 }
 
 // NewHydraRouteHandler creates a new HydraRoute settings handler.
-func NewHydraRouteHandler(svc *hydraroute.Service, downloadSvc *downloader.Service) *HydraRouteHandler {
+func NewHydraRouteHandler(
+	svc *hydraroute.Service,
+	downloadSvc *downloader.Service,
+	settings *storage.SettingsStore,
+) *HydraRouteHandler {
 	if downloadSvc == nil {
 		downloadSvc = downloader.NewService(downloader.Deps{})
 	}
 	return &HydraRouteHandler{
 		svc:         svc,
 		downloadSvc: downloadSvc,
+		settings:    settings,
 	}
 }
 
@@ -205,11 +231,140 @@ func toDownloaderRoute(route *DownloadRouteDTO) *downloader.Route {
 	}
 }
 
+func legacyGeoScheduleFromSettings(geo storage.GeoFileSettings) GeoUpdateScheduleDTO {
+	if !geo.AutoRefreshEnabled {
+		return GeoUpdateScheduleDTO{Interval: hydraroute.GeoUpdateOff}
+	}
+
+	if strings.EqualFold(strings.TrimSpace(geo.RefreshMode), "daily") {
+		return GeoUpdateScheduleDTO{Interval: hydraroute.GeoUpdateDay}
+	}
+
+	hours := geo.RefreshIntervalHours
+	switch hours {
+	case 0:
+		return GeoUpdateScheduleDTO{Interval: hydraroute.GeoUpdateOff}
+	case 1:
+		return GeoUpdateScheduleDTO{Interval: hydraroute.GeoUpdateHour}
+	case 6:
+		return GeoUpdateScheduleDTO{Interval: hydraroute.GeoUpdate6H}
+	case 168:
+		return GeoUpdateScheduleDTO{Interval: hydraroute.GeoUpdateWeek}
+	default:
+		return GeoUpdateScheduleDTO{Interval: fmt.Sprintf("%dh", hours)}
+	}
+}
+
+func geoFileSettingsFromLegacyInterval(
+	interval string,
+	base storage.GeoFileSettings,
+) (storage.GeoFileSettings, error) {
+	normalized := strings.ToLower(strings.TrimSpace(interval))
+	switch normalized {
+	case "", hydraroute.GeoUpdateOff:
+		base.AutoRefreshEnabled = false
+		return base, nil
+	case hydraroute.GeoUpdateHour:
+		base.AutoRefreshEnabled = true
+		base.RefreshMode = "interval"
+		base.RefreshIntervalHours = 1
+		return base, nil
+	case hydraroute.GeoUpdate6H:
+		base.AutoRefreshEnabled = true
+		base.RefreshMode = "interval"
+		base.RefreshIntervalHours = 6
+		return base, nil
+	case hydraroute.GeoUpdateDay:
+		base.AutoRefreshEnabled = true
+		base.RefreshMode = "daily"
+		if strings.TrimSpace(base.RefreshDailyTime) == "" {
+			base.RefreshDailyTime = "03:00"
+		}
+		return base, nil
+	case hydraroute.GeoUpdateWeek:
+		base.AutoRefreshEnabled = true
+		base.RefreshMode = "interval"
+		base.RefreshIntervalHours = 168
+		return base, nil
+	}
+
+	if strings.HasSuffix(normalized, "h") {
+		hours, err := strconv.Atoi(strings.TrimSuffix(normalized, "h"))
+		if err != nil || hours <= 0 {
+			return base, fmt.Errorf("unsupported geo schedule interval %q", interval)
+		}
+		base.AutoRefreshEnabled = true
+		base.RefreshMode = "interval"
+		base.RefreshIntervalHours = hours
+		return base, nil
+	}
+
+	return base, fmt.Errorf("unsupported geo schedule interval %q", interval)
+}
+
 // SetEventBus wires the SSE bus so HR Neo mutations that touch the DNS
 // route list (policy order, native rule import, config write) can emit
 // resource:invalidated hints for `routing.dnsRoutes`, and so HR daemon
 // state changes publish `routing.hydrarouteStatus` hints.
 func (h *HydraRouteHandler) SetEventBus(bus *events.Bus) { h.bus = bus }
+
+// Install installs the official HydraRoute Neo package through opkg and
+// returns the fresh status snapshot.
+//
+//	@Summary		Install HydraRoute Neo package
+//	@Tags			hydraroute
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Success		200	{object}	HydraRouteStatusResponse
+//	@Failure		405	{object}	APIErrorEnvelope
+//	@Failure		500	{object}	APIErrorEnvelope
+//	@Router			/hydraroute/install [post]
+func (h *HydraRouteHandler) Install(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.MethodNotAllowed(w)
+		return
+	}
+	if h.svc == nil {
+		response.InternalError(w, "HydraRoute service is not configured")
+		return
+	}
+	if err := h.svc.Install(r.Context()); err != nil {
+		response.InternalError(w, err.Error())
+		return
+	}
+	status := h.svc.RefreshStatus()
+	publishInvalidated(h.bus, ResourceRoutingHydrarouteStatus, "installed")
+	response.Success(w, hydraRouteStatusData(status))
+}
+
+// Update updates the installed HydraRoute Neo package through opkg and returns
+// the fresh status.
+//
+//	@Summary		Update HydraRoute Neo package
+//	@Tags			hydraroute
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Success		200	{object}	HydraRouteStatusResponse
+//	@Failure		405	{object}	APIErrorEnvelope
+//	@Failure		500	{object}	APIErrorEnvelope
+//	@Router			/hydraroute/update [post]
+func (h *HydraRouteHandler) Update(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.MethodNotAllowed(w)
+		return
+	}
+	if h.svc == nil {
+		response.InternalError(w, "HydraRoute service is not configured")
+		return
+	}
+	if err := h.svc.Update(r.Context()); err != nil {
+		response.InternalError(w, err.Error())
+		return
+	}
+	status := h.svc.RefreshStatus()
+	publishInvalidated(h.bus, ResourceRoutingHydrarouteStatus, "updated")
+	response.Success(w, hydraRouteStatusData(status))
+}
 
 // GetConfig returns the current HydraRoute config.
 //
@@ -293,6 +448,84 @@ func (h *HydraRouteHandler) ListGeoFiles(w http.ResponseWriter, r *http.Request)
 	}
 
 	response.Success(w, response.MustNotNil(gds.List()))
+}
+
+// GetGeoUpdateSchedule returns the current geo-data auto-update interval.
+//
+//	@Summary		Get HydraRoute geo file auto-update schedule
+//	@Tags			hydraroute
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Success		200	{object}	GeoUpdateScheduleResponse
+//	@Failure		400	{object}	APIErrorEnvelope
+//	@Router			/hydraroute/geo-files/schedule [get]
+func (h *HydraRouteHandler) GetGeoUpdateSchedule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.MethodNotAllowed(w)
+		return
+	}
+
+	if h.settings == nil {
+		response.Error(w, "settings store not initialized", "NOT_INITIALIZED")
+		return
+	}
+
+	settings, err := h.settings.Get()
+	if err != nil {
+		response.Error(w, "failed to load settings: "+err.Error(), "SETTINGS_READ_ERROR")
+		return
+	}
+
+	response.Success(w, legacyGeoScheduleFromSettings(settings.GeoFile))
+}
+
+// SetGeoUpdateSchedule updates the persisted geo-data auto-update interval.
+//
+//	@Summary		Set HydraRoute geo file auto-update schedule
+//	@Tags			hydraroute
+//	@Accept			json
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Param			body	body		SetGeoUpdateScheduleRequest	true	"Geo auto-update schedule interval"
+//	@Success		200		{object}	GeoUpdateScheduleResponse
+//	@Failure		400		{object}	APIErrorEnvelope
+//	@Router			/hydraroute/geo-files/schedule [put]
+func (h *HydraRouteHandler) SetGeoUpdateSchedule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		response.MethodNotAllowed(w)
+		return
+	}
+
+	var req SetGeoUpdateScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, "invalid request body: "+err.Error(), "BAD_REQUEST")
+		return
+	}
+
+	if h.settings == nil {
+		response.Error(w, "settings store not initialized", "NOT_INITIALIZED")
+		return
+	}
+
+	settings, err := h.settings.Get()
+	if err != nil {
+		response.Error(w, "failed to load settings: "+err.Error(), "SETTINGS_READ_ERROR")
+		return
+	}
+
+	nextGeo, err := geoFileSettingsFromLegacyInterval(req.Interval, settings.GeoFile)
+	if err != nil {
+		response.Error(w, err.Error(), "GEO_SCHEDULE_ERROR")
+		return
+	}
+
+	settings.GeoFile = nextGeo
+	if err := h.settings.Save(settings); err != nil {
+		response.Error(w, "failed to save settings: "+err.Error(), "SETTINGS_WRITE_ERROR")
+		return
+	}
+
+	response.Success(w, legacyGeoScheduleFromSettings(nextGeo))
 }
 
 // AddGeoFile downloads and registers a new geo data file.

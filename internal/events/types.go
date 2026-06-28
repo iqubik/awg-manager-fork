@@ -129,6 +129,14 @@ type SingboxInstallProgressEvent struct {
 	Error      string `json:"error,omitempty"`
 }
 
+type HydraRouteInstallProgressEvent struct {
+	Op         string `json:"op"`         // "install" | "update"
+	Phase      string `json:"phase"`      // "prepare"|"install"|"upgrade"|"stop"|"start"|"done"|"error"
+	Downloaded int64  `json:"downloaded"` // bytes received so far (download phase only)
+	Total      int64  `json:"total"`      // 0 when unknown
+	Error      string `json:"error,omitempty"`
+}
+
 // ResourceInvalidatedEvent is the single state-invalidation hint.
 // Replaces all per-resource state events (tunnel:state, server:updated,
 // routing:*-updated, singbox:status, singbox:tunnel, pingcheck:state,

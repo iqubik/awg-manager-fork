@@ -1092,7 +1092,7 @@ func TestFetchSummary_ViaPost(t *testing.T) {
 func TestFetchSummary_FallbackTopLevelFields(t *testing.T) {
 	g := NewFakeGetter()
 	g.SetPostInterface("OpkgTun0", `{"show":{"interface":{
-		"id":"OpkgTun0","state":"up","link":"up","conf-layer":"running"
+		"id":"OpkgTun0","state":"up","link":"up","conf-layer":"running","connected":"yes","online":"yes"
 	}}}`)
 	s := NewInterfaceStore(g, NopLogger())
 
@@ -1102,6 +1102,26 @@ func TestFetchSummary_FallbackTopLevelFields(t *testing.T) {
 	}
 	if d.ConfLayer != "running" || d.Link != "up" || d.State != "up" {
 		t.Fatalf("details = %+v", d)
+	}
+	if !d.Connected || !d.Online {
+		t.Fatalf("expected connected+online from top-level fields, got %+v", d)
+	}
+}
+
+func TestFetchSummary_ParsesOnline(t *testing.T) {
+	g := NewFakeGetter()
+	g.SetPostInterface("OpkgTun0", `{"show":{"interface":{
+		"id":"OpkgTun0","state":"up","link":"up","conf-layer":"running","connected":"yes","online":"yes",
+		"summary":{"layer":{"conf":"running","link":"running","ctrl":"running"}}
+	}}}`)
+	s := NewInterfaceStore(g, NopLogger())
+
+	d, err := s.FetchSummary(context.Background(), "OpkgTun0")
+	if err != nil || d == nil {
+		t.Fatalf("d=%v err=%v", d, err)
+	}
+	if !d.Connected || !d.Online {
+		t.Fatalf("expected connected+online, got %+v", d)
 	}
 }
 
