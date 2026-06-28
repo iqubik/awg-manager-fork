@@ -220,13 +220,19 @@ func TestSingboxHandler_CheckIP_IfaceOverride_DoesNotRequireOperator(t *testing.
 
 func TestSingboxStatusData_MapsNewFields(t *testing.T) {
 	src := singbox.Status{
-		InstallState:  "outdated_no_space",
-		RequiredBytes: 32_000_000,
-		FreeBytes:     8_000_000,
+		InstallState:            "outdated_no_space",
+		RequiredBytes:           32_000_000,
+		FreeBytes:               8_000_000,
+		VersionMatchesRequired:  true,
+		ChecksumMatchesRequired: false,
+		CustomBuild:             true,
 	}
 	got := singboxStatusData(src)
 	if got.InstallState != "outdated_no_space" {
 		t.Fatalf("InstallState=%q", got.InstallState)
+	}
+	if !got.VersionMatchesRequired || got.ChecksumMatchesRequired || !got.CustomBuild {
+		t.Fatalf("new sing-box flags mismatch: %+v", got)
 	}
 	if got.RequiredBytes != 32_000_000 || got.FreeBytes != 8_000_000 {
 		t.Fatalf("Required/FreeBytes mismatch: %+v", got)
@@ -266,20 +272,23 @@ func TestResolveTunnelInterfaceFromList_NoInterface(t *testing.T) {
 
 func TestSingboxStatusData_MapsAllFields(t *testing.T) {
 	in := singbox.Status{
-		Installed:        true,
-		Version:          "1.13.11",
-		Running:          false,
-		PID:              4242,
-		TunnelCount:      3,
-		ProxyComponent:   true,
-		NDMSProxyEnabled: false,
-		Features:         []string{"with_quic", "with_gvisor"},
-		LastError:        "+0000 2026-05-14 21:45:56 FATAL[0000] failed to initialize",
-		CurrentVersion:   "1.13.10",
-		RequiredVersion:  "1.13.11",
-		CurrentSHA256:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		RequiredSHA256:   "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-		UpdateAvailable:  true,
+		Installed:               true,
+		Version:                 "1.13.11",
+		Running:                 false,
+		PID:                     4242,
+		TunnelCount:             3,
+		ProxyComponent:          true,
+		NDMSProxyEnabled:        false,
+		Features:                []string{"with_quic", "with_gvisor"},
+		LastError:               "+0000 2026-05-14 21:45:56 FATAL[0000] failed to initialize",
+		CurrentVersion:          "1.13.10",
+		RequiredVersion:         "1.13.11",
+		CurrentSHA256:           "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		RequiredSHA256:          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		VersionMatchesRequired:  false,
+		ChecksumMatchesRequired: false,
+		CustomBuild:             false,
+		UpdateAvailable:         true,
 	}
 
 	got := singboxStatusData(in)
@@ -322,6 +331,15 @@ func TestSingboxStatusData_MapsAllFields(t *testing.T) {
 	}
 	if got.RequiredSHA256 != in.RequiredSHA256 {
 		t.Fatalf("RequiredSHA256 = %q, want %q", got.RequiredSHA256, in.RequiredSHA256)
+	}
+	if got.VersionMatchesRequired != in.VersionMatchesRequired {
+		t.Fatalf("VersionMatchesRequired = %v, want %v", got.VersionMatchesRequired, in.VersionMatchesRequired)
+	}
+	if got.ChecksumMatchesRequired != in.ChecksumMatchesRequired {
+		t.Fatalf("ChecksumMatchesRequired = %v, want %v", got.ChecksumMatchesRequired, in.ChecksumMatchesRequired)
+	}
+	if got.CustomBuild != in.CustomBuild {
+		t.Fatalf("CustomBuild = %v, want %v", got.CustomBuild, in.CustomBuild)
 	}
 	if got.UpdateAvailable != in.UpdateAvailable {
 		t.Fatalf("UpdateAvailable = %v, want %v", got.UpdateAvailable, in.UpdateAvailable)

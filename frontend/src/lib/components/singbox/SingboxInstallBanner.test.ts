@@ -122,4 +122,26 @@ describe('SingboxInstallBanner', () => {
 		const { queryByText } = render(SingboxInstallBanner);
 		expect(queryByText(/Обновление sing-box недоступно/i)).toBeNull();
 	});
+
+	it('renders neutral custom-build banner without update wording or action', () => {
+		setStatus({
+			...baseStatus,
+			installed: true,
+			currentVersion: '1.10.0',
+			requiredVersion: '1.10.0',
+			currentSha256: 'aaaa',
+			requiredSha256: 'bbbb',
+			versionMatchesRequired: true,
+			checksumMatchesRequired: false,
+			customBuild: true,
+			updateAvailable: false,
+			installState: 'outdated_no_space',
+		});
+		const { getByText, queryByText, queryByRole } = render(SingboxInstallBanner);
+		expect(getByText(/Установлена отличающаяся сборка sing-box/i)).toBeTruthy();
+		expect(queryByText(/Доступно обновление sing-box/i)).toBeNull();
+		expect(queryByText(/обновилась контрольная сумма/i)).toBeNull();
+		expect(queryByText(/Обновление sing-box недоступно/i)).toBeNull();
+		expect(queryByRole('button', { name: /Обновить sing-box/i })).toBeNull();
+	});
 });
