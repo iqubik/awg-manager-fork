@@ -18,6 +18,21 @@ type Status struct {
 	StalePID     int          `json:"stalePid,omitempty"`
 	ProcessState ProcessState `json:"processState"`
 	LastError    string       `json:"lastError,omitempty"`
+	Managed      bool         `json:"managed"`
+	Legacy       bool         `json:"legacy"`
+
+	CurrentVersion          string `json:"currentVersion,omitempty"`
+	RequiredVersion         string `json:"requiredVersion,omitempty"`
+	CurrentSHA256           string `json:"currentSha256,omitempty"`
+	RequiredSHA256          string `json:"requiredSha256,omitempty"`
+	VersionMatchesRequired  bool   `json:"versionMatchesRequired"`
+	ChecksumMatchesRequired bool   `json:"checksumMatchesRequired"`
+	CustomBuild             bool   `json:"customBuild"`
+	UpdateAvailable         bool   `json:"updateAvailable"`
+	InstallState            string `json:"installState,omitempty"`
+	RequiredBytes           int64  `json:"requiredBytes,omitempty"`
+	FreeBytes               int64  `json:"freeBytes,omitempty"`
+	InstallSupported        bool   `json:"installSupported"`
 }
 
 // ManagedEntry represents a single DNS list to be written into HydraRoute config files.
@@ -72,6 +87,11 @@ type GeoFileEntry struct {
 	Mtime string `json:"mtime,omitempty"`
 }
 
+type GeoUpdateSchedule struct {
+	Interval  string `json:"interval"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
+}
+
 type GeoTag struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
@@ -90,6 +110,11 @@ type DnsListInfo struct {
 const (
 	maxGeoFiles    = 16
 	defaultMaxElem = 65536
+	GeoUpdateOff   = "off"
+	GeoUpdateHour  = "hourly"
+	GeoUpdate6H    = "6h"
+	GeoUpdateDay   = "daily"
+	GeoUpdateWeek  = "weekly"
 )
 
 // hrConfPath and hrDir are vars so tests can override them via t.TempDir().
