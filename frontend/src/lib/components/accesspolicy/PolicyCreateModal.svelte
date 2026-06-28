@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Modal, Button } from '$lib/components/ui';
+	import { SideDrawer, Button } from '$lib/components/ui';
 
 	interface Props {
 		open: boolean;
@@ -51,7 +51,7 @@
 	}
 </script>
 
-<Modal {open} title="Создать политику" size="sm" {onclose} hasUnsavedChanges={() => isDirty}>
+<SideDrawer {open} title="Создать политику" width={420} onClose={onclose} hasUnsavedChanges={() => isDirty}>
 	<div class="form-group" class:field-error={descriptionError !== ''}>
 		<label class="field-label">
 			Описание
@@ -67,14 +67,14 @@
 		</label>
 	</div>
 
-	{#snippet actions()}
+	{#snippet footer()}
 		<Button variant="ghost" onclick={onclose} disabled={saving}>Отмена</Button>
 		<!-- TODO Phase 1: shake animation on save when invalid (was class:shake={shaking}) -->
 		<Button variant="primary" onclick={handleSave} loading={saving}>
 			Создать
 		</Button>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
 	.form-group {

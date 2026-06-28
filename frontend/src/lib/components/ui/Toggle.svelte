@@ -14,6 +14,7 @@
         hint?: string;
         /** Accessible name for the checkbox input — for toggles without a visible label. */
         ariaLabel?: string;
+        ariaLabelledby?: string;
         size?: 'sm' | 'md';
         variant?: 'slider' | 'flip';
         /** Flip ON-state colour override (AWG recovering / starting / unreachable). */
@@ -37,6 +38,7 @@
         label = '',
         hint = '',
         ariaLabel = '',
+        ariaLabelledby = undefined,
         size = 'md',
         variant = 'slider',
         tint,
@@ -74,7 +76,14 @@
             class:tint-starting={tint === 'starting'}
             class:tint-unreachable={tint === 'unreachable'}
         >
-            <input type="checkbox" checked={checked} {disabled} aria-label={ariaLabel || undefined} oninput={handleInput} />
+            <input
+                type="checkbox"
+                checked={checked}
+                {disabled}
+                aria-label={(ariaLabel || undefined) ?? (ariaLabelledby ? undefined : label || undefined)}
+                aria-labelledby={ariaLabelledby}
+                oninput={handleInput}
+            />
             {#if variant === 'flip'}
                 <span class="flip-track">
                     <span class="flip-lever">
@@ -114,7 +123,14 @@
         class:tint-starting={tint === 'starting'}
         class:tint-unreachable={tint === 'unreachable'}
     >
-        <input type="checkbox" checked={checked} {disabled} aria-label={ariaLabel || undefined} oninput={handleInput} />
+        <input
+            type="checkbox"
+            checked={checked}
+            {disabled}
+            aria-label={(ariaLabel || undefined) ?? (ariaLabelledby ? undefined : label || undefined)}
+            aria-labelledby={ariaLabelledby}
+            oninput={handleInput}
+        />
         {#if variant === 'flip'}
             <span class="flip-track">
                 <span class="flip-lever">
