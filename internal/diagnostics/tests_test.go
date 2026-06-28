@@ -327,6 +327,77 @@ func TestTestSingboxTunnelConnectivity_UrlTestGroupRowCreatedWithoutActiveKnown(
 	}
 }
 
+func TestTestSingboxTunnelConnectivity_GroupTargetUsesSubscriptionListenPort(t *testing.T) {
+	ctx := context.Background()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	r := NewRunner(Deps{
+		Singbox: &fakeSingboxForDiag{
+			status: singbox.Status{Installed: true, Running: true, TunnelCount: 1},
+			tunnels: []singbox.TunnelInfo{
+				{Tag: "iq0", ListenPort: 0, Running: true},
+			},
+		},
+		SingboxSubMembers: func() []SingboxSubMember {
+			return []SingboxSubMember{
+				{
+					Tag:         "member-1",
+					GroupTag:    "iq0",
+					Mode:        "selector",
+					ListenPort:  port,
+					Enabled:     true,
+					ActiveKnown: true,
+					Active:      true,
+				},
+			}
+		},
+		SingboxConfigPreview: func() (string, error) {
+			return "{}", nil
+		},
+	})
+
+	results := r.testSingboxTunnelConnectivity(ctx)
+
+	var stateRes *TestResult
+	for i := range results {
+		if results[i].Name == "singbox_tunnel_state" && results[i].TunnelID == "singbox:iq0" {
+			stateRes = &results[i]
+			break
+		}
+	}
+
+	if stateRes == nil {
+		t.Fatalf("expected state result for singbox:iq0, got results: %v", results)
+	}
+
+	if stateRes.Status != StatusPass {
+		t.Fatalf("expected state result to pass via subscription group mapping, got status=%v detail=%s", stateRes.Status, stateRes.Detail)
+	}
+	if strings.Contains(stateRes.Detail, "Не задан listenPort") {
+		t.Fatalf("expected subscription listenPort to replace raw group listenPort, got detail=%s", stateRes.Detail)
+	}
+	if !strings.Contains(stateRes.Detail, "127.0.0.1:") || !strings.Contains(stateRes.Detail, "local proxy") {
+		t.Fatalf("expected mapped proxy port detail, got %s", stateRes.Detail)
+	}
+}
+
 type fakeSingboxForDiag struct {
 	status  singbox.Status
 	tunnels []singbox.TunnelInfo
