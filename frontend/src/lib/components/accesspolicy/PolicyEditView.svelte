@@ -13,12 +13,13 @@
 		policy: AccessPolicy;
 		devices: PolicyDevice[];
 		globalInterfaces: PolicyGlobalInterface[];
+		onback: () => void;
 		onupdate: () => Promise<void>;
 		ondeviceassigned: (mac: string, policyName: string) => void;
 		ondeviceunassigned: (mac: string, fromPolicy: string) => void;
 	}
 
-	let { policy, devices, globalInterfaces, onupdate, ondeviceassigned, ondeviceunassigned }: Props = $props();
+	let { policy, devices, globalInterfaces, onback, onupdate, ondeviceassigned, ondeviceunassigned }: Props = $props();
 
 	let isHrPolicy = $derived(isHydraRouteAccessPolicy(policy));
 

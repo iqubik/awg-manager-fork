@@ -1196,20 +1196,78 @@ label {
 
 .bulk-bar {
 	display: flex;
-	flex-direction: column;
-	gap: 0.5rem;
+	flex-direction: row;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	width: 100%;
+	min-width: 0;
+	padding: 0.5rem 0;
 }
 
 .bulk-bar-nav {
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.bulk-count {
+	color: var(--text-primary);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	white-space: nowrap;
 }
 
 .bulk-bar-actions {
 	display: flex;
-	gap: 0.375rem;
+	justify-content: flex-end;
+	align-items: center;
+	gap: 0.5rem;
+	flex: 0 0 auto;
 	flex-wrap: wrap;
+
+	padding: 0.375rem;
+	border-radius: 10px;
+	border: 1px solid var(--color-accent-border, color-mix(in srgb, var(--accent) 35%, transparent));
+	background: var(--color-accent-tint, color-mix(in srgb, var(--accent) 8%, transparent));
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.04),
+		0 0 18px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.bulk-tunnel-bar {
+	width: 100%;
+}
+
+@media (max-width: 760px) {
+	.bulk-bar {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.5rem;
+	}
+
+	.bulk-bar-nav,
+	.bulk-bar-actions {
+		width: 100%;
+		justify-content: flex-start;
+	}
+
+	.bulk-bar-actions {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.bulk-bar-actions .btn,
+	.bulk-bar-actions .bulk-btn {
+		width: 100%;
+		justify-content: center;
+	}
+
+	.bulk-bar-actions > :last-child:nth-child(odd) {
+		grid-column: 1 / -1;
+	}
 }
 
 .bulk-btn {
@@ -1255,8 +1313,8 @@ label {
 }
 
 .bulk-btn-tunnel {
-	border-color: #8b5cf6;
-	color: #8b5cf6;
+	border-color: var(--color-accent-border, var(--accent));
+	color: var(--accent);
 }
 
 .bulk-btn-export {

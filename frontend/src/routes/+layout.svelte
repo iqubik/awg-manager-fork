@@ -58,7 +58,7 @@
 	} from '$lib/types/usageLevel';
 	import type { UpdateInfo } from '$lib/types';
 	import LoginForm from '$lib/components/LoginForm.svelte';
-	import { Modal } from '$lib/components/ui';
+	import { SideDrawer } from '$lib/components/ui';
 	import { AppHeader } from '$lib/components/layout';
 	import '../app.css';
 
@@ -489,11 +489,11 @@
 
 	{/if}
 
-	<Modal
+	<SideDrawer
 		open={$donateModalOpen}
 		title="Поддержать проект"
-		size="sm"
-		onclose={closeDonateModal}
+		width={400}
+		onClose={closeDonateModal}
 	>
 		<div class="donate-wallets">
 			<div class="donate-wallet">
@@ -517,7 +517,7 @@
 				<a class="donate-wallet-link" href="https://yoomoney.ru/fundraise/1GF36UHR07L.260312" target="_blank" rel="noopener">yoomoney.ru/fundraise</a>
 			</div>
 		</div>
-	</Modal>
+	</SideDrawer>
 
 	<TunnelReferencedModal
 		open={$outboundReferenced !== null}
