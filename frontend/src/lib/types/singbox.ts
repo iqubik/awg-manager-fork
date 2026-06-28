@@ -179,6 +179,8 @@ export interface MonitoringTunnel {
 	transport?: string;
 	/** Sing-box outbound tag; empty unless source==='singbox'. */
 	singboxTag?: string;
+	/** Health-check probe tag for subscription-backed sing-box rows. */
+	probeTag?: string;
 	/** Last Clash urltest delay in ms; 0 = no urltest data. */
 	clashDelay?: number;
 	/** urltest group tag this sing-box tunnel belongs to. */
