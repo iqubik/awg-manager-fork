@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ManagedPeer } from '$lib/types';
-	import { SideDrawer, FormToggle, Button } from '$lib/components/ui';
+	import { Modal, FormToggle, Button } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { servers } from '$lib/stores/servers';
@@ -56,7 +56,7 @@
 	}
 </script>
 
-<SideDrawer {open} title="Редактировать клиента" width={420} onClose={onclose} hasUnsavedChanges={() => isDirty}>
+<Modal {open} title="Редактировать клиента" size="sm" {onclose} hasUnsavedChanges={() => isDirty}>
 	<div class="form-fields">
 		<div class="form-group">
 			<label class="label" for="emp-desc">Имя / описание</label>
@@ -79,13 +79,13 @@
 		</div>
 	</div>
 
-	{#snippet footer()}
+	{#snippet actions()}
 		<Button variant="secondary" size="md" onclick={onclose}>Отмена</Button>
 		<Button variant="primary" size="md" onclick={handleSave} loading={saving}>
 			Сохранить
 		</Button>
 	{/snippet}
-</SideDrawer>
+</Modal>
 
 <style>
 	.form-fields {
