@@ -958,21 +958,6 @@ export interface IPResult {
 	vpnIp: string;
 	endpointIp: string;
 	ipChanged: boolean;
-	directGeo?: IPGeoInfo;
-	vpnGeo?: IPGeoInfo;
-	endpointGeo?: IPGeoInfo;
-}
-
-export interface IPGeoInfo {
-	ip?: string;
-	location?: string;
-	city?: string;
-	region?: string;
-	country?: string;
-	countryCode?: string;
-	isp?: string;
-	hostname?: string;
-	source?: string;
 }
 
 export interface ConnectivityResult {
@@ -1316,12 +1301,6 @@ export interface MonitoringCell {
 	ok: boolean;
 	activeForRestart: boolean;
 	isSelf: boolean;
-	ts: string;
-}
-
-export interface MonitoringSample {
-	latencyMs: number | null;
-	ok: boolean;
 	ts: string;
 }
 
