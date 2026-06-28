@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { WireguardServerConfig, WireguardServerPeerConfig, ASCParams } from '$lib/types';
-	import { Modal, Button } from '$lib/components/ui';
+	import { SideDrawer, Button } from '$lib/components/ui';
 
 	interface Props {
 		open: boolean;
@@ -72,7 +72,7 @@
 	let preview = $derived(privateKey ? generateConf() : '');
 </script>
 
-<Modal {open} title="Генерация .conf — {peer.description || 'Пир'}" size="lg" {onclose}>
+<SideDrawer {open} title="Генерация .conf — {peer.description || 'Пир'}" width={640} onClose={onclose}>
 	<div class="conf-form">
 		<div class="form-field">
 			<label class="label" for="private-key">Private Key клиента</label>
@@ -121,13 +121,13 @@
 		{/if}
 	</div>
 
-	{#snippet actions()}
+	{#snippet footer()}
 		<Button variant="secondary" size="md" onclick={onclose}>Отмена</Button>
 		<Button variant="primary" size="md" onclick={download} disabled={!privateKey.trim()}>
 			Скачать .conf
 		</Button>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
 	.conf-form {

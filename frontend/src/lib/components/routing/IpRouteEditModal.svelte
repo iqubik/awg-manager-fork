@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { StaticRouteList, RoutingTunnel } from '$lib/types';
-	import { Modal, Button, Dropdown, type DropdownOption } from '$lib/components/ui';
+	import { SideDrawer, Button, Dropdown, type DropdownOption } from '$lib/components/ui';
 	import { ServiceIcon, IconPickerModal } from '$lib/components/dnsroutes';
 	import { formatIconUrlHint } from '$lib/utils/custom-icon';
 	import { Upload } from 'lucide-svelte';
@@ -186,7 +186,7 @@
 	}
 </script>
 
-<Modal {open} {title} size="lg" onclose={onclose} hasUnsavedChanges={() => isDirty}>
+<SideDrawer {open} {title} width={640} onClose={onclose} hasUnsavedChanges={() => isDirty}>
 	<!-- Name -->
 	<div class="form-group" class:field-error={nameError}>
 		<!-- svelte-ignore a11y_label_has_associated_control -->
@@ -285,14 +285,14 @@
 		<div class="error-text" class:visible={subnetError}>Добавьте хотя бы одну подсеть</div>
 	</div>
 
-	{#snippet actions()}
+	{#snippet footer()}
 		<Button variant="secondary" onclick={onclose}>Отмена</Button>
 		<!-- TODO Phase 1: shake animation on save when invalid (was class:shake={shaking}) -->
 		<Button variant="primary" onclick={handleSave} loading={saving}>
 			Сохранить
 		</Button>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <IconPickerModal
 	open={iconPickerOpen}
