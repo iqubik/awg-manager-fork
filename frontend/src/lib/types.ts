@@ -958,21 +958,6 @@ export interface IPResult {
 	vpnIp: string;
 	endpointIp: string;
 	ipChanged: boolean;
-	directGeo?: IPGeoInfo;
-	vpnGeo?: IPGeoInfo;
-	endpointGeo?: IPGeoInfo;
-}
-
-export interface IPGeoInfo {
-	ip?: string;
-	location?: string;
-	city?: string;
-	region?: string;
-	country?: string;
-	countryCode?: string;
-	isp?: string;
-	hostname?: string;
-	source?: string;
 }
 
 export interface ConnectivityResult {
@@ -1301,8 +1286,6 @@ export interface MonitoringTunnel {
 	transport?: string;
 	/** Sing-box outbound tag; empty unless source==='singbox'. */
 	singboxTag?: string;
-	/** Preferred Clash-delay probe tag; may differ for subscription rows. */
-	probeTag?: string;
 	/** Last Clash urltest delay in ms; 0 = no urltest data. */
 	clashDelay?: number;
 	/** urltest group tag this sing-box tunnel belongs to. */

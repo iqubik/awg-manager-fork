@@ -433,16 +433,16 @@ func TestLooksLikeKernelIfname(t *testing.T) {
 		}
 	}
 	bad := []string{
-		"",               // empty
-		"ISP",            // upper-case
-		"Wireguard0",     // NDMS id
-		"PPPoE0",         // NDMS id
-		"GigabitEthernet1", // 16 chars AND upper-case
-		"AccessPoint",    // upper-case
-		"0eth",           // starts with digit
-		".eth",           // starts with punctuation
-		"eth/0",          // forbidden char
-		"a b",            // space
+		"",                   // empty
+		"ISP",                // upper-case
+		"Wireguard0",         // NDMS id
+		"PPPoE0",             // NDMS id
+		"GigabitEthernet1",   // 16 chars AND upper-case
+		"AccessPoint",        // upper-case
+		"0eth",               // starts with digit
+		".eth",               // starts with punctuation
+		"eth/0",              // forbidden char
+		"a b",                // space
 		"thisifnametoolong1", // 18 chars > IFNAMSIZ-1
 	}
 	for _, s := range bad {
@@ -1092,7 +1092,7 @@ func TestFetchSummary_ViaPost(t *testing.T) {
 func TestFetchSummary_FallbackTopLevelFields(t *testing.T) {
 	g := NewFakeGetter()
 	g.SetPostInterface("OpkgTun0", `{"show":{"interface":{
-		"id":"OpkgTun0","state":"up","link":"up","conf-layer":"running"
+		"id":"OpkgTun0","state":"up","link":"up","conf-layer":"running","connected":"yes","online":"yes"
 	}}}`)
 	s := NewInterfaceStore(g, NopLogger())
 
@@ -1102,6 +1102,26 @@ func TestFetchSummary_FallbackTopLevelFields(t *testing.T) {
 	}
 	if d.ConfLayer != "running" || d.Link != "up" || d.State != "up" {
 		t.Fatalf("details = %+v", d)
+	}
+	if !d.Connected || !d.Online {
+		t.Fatalf("expected connected+online from top-level fields, got %+v", d)
+	}
+}
+
+func TestFetchSummary_ParsesOnline(t *testing.T) {
+	g := NewFakeGetter()
+	g.SetPostInterface("OpkgTun0", `{"show":{"interface":{
+		"id":"OpkgTun0","state":"up","link":"up","conf-layer":"running","connected":"yes","online":"yes",
+		"summary":{"layer":{"conf":"running","link":"running","ctrl":"running"}}
+	}}}`)
+	s := NewInterfaceStore(g, NopLogger())
+
+	d, err := s.FetchSummary(context.Background(), "OpkgTun0")
+	if err != nil || d == nil {
+		t.Fatalf("d=%v err=%v", d, err)
+	}
+	if !d.Connected || !d.Online {
+		t.Fatalf("expected connected+online, got %+v", d)
 	}
 }
 
