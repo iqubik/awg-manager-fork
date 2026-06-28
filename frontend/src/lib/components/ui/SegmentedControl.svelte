@@ -7,6 +7,7 @@
 		options: SegmentedOption<T>[];
 		ariaLabel: string;
 		disabled?: boolean;
+		fullWidth?: boolean;
 		/** Icon-only buttons (28px); label used for aria-label and title. */
 		variant?: 'text' | 'icon';
 		onchange: (value: T) => void;
@@ -17,6 +18,7 @@
 		options,
 		ariaLabel,
 		disabled = false,
+		fullWidth = false,
 		variant = 'text',
 		onchange,
 	}: Props = $props();
@@ -37,6 +39,7 @@
 <div
 	class="segmented-control"
 	class:segmented-control--icon={isIcon}
+	class:segmented-control--full-width={fullWidth}
 	role="group"
 	aria-label={ariaLabel}
 >
@@ -72,6 +75,16 @@
 		border-radius: var(--radius-sm);
 		background: var(--color-bg-secondary);
 		flex-shrink: 0;
+	}
+
+	.segmented-control--full-width {
+		display: flex;
+		width: 100%;
+	}
+
+	.segmented-control--full-width .segmented-control-btn {
+		flex: 1 1 0;
+		min-width: 0;
 	}
 
 	.segmented-control-btn {

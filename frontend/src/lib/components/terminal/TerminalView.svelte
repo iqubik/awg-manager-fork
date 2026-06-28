@@ -6,7 +6,7 @@
 	import { buildXtermTheme } from '$lib/utils/xterm-theme';
 
 	interface Props {
-		onclose?: () => void;
+		onclose?: () => void | Promise<void>;
 		onerror?: (msg: string) => void;
 		onreconnect?: () => Promise<void>;
 	}
@@ -78,6 +78,37 @@
 		};
 	}
 
+	function closeSocketAndWait(socket: WebSocket | null, timeoutMs = 1200): Promise<void> {
+		if (!socket || socket.readyState === WebSocket.CLOSED) {
+			return Promise.resolve();
+		}
+
+		return new Promise((resolve) => {
+			let done = false;
+			const finish = () => {
+				if (done) return;
+				done = true;
+				resolve();
+			};
+
+			const prevOnClose = socket.onclose;
+			socket.onclose = (ev) => {
+				prevOnClose?.call(socket, ev);
+				finish();
+			};
+
+			try {
+				if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+					socket.close();
+				}
+			} catch {
+				finish();
+			}
+
+			window.setTimeout(finish, timeoutMs);
+		});
+	}
+
 	function connectSocket(term: any, fitAddon: any): Promise<WebSocket> {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const wsUrl = `${protocol}//${window.location.host}/api/terminal/ws`;
@@ -130,14 +161,16 @@
 
 		reconnecting = true;
 		intentionalDisconnect = true;
-		ws?.close();
+		const oldSocket = ws;
 		ws = null;
 
 		try {
+			await closeSocketAndWait(oldSocket);
 			await onreconnect?.();
-			intentionalDisconnect = false;
-			termInstance.clear();
+			termInstance.reset();
+			fitAddonRef.fit();
 			ws = await connectSocket(termInstance, fitAddonRef);
+			intentionalDisconnect = false;
 		} catch {
 			onerror?.('Не удалось переподключиться');
 		} finally {
@@ -274,22 +307,30 @@
 	}
 
 	.mac-titlebar {
-		display: grid;
-		grid-template-columns: 1fr auto 1fr;
+		position: relative;
+		display: flex;
 		align-items: center;
+		justify-content: center;
 		flex-shrink: 0;
 		height: 2.25rem;
 		padding: 0 0.75rem;
 		background: color-mix(in srgb, var(--color-bg-secondary) 88%, var(--color-bg-primary));
 		border-bottom: 1px solid var(--color-border);
 		user-select: none;
+		overflow: visible;
+		z-index: 2;
 	}
 
 	.mac-traffic-lights {
+		position: absolute;
+		top: 50%;
+		right: 0.75rem;
+		transform: translateY(-50%);
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		grid-column: 1;
+		gap: 0.375rem;
+		flex-direction: row-reverse;
+		z-index: 3;
 	}
 
 	.mac-light {
@@ -297,12 +338,18 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 12px;
-		height: 12px;
-		border-radius: 50%;
-		border: none;
+		width: 22px;
+		height: 22px;
+		border-radius: 6px;
+		border: 1px solid var(--color-border);
 		padding: 0;
-		box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 12%, transparent);
+		background: color-mix(in srgb, var(--color-bg-tertiary) 92%, transparent);
+		color: var(--color-text-muted);
+		transition:
+			background var(--t-fast, 150ms) ease,
+			border-color var(--t-fast, 150ms) ease,
+			color var(--t-fast, 150ms) ease,
+			transform var(--t-fast, 150ms) ease;
 		flex-shrink: 0;
 	}
 
@@ -310,66 +357,47 @@
 		cursor: pointer;
 	}
 
+	button.mac-light:hover,
+	button.mac-light:focus-visible {
+		background: var(--color-bg-hover);
+		border-color: var(--color-border-hover);
+		color: var(--color-text-primary);
+		transform: translateY(-1px);
+	}
+
 	button.mac-light:disabled {
 		cursor: wait;
-		opacity: 0.75;
-	}
-
-	.mac-light-close {
-		background: #ff5f57;
-	}
-
-	.mac-light-minimize {
-		background: #febc2e;
-	}
-
-	.mac-light-maximize {
-		background: #28c840;
+		opacity: 0.6;
+		transform: none;
 	}
 
 	.mac-light-icon {
 		font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
-		font-size: 9px;
+		font-size: 10px;
 		font-weight: 700;
 		line-height: 1;
-		color: color-mix(in srgb, #4a0400 72%, #000);
-		opacity: 0;
-		transform: scale(0.85);
+		color: currentColor;
+		opacity: 1;
+		transform: scale(1);
 		transition:
 			opacity var(--t-fast, 150ms) ease,
 			transform var(--t-fast, 150ms) ease;
 		pointer-events: none;
 	}
 
-	.mac-light-maximize .mac-light-icon {
-		color: color-mix(in srgb, #003a08 72%, #000);
-	}
-
-	.mac-light-minimize .mac-light-icon {
-		color: color-mix(in srgb, #5a4300 72%, #000);
-	}
-
 	.mac-light-icon-reconnect {
-		font-size: 8px;
-		margin-top: -0.5px;
+		font-size: 9px;
 	}
 
 	.mac-light-icon-clear {
-		font-size: 10px;
+		font-size: 11px;
 		font-weight: 800;
-		margin-top: -1px;
-	}
-
-	button.mac-light:hover .mac-light-icon,
-	button.mac-light:focus-visible .mac-light-icon {
-		opacity: 1;
-		transform: scale(1);
 	}
 
 	.mac-light-tooltip {
 		position: absolute;
 		top: calc(100% + 6px);
-		left: 0;
+		right: 0;
 		transform: translateY(2px);
 		padding: 0.2rem 0.45rem;
 		border-radius: 4px;
@@ -397,7 +425,11 @@
 	}
 
 	.mac-title {
-		grid-column: 2;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 100%;
+		line-height: 1;
 		font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
 		font-size: 0.8125rem;
 		font-weight: 500;
