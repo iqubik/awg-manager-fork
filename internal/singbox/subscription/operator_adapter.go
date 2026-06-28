@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
+	"github.com/hoaxisr/awg-manager/internal/sys/portprobe"
 )
 
 // SlotSubscriptionsMeta is the SlotMeta registered on startup.
@@ -28,12 +29,16 @@ const subscriptionPortBase = 11000
 // subscriptionPortMax is the inclusive upper bound of the subscription port range.
 const subscriptionPortMax = 11999
 
+var subscriptionListenPortAvailable = func(port int) bool {
+	return portprobe.LocalTCPUDPFree("127.0.0.1", port)
+}
+
 // slotConfig is the in-memory shape persisted to 40-subscriptions.json.
 // It intentionally omits log/dns/experimental (those are in 00-base.json).
 type slotConfig struct {
-	Inbounds  []any                    `json:"inbounds"`
-	Outbounds []any                    `json:"outbounds"`
-	Route     map[string]any           `json:"route"`
+	Inbounds  []any          `json:"inbounds"`
+	Outbounds []any          `json:"outbounds"`
+	Route     map[string]any `json:"route"`
 }
 
 // ProxyRegistrar is the narrow interface for NDMS ProxyN management. The
@@ -209,9 +214,13 @@ func (a *OperatorAdapter) AllocListenPort() (uint16, error) {
 		}
 	}
 	for p := subscriptionPortBase; p <= subscriptionPortMax; p++ {
-		if !used[p] {
-			return uint16(p), nil
+		if used[p] {
+			continue
 		}
+		if !subscriptionListenPortAvailable(p) {
+			continue
+		}
+		return uint16(p), nil
 	}
 	return 0, fmt.Errorf("subscription adapter: no free port in range %d-%d", subscriptionPortBase, subscriptionPortMax)
 }
