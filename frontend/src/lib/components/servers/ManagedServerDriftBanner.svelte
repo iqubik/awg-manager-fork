@@ -87,4 +87,16 @@
 		border-radius: 9999px;
 		background: var(--color-bg-tertiary);
 	}
+
+	@media (max-width: 768px) {
+		.drift-banner {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr);
+			gap: 0.75rem;
+		}
+
+		.drift-banner :global(.btn) {
+			width: 100%;
+		}
+	}
 </style>

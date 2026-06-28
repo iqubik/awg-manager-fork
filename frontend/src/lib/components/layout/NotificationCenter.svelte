@@ -244,11 +244,80 @@
 		gap: 0.5rem;
 		font-size: 12px;
 		color: var(--color-text-muted);
+		grid-column: 1 / -1;
+		width: 100%;
+		min-width: 0;
 	}
 
 	.notif-journal {
 		color: var(--color-accent);
 		text-decoration: none;
 		white-space: nowrap;
+	}
+
+	@media (max-width: 768px) {
+		.notif-toolbar {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			gap: 0.5rem;
+			justify-content: stretch;
+			align-items: center;
+			padding-bottom: 0.75rem;
+			margin-bottom: 0.75rem;
+		}
+
+		.notif-toolbar :global(.btn) {
+			width: 100%;
+			min-width: 0;
+			border-color: var(--color-border);
+			background: var(--color-bg-tertiary);
+			color: var(--color-text-primary);
+		}
+
+		.notif-toolbar :global(.btn:hover:not(:disabled):not(.is-disabled)) {
+			background: var(--color-bg-hover);
+			border-color: var(--color-border-hover);
+		}
+
+		.notif-footer {
+			grid-column: 1 / -1;
+			width: 100%;
+			min-width: 0;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 0.75rem;
+		}
+
+		.notif-retention {
+			min-width: 0;
+			line-height: 1.25;
+		}
+
+		.notif-journal {
+			flex: 0 0 auto;
+			white-space: nowrap;
+		}
+	}
+
+	@media (max-width: 360px) {
+		.notif-toolbar {
+			gap: 0.375rem;
+		}
+
+		.notif-toolbar :global(.btn) {
+			padding-inline: 0.375rem;
+			font-size: 11px;
+		}
+
+		.notif-footer {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 0.35rem;
+		}
+
+		.notif-journal {
+			white-space: normal;
+		}
 	}
 </style>

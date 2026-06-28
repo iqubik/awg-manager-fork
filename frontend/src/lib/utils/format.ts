@@ -43,11 +43,11 @@ export function formatDuration(seconds: number): string {
     const hours = Math.floor(seconds / 3600);
     if (hours < 24) {
         const m = Math.floor((seconds % 3600) / 60);
-        return `${hours} ч ${m} мин`;
+        return `${hours}ч ${m}мин`;
     }
     const days = Math.floor(hours / 24);
     const h = hours % 24;
-    return `${days} д ${h} ч`;
+    return `${days}д ${h}ч`;
 }
 
 /**
@@ -144,4 +144,8 @@ export function formatRelativeTime(timestamp: string | Date): string {
 
     const diffDays = Math.floor(diffSec / 86400);
     return `${diffDays} ${pluralForm(diffDays, DAY_WORDS)} назад`;
+}
+
+export function formatRelativeTimeShort(timestamp: string | Date): string {
+    return formatRelativeTime(timestamp).replace(/\s+назад$/u, '');
 }
