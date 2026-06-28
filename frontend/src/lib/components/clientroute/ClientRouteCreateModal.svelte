@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Modal, Button, Dropdown, type DropdownOption } from '$lib/components/ui';
+	import { SideDrawer, Button, Dropdown, type DropdownOption } from '$lib/components/ui';
 	import type { ClientRoute, PolicyDevice, RoutingTunnel } from '$lib/types';
 
 	interface Props {
@@ -135,7 +135,7 @@
 	}
 </script>
 
-<Modal {open} {title} size="md" {onclose} hasUnsavedChanges={() => isDirty}>
+<SideDrawer {open} {title} width={520} onClose={onclose} hasUnsavedChanges={() => isDirty}>
 	<div class="form-sections">
 		<!-- Device list -->
 		<div class="section" class:field-error={deviceError}>
@@ -224,14 +224,14 @@
 		{/if}
 	</div>
 
-	{#snippet actions()}
+	{#snippet footer()}
 		<Button variant="ghost" onclick={onclose} disabled={saving}>Отмена</Button>
 		<!-- TODO Phase 1: shake animation on save when invalid (was class:shake={shaking}) -->
 		<Button variant="primary" onclick={handleSave} loading={saving}>
 			{editing ? 'Сохранить' : 'Создать'}
 		</Button>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
 	.form-sections {
