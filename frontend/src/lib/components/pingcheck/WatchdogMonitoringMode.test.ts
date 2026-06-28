@@ -514,6 +514,47 @@ describe('WatchdogMonitoringMode', () => {
 		expect(screen.queryByText('sb-main')).toBeNull();
 	});
 
+	it('keeps AWG spoiler open by default when AWG cards appear after async tunnel snapshot load', async () => {
+		setPingStatuses([]);
+		getTunnelsAll.mockResolvedValue({ tunnels: [sampleAwgMeta] });
+		setSingboxStatus(null, 'idle');
+		setSingboxTunnels(null, 'idle');
+		setSubscriptions(null, 'idle');
+
+		render(WatchdogMonitoringMode);
+
+		const awgToggle = await screen.findByRole('button', { name: /AWG \/ NativeWG/i });
+
+		await waitFor(() => {
+			expect(screen.getByText('AWG Alpha')).toBeTruthy();
+		});
+
+		expect(awgToggle.getAttribute('aria-expanded')).toBe('true');
+	});
+
+	it('does not overwrite stored sing-box spoiler preference while sing-box section is unavailable', async () => {
+		localStorage.setItem(
+			'watchdog_monitoring_sections_open_v1',
+			JSON.stringify({
+				awg: true,
+				singbox: true,
+			}),
+		);
+
+		usageLevelStore.set('basic');
+		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
+		setSingboxTunnels([sampleSingboxTunnel]);
+		setSubscriptions([]);
+
+		render(WatchdogMonitoringMode);
+
+		await waitFor(() => {
+			expect(localStorage.getItem('watchdog_monitoring_sections_open_v1')).toContain('"singbox":true');
+		});
+
+		expect(screen.queryByRole('button', { name: /Sing-box/i })).toBeNull();
+	});
+
 	it('runs initial auto-check once for running sing-box cards', async () => {
 		vi.useFakeTimers();
 		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });

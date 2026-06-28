@@ -163,14 +163,6 @@
 	});
 
 	$effect(() => {
-		const normalized = normalizeWatchdogOpenSections(openSections);
-
-		if (normalized.awg !== openSections.awg || normalized.singbox !== openSections.singbox) {
-			openSections = normalized;
-		}
-	});
-
-	$effect(() => {
 		if (typeof window === 'undefined' || !watchdogSectionsHydrated) return;
 		localStorage.setItem(WATCHDOG_SECTIONS_OPEN_STORAGE_KEY, JSON.stringify(openSections));
 	});
@@ -306,8 +298,8 @@
 		value: Partial<Record<WatchdogSectionId, boolean>> | null | undefined,
 	): Record<WatchdogSectionId, boolean> {
 		return {
-			awg: awgCards.length > 0 ? (value?.awg ?? true) : false,
-			singbox: singboxSectionVisible ? (value?.singbox ?? true) : false,
+			awg: value?.awg ?? true,
+			singbox: value?.singbox ?? true,
 		};
 	}
 
@@ -316,12 +308,12 @@
 	}
 
 	function setWatchdogSectionOpen(id: WatchdogSectionId, open: boolean): void {
-		const nextValue = isWatchdogSectionAvailable(id) ? open : false;
-		if (openSections[id] === nextValue) return;
+		if (!isWatchdogSectionAvailable(id)) return;
+		if (openSections[id] === open) return;
 
 		openSections = {
 			...openSections,
-			[id]: nextValue,
+			[id]: open,
 		};
 	}
 
