@@ -18,9 +18,9 @@ type testDownloadOutboundsProvider struct {
 }
 
 type testMonitoringRefreshService struct {
-	calls     int
+	calls       int
 	notifyCalls int
-	done      chan struct{}
+	done        chan struct{}
 }
 
 func (s *testMonitoringRefreshService) RefreshNow(_ context.Context) {
@@ -622,5 +622,63 @@ func TestUpdate_MonitoringSettingsCapacityRejected(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "INVALID_MONITORING_SETTINGS") {
 		t.Fatalf("missing INVALID_MONITORING_SETTINGS, body=%s", rec.Body.String())
+	}
+}
+
+func TestUpdate_MonitoringPatchPreservesGeoFileSettings(t *testing.T) {
+	h, store := newSettingsHandlerForTest(t)
+
+	cur, _ := store.Get()
+	seed := *cur
+	seed.GeoFile = storage.GeoFileSettings{
+		AutoRefreshEnabled:   true,
+		RefreshIntervalHours: 6,
+		RefreshMode:          "interval",
+	}
+	if err := store.Save(&seed); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	body := []byte(`{"monitoring":{"historyHours":48,"sampleIntervalSec":60,"matrixRefreshIntervalSec":120}}`)
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	got, _ := store.Get()
+	if got.GeoFile != seed.GeoFile {
+		t.Fatalf("geoFile mutated by monitoring patch: got %+v, want %+v", got.GeoFile, seed.GeoFile)
+	}
+}
+
+func TestUpdate_GeoFilePatchPreservesMonitoringSettings(t *testing.T) {
+	h, store := newSettingsHandlerForTest(t)
+
+	cur, _ := store.Get()
+	seed := *cur
+	seed.Monitoring = storage.MonitoringSettings{
+		HistoryHours:             48,
+		SampleIntervalSec:        60,
+		MatrixRefreshIntervalSec: 120,
+	}
+	if err := store.Save(&seed); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	body := []byte(`{"geoFile":{"autoRefreshEnabled":true,"refreshIntervalHours":24,"refreshMode":"daily","refreshDailyTime":"03:00"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.Update(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	got, _ := store.Get()
+	if got.Monitoring != seed.Monitoring {
+		t.Fatalf("monitoring mutated by geoFile patch: got %+v, want %+v", got.Monitoring, seed.Monitoring)
 	}
 }

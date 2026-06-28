@@ -2,6 +2,7 @@ package diagnostics
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/sys/httpclient"
 	"github.com/hoaxisr/awg-manager/internal/sys/ndmsinfo"
 	"github.com/hoaxisr/awg-manager/internal/sys/osdetect"
+	testingpkg "github.com/hoaxisr/awg-manager/internal/testing"
 	"github.com/hoaxisr/awg-manager/internal/tunnel/netutil"
 )
 
@@ -407,6 +409,15 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 		}
 	}
 
+	subByGroup := map[string]SingboxSubMember{}
+	for _, m := range subByTag {
+		if strings.EqualFold(strings.TrimSpace(m.Mode), "urltest") && strings.TrimSpace(m.GroupTag) != "" {
+			if _, exists := subByGroup[m.GroupTag]; !exists {
+				subByGroup[m.GroupTag] = m
+			}
+		}
+	}
+
 	seen := make(map[string]bool, len(tunnels)+len(subByTag))
 	for _, t := range tunnels {
 		seen[t.Tag] = true
@@ -415,8 +426,12 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 	// Add synthetic tunnel entries for active+enabled subscription
 	// members that aren't already in the regular tunnel list, so the
 	// active member of each subscription gets its own probe row.
+	// urltest subscriptions are probed via the group row only.
 	for tag, m := range subByTag {
 		if seen[tag] {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(m.Mode), "urltest") {
 			continue
 		}
 		if m.ActiveKnown && m.Active && m.Enabled {
@@ -429,10 +444,28 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 		}
 	}
 
+	for groupTag, m := range subByGroup {
+		if seen[groupTag] {
+			continue
+		}
+		if !m.Enabled {
+			continue
+		}
+		tunnels = append(tunnels, singbox.TunnelInfo{
+			Tag:        groupTag,
+			ListenPort: m.ListenPort,
+			Running:    st.Running && m.Enabled,
+		})
+		seen[groupTag] = true
+	}
+
 	out := make([]TestResult, 0, len(tunnels)*2)
 	for _, t := range tunnels {
 		tunnelID := "singbox:" + t.Tag
 		tunnelName := t.Tag
+		if m, ok := subByGroup[t.Tag]; ok && m.GroupTag != "" {
+			tunnelName = m.GroupTag + " (urltest)"
+		}
 
 		stateRes := TestResult{
 			Name:        "singbox_tunnel_state",
@@ -455,15 +488,27 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 				out = append(out, stateRes)
 				continue
 			}
-			if !m.ActiveKnown {
-				stateRes.Status = StatusWarn
-				stateRes.Detail = "Не удалось определить активный member подписки"
-				out = append(out, stateRes)
-				continue
+
+			if strings.EqualFold(strings.TrimSpace(m.Mode), "urltest") {
+				stateRes.Detail = "URLTest member проверяется через group local proxy"
+			} else {
+				if !m.ActiveKnown {
+					stateRes.Status = StatusWarn
+					stateRes.Detail = "Не удалось определить активный member подписки"
+					out = append(out, stateRes)
+					continue
+				}
+				if !m.Active {
+					stateRes.Status = StatusSkip
+					stateRes.Detail = "Member подписки не активен (проверяется только активный)"
+					out = append(out, stateRes)
+					continue
+				}
 			}
-			if !m.Active {
+		} else if m, ok := subByGroup[t.Tag]; ok {
+			if !m.Enabled {
 				stateRes.Status = StatusSkip
-				stateRes.Detail = "Member подписки не активен (проверяется только активный)"
+				stateRes.Detail = "Подписка отключена"
 				out = append(out, stateRes)
 				continue
 			}
@@ -531,7 +576,7 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 
 		if err != nil {
 			probe.Status = StatusFail
-			probe.Detail = fmt.Sprintf("Proxy-check не удался (%s)", proxy)
+			probe.Detail = fmt.Sprintf("Proxy-check не удался (%s): %s", proxy, classifyProxyFailure(err))
 		} else if httpCode == 204 || httpCode == 200 {
 			probe.Status = StatusPass
 			probe.Detail = fmt.Sprintf("HTTP %d через %s", httpCode, proxy)
@@ -578,7 +623,7 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 		})
 		if altErr != nil {
 			altProbe.Status = StatusFail
-			altProbe.Detail = fmt.Sprintf("Alt-check не удался (%s)", proxy)
+			altProbe.Detail = fmt.Sprintf("Alt-check не удался (%s): %s", proxy, classifyProxyFailure(altErr))
 		} else {
 			altCode := altResult.Metrics.HTTPCode
 			altLatency := ""
@@ -595,8 +640,148 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 			}
 		}
 		out = append(out, altProbe)
+
+		// IP-literal connectivity check — separates DNS/proxy-DNS issues from
+		// a broken outbound path. If both domain checks and IP-literal fail, this
+		// is not just DNS.
+		ipProbe := TestResult{
+			Name:        "singbox_ip_literal_connectivity",
+			Description: "IP-check без DNS",
+			TunnelID:    tunnelID,
+			TunnelName:  tunnelName,
+		}
+		ipResult, ipErr := httpclient.DefaultClient.Do(ctx, httpclient.CallConfig{
+			URL:         "http://1.1.1.1/cdn-cgi/trace",
+			ProxyURL:    proxy,
+			MaxTime:     8 * time.Second,
+			DiscardBody: true,
+		})
+		if ipErr != nil {
+			ipProbe.Status = StatusFail
+			if probe.Status == StatusPass || altProbe.Status == StatusPass {
+				ipProbe.Status = StatusWarn
+			}
+			ipProbe.Detail = fmt.Sprintf("IP-literal не прошёл через %s: %s", proxy, classifyProxyFailure(ipErr))
+		} else {
+			code := ipResult.Metrics.HTTPCode
+			switch {
+			case code >= 200 && code < 400:
+				if probe.Status == StatusPass || altProbe.Status == StatusPass {
+					ipProbe.Status = StatusPass
+					ipProbe.Detail = fmt.Sprintf("HTTP %d через %s", code, proxy)
+				} else {
+					ipProbe.Status = StatusWarn
+					ipProbe.Detail = fmt.Sprintf("IP-literal проходит (HTTP %d), но domain-check падал — возможна DNS/proxy-DNS проблема", code)
+				}
+			default:
+				ipProbe.Status = StatusFail
+				ipProbe.Detail = fmt.Sprintf("IP-literal вернул HTTP %d через %s", code, proxy)
+			}
+		}
+		out = append(out, ipProbe)
+
+		groupTag := ""
+		if m, ok := subByTag[t.Tag]; ok {
+			groupTag = strings.TrimSpace(m.GroupTag)
+		} else if m, ok := subByGroup[t.Tag]; ok {
+			groupTag = strings.TrimSpace(m.GroupTag)
+		}
+
+		if groupTag != "" {
+			if probe.Status != StatusPass || altProbe.Status != StatusPass || ipProbe.Status != StatusPass {
+				dnsServers := r.dnsDetoursForOutbound(groupTag)
+				if len(dnsServers) > 0 {
+					out = append(out, TestResult{
+						Name:        "singbox_subscription_dns_detour_warning",
+						Description: "DNS detour через подписку",
+						TunnelID:    tunnelID,
+						TunnelName:  tunnelName,
+						Status:      StatusWarn,
+						Detail:      fmt.Sprintf("DNS server(s) %s используют detour=%s; при флапе подписки DNS тоже будет нестабилен", strings.Join(dnsServers, ", "), groupTag),
+					})
+				}
+			}
+		}
+
+		ipLocationProbe := TestResult{
+			Name:        "singbox_tunnel_ip_location",
+			Description: "Публичный IP / локация",
+			TunnelID:    tunnelID,
+			TunnelName:  tunnelName,
+		}
+		geo, geoErr := testingpkg.CheckIPByProxy(ctx, proxy, "")
+		if geoErr != nil || geo == nil || strings.TrimSpace(geo.IP) == "" {
+			ipLocationProbe.Status = StatusWarn
+			ipLocationProbe.Detail = "Не удалось определить публичный IP через local proxy"
+		} else {
+			ipLocationProbe.Status = StatusPass
+			ipLocationProbe.Detail = formatGeoDetailLine("IP", geo)
+		}
+		out = append(out, ipLocationProbe)
 	}
 
+	return out
+}
+
+func classifyProxyFailure(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "connection reset"):
+		return "connection reset"
+	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline exceeded"):
+		return "timeout"
+	case strings.Contains(msg, "502"):
+		return "proxy returned 502"
+	case strings.Contains(msg, "no route to host"):
+		return "no route to host"
+	case strings.Contains(msg, "connection refused"):
+		return "connection refused"
+	default:
+		return "request failed"
+	}
+}
+
+func (r *Runner) dnsDetoursForOutbound(outboundTag string) []string {
+	outboundTag = strings.TrimSpace(outboundTag)
+	if outboundTag == "" || r.deps.SingboxConfigPreview == nil {
+		return nil
+	}
+
+	raw, err := r.deps.SingboxConfigPreview()
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return nil
+	}
+
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil
+	}
+
+	dnsRaw, _ := cfg["dns"].(map[string]any)
+	serversRaw, _ := dnsRaw["servers"].([]any)
+	if len(serversRaw) == 0 {
+		return nil
+	}
+
+	var out []string
+	for _, item := range serversRaw {
+		server, _ := item.(map[string]any)
+		if server == nil {
+			continue
+		}
+		detour, _ := server["detour"].(string)
+		if strings.TrimSpace(detour) != outboundTag {
+			continue
+		}
+		tag, _ := server["tag"].(string)
+		if tag == "" {
+			tag = "(untagged DNS server)"
+		}
+		out = append(out, tag)
+	}
 	return out
 }
 
@@ -761,26 +946,44 @@ func (r *Runner) testTunnelConnectivity(ctx context.Context, t TunnelInfo) TestR
 		return res
 	}
 
-	// Try multiple IP check services. Egress uses default route (WAN).
-	urls := []string{"https://ifconfig.me", "https://icanhazip.com", "https://ip.me"}
-	for _, url := range urls {
-		result, err := httpclient.DefaultClient.Do(ctx, httpclient.CallConfig{
-			URL:     url,
-			MaxTime: 5 * time.Second,
-		})
-		if err == nil {
-			ip := strings.TrimSpace(result.Body)
-			if ip != "" {
-				res.Status = StatusPass
-				res.Detail = fmt.Sprintf("IP: %s (via %s)", ip, url)
-				return res
-			}
-		}
+	probe, err := testingpkg.CheckIPByInterface(ctx, t.InterfaceName, "")
+	if err != nil {
+		res.Status = StatusSkip
+		res.Detail = "Все IP-сервисы недоступны"
+		return res
 	}
 
-	res.Status = StatusSkip
-	res.Detail = "Все IP-сервисы недоступны"
+	lines := make([]string, 0, 2)
+	if probe.VpnGeo != nil && strings.TrimSpace(probe.VpnGeo.IP) != "" {
+		lines = append(lines, formatGeoDetailLine("VPN IP", probe.VpnGeo))
+	}
+	if probe.DirectGeo != nil && strings.TrimSpace(probe.DirectGeo.IP) != "" {
+		lines = append(lines, formatGeoDetailLine("Direct IP", probe.DirectGeo))
+	}
+	if len(lines) == 0 {
+		res.Status = StatusSkip
+		res.Detail = "Все IP-сервисы недоступны"
+		return res
+	}
+
+	if probe.IPChanged {
+		res.Status = StatusPass
+	} else {
+		res.Status = StatusWarn
+	}
+	res.Detail = strings.Join(lines, "\n")
 	return res
+}
+
+func formatGeoDetailLine(label string, info *testingpkg.IPGeoInfo) string {
+	if info == nil {
+		return label + ": недоступно"
+	}
+	line := label + ": " + strings.TrimSpace(info.IP)
+	if summary := testingpkg.FormatIPGeoSummary(info); summary != "" {
+		line += " — " + summary
+	}
+	return line
 }
 
 func (r *Runner) testFirewallRules(t TunnelInfo) TestResult {
