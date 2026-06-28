@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { SingboxStatus, HydraRouteStatus } from '$lib/types';
-	import { Button, Modal, StatusDot } from '$lib/components/ui';
+	import { Button, SideDrawer, StatusDot } from '$lib/components/ui';
 	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
 	import { copyToClipboard } from '$lib/utils/clipboard';
 	import { hydraRouteInstallProgress } from '$lib/stores/hydrarouteInstall';
@@ -432,20 +432,20 @@
 	</div>
 {/if}
 
-<Modal
+<SideDrawer
 	open={errorModalOpen}
 	title={errorModalTitle}
-	size="lg"
-	onclose={() => (errorModalOpen = false)}
+	width={640}
+	onClose={() => (errorModalOpen = false)}
 >
 	<pre class="error-pre">{activeErrorDetails}</pre>
-	{#snippet actions()}
+	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={copyError}>Скопировать</Button>
 		<Button variant="primary" size="sm" onclick={() => (errorModalOpen = false)}>
 			Закрыть
 		</Button>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
 	.card {
