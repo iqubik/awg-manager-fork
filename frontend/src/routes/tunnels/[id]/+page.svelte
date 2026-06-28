@@ -6,9 +6,11 @@
 	import { usageLevel } from '$lib/stores/settings';
 	import { notifications } from '$lib/stores/notifications';
 	import { api } from '$lib/api/client';
+	import { copyToClipboard } from '$lib/utils/clipboard';
 	import type { AWGTunnel, SystemInfo, WANInterface, RouterInterface, TunnelListItem } from '$lib/types';
 	import { PageContainer, LoadingSpinner } from '$lib/components/layout';
-	import { Toggle, Dropdown, Tabs, type DropdownOption } from '$lib/components/ui';
+	import { Toggle, Dropdown, Tabs, MobileTabRail, SensitiveBlockEye, type DropdownOption } from '$lib/components/ui';
+	import { readTunnelMobileLayout, subscribeTunnelMobileLayout } from '$lib/constants/singboxLayout';
 	import { superForm } from 'sveltekit-superforms';
 	import { zod4Client } from 'sveltekit-superforms/adapters';
 	import { editTunnelSchema } from '$lib/schemas/tunnel';
@@ -17,6 +19,7 @@
 	import AwgConfigAnalyzer from '$lib/components/diagnostics/AwgConfigAnalyzer.svelte';
 	import { SettingsSectionLabel } from '$lib/components/settings';
 	import { AWG_PARAM_HINTS } from '$lib/utils/awgParamHints';
+	import { maskSensitive } from '$lib/utils/sensitiveMask';
 	import { Network, Route, Router, Server, Tag } from 'lucide-svelte';
 
 	let { data } = $props();
@@ -34,6 +37,8 @@
 
 	type TunnelDetailTab = 'basic' | 'obfuscation' | 'routing' | 'awgConfig';
 	let activeTab = $state<TunnelDetailTab>('basic');
+	let isMobileTabs = $state(readTunnelMobileLayout());
+	let unsubMobileTabs: (() => void) | undefined;
 	const detailTabs = [
 		{ id: 'basic', label: 'Основное' },
 		{ id: 'obfuscation', label: 'Обфускация' },
@@ -48,6 +53,9 @@
 	let saving = $state(false);
 
 	let actionStatus = $state<ActionStatus | null>(null);
+	let hideInterfaceBlock = $state(true);
+	let hidePeerBlock = $state(true);
+	let hideIspBlock = $state(true);
 
 	let publicKey = $state('');
 
@@ -83,6 +91,12 @@
 	}
 
 	let tunnelId = $derived($page.params.id ?? '');
+	let maskedPublicKey = $derived(maskSensitive(publicKey));
+	let maskedEndpoint = $derived(maskSensitive($form.endpoint));
+	let maskedAllowedIPs = $derived(maskSensitive($form.allowedIPs));
+	let maskedIpv4 = $derived(maskSensitive(ipv4Address));
+	let maskedIpv6 = $derived(maskSensitive(ipv6Address));
+	let maskedDns = $derived(maskSensitive($form.dns));
 
 	// Address editable: NativeWG always (NDMS SyncAddressMTU); kernel — only before OpkgTun/process exist
 	let addressDisabled = $derived.by(() => {
@@ -107,12 +121,16 @@
 
 	onMount(async () => {
 		window.addEventListener('keydown', handleKeydown);
+		unsubMobileTabs = subscribeTunnelMobileLayout((mobile) => {
+			isMobileTabs = mobile;
+		});
 		api.getSystemInfo().then(info => systemInfo = info).catch(() => null);
 		await loadTunnel();
 		loadWanData().catch(() => {});
 	});
 
 	onDestroy(() => {
+		unsubMobileTabs?.();
 		window.removeEventListener('keydown', handleKeydown);
 	});
 
@@ -206,6 +224,17 @@
 			downloadBlob(blob, (tunnel?.name || tunnelId) + '.conf');
 		} catch (e) {
 			notifications.error('Не удалось скачать конфиг');
+		}
+	}
+
+	async function copyPublicKey() {
+		if (!publicKey) return;
+
+		const ok = await copyToClipboard(publicKey);
+		if (ok) {
+			notifications.success('Публичный ключ скопирован');
+		} else {
+			notifications.error('Не удалось скопировать публичный ключ');
 		}
 	}
 
@@ -326,13 +355,24 @@
 			onSaveAndStart={handleSaveAndStart}
 		/>
 
-		<Tabs
-			tabs={detailTabs}
-			active={activeTab}
-			onchange={(id) => (activeTab = id as TunnelDetailTab)}
-			urlParam="tab"
-			defaultTab="basic"
-		/>
+		{#if isMobileTabs}
+			<MobileTabRail
+				tabs={detailTabs}
+				active={activeTab}
+				onchange={(id) => (activeTab = id as TunnelDetailTab)}
+				urlParam="tab"
+				defaultTab="basic"
+				ariaLabel="Разделы редактирования AWG"
+			/>
+		{:else}
+			<Tabs
+				tabs={detailTabs}
+				active={activeTab}
+				onchange={(id) => (activeTab = id as TunnelDetailTab)}
+				urlParam="tab"
+				defaultTab="basic"
+			/>
+		{/if}
 
 		<div class="tab-content">
 			{#if activeTab === 'basic'}
@@ -347,11 +387,19 @@
 					</section>
 
 					<section class="card tunnel-section">
-						<SettingsSectionLabel label="Интерфейс [Interface]" icon={Network} tone="teal" header />
+						<SettingsSectionLabel label="Интерфейс [Interface]" icon={Network} tone="teal" header>
+							{#snippet action()}
+								<SensitiveBlockEye bind:hidden={hideInterfaceBlock} label="интерфейса" />
+							{/snippet}
+						</SettingsSectionLabel>
 						<div class="inline-fields">
 							<div class="flex flex-col gap-1.5" style="flex:1">
 								<label class="field-label" for="address-v4">IPv4 адрес</label>
-								<input type="text" id="address-v4" class="field-input" bind:value={ipv4Address} disabled={addressDisabled} placeholder="10.0.0.2/32" />
+								{#if hideInterfaceBlock}
+									<input type="text" id="address-v4" class="field-input" value={maskedIpv4} readonly disabled={addressDisabled} placeholder="********" />
+								{:else}
+									<input type="text" id="address-v4" class="field-input" bind:value={ipv4Address} disabled={addressDisabled} placeholder="10.0.0.2/32" />
+								{/if}
 							</div>
 							<div class="flex flex-col gap-1.5" style="width:120px">
 								<label class="field-label" for="mtu">MTU</label>
@@ -361,7 +409,11 @@
 						</div>
 						<div class="flex flex-col gap-1.5" style="margin-top:12px">
 							<label class="field-label" for="address-v6">IPv6 адрес</label>
-							<input type="text" id="address-v6" class="field-input" bind:value={ipv6Address} disabled={addressDisabled} placeholder="fd00::2/128 (необязательно)" />
+							{#if hideInterfaceBlock}
+								<input type="text" id="address-v6" class="field-input" value={maskedIpv6} readonly disabled={addressDisabled} placeholder="********" />
+							{:else}
+								<input type="text" id="address-v6" class="field-input" bind:value={ipv6Address} disabled={addressDisabled} placeholder="fd00::2/128 (необязательно)" />
+							{/if}
 						</div>
 						{#if addressDisabled && tunnel?.backend !== 'nativewg'}
 							<p class="field-hint">Адрес нельзя изменить после первого запуска туннеля в режиме kernel</p>
@@ -369,26 +421,59 @@
 						{#if $errors.address}<p class="text-xs text-error-500 mt-1">{$errors.address}</p>{/if}
 						<div class="flex flex-col gap-1.5" style="margin-top:12px">
 							<label class="field-label" for="dns">DNS</label>
-							<input type="text" id="dns" class="field-input" bind:value={$form.dns} placeholder="1.1.1.1, 8.8.8.8" />
+							{#if hideInterfaceBlock}
+								<input type="text" id="dns" class="field-input" value={maskedDns} readonly placeholder="********" />
+							{:else}
+								<input type="text" id="dns" class="field-input" bind:value={$form.dns} placeholder="1.1.1.1, 8.8.8.8" />
+							{/if}
 							<p class="field-hint">DNS-серверы через запятую. Применяются на роутере при старте туннеля.</p>
 						</div>
 					</section>
 
 					<section class="card tunnel-section">
-						<SettingsSectionLabel label="Сервер [Peer]" icon={Server} tone="indigo" header />
+						<SettingsSectionLabel label="Сервер [Peer]" icon={Server} tone="indigo" header>
+							{#snippet action()}
+								<SensitiveBlockEye bind:hidden={hidePeerBlock} label="сервера peer" />
+							{/snippet}
+						</SettingsSectionLabel>
 						<div class="flex flex-col gap-1.5 pubkey-row">
 							<span class="field-label">Публичный ключ</span>
-							<code class="pubkey-value">{publicKey}</code>
+							<button
+								type="button"
+								class="pubkey-value pubkey-copy"
+								onclick={() => {
+									if (!hidePeerBlock) void copyPublicKey();
+								}}
+								title={hidePeerBlock ? 'Показать чувствительные данные, чтобы скопировать публичный ключ' : 'Скопировать публичный ключ'}
+								aria-label={hidePeerBlock ? 'Показать чувствительные данные, чтобы скопировать публичный ключ' : 'Скопировать публичный ключ'}
+								disabled={hidePeerBlock}
+							>
+								<span class="pubkey-copy-text">{hidePeerBlock ? maskedPublicKey : publicKey}</span>
+								<span class="pubkey-copy-icon" aria-hidden="true">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<rect x="9" y="9" width="13" height="13" rx="2" />
+										<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+									</svg>
+								</span>
+							</button>
 						</div>
 						<div class="flex flex-col gap-1.5" style="margin-bottom:12px">
 							<label class="field-label" for="endpoint">Endpoint</label>
-							<input type="text" id="endpoint" class="field-input" bind:value={$form.endpoint} />
+							{#if hidePeerBlock}
+								<input type="text" id="endpoint" class="field-input" value={maskedEndpoint} readonly placeholder="********" />
+							{:else}
+								<input type="text" id="endpoint" class="field-input" bind:value={$form.endpoint} />
+							{/if}
 							{#if $errors.endpoint}<p class="text-xs text-error-500 mt-1">{$errors.endpoint}</p>{/if}
 						</div>
 						<div class="inline-fields">
 							<div class="flex flex-col gap-1.5" style="flex:1">
 								<label class="field-label" for="allowedIPs">AllowedIPs</label>
-								<input type="text" id="allowedIPs" class="field-input" bind:value={$form.allowedIPs} />
+								{#if hidePeerBlock}
+									<input type="text" id="allowedIPs" class="field-input" value={maskedAllowedIPs} readonly placeholder="********" />
+								{:else}
+									<input type="text" id="allowedIPs" class="field-input" bind:value={$form.allowedIPs} />
+								{/if}
 								{#if $errors.allowedIPs}<p class="text-xs text-error-500 mt-1">{$errors.allowedIPs}</p>{/if}
 							</div>
 							<div class="flex flex-col gap-1.5" style="width:120px">
@@ -412,17 +497,21 @@
 			{:else if activeTab === 'routing'}
 				{@const ispOpts: DropdownOption[] = [
 					{ value: 'auto', label: 'Автоматически' },
-					...wanInterfaces.map((iface) => ({ value: iface.name, label: `${iface.label} (${iface.name})` })),
+					...wanInterfaces.map((iface) => ({ value: iface.name, label: hideIspBlock ? maskSensitive(`${iface.label} (${iface.name})`) : `${iface.label} (${iface.name})` })),
 					...(showAllInterfaces
 						? allInterfaces
 							.filter((i) => !wanInterfaces.some((w) => w.name === i.name))
-							.map((iface) => ({ value: iface.name, label: `${iface.label} (${iface.name})` }))
+							.map((iface) => ({ value: iface.name, label: hideIspBlock ? maskSensitive(`${iface.label} (${iface.name})`) : `${iface.label} (${iface.name})` }))
 						: []),
-					...otherTunnels.map((t) => ({ value: `tunnel:${t.id}`, label: t.name, group: 'Через туннель' })),
+					...otherTunnels.map((t) => ({ value: `tunnel:${t.id}`, label: hideIspBlock ? maskSensitive(t.name) : t.name, group: 'Через туннель' })),
 				]}
 				<div class="tab-form">
 					<section class="card tunnel-section">
-						<SettingsSectionLabel label="Подключение (ISP)" icon={Router} tone="orange" header />
+						<SettingsSectionLabel label="Подключение (ISP)" icon={Router} tone="orange" header>
+							{#snippet action()}
+								<SensitiveBlockEye bind:hidden={hideIspBlock} label="подключения ISP" />
+							{/snippet}
+						</SettingsSectionLabel>
 						<p class="section-hint">Через какой WAN-интерфейс роутер будет подключаться к серверу VPN. По умолчанию используется основной интернет-канал.</p>
 						<Dropdown
 							value={ispValue}
@@ -433,13 +522,14 @@
 						/>
 						<div class="setting-row toggle-inline-row advanced-toggle">
 							<div class="flex flex-col gap-1">
-								<span class="font-medium">Показать все интерфейсы</span>
+								<span id="show-all-interfaces-title" class="font-medium">Показать все интерфейсы</span>
 								<span class="setting-description">Включая внутренние интерфейсы роутера</span>
 							</div>
 							<Toggle
 								checked={showAllInterfaces}
 								onchange={toggleAllInterfaces}
 								loading={loadingAllInterfaces}
+								ariaLabelledby="show-all-interfaces-title"
 							/>
 						</div>
 					</section>
@@ -449,7 +539,7 @@
 							<SettingsSectionLabel label="Маршрут по умолчанию" icon={Route} tone="green" header />
 							<div class="setting-row toggle-inline-row">
 								<div class="flex flex-col gap-1">
-									<span class="font-medium">NDMS Default Route</span>
+									<span id="default-route-title" class="font-medium">NDMS Default Route</span>
 									<span class="setting-description">
 										В NDMS для OpkgTunX выполняется «ip route default», а не как full-tunnel на уровне Linux. <br>
 										Так туннель регистрируется среди интернет-выходов с метрикой (весом), по которому NDMS выбирает канал по умолчанию. 
@@ -459,6 +549,7 @@
 								<Toggle
 									checked={tunnel.defaultRoute}
 									onchange={() => toggleDefaultRoute()}
+									ariaLabelledby="default-route-title"
 								/>
 							</div>
 						</section>
@@ -499,6 +590,24 @@
 		color: var(--color-text-secondary);
 	}
 
+	.tab-content {
+		padding: 20px 0;
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.tab-form {
+		display: flex;
+		flex-direction: column;
+		gap: 20px;
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.edit-wrapper {
+		min-width: 0;
+		max-width: 100%;
+	}
 	.section-hint {
 		color: var(--color-text-muted);
 		font-size: 0.8125rem;
@@ -536,7 +645,61 @@
 		border-radius: var(--radius-sm);
 	}
 
+	.pubkey-copy {
+		position: relative;
+		display: block;
+		width: 100%;
+		border: 0;
+		text-align: left;
+		cursor: pointer;
+		padding: 6px 34px 26px 10px;
+	}
+
+	.pubkey-copy-text {
+		display: block;
+		word-break: break-all;
+	}
+
+	.pubkey-copy-icon {
+		position: absolute;
+		right: 10px;
+		bottom: 8px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		color: var(--color-text-muted);
+		opacity: 0.75;
+		pointer-events: none;
+	}
+
+	.pubkey-copy-icon svg {
+		width: 16px;
+		height: 16px;
+	}
+
+	.pubkey-copy:hover {
+		background: var(--color-bg-hover);
+		color: var(--color-text-primary);
+	}
+
+	.pubkey-copy:hover .pubkey-copy-icon,
+	.pubkey-copy:focus-visible .pubkey-copy-icon {
+		color: var(--color-accent);
+		opacity: 1;
+	}
+
+	.pubkey-copy:focus-visible {
+		outline: 2px solid var(--color-accent);
+		outline-offset: 2px;
+	}
+
 	@media (max-width: 600px) {
+		.tab-content {
+			overflow-x: clip;
+		}
+
 		.inline-fields {
 			flex-direction: column;
 		}

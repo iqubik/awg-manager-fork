@@ -30,7 +30,6 @@
 		TrafficSparkline,
 		Button,
 		Badge,
-		Tabs,
 		Toggle,
 		StatusDot,
 		Stat,
@@ -48,7 +47,7 @@
 	import AddTunnelWizard from '$lib/components/subscriptions/AddTunnelWizard.svelte';
 	import SubscriptionActiveCard from '$lib/components/subscriptions/SubscriptionActiveCard.svelte';
 	import type { ExternalTunnel, Subscription, SubscriptionMember, SystemTunnel, TunnelListItem } from '$lib/types';
-	import { formatBitRate, formatBytes, formatDuration, formatRelativeTime, secondsSince } from '$lib/utils/format';
+	import { formatBitRate, formatBytes, formatDuration, formatRelativeTimeShort, secondsSince } from '$lib/utils/format';
 	import { showOutboundReferencedError } from '$lib/utils/outboundReferenced';
 	import {
 		awgConnectivityDown,
@@ -71,7 +70,18 @@
 		type TunnelRenderMode,
 	} from '$lib/constants/singboxLayout';
 	import { isMockDevMode as getIsMockDevMode } from '$lib/env';
-	import { Download, Eye, EyeOff, Server, Upload, LayoutGrid, Link, Globe, TriangleAlert } from 'lucide-svelte';
+	import {
+		ChevronDown,
+		Download,
+		Eye,
+		EyeOff,
+		Server,
+		Upload,
+		LayoutGrid,
+		Link,
+		Globe,
+		TriangleAlert,
+	} from 'lucide-svelte';
 	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
 	import { formatRunningSub, pluralForm, SUBSCRIPTION_WORDS, TUNNEL_WORDS } from '$lib/utils/pluralize';
 	import {
@@ -92,6 +102,7 @@
 	} from '$lib/utils/tunnelTableSort';
 
 	type TunnelTab = 'awg' | 'singbox' | 'subscriptions';
+	type TunnelSectionId = TunnelTab;
 	type AwgTunnelViewMode = 'cards' | 'compact' | 'list';
 	type TunnelSurfaceLayout = SingboxLayoutMode | 'cards';
 
@@ -107,6 +118,7 @@
 	const AWG_TUNNEL_VIEW_STORAGE_KEY = 'awg_tunnel_view_mode';
 	const SINGBOX_TUNNELS_LAYOUT_STORAGE_KEY = 'singbox_tunnels_layout_mode';
 	const SINGBOX_SUBSCRIPTIONS_LAYOUT_STORAGE_KEY = 'singbox_subscriptions_layout_mode';
+	const TUNNEL_SECTIONS_OPEN_STORAGE_KEY = 'tunnel_sections_open_v1';
 	const isMockDevMode = getIsMockDevMode();
 
 	// Polling-store subscription: first subscriber triggers the fetch,
@@ -263,10 +275,59 @@
 
 	// Sync from URL on mount + whenever the page store changes (back/forward).
 	$effect(() => {
+		if (!tunnelSectionsHydrated) return;
+
 		const awgQ = $page.url.searchParams.get('detail');
 		const sbQ = $page.url.searchParams.get('sbDetail');
-		detailId = awgQ && awgQ.length > 0 ? awgQ : null;
-		singboxDetailTag = sbQ && sbQ.length > 0 ? sbQ : null;
+		const tabQ = $page.url.searchParams.get('tab');
+
+		const nextDetailId = awgQ && awgQ.length > 0 ? awgQ : null;
+		const nextSingboxDetailTag = sbQ && sbQ.length > 0 ? sbQ : null;
+
+		detailId = nextDetailId;
+		singboxDetailTag = nextSingboxDetailTag;
+
+		const currentSections = untrack(() => openSections);
+		const currentActiveTab = untrack(() => activeTab);
+
+		let nextSections = currentSections;
+		let nextActiveTab = currentActiveTab;
+
+		if (nextDetailId) {
+			nextSections = { ...nextSections, awg: true };
+			nextActiveTab = 'awg';
+		}
+
+		if (nextSingboxDetailTag && singboxSectionsVisible) {
+			nextSections = {
+				...nextSections,
+				singbox: true,
+				subscriptions: true,
+			};
+		}
+
+		if (tabQ === 'awg') {
+			nextSections = { ...nextSections, awg: true };
+			nextActiveTab = 'awg';
+		} else if (tabQ === 'singbox' && singboxSectionsVisible) {
+			nextSections = { ...nextSections, singbox: true };
+			nextActiveTab = 'singbox';
+		} else if (tabQ === 'subscriptions' && singboxSectionsVisible) {
+			nextSections = { ...nextSections, subscriptions: true };
+			nextActiveTab = 'subscriptions';
+		}
+
+		if (
+			nextSections.awg !== currentSections.awg ||
+			nextSections.singbox !== currentSections.singbox ||
+			nextSections.subscriptions !== currentSections.subscriptions
+		) {
+			openSections = nextSections;
+		}
+
+		if (nextActiveTab !== currentActiveTab) {
+			activeTab = nextActiveTab;
+		}
 	});
 
 	async function markAsServer(id: string) {
@@ -374,6 +435,11 @@
 
 	const singboxTunnelListStats = $derived.by(() => {
 		void trafficTick;
+		type TunnelStatCandidate = {
+			tag: string;
+			bytes: number;
+		};
+
 		const list = singboxTunnelsList;
 		let running = 0;
 		let down = 0;
@@ -382,22 +448,18 @@
 		let delayN = 0;
 		let leaderBytes = 0;
 		let leaderName = '—';
+		const candidates: TunnelStatCandidate[] = [];
 		const trMap = $singboxTraffic;
 		const histMap = $singboxDelayHistory;
 		for (const t of list) {
 			if (t.running === true) running++;
 			const tr = trMap.get(t.tag);
-			if (tr) {
-				const tunnelDown = tr.download ?? 0;
-				const tunnelUp = tr.upload ?? 0;
-				const total = tunnelDown + tunnelUp;
-				down += tunnelDown;
-				up += tunnelUp;
-				if (total > leaderBytes) {
-					leaderBytes = total;
-					leaderName = t.tag;
-				}
-			}
+			const tunnelDown = tr?.download ?? 0;
+			const tunnelUp = tr?.upload ?? 0;
+			const total = tunnelDown + tunnelUp;
+			down += tunnelDown;
+			up += tunnelUp;
+			candidates.push({ tag: t.tag, bytes: total });
 			const h = histMap.get(t.tag) ?? [];
 			const last = h.length > 0 ? h[h.length - 1] : 0;
 			if (typeof last === 'number' && last > 0) {
@@ -405,6 +467,16 @@
 				delayN++;
 			}
 		}
+
+		if (candidates.length > 0) {
+			const sorted = [...candidates].sort((a, b) => {
+				if (b.bytes !== a.bytes) return b.bytes - a.bytes;
+				return a.tag.localeCompare(b.tag, 'ru');
+			});
+			leaderBytes = sorted[0].bytes;
+			leaderName = sorted[0].tag;
+		}
+
 		return {
 			count: list.length,
 			running,
@@ -536,49 +608,101 @@
 
 	const singboxSubscriptionsTrafficStats = $derived.by(() => {
 		void trafficTick;
+		type SubscriptionStatCandidate = {
+			tag: string;
+			label: string;
+			bytes: number;
+			delay: number | null;
+		};
+
 		let down = 0;
 		let up = 0;
 		let delaySum = 0;
 		let delaySamples = 0;
 		let leaderBytes = 0;
 		let leaderName = '—';
+		const candidates: SubscriptionStatCandidate[] = [];
 		const map = $singboxTraffic;
 		const delayMap = $singboxDelayHistory;
 
-		function ingestMember(tag: string, label: string, sampleDelay = false): void {
+		function latestDelayForTags(tags: Array<string | null | undefined>): number | null {
+			const seen = new Set<string>();
+
+			for (const rawTag of tags) {
+				const tag = rawTag?.trim();
+				if (!tag || seen.has(tag)) continue;
+				seen.add(tag);
+
+				const history = delayMap.get(tag) ?? [];
+				const last = history.length > 0 ? history[history.length - 1] : null;
+
+				if (typeof last === 'number' && last > 0) {
+					return last;
+				}
+			}
+
+			return null;
+		}
+
+		function ingestMember(
+			tag: string,
+			label: string,
+			delayTags: Array<string | null | undefined> = [tag],
+		): void {
 			const tr = map.get(tag);
 			const memberDown = tr?.download ?? 0;
 			const memberUp = tr?.upload ?? 0;
 			const memberTotal = memberDown + memberUp;
+			const normalizedLabel = label || tag;
 			down += memberDown;
 			up += memberUp;
-			if (memberTotal > leaderBytes) {
-				leaderBytes = memberTotal;
-				leaderName = label || tag;
+			const delay = latestDelayForTags(delayTags);
+
+			if (delay !== null) {
+				delaySum += delay;
+				delaySamples += 1;
 			}
 
-			if (sampleDelay) {
-				const delayHistory = delayMap.get(tag) ?? [];
-				const lastDelay = delayHistory.length > 0 ? delayHistory[delayHistory.length - 1] : 0;
-				if (typeof lastDelay === 'number' && lastDelay > 0) {
-					delaySum += lastDelay;
-					delaySamples += 1;
-				}
-			}
+			candidates.push({
+				tag,
+				label: normalizedLabel,
+				bytes: memberTotal,
+				delay,
+			});
 		}
 
 		for (const card of subscriptionsActiveCards) {
 			ingestMember(
 				card.activeMember.tag,
 				card.subscription.label || card.activeMember.label || card.activeMember.tag,
-				true,
+				[
+					card.subscription.selectorTag,
+					card.activeMember.tag,
+				],
 			);
 		}
 		for (const sub of subscriptionsListRows) {
 			const tag = resolveSubscriptionMemberTag(sub, liveActives[sub.id] || null);
 			if (!tag) continue;
-			ingestMember(tag, sub.label || tag);
+			ingestMember(
+				tag,
+				sub.label || tag,
+				[
+					sub.selectorTag,
+					tag,
+				],
+			);
 		}
+
+		if (candidates.length > 0) {
+			const sorted = [...candidates].sort((a, b) => {
+				if (b.bytes !== a.bytes) return b.bytes - a.bytes;
+				return a.label.localeCompare(b.label, 'ru');
+			});
+			leaderBytes = sorted[0].bytes;
+			leaderName = sorted[0].label;
+		}
+
 		const totalTraffic = down + up;
 		return {
 			count: subscriptionsList.length,
@@ -596,6 +720,12 @@
 
 	// Tabs
 	let activeTab = $state<TunnelTab>('awg');
+	let openSections = $state<Record<TunnelSectionId, boolean>>({
+		awg: true,
+		singbox: true,
+		subscriptions: true,
+	});
+	let tunnelSectionsHydrated = $state(false);
 	let awgViewMode = $state<AwgTunnelViewMode>('compact');
 	let awgViewModeReady = false;
 	let isAwgMobile = $state(readTunnelMobileLayout());
@@ -627,31 +757,128 @@
 	let awgCardViewMode = $derived<'cards' | 'compact'>(
 		awgEffectiveViewMode === 'cards' ? 'cards' : 'compact',
 	);
+	let singboxSectionsVisible = $derived(isSectionVisible($usageLevel, 'singboxTunnels'));
 
 	function isAwgTunnelViewMode(value: string | null): value is AwgTunnelViewMode {
 		return value === 'cards' || value === 'compact' || value === 'list';
 	}
 
-	const tunnelTabs = $derived(
-		[
-			{ id: 'awg', label: 'AWG', badge: awgList.length + systemList.length },
-			isSectionVisible($usageLevel, 'singboxTunnels')
-				? { id: 'singbox', label: 'Sing-box туннели', badge: singboxTunnelsList.length }
-				: null,
-			isSectionVisible($usageLevel, 'singboxTunnels')
-				? { id: 'subscriptions', label: 'Sing-box подписки', badge: subscriptionsList.length }
-				: null,
-		].filter((t): t is { id: string; label: string; badge: number } => t !== null),
-	);
+	function isSectionAvailable(id: TunnelSectionId): boolean {
+		return id === 'awg' || singboxSectionsVisible;
+	}
 
-	// Auto-switch off sing-box tab if it becomes hidden (basic mode).
+	function defaultOpenSections(): Record<TunnelSectionId, boolean> {
+		return {
+			awg: true,
+			singbox: singboxSectionsVisible,
+			subscriptions: singboxSectionsVisible,
+		};
+	}
+
+	function normalizeOpenSections(
+		value: Partial<Record<TunnelSectionId, boolean>> | null | undefined,
+	): Record<TunnelSectionId, boolean> {
+		const defaults = defaultOpenSections();
+		return {
+			awg: value?.awg ?? defaults.awg,
+			singbox: singboxSectionsVisible ? (value?.singbox ?? defaults.singbox) : false,
+			subscriptions: singboxSectionsVisible ? (value?.subscriptions ?? defaults.subscriptions) : false,
+		};
+	}
+
+	function applyUrlStateToOpenSections(
+		sections: Record<TunnelSectionId, boolean>,
+		url: URL,
+	): Record<TunnelSectionId, boolean> {
+		const nextSections = { ...sections };
+		const awgQ = url.searchParams.get('detail');
+		const sbQ = url.searchParams.get('sbDetail');
+		const tabQ = url.searchParams.get('tab');
+
+		if (awgQ && awgQ.length > 0) {
+			nextSections.awg = true;
+		}
+
+		if (sbQ && sbQ.length > 0 && singboxSectionsVisible) {
+			nextSections.singbox = true;
+			nextSections.subscriptions = true;
+		}
+
+		if (tabQ === 'awg') {
+			nextSections.awg = true;
+		} else if (tabQ === 'singbox' && singboxSectionsVisible) {
+			nextSections.singbox = true;
+		} else if (tabQ === 'subscriptions' && singboxSectionsVisible) {
+			nextSections.subscriptions = true;
+		}
+
+		return normalizeOpenSections(nextSections);
+	}
+
+	function isSectionOpen(id: TunnelSectionId): boolean {
+		return isSectionAvailable(id) && openSections[id];
+	}
+
+	function setSectionOpen(id: TunnelSectionId, open: boolean): void {
+		const nextValue = isSectionAvailable(id) ? open : false;
+		if (openSections[id] === nextValue) return;
+		openSections = {
+			...openSections,
+			[id]: nextValue,
+		};
+	}
+
+	async function syncSectionUrl(section: TunnelSectionId, open: boolean): Promise<void> {
+		if (typeof window === 'undefined') return;
+		const url = new URL(window.location.href);
+		if (open) {
+			url.searchParams.set('tab', section);
+			activeTab = section;
+		} else if (url.searchParams.get('tab') === section) {
+			url.searchParams.delete('tab');
+		}
+		await goto(`${url.pathname}${url.search}${url.hash}`, {
+			replaceState: true,
+			keepFocus: true,
+			noScroll: true,
+		});
+	}
+
+	function toggleSection(id: TunnelSectionId): void {
+		const next = !isSectionOpen(id);
+		setSectionOpen(id, next);
+		void syncSectionUrl(id, next);
+	}
+
 	$effect(() => {
-		if (!tunnelTabs.find((t) => t.id === activeTab)) {
+		const normalized = normalizeOpenSections(openSections);
+		if (
+			normalized.awg !== openSections.awg ||
+			normalized.singbox !== openSections.singbox ||
+			normalized.subscriptions !== openSections.subscriptions
+		) {
+			openSections = normalized;
+		}
+		if (!isSectionAvailable(activeTab)) {
 			activeTab = 'awg';
 		}
 	});
 
 	onMount(() => {
+		let storedSections = defaultOpenSections();
+		try {
+			const raw = localStorage.getItem(TUNNEL_SECTIONS_OPEN_STORAGE_KEY);
+			if (raw) {
+				storedSections = normalizeOpenSections(
+					JSON.parse(raw) as Partial<Record<TunnelSectionId, boolean>>,
+				);
+			}
+		} catch {
+			storedSections = defaultOpenSections();
+		}
+		openSections = applyUrlStateToOpenSections(storedSections, new URL(window.location.href));
+		tunnelSectionsHydrated = true;
+
 		const stored = localStorage.getItem(AWG_TUNNEL_VIEW_STORAGE_KEY);
 		if (isAwgTunnelViewMode(stored)) {
 			awgViewMode = stored;
@@ -696,11 +923,23 @@
 		);
 	});
 
+	$effect(() => {
+		if (typeof window === 'undefined' || !tunnelSectionsHydrated) return;
+		localStorage.setItem(TUNNEL_SECTIONS_OPEN_STORAGE_KEY, JSON.stringify(openSections));
+	});
+
 	let awgAutoConnectivityNonce = $state(0);
-	let singboxAutoDelayCheckNonce = $state(0);
-	let lastAutoCheckKey = '';
-	let currentTunnelSurface = '';
-	let tunnelSurfaceEntryNonce = $state(0);
+	let singboxTunnelsAutoDelayCheckNonce = $state(0);
+	let singboxSubscriptionsAutoDelayCheckNonce = $state(0);
+	let lastAwgAutoCheckKey = '';
+	let lastSingboxTunnelsAutoCheckKey = '';
+	let lastSingboxSubscriptionsAutoCheckKey = '';
+	let awgSectionEpoch = $state(0);
+	let singboxTunnelsSectionEpoch = $state(0);
+	let singboxSubscriptionsSectionEpoch = $state(0);
+	let lastAwgSectionOpen = false;
+	let lastSingboxTunnelsSectionOpen = false;
+	let lastSingboxSubscriptionsSectionOpen = false;
 
 	function activeAwgConnectivityIds(): string {
 		return awgList
@@ -731,24 +970,34 @@
 	}
 
 	$effect(() => {
-		const surface = $page.url.pathname === '/' ? activeTab : 'outside';
-		if (surface === currentTunnelSurface) return;
-		currentTunnelSurface = surface;
-		tunnelSurfaceEntryNonce += 1;
+		const open = $page.url.pathname === '/' && isSectionOpen('awg');
+		if (open && !lastAwgSectionOpen) awgSectionEpoch += 1;
+		lastAwgSectionOpen = open;
+	});
+
+	$effect(() => {
+		const open = $page.url.pathname === '/' && isSectionOpen('singbox');
+		if (open && !lastSingboxTunnelsSectionOpen) singboxTunnelsSectionEpoch += 1;
+		lastSingboxTunnelsSectionOpen = open;
+	});
+
+	$effect(() => {
+		const open = $page.url.pathname === '/' && isSectionOpen('subscriptions');
+		if (open && !lastSingboxSubscriptionsSectionOpen) singboxSubscriptionsSectionEpoch += 1;
+		lastSingboxSubscriptionsSectionOpen = open;
 	});
 
 	$effect(() => {
 		const path = $page.url.pathname;
-		const tab = activeTab;
-		const entry = tunnelSurfaceEntryNonce;
-		if (path !== '/' || tab !== 'awg' || loading) return;
+		const entry = awgSectionEpoch;
+		if (path !== '/' || !isSectionOpen('awg') || loading) return;
 
 		const ids = activeAwgConnectivityIds();
 		if (!ids) return;
 
 		const key = `awg:${entry}:${ids}`;
-		if (key === lastAutoCheckKey) return;
-		lastAutoCheckKey = key;
+		if (key === lastAwgAutoCheckKey) return;
+		lastAwgAutoCheckKey = key;
 		awgAutoConnectivityNonce += 1;
 	});
 
@@ -792,19 +1041,30 @@
 
 	$effect(() => {
 		const path = $page.url.pathname;
-		const tab = activeTab;
-		const entry = tunnelSurfaceEntryNonce;
-		if (path !== '/' || (tab !== 'singbox' && tab !== 'subscriptions')) return;
+		const entry = singboxTunnelsSectionEpoch;
+		if (path !== '/' || !isSectionOpen('singbox')) return;
 
-		const tags = tab === 'singbox'
-			? activeSingboxDelayTags()
-			: activeSubscriptionDelayTags();
+		const tags = activeSingboxDelayTags();
 		if (!tags) return;
 
-		const key = `${tab}:${entry}:${tags}`;
-		if (key === lastAutoCheckKey) return;
-		lastAutoCheckKey = key;
-		singboxAutoDelayCheckNonce += 1;
+		const key = `singbox:${entry}:${tags}`;
+		if (key === lastSingboxTunnelsAutoCheckKey) return;
+		lastSingboxTunnelsAutoCheckKey = key;
+		singboxTunnelsAutoDelayCheckNonce += 1;
+	});
+
+	$effect(() => {
+		const path = $page.url.pathname;
+		const entry = singboxSubscriptionsSectionEpoch;
+		if (path !== '/' || !isSectionOpen('subscriptions')) return;
+
+		const tags = activeSubscriptionDelayTags();
+		if (!tags) return;
+
+		const key = `subscriptions:${entry}:${tags}`;
+		if (key === lastSingboxSubscriptionsAutoCheckKey) return;
+		lastSingboxSubscriptionsAutoCheckKey = key;
+		singboxSubscriptionsAutoDelayCheckNonce += 1;
 	});
 
 	// External tunnels
@@ -1013,6 +1273,11 @@
 		visibleSystemList.filter((t) => t.status === 'up').length +
 		externalList.filter((t) => !!t.lastHandshake).length,
 	);
+	let awgSummarySystemLabel = $derived(isAwgMobile ? 'sys.' : 'system');
+	let awgSummaryExternalLabel = $derived(isAwgMobile ? 'ext.' : 'external');
+	let awgSummaryBreakdown = $derived(
+		`AWG ${awgList.length} · ${awgSummarySystemLabel} ${visibleSystemList.length} · ${awgSummaryExternalLabel} ${externalList.length}`,
+	);
 
 	let awgSummaryPeak = $derived.by(() => {
 		let rate = 0;
@@ -1054,31 +1319,37 @@
 	);
 
 	let awgTrafficLeader = $derived.by(() => {
+		type AwgTrafficCandidate = {
+			name: string;
+			bytes: number;
+		};
+
 		let bytes = 0;
 		let name = '—';
+		const candidates: AwgTrafficCandidate[] = [];
 
 		for (const tunnel of awgList) {
 			const total = (tunnel.rxBytes ?? 0) + (tunnel.txBytes ?? 0);
-			if (total > bytes) {
-				bytes = total;
-				name = tunnel.name;
-			}
+			candidates.push({ name: tunnel.name, bytes: total });
 		}
 
 		for (const tunnel of visibleSystemList) {
 			const total = (tunnel.peer?.rxBytes ?? 0) + (tunnel.peer?.txBytes ?? 0);
-			if (total > bytes) {
-				bytes = total;
-				name = tunnel.description || tunnel.interfaceName;
-			}
+			candidates.push({ name: tunnel.description || tunnel.interfaceName, bytes: total });
 		}
 
 		for (const tunnel of externalList) {
 			const total = tunnel.rxBytes + tunnel.txBytes;
-			if (total > bytes) {
-				bytes = total;
-				name = tunnel.interfaceName;
-			}
+			candidates.push({ name: tunnel.interfaceName, bytes: total });
+		}
+
+		if (candidates.length > 0) {
+			const sorted = [...candidates].sort((a, b) => {
+				if (b.bytes !== a.bytes) return b.bytes - a.bytes;
+				return a.name.localeCompare(b.name, 'ru');
+			});
+			bytes = sorted[0].bytes;
+			name = sorted[0].name;
 		}
 
 		return { bytes, name };
@@ -1459,6 +1730,10 @@
 	<CreateIcon />
 {/snippet}
 
+{#snippet importIcon()}
+	<Upload size={16} />
+{/snippet}
+
 <svelte:head>
 	<title>Туннели - AWG Manager</title>
 </svelte:head>
@@ -1476,15 +1751,7 @@
 			description={tunnelSnap.error ?? 'Не удалось получить список туннелей'}
 		/>
 	{:else}
-		<Tabs
-			tabs={tunnelTabs}
-			active={activeTab}
-			onchange={(id) => (activeTab = id as TunnelTab)}
-			urlParam="tab"
-			defaultTab="awg"
-		/>
-
-		{#if activeTab === 'awg'}
+		{#snippet awgSectionContent()}
 		{#if awgList.length === 0 && systemList.length === 0}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
@@ -1608,36 +1875,43 @@
 					<StoreStatusBadge store={tunnels} />
 				</div>
 				<div class="toolbar-actions">
-					<TunnelToolbarViewRow
-						sourceRowCount={awgSourceRowCount}
-						showViewToggle={showAwgViewModeSwitch}
-						searchQuery={awgListSearchQuery}
-						onSearchChange={(value) => (awgListSearchQuery = value)}
-					>
-						{#snippet viewToggle()}
-							<LayoutViewToggle
-								value={awgViewMode}
-								denseValue="cards"
-								ariaLabel="Вид туннелей"
-								onchange={(mode) => (awgViewMode = mode)}
-							/>
-						{/snippet}
-					</TunnelToolbarViewRow>
+					<div class="toolbar-view-row-desktop">
+						<TunnelToolbarViewRow
+							sourceRowCount={awgSourceRowCount}
+							showViewToggle={showAwgViewModeSwitch}
+							searchQuery={awgListSearchQuery}
+							sortKey={$awgTunnelTableSort.sortBy}
+							sortAsc={$awgTunnelTableSort.sortAsc}
+							sortOptions={awgSortOptions}
+							onSearchChange={(value) => (awgListSearchQuery = value)}
+							onSortChange={(key) => key === null ? awgTunnelTableSort.setSort(null) : awgTunnelTableSort.setSort(key as AwgTunnelSortKey)}
+							onToggleDir={() => awgTunnelTableSort.toggleDirection()}
+						>
+							{#snippet viewToggle()}
+								<LayoutViewToggle
+									value={awgViewMode}
+									denseValue="cards"
+									ariaLabel="Вид туннелей"
+									onchange={(mode) => (awgViewMode = mode)}
+								/>
+							{/snippet}
+						</TunnelToolbarViewRow>
+					</div>
 					<Button variant="secondary" size="md" onclick={handleExportAll} disabled={exporting} iconBefore={exportIcon}>
 						Экспорт
 					</Button>
-					<Button variant="primary" size="md" onclick={() => goto('/tunnels/new')} iconBefore={createIcon}>
-						Создать
+					<Button variant="primary" size="md" onclick={() => goto('/tunnels/new')} iconBefore={importIcon}>
+						Импорт
 					</Button>
 				</div>
 			</div>
-			{#if isTunnelListRenderMode(awgRenderMode)}
+			{#if awgSummaryTotal > 0}
 				<div class="awg-summary-row">
 					<StatStrip>
 						<Stat
 							value={`${awgSummaryActive}/${awgSummaryTotal}`}
 							label={pluralForm(awgSummaryActive, TUNNEL_WORDS)}
-							sub={`AWG ${awgList.length} · system ${visibleSystemList.length} · external ${externalList.length}`}
+							sub={awgSummaryBreakdown}
 						/>
 						<Stat
 							value={formatBitRate(awgSummaryPeak.rate)}
@@ -1650,9 +1924,13 @@
 							sub={`↓ ${formatBytes(awgSummaryRx)} · ↑ ${formatBytes(awgSummaryTx)}`}
 						/>
 						<Stat
-							value={awgTrafficLeader.bytes > 0 ? formatBytes(awgTrafficLeader.bytes) : '—'}
+							value={awgList.length + visibleSystemList.length + externalList.length > 0
+								? formatBytes(awgTrafficLeader.bytes)
+								: '—'}
 							label="Лидер по трафику"
-							sub={awgTrafficLeader.name}
+							sub={awgList.length + visibleSystemList.length + externalList.length > 0
+								? awgTrafficLeader.name
+								: '—'}
 						/>
 					</StatStrip>
 				</div>
@@ -1722,6 +2000,7 @@
 								size="sm"
 								variant="flip"
 								tint={awgToggleTint(tunnel, connectivity)}
+								ariaLabel={isManagedTunnelOn(tunnel) ? `Выключить туннель ${tunnel.name}` : `Включить туннель ${tunnel.name}`}
 								disabled={(toggleLoading[tunnel.id] ?? false) || tunnel.hasAddressConflict === true}
 								onchange={() => handleToggleOnOff(tunnel.id)}
 							/>
@@ -1746,61 +2025,63 @@
 									<TunnelMetaText>
 										{tunnel.address || '—'}
 										<span class="meta-dot" aria-hidden="true">·</span>
-										{tunnel.interfaceName || tunnel.id}
+										<span title={isEndpointShown ? (tunnel.interfaceName || tunnel.id) : ''}>
+											{isEndpointShown ? (tunnel.interfaceName || tunnel.id) : '••••'}
+										</span>
 										<span class="meta-dot" aria-hidden="true">·</span>
 										MTU {tunnel.mtu ?? '—'}
 									</TunnelMetaText>
-									<TunnelMetaText mono>
-										Uptime {tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
-									</TunnelMetaText>
+									{#if tunnel.hasAddressConflict}
+										<div class="awg-list-sub awg-list-sub--error">Дублирует адрес уже запущенного туннеля</div>
+									{:else if showConnectivityRow}
+										<div
+											class="awg-list-connectivity-row awg-list-connectivity-row--name"
+											class:recovering={awgRecoveringVisual(tunnel)}
+										>
+											{#if showPing}
+												<TunnelPingButton
+													layout="list"
+													connectivity={connState}
+													latencyMs={connectivity?.latency ?? null}
+													statusNote={pingStatusNote?.text}
+													statusNoteTone={pingStatusNote?.tone}
+													checking={pingChecking[tunnel.id] ?? false}
+													onclick={() => checkPing(tunnel.id)}
+												/>
+											{/if}
+											<button
+												type="button"
+												class="awg-connectivity-gear"
+												onclick={() => openConnectivitySettings(tunnel)}
+												title="Настройки проверки связности"
+											>
+												<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+													<path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
+												</svg>
+											</button>
+										</div>
+									{:else if isActive && checkDisabled}
+										<div class="awg-list-sub">Проверка связи выключена</div>
+									{/if}
 								</div>
 							</div>
 							<div class="awg-list-cell awg-list-cell-status" data-label="Статус">
 								<div class="awg-list-status-stack">
 									<div class="awg-list-status-line">
-									<StatusDot
-										variant={statusDot.variant}
-										pulse={statusDot.pulse}
-										ariaLabel={statusDot.label}
-									/>
-									<span class="awg-list-status-text">{statusDot.label}</span>
+										<StatusDot
+											variant={statusDot.variant}
+											pulse={statusDot.pulse}
+											ariaLabel={statusDot.label}
+										/>
+										<span class="awg-list-status-text">{statusDot.label}</span>
+									</div>
+									<div class="awg-list-sub awg-list-uptime">
+										Uptime {tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
 									</div>
 									<div class="awg-list-sub awg-list-handshake">
-										Handshake {tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
+										Handshake {tunnel.lastHandshake ? formatRelativeTimeShort(tunnel.lastHandshake) : '—'}
 									</div>
-									{#if tunnel.hasAddressConflict}
-								<div class="awg-list-sub awg-list-sub--error">Дублирует адрес уже запущенного туннеля</div>
-							{:else if showConnectivityRow}
-								<div
-									class="awg-list-connectivity-row"
-									class:recovering={awgRecoveringVisual(tunnel)}
-								>
-									{#if showPing}
-										<TunnelPingButton
-											layout="list"
-											connectivity={connState}
-											latencyMs={connectivity?.latency ?? null}
-											statusNote={pingStatusNote?.text}
-											statusNoteTone={pingStatusNote?.tone}
-											checking={pingChecking[tunnel.id] ?? false}
-											onclick={() => checkPing(tunnel.id)}
-										/>
-									{/if}
-									<button
-										type="button"
-										class="awg-connectivity-gear"
-										onclick={() => openConnectivitySettings(tunnel)}
-										title="Настройки проверки связности"
-									>
-										<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-											<path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
-										</svg>
-									</button>
 								</div>
-							{:else if isActive && checkDisabled}
-								<div class="awg-list-sub">Проверка связи выключена</div>
-							{/if}
-							</div>
 							</div>
 							<div class="awg-list-cell" data-label="Endpoint">
 								<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line">
@@ -1829,7 +2110,9 @@
 										<span class="awg-endpoint-port">:{endpointPort(tunnel.endpoint)}</span>
 									{/if}
 								</div>
-								<div class="awg-list-sub">{managedRouteMeta(tunnel)}</div>
+								<div class="awg-list-sub" title={isEndpointShown ? managedRouteMeta(tunnel) : ''}>
+									{isEndpointShown ? managedRouteMeta(tunnel) : '•••••••••'}
+								</div>
 							</div>
 							<div class="awg-list-cell awg-list-cell-rate" data-label="Трафик">
 								<TunnelListTrafficCell
@@ -1888,7 +2171,7 @@
 											MTU {tunnel.mtu}
 										</TunnelMetaText>
 										<TunnelMetaText mono>
-											Uptime {tunnel.status === 'up' && tunnel.uptime ? formatDuration(tunnel.uptime) : '—'}
+											Uptime: {tunnel.status === 'up' && tunnel.uptime ? formatDuration(tunnel.uptime) : '—'}
 										</TunnelMetaText>
 									</div>
 								</div>
@@ -1901,7 +2184,7 @@
 										<span class="awg-list-status-text">{systemStatusLabel(tunnel)}</span>
 									</div>
 									<div class="awg-list-sub awg-list-handshake">
-										Handshake {tunnel.peer?.lastHandshake ? formatRelativeTime(tunnel.peer.lastHandshake) : '—'}
+										Handshake {tunnel.peer?.lastHandshake ? formatRelativeTimeShort(tunnel.peer.lastHandshake) : '—'}
 									</div>
 									<div class="awg-list-sub">{tunnel.peer?.via || 'Маршрут не определён'}</div>
 								</div>
@@ -2003,7 +2286,7 @@
 										<span class="awg-list-status-text">{externalStatusLabel(tunnel)}</span>
 									</div>
 									<div class="awg-list-sub awg-list-handshake">
-										Handshake {tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
+										Handshake {tunnel.lastHandshake ? formatRelativeTimeShort(tunnel.lastHandshake) : '—'}
 									</div>
 									<div class="awg-list-sub">Не управляется AWG Manager</div>
 								</div>
@@ -2114,7 +2397,9 @@
 				{/if}
 			{/if}
 		{/if}
-		{:else if activeTab === 'subscriptions'}
+		{/snippet}
+
+		{#snippet subscriptionsSectionContent()}
 			{#if subscriptionsInitialLoading}
 				<div class="loading-centered">
 					<LoadingSpinner size="md" message="Загружаем подписки..." />
@@ -2136,21 +2421,28 @@
 							{pluralForm(subscriptionsList.length, SUBSCRIPTION_WORDS)}
 						</span>
 						<div class="toolbar-actions">
-							<TunnelToolbarViewRow
-								sourceRowCount={singboxSubscriptionsSourceRowCount}
-								showViewToggle={subscriptionsList.length > 0}
-								searchQuery={singboxSubscriptionsSearchQuery}
-								onSearchChange={(value) => (singboxSubscriptionsSearchQuery = value)}
-							>
-								{#snippet viewToggle()}
-									<LayoutViewToggle
-										value={singboxSubscriptionsLayoutMode}
-										showListOption={showSingboxGridListToggle}
-										ariaLabel="Вид подписок"
-										onchange={(v) => (singboxSubscriptionsLayoutMode = v)}
-									/>
-								{/snippet}
-							</TunnelToolbarViewRow>
+							<div class="toolbar-view-row-desktop">
+								<TunnelToolbarViewRow
+									sourceRowCount={singboxSubscriptionsSourceRowCount}
+									showViewToggle={subscriptionsList.length > 0}
+									searchQuery={singboxSubscriptionsSearchQuery}
+									sortKey={$singboxSubscriptionTableSort.sortBy}
+									sortAsc={$singboxSubscriptionTableSort.sortAsc}
+									sortOptions={subscriptionSortOptions}
+									onSearchChange={(value) => (singboxSubscriptionsSearchQuery = value)}
+									onSortChange={(key) => key === null ? singboxSubscriptionTableSort.setSort(null) : singboxSubscriptionTableSort.setSort(key as SubscriptionSortKey)}
+									onToggleDir={() => singboxSubscriptionTableSort.toggleDirection()}
+								>
+									{#snippet viewToggle()}
+										<LayoutViewToggle
+											value={singboxSubscriptionsLayoutMode}
+											showListOption={showSingboxGridListToggle}
+											ariaLabel="Вид подписок"
+											onchange={(v) => (singboxSubscriptionsLayoutMode = v)}
+										/>
+									{/snippet}
+								</TunnelToolbarViewRow>
+							</div>
 							<Button
 								variant="primary"
 								size="md"
@@ -2177,7 +2469,7 @@
 							</Button>
 						</div>
 					{:else}
-						{#if isTunnelListRenderMode(singboxSubscriptionsRenderMode)}
+						{#if singboxSubscriptionsTrafficStats.count > 0}
 							<div class="awg-summary-row">
 								<StatStrip>
 									<Stat
@@ -2205,11 +2497,11 @@
 											: 'нет активных замеров'}
 									/>
 									<Stat
-										value={singboxSubscriptionsTrafficStats.leaderBytes > 0
+										value={singboxSubscriptionsTrafficStats.count > 0
 											? formatBytes(singboxSubscriptionsTrafficStats.leaderBytes)
 											: '—'}
 										label="Лидер по трафику"
-										sub={singboxSubscriptionsTrafficStats.leaderBytes > 0
+										sub={singboxSubscriptionsTrafficStats.count > 0
 											? `${singboxSubscriptionsTrafficStats.leaderName} · ${singboxSubscriptionsTrafficStats.leaderSharePct}% всего`
 											: '—'}
 									/>
@@ -2253,7 +2545,7 @@
 									<SubscriptionActiveCard
 										subscription={card.subscription}
 										activeMember={card.activeMember}
-										autoDelayCheckNonce={singboxAutoDelayCheckNonce}
+										autoDelayCheckNonce={singboxSubscriptionsAutoDelayCheckNonce}
 										autoDelayCheckDelayMs={i * 180}
 										layout="list"
 										renderMode="table"
@@ -2290,7 +2582,7 @@
 								<SubscriptionActiveCard
 									subscription={card.subscription}
 									activeMember={card.activeMember}
-									autoDelayCheckNonce={singboxAutoDelayCheckNonce}
+									autoDelayCheckNonce={singboxSubscriptionsAutoDelayCheckNonce}
 									autoDelayCheckDelayMs={i * 180}
 									layout="list"
 									renderMode="list-card"
@@ -2322,7 +2614,7 @@
 									<SubscriptionActiveCard
 										subscription={card.subscription}
 										activeMember={card.activeMember}
-										autoDelayCheckNonce={singboxAutoDelayCheckNonce}
+										autoDelayCheckNonce={singboxSubscriptionsAutoDelayCheckNonce}
 										autoDelayCheckDelayMs={i * 180}
 										layout={singboxSubscriptionsEffectiveLayout}
 										renderMode={singboxSubscriptionsRenderMode}
@@ -2362,7 +2654,9 @@
 					{/if}
 				{/if}
 			{/if}
-		{:else}
+		{/snippet}
+
+		{#snippet singboxSectionContent()}
 			<SingboxInstallBanner />
 			{#if singboxTunnelsList.length > 0 || subscriptionsActiveCards.length > 0}
 				<div class="tunnels-toolbar">
@@ -2371,21 +2665,28 @@
 						{pluralForm(singboxTunnelsList.length, TUNNEL_WORDS)}
 					</span>
 					<div class="toolbar-actions">
-						<TunnelToolbarViewRow
-							sourceRowCount={singboxTunnelsSourceRowCount}
-							showViewToggle={singboxTunnelsList.length > 0}
-							searchQuery={singboxTunnelsSearchQuery}
-							onSearchChange={(value) => (singboxTunnelsSearchQuery = value)}
-						>
-							{#snippet viewToggle()}
-								<LayoutViewToggle
-									value={singboxTunnelsLayoutMode}
-									showListOption={showSingboxGridListToggle}
-									ariaLabel="Вид туннелей"
-									onchange={(v) => (singboxTunnelsLayoutMode = v)}
-								/>
-							{/snippet}
-						</TunnelToolbarViewRow>
+						<div class="toolbar-view-row-desktop">
+							<TunnelToolbarViewRow
+								sourceRowCount={singboxTunnelsSourceRowCount}
+								showViewToggle={singboxTunnelsList.length > 0}
+								searchQuery={singboxTunnelsSearchQuery}
+								sortKey={$singboxTunnelTableSort.sortBy}
+								sortAsc={$singboxTunnelTableSort.sortAsc}
+								sortOptions={singboxTunnelSortOptions}
+								onSearchChange={(value) => (singboxTunnelsSearchQuery = value)}
+								onSortChange={(key) => key === null ? singboxTunnelTableSort.setSort(null) : singboxTunnelTableSort.setSort(key as SingboxTunnelSortKey)}
+								onToggleDir={() => singboxTunnelTableSort.toggleDirection()}
+							>
+								{#snippet viewToggle()}
+									<LayoutViewToggle
+										value={singboxTunnelsLayoutMode}
+										showListOption={showSingboxGridListToggle}
+										ariaLabel="Вид туннелей"
+										onchange={(v) => (singboxTunnelsLayoutMode = v)}
+									/>
+								{/snippet}
+							</TunnelToolbarViewRow>
+						</div>
 						<Button
 							variant="primary"
 							size="md"
@@ -2454,7 +2755,7 @@
 					</div>
 				</div>
 			{:else if singboxTunnelsList.length > 0}
-				{#if isTunnelListRenderMode(singboxTunnelsRenderMode)}
+				{#if singboxTunnelListStats.count > 0}
 					<div class="awg-summary-row">
 						<StatStrip>
 							<Stat
@@ -2475,14 +2776,14 @@
 								sub="по последним проверкам"
 							/>
 							<Stat
-								value={singboxTunnelListStats.leaderBytes > 0
+								value={singboxTunnelListStats.count > 0
 									? formatBytes(singboxTunnelListStats.leaderBytes)
 									: '—'}
 								label="Лидер по трафику"
-								sub={singboxTunnelListStats.leaderName}
+								sub={singboxTunnelListStats.count > 0 ? singboxTunnelListStats.leaderName : '—'}
 							/>
-							</StatStrip>
-						</div>
+						</StatStrip>
+					</div>
 				{/if}
 				{#if singboxTunnelsRenderMode === 'table'}
 					<div class="tunnel-table-wrap">
@@ -2525,7 +2826,7 @@
 								{tunnel}
 								layout="list"
 								renderMode="table"
-								autoDelayCheckNonce={singboxAutoDelayCheckNonce}
+								autoDelayCheckNonce={singboxTunnelsAutoDelayCheckNonce}
 								autoDelayCheckDelayMs={i * 180}
 								ondetail={(tag) => openSingboxDetail(tag)}
 							/>
@@ -2551,7 +2852,7 @@
 								{tunnel}
 								layout={sbTunnelCardLayout}
 								renderMode={singboxTunnelsRenderMode}
-								autoDelayCheckNonce={singboxAutoDelayCheckNonce}
+								autoDelayCheckNonce={singboxTunnelsAutoDelayCheckNonce}
 								autoDelayCheckDelayMs={i * 180}
 								ondetail={(tag) => openSingboxDetail(tag)}
 							/>
@@ -2559,10 +2860,170 @@
 					</div>
 					{#if singboxTunnelsSearchEmpty}
 						<p class="tunnel-list-empty">Ничего не найдено</p>
-					{/if}
 				{/if}
 		{/if}
 	{/if}
+		{/snippet}
+
+		{#snippet awgHeaderMobileControls()}
+			<TunnelToolbarViewRow
+				sourceRowCount={awgSourceRowCount}
+				showViewToggle={showAwgViewModeSwitch}
+				searchQuery={awgListSearchQuery}
+				sortKey={$awgTunnelTableSort.sortBy}
+				sortAsc={$awgTunnelTableSort.sortAsc}
+				sortOptions={awgSortOptions}
+				onSearchChange={(value) => (awgListSearchQuery = value)}
+				onSortChange={(key) => key === null ? awgTunnelTableSort.setSort(null) : awgTunnelTableSort.setSort(key as AwgTunnelSortKey)}
+				onToggleDir={() => awgTunnelTableSort.toggleDirection()}
+			>
+				{#snippet viewToggle()}
+					<LayoutViewToggle
+						value={awgViewMode}
+						denseValue="cards"
+						ariaLabel="Вид туннелей"
+						onchange={(mode) => (awgViewMode = mode)}
+					/>
+				{/snippet}
+			</TunnelToolbarViewRow>
+		{/snippet}
+
+		{#snippet singboxHeaderMobileControls()}
+			<TunnelToolbarViewRow
+				sourceRowCount={singboxTunnelsSourceRowCount}
+				showViewToggle={singboxTunnelsList.length > 0}
+				searchQuery={singboxTunnelsSearchQuery}
+				sortKey={$singboxTunnelTableSort.sortBy}
+				sortAsc={$singboxTunnelTableSort.sortAsc}
+				sortOptions={singboxTunnelSortOptions}
+				onSearchChange={(value) => (singboxTunnelsSearchQuery = value)}
+				onSortChange={(key) => key === null ? singboxTunnelTableSort.setSort(null) : singboxTunnelTableSort.setSort(key as SingboxTunnelSortKey)}
+				onToggleDir={() => singboxTunnelTableSort.toggleDirection()}
+			>
+				{#snippet viewToggle()}
+					<LayoutViewToggle
+						value={singboxTunnelsLayoutMode}
+						showListOption={showSingboxGridListToggle}
+						ariaLabel="Вид туннелей"
+						onchange={(v) => (singboxTunnelsLayoutMode = v)}
+					/>
+				{/snippet}
+			</TunnelToolbarViewRow>
+		{/snippet}
+
+		{#snippet subscriptionsHeaderMobileControls()}
+			<TunnelToolbarViewRow
+				sourceRowCount={singboxSubscriptionsSourceRowCount}
+				showViewToggle={subscriptionsList.length > 0}
+				searchQuery={singboxSubscriptionsSearchQuery}
+				sortKey={$singboxSubscriptionTableSort.sortBy}
+				sortAsc={$singboxSubscriptionTableSort.sortAsc}
+				sortOptions={subscriptionSortOptions}
+				onSearchChange={(value) => (singboxSubscriptionsSearchQuery = value)}
+				onSortChange={(key) => key === null ? singboxSubscriptionTableSort.setSort(null) : singboxSubscriptionTableSort.setSort(key as SubscriptionSortKey)}
+				onToggleDir={() => singboxSubscriptionTableSort.toggleDirection()}
+			>
+				{#snippet viewToggle()}
+					<LayoutViewToggle
+						value={singboxSubscriptionsLayoutMode}
+						showListOption={showSingboxGridListToggle}
+						ariaLabel="Вид подписок"
+						onchange={(v) => (singboxSubscriptionsLayoutMode = v)}
+					/>
+				{/snippet}
+			</TunnelToolbarViewRow>
+		{/snippet}
+
+		<div class="tunnel-section-stack">
+			<section class="tunnel-spoiler tunnel-spoiler--awg">
+				<div class="tunnel-spoiler__header">
+					<button
+						type="button"
+						class="tunnel-spoiler__summary"
+						aria-expanded={isSectionOpen('awg')}
+						aria-controls="tunnel-section-awg"
+						onclick={() => toggleSection('awg')}
+					>
+						<span class="tunnel-spoiler__title">AWG</span>
+						<span class="tunnel-spoiler__badge">{awgSummaryTotal}</span>
+						<span class="tunnel-spoiler__meta">{awgSummaryActive}/{awgSummaryTotal} активны</span>
+						<span class="tunnel-spoiler__chevron" aria-hidden="true">
+							<ChevronDown size={16} strokeWidth={2.25} />
+						</span>
+					</button>
+					{#if isSectionOpen('awg')}
+						<div class="tunnel-spoiler__mobile-controls">
+							{@render awgHeaderMobileControls()}
+						</div>
+					{/if}
+				</div>
+				{#if isSectionOpen('awg')}
+					<div id="tunnel-section-awg" class="tunnel-spoiler__body">
+						{@render awgSectionContent()}
+					</div>
+				{/if}
+			</section>
+
+			{#if singboxSectionsVisible}
+				<section class="tunnel-spoiler tunnel-spoiler--singbox">
+					<div class="tunnel-spoiler__header">
+						<button
+							type="button"
+							class="tunnel-spoiler__summary"
+							aria-expanded={isSectionOpen('singbox')}
+							aria-controls="tunnel-section-singbox"
+							onclick={() => toggleSection('singbox')}
+						>
+							<span class="tunnel-spoiler__title">Sing-box туннели</span>
+							<span class="tunnel-spoiler__badge">{singboxTunnelsList.length}</span>
+							<span class="tunnel-spoiler__meta">{singboxTunnelListStats.running}/{singboxTunnelListStats.count} активны</span>
+							<span class="tunnel-spoiler__chevron" aria-hidden="true">
+								<ChevronDown size={16} strokeWidth={2.25} />
+							</span>
+						</button>
+						{#if isSectionOpen('singbox')}
+							<div class="tunnel-spoiler__mobile-controls">
+								{@render singboxHeaderMobileControls()}
+							</div>
+						{/if}
+					</div>
+					{#if isSectionOpen('singbox')}
+						<div id="tunnel-section-singbox" class="tunnel-spoiler__body">
+							{@render singboxSectionContent()}
+						</div>
+					{/if}
+				</section>
+
+				<section class="tunnel-spoiler tunnel-spoiler--subscriptions">
+					<div class="tunnel-spoiler__header">
+						<button
+							type="button"
+							class="tunnel-spoiler__summary"
+							aria-expanded={isSectionOpen('subscriptions')}
+							aria-controls="tunnel-section-subscriptions"
+							onclick={() => toggleSection('subscriptions')}
+						>
+							<span class="tunnel-spoiler__title">Sing-box подписки</span>
+							<span class="tunnel-spoiler__badge">{subscriptionsList.length}</span>
+							<span class="tunnel-spoiler__meta">{subscriptionsActiveCards.length}/{subscriptionsList.length} активны</span>
+							<span class="tunnel-spoiler__chevron" aria-hidden="true">
+								<ChevronDown size={16} strokeWidth={2.25} />
+							</span>
+						</button>
+						{#if isSectionOpen('subscriptions')}
+							<div class="tunnel-spoiler__mobile-controls">
+								{@render subscriptionsHeaderMobileControls()}
+							</div>
+						{/if}
+					</div>
+					{#if isSectionOpen('subscriptions')}
+						<div id="tunnel-section-subscriptions" class="tunnel-spoiler__body">
+							{@render subscriptionsSectionContent()}
+						</div>
+					{/if}
+				</section>
+			{/if}
+		</div>
 	{/if}
 </PageContainer>
 
@@ -2720,12 +3181,228 @@
 {/if}
 
 <style>
+	.tunnel-section-stack {
+		display: flex;
+		flex-direction: column;
+		gap: 0.875rem;
+		padding-top: 0.35rem;
+	}
+
+	.tunnel-spoiler {
+		position: relative;
+		border: 1px solid var(--section-border, var(--border));
+		border-radius: var(--radius);
+		background:
+			linear-gradient(
+				135deg,
+				var(--section-tint, transparent) 0%,
+				transparent 42%
+			),
+			var(--bg-secondary);
+		overflow: hidden;
+	}
+
+	.tunnel-spoiler::before {
+		content: '';
+		position: absolute;
+		inset: 0 auto 0 0;
+		width: 2px;
+		background: color-mix(in srgb, var(--section-rail, var(--accent)) 70%, transparent);
+		opacity: 0.75;
+		pointer-events: none;
+	}
+
+	.tunnel-spoiler--awg {
+		--section-tint: color-mix(in srgb, var(--accent) 10%, transparent);
+		--section-tint-strong: color-mix(in srgb, var(--accent) 18%, transparent);
+		--section-border: color-mix(in srgb, var(--accent) 28%, var(--border));
+		--section-badge-bg: color-mix(in srgb, var(--accent) 88%, #ffffff 12%);
+		--section-rail: var(--accent);
+	}
+
+	.tunnel-spoiler--singbox {
+		--section-tint: color-mix(in srgb, #22c55e 8%, transparent);
+		--section-tint-strong: color-mix(in srgb, #22c55e 14%, transparent);
+		--section-border: color-mix(in srgb, #22c55e 24%, var(--border));
+		--section-badge-bg: color-mix(in srgb, #22c55e 76%, var(--accent) 24%);
+		--section-rail: #22c55e;
+	}
+
+	.tunnel-spoiler--subscriptions {
+		--section-tint: color-mix(in srgb, #f59e0b 8%, transparent);
+		--section-tint-strong: color-mix(in srgb, #f59e0b 14%, transparent);
+		--section-border: color-mix(in srgb, #f59e0b 24%, var(--border));
+		--section-badge-bg: color-mix(in srgb, #f59e0b 78%, var(--accent) 22%);
+		--section-rail: #f59e0b;
+	}
+
+	.tunnel-spoiler__header {
+		background:
+			linear-gradient(
+				90deg,
+				var(--section-tint-strong, transparent) 0%,
+				transparent 55%
+			),
+			color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-tertiary) 18%);
+	}
+
+	.tunnel-spoiler__summary {
+		width: 100%;
+		display: grid;
+		grid-template-columns: auto auto minmax(0, 1fr) 2rem;
+		align-items: center;
+		gap: 0.625rem;
+		min-height: 3rem;
+		padding: 0.875rem 1rem;
+		border: 0;
+		background: transparent;
+		color: var(--text-primary);
+		text-align: left;
+		cursor: pointer;
+		transition:
+			background 0.16s ease,
+			box-shadow 0.16s ease;
+	}
+
+	.tunnel-spoiler__summary:hover {
+		background:
+			linear-gradient(
+				90deg,
+				var(--section-tint-strong, transparent) 0%,
+				transparent 55%
+			),
+			color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-tertiary) 30%);
+	}
+
+	.tunnel-spoiler__summary:focus-visible {
+		outline: none;
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
+	}
+
+	.tunnel-spoiler__summary[aria-expanded="true"] {
+		background:
+			linear-gradient(
+				90deg,
+				var(--section-tint-strong, transparent) 0%,
+				transparent 58%
+			),
+			color-mix(in srgb, var(--bg-secondary) 62%, var(--bg-tertiary) 38%);
+	}
+
+	.tunnel-spoiler__mobile-controls {
+		display: none;
+	}
+
+	.tunnel-spoiler__title {
+		font-weight: 700;
+	}
+
+	.tunnel-spoiler__badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 1.25rem;
+		height: 1.25rem;
+		padding: 0 0.375rem;
+		border-radius: var(--radius-pill);
+		background: var(--section-badge-bg, var(--accent));
+		color: var(--color-accent-contrast, #fff);
+		font-size: 0.6875rem;
+		font-weight: 700;
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--section-rail, var(--accent)) 30%, transparent);
+	}
+
+	.tunnel-spoiler__meta {
+		min-width: 0;
+		color: var(--text-muted);
+		font-size: 0.8125rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.tunnel-spoiler__chevron {
+		justify-self: end;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		border-radius: 0.5rem;
+		color: var(--text-muted);
+		border: 1px solid transparent;
+		background: transparent;
+		transition:
+			color 0.16s ease,
+			background 0.16s ease,
+			border-color 0.16s ease;
+	}
+
+	.tunnel-spoiler__chevron :global(svg) {
+		display: block;
+		transition: transform 0.16s ease;
+	}
+
+	.tunnel-spoiler__summary:hover .tunnel-spoiler__chevron {
+		color: var(--text-primary);
+		background: color-mix(in srgb, var(--section-rail, var(--accent)) 10%, transparent);
+		border-color: color-mix(in srgb, var(--section-rail, var(--accent)) 22%, transparent);
+	}
+
+	.tunnel-spoiler__summary[aria-expanded="true"] .tunnel-spoiler__chevron {
+		color: var(--section-rail, var(--accent));
+		background: color-mix(in srgb, var(--section-rail, var(--accent)) 12%, transparent);
+		border-color: color-mix(in srgb, var(--section-rail, var(--accent)) 26%, transparent);
+	}
+
+	.tunnel-spoiler__summary[aria-expanded="true"] .tunnel-spoiler__chevron :global(svg) {
+		transform: rotate(180deg);
+	}
+
+	.tunnel-spoiler__body {
+		padding: 0.75rem 1rem 1rem;
+		background: transparent;
+	}
+
 	/* Toolbar (count + actions row above the tunnel grid) */
 	.tunnels-toolbar {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		gap: 1rem;
 		margin-bottom: 1rem;
+	}
+
+	.toolbar-view-row-desktop {
+		display: contents;
+	}
+
+	@media (max-width: 760px) {
+		.tunnel-spoiler__summary {
+			grid-template-columns: auto auto minmax(0, 1fr) 2rem;
+			padding: 0.8rem 0.85rem 0.45rem;
+		}
+
+		.tunnel-spoiler__mobile-controls {
+			display: block;
+			padding: 0.35rem 0.85rem 0.75rem;
+		}
+
+		.tunnel-spoiler__mobile-controls :global(.toolbar-view-row) {
+			width: 100%;
+		}
+
+		.tunnel-spoiler__body {
+			padding: 0.65rem 0.75rem 0.85rem;
+		}
+
+		.tunnels-toolbar > .tunnel-count,
+		.count-group > .tunnel-count {
+			display: none;
+		}
+
+		.toolbar-view-row-desktop {
+			display: none;
+		}
 	}
 
 	.tunnel-count {
@@ -2743,8 +3420,15 @@
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
+		flex: 1 1 auto;
+		min-width: 0;
 		flex-wrap: wrap;
 		gap: 0.5rem;
+	}
+
+	.toolbar-actions :global(.toolbar-view-row.has-search) {
+		flex: 1 1 auto;
+		min-width: 220px;
 	}
 
 	.toolbar-actions :global(.btn.size-md) {
@@ -3167,4 +3851,5 @@
 			grid-column: 1 / -1;
 		}
 	}
+
 </style>
