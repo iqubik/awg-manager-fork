@@ -1324,6 +1324,12 @@ export interface MonitoringCell {
 	ts: string;
 }
 
+export interface MonitoringSample {
+	latencyMs: number | null;
+	ok: boolean;
+	ts: string;
+}
+
 export interface MonitoringSnapshot {
 	targets: MonitoringTarget[];
 	tunnels: MonitoringTunnel[];

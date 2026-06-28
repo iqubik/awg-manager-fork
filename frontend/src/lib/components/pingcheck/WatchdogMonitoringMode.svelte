@@ -1,0 +1,265 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { api } from '$lib/api/client';
+	import { pingCheckStatus, pingCheckLogs, loadPingLogs } from '$lib/stores/pingcheck';
+	import { groupLogsByTunnel, computeCardStats } from '$lib/utils/pingStats';
+	import { WatchdogCard } from '$lib/components/pingcheck';
+	import KernelPingCheckModal from '$lib/components/pingcheck/KernelPingCheckModal.svelte';
+	import NativeWGPingCheckModal from '$lib/components/pingcheck/NativeWGPingCheckModal.svelte';
+	import { EmptyState } from '$lib/components/layout';
+	import { notifications } from '$lib/stores/notifications';
+	import type { AWGTunnel, TunnelListItem, NativePingCheckStatus, NativePingCheckConfig } from '$lib/types';
+
+	let tunnelMeta = $state<TunnelListItem[]>([]);
+	let configs = $state<Record<string, AWGTunnel['pingCheck']>>({});
+	let loading = $state(true);
+
+	let editId = $state<string | null>(null);
+	let editName = $state('');
+	let editBackend = $state<'kernel' | 'nativewg'>('kernel');
+	let editNativeStatus = $state<NativePingCheckStatus | null>(null);
+
+	const statuses = $derived($pingCheckStatus.data ?? []);
+	const logsByTunnel = $derived(groupLogsByTunnel($pingCheckLogs));
+
+	async function loadConfigs(ids: string[]) {
+		const next: Record<string, AWGTunnel['pingCheck']> = {};
+		await Promise.all(
+			ids.map(async (id) => {
+				try {
+					const t = await api.getTunnel(id);
+					if (t.pingCheck) next[id] = t.pingCheck;
+				} catch {
+					// Tunnel could disappear between refreshes.
+				}
+			}),
+		);
+		configs = next;
+	}
+
+	onMount(async () => {
+		try {
+			await loadPingLogs();
+			const snap = await api.getTunnelsAll();
+			tunnelMeta = snap.tunnels ?? [];
+		} catch {
+			notifications.error('Не удалось загрузить мониторинг watchdog');
+		} finally {
+			loading = false;
+		}
+	});
+
+	$effect(() => {
+		const ids = statuses.map((s) => s.tunnelId);
+		if (ids.length) loadConfigs(ids);
+	});
+
+	function metaFor(id: string): TunnelListItem | undefined {
+		return tunnelMeta.find((t) => t.id === id);
+	}
+
+	function configLine(cfg: AWGTunnel['pingCheck'] | undefined, method: string, failThreshold: number): string {
+		if (!cfg) return `${method.toUpperCase()} · порог ${failThreshold}`;
+		return `${(cfg.method || method).toUpperCase()} → ${cfg.target} · ${cfg.interval}с · порог ${cfg.failThreshold}`;
+	}
+
+	const cards = $derived.by(() => {
+		const pcIds = new Set(statuses.map((s) => s.tunnelId));
+		const enabled = statuses.map((s) => {
+			const cfg = configs[s.tunnelId];
+			const meta = metaFor(s.tunnelId);
+			const isWatchdog = s.enabled === true;
+			return {
+				kind: 'pc' as const,
+				id: s.tunnelId,
+				name: s.tunnelName,
+				backend: s.backend,
+				awgVersion: meta?.awgVersion,
+				statusKind: s.status,
+				isWatchdog,
+				configured: isWatchdog || !!cfg,
+				configLine: configLine(cfg, s.method, s.failThreshold),
+				stats: computeCardStats(logsByTunnel.get(s.tunnelId) ?? [], s),
+			};
+		});
+		const noPc = tunnelMeta
+			.filter((t) => !pcIds.has(t.id))
+			.map((t) => ({
+				kind: 'note' as const,
+				id: t.id,
+				name: t.name,
+				backend: (t as { backend?: 'kernel' | 'nativewg' }).backend ?? 'kernel',
+				awgVersion: t.awgVersion,
+			}));
+		return [...enabled, ...noPc];
+	});
+
+	async function openConfig(id: string, name: string, backend: 'kernel' | 'nativewg') {
+		editName = name;
+		editBackend = backend;
+		editNativeStatus = null;
+		if (backend === 'nativewg') {
+			try {
+				editNativeStatus = await api.getNativePingCheckStatus(id);
+			} catch {
+				editNativeStatus = null;
+			}
+		}
+		editId = id;
+	}
+
+	function closeConfig() {
+		editId = null;
+	}
+
+	function afterSave() {
+		editId = null;
+		pingCheckStatus.refetch();
+		void loadPingLogs();
+	}
+
+	async function checkNow() {
+		try {
+			await api.triggerPingCheck();
+			notifications.success('Проверка запущена');
+		} catch {
+			notifications.error('Не удалось запустить проверку');
+		}
+	}
+
+	async function enablePingcheck(id: string, name: string, backend: 'kernel' | 'nativewg') {
+		try {
+			const t = await api.getTunnel(id);
+			const pc = t.pingCheck;
+			if (!pc) {
+				notifications.error('Нет сохранённых настроек мониторинга');
+				return;
+			}
+			if (backend === 'nativewg') {
+				const cfg: NativePingCheckConfig = {
+					host: pc.target,
+					mode: pc.method as 'icmp' | 'connect' | 'tls',
+					updateInterval: pc.interval,
+					maxFails: pc.failThreshold,
+					minSuccess: pc.minSuccess,
+					timeout: pc.timeout,
+					restart: pc.restart,
+				};
+				if (pc.port) cfg.port = pc.port;
+				await api.configureNativePingCheck(id, cfg);
+			} else {
+				pc.enabled = true;
+				await api.updateTunnel(id, t);
+			}
+			notifications.success(`Watchdog включён: ${name}`);
+			pingCheckStatus.refetch();
+			void loadPingLogs();
+		} catch {
+			notifications.error('Не удалось включить watchdog');
+		}
+	}
+
+	async function disablePingcheck(id: string, name: string, backend: 'kernel' | 'nativewg') {
+		try {
+			if (backend === 'nativewg') {
+				await api.removeNativePingCheck(id);
+			} else {
+				const t = await api.getTunnel(id);
+				if (t.pingCheck) t.pingCheck.enabled = false;
+				await api.updateTunnel(id, t);
+			}
+			notifications.success(`Watchdog выключен: ${name}`);
+			pingCheckStatus.refetch();
+			void loadPingLogs();
+		} catch {
+			notifications.error('Не удалось выключить watchdog');
+		}
+	}
+</script>
+
+{#if loading}
+	<div class="wd-grid">
+		{#each Array(4) as _, i (i)}
+			<div class="wd-skel"></div>
+		{/each}
+	</div>
+{:else if cards.length === 0}
+	<EmptyState title="Нет туннелей" description="Создайте туннель, чтобы видеть мониторинг." />
+{:else}
+	<div class="wd-grid">
+		{#each cards as c (c.id)}
+			{#if c.kind === 'pc'}
+				<WatchdogCard
+					name={c.name}
+					backend={c.backend}
+					awgVersion={c.awgVersion}
+					statusKind={c.statusKind}
+					hasPingcheck={c.configured}
+					isWatchdog={c.isWatchdog}
+					configLine={c.configLine}
+					stats={c.stats}
+					onConfigure={() => openConfig(c.id, c.name, c.backend)}
+					onCheckNow={checkNow}
+					onDisable={() => disablePingcheck(c.id, c.name, c.backend)}
+					onEnable={() => enablePingcheck(c.id, c.name, c.backend)}
+				/>
+			{:else}
+				<WatchdogCard
+					name={c.name}
+					backend={c.backend}
+					awgVersion={c.awgVersion}
+					statusKind="disabled"
+					hasPingcheck={false}
+					isWatchdog={false}
+					configLine=""
+					stats={null}
+					onConfigure={() => openConfig(c.id, c.name, c.backend)}
+					onCheckNow={checkNow}
+					onDisable={() => {}}
+					onEnable={() => {}}
+				/>
+			{/if}
+		{/each}
+	</div>
+{/if}
+
+{#if editId && editBackend === 'kernel'}
+	<KernelPingCheckModal open={true} tunnelId={editId} tunnelName={editName} onclose={closeConfig} onSaved={afterSave} />
+{:else if editId && editBackend === 'nativewg'}
+	<NativeWGPingCheckModal
+		open={true}
+		tunnelId={editId}
+		tunnelName={editName}
+		status={editNativeStatus}
+		onclose={closeConfig}
+		onSaved={afterSave}
+		onRemoved={afterSave}
+	/>
+{/if}
+
+<style>
+	.wd-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 16px;
+		padding-top: 16px;
+	}
+
+	.wd-skel {
+		height: 220px;
+		border-radius: 12px;
+		background: var(--color-surface-2, rgba(255, 255, 255, 0.03));
+		animation: wd-pulse 1.4s ease-in-out infinite;
+	}
+
+	@keyframes wd-pulse {
+		0%, 100% { opacity: 0.4; }
+		50% { opacity: 0.7; }
+	}
+
+	@media (max-width: 640px) {
+		.wd-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+</style>
