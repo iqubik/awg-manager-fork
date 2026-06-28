@@ -14,7 +14,7 @@
         hint?: string;
         ariaLabel?: string;
         ariaLabelledby?: string;
-        size?: 'sm' | 'md';
+        size?: 'xs' | 'sm' | 'md';
         variant?: 'slider' | 'flip';
         /** Flip ON-state colour override (AWG recovering / starting / unreachable). */
         tint?: ToggleTint;
@@ -69,6 +69,7 @@
         <label
             class="toggle-container"
             class:loading
+            class:xs={size === 'xs'}
             class:sm={size === 'sm'}
             class:flip={variant === 'flip'}
             class:tint-recovering={tint === 'recovering'}
@@ -116,6 +117,7 @@
     <label
         class="toggle-container"
         class:loading
+        class:xs={size === 'xs'}
         class:sm={size === 'sm'}
         class:flip={variant === 'flip'}
         class:tint-recovering={tint === 'recovering'}
@@ -342,6 +344,38 @@
     /* Hover */
     .toggle-container.flip:hover .flip-lever {
         filter: brightness(1.15);
+    }
+
+    /* ===== Compact vertical flip (size="xs" + variant="flip") ===== */
+
+    .toggle-container.xs.flip .flip-track {
+        width: 16px;
+        height: 28px;
+        border-radius: var(--radius-sm);
+    }
+
+    .toggle-container.xs.flip .flip-lever {
+        left: 2px;
+        bottom: 2px;
+        width: 12px;
+        height: 12px;
+        border-radius: calc(var(--radius-sm) - 1px);
+    }
+
+    .toggle-container.xs.flip .flip-lever::before {
+        width: 6px;
+        height: 2px;
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 1px;
+    }
+
+    .toggle-container.xs.flip input:checked + .flip-track .flip-lever {
+        transform: translateY(-12px);
+    }
+
+    .toggle-container.xs.flip .flip-spinner {
+        width: 7px;
+        height: 7px;
     }
 
     /* ===== Horizontal flip (size="sm" + variant="flip") ===== */
