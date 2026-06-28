@@ -37,19 +37,8 @@ func TestGenerate_FiltersNoise(t *testing.T) {
 		{Subject: "upd(singbox): bump"},
 		{Subject: "fix(scope) - dash separator not colon"},
 	}
-	got := Generate(commits, "1.0.0", "2026-01-01")
-	want := "## [1.0.0] - 2026-01-01\n\n" +
-		"### Прочее\n" +
-		"- chore: bump deps\n" +
-		"- ci: tweak workflow\n" +
-		"- docs: readme\n" +
-		"- test(x): add test\n" +
-		"- style: format\n" +
-		"- Update .gitignore\n" +
-		"- upd(singbox): bump\n" +
-		"- fix(scope) - dash separator not colon\n\n"
-	if got != want {
-		t.Errorf("noise bucket mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	if got := Generate(commits, "1.0.0", "2026-01-01"); got != "" {
+		t.Errorf("expected empty output for all-noise input, got:\n%s", got)
 	}
 }
 
@@ -96,10 +85,10 @@ func TestGenerate_RoundTripParses(t *testing.T) {
 	if e.Date != "2026-05-25" {
 		t.Errorf("date = %q, want 2026-05-25", e.Date)
 	}
-	if len(e.Groups) != 4 {
-		t.Fatalf("groups = %d, want 4 (Добавлено/Исправлено/Рефакторинг/Прочее)", len(e.Groups))
+	if len(e.Groups) != 3 {
+		t.Fatalf("groups = %d, want 3 (Добавлено/Исправлено/Рефакторинг)", len(e.Groups))
 	}
-	wantHeadings := []string{"Добавлено", "Исправлено", "Рефакторинг", "Прочее"}
+	wantHeadings := []string{"Добавлено", "Исправлено", "Рефакторинг"}
 	for i, want := range wantHeadings {
 		if e.Groups[i].Heading != want {
 			t.Errorf("group[%d].Heading = %q, want %q", i, e.Groups[i].Heading, want)
