@@ -3,6 +3,7 @@
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import type {
+		IPGeoInfo,
 		IPResult,
 		ConnectivityResult,
 		IPCheckService,
@@ -224,6 +225,18 @@
 		} finally {
 			ipLoading = false;
 		}
+	}
+
+	function geoLocationLine(geo?: IPGeoInfo): string {
+		if (!geo) return '';
+		if (geo.location?.trim()) return geo.location.trim();
+		const parts = [geo.city?.trim(), geo.region?.trim(), geo.countryCode?.trim() || geo.country?.trim()].filter(Boolean);
+		return parts.join(', ');
+	}
+
+	function geoIspLine(geo?: IPGeoInfo): string {
+		const isp = geo?.isp?.trim();
+		return isp ? `ISP: ${isp}` : '';
 	}
 
 	function parseCustomServer(): { host: string; port: number } | null {
@@ -555,18 +568,42 @@
 			<div class="test-result ip-result">
 				<div class="ip-row">
 					<span class="ip-label">Прямой IP:</span>
-					<span class="ip-value">{ipResult.directIp}</span>
+					<div class="ip-cell">
+						<span class="ip-value">{ipResult.directIp}</span>
+						{#if geoLocationLine(ipResult.directGeo)}
+							<span class="ip-meta">Локация: {geoLocationLine(ipResult.directGeo)}</span>
+						{/if}
+						{#if geoIspLine(ipResult.directGeo)}
+							<span class="ip-meta">{geoIspLine(ipResult.directGeo)}</span>
+						{/if}
+					</div>
 				</div>
 
 				<div class="ip-row">
 					<span class="ip-label">VPN IP:</span>
-					<span class="ip-value">{ipResult.vpnIp}</span>
+					<div class="ip-cell">
+						<span class="ip-value">{ipResult.vpnIp}</span>
+						{#if geoLocationLine(ipResult.vpnGeo)}
+							<span class="ip-meta">Локация: {geoLocationLine(ipResult.vpnGeo)}</span>
+						{/if}
+						{#if geoIspLine(ipResult.vpnGeo)}
+							<span class="ip-meta">{geoIspLine(ipResult.vpnGeo)}</span>
+						{/if}
+					</div>
 				</div>
 
 				{#if ipResult.endpointIp}
 					<div class="ip-row">
 						<span class="ip-label">IP сервера:</span>
-						<span class="ip-value">{ipResult.endpointIp}</span>
+						<div class="ip-cell">
+							<span class="ip-value">{ipResult.endpointIp}</span>
+							{#if geoLocationLine(ipResult.endpointGeo)}
+								<span class="ip-meta">Локация: {geoLocationLine(ipResult.endpointGeo)}</span>
+							{/if}
+							{#if geoIspLine(ipResult.endpointGeo)}
+								<span class="ip-meta">{geoIspLine(ipResult.endpointGeo)}</span>
+							{/if}
+						</div>
 					</div>
 				{/if}
 
@@ -942,6 +979,8 @@
 	.ip-row {
 		display: flex;
 		justify-content: space-between;
+		align-items: flex-start;
+		gap: 1rem;
 		font-size: 0.875rem;
 	}
 
@@ -949,8 +988,21 @@
 		color: var(--text-muted);
 	}
 
+	.ip-cell {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 0.2rem;
+		text-align: right;
+	}
+
 	.ip-value {
 		font-family: monospace;
+	}
+
+	.ip-meta {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
 	}
 
 	.ip-status {
