@@ -1033,6 +1033,8 @@ func main() {
 					for _, tag := range sub.MemberTags {
 						out = append(out, diagnostics.SingboxSubMember{
 							Tag:         tag,
+							GroupTag:    sub.SelectorTag,
+							Mode:        string(sub.EffectiveMode()),
 							ListenPort:  int(sub.ListenPort),
 							Enabled:     sub.Enabled,
 							Active:      activeKnown && sub.ActiveMember == tag,

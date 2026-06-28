@@ -27,6 +27,7 @@ var sections = []struct {
 	{"fix", "Исправлено"},
 	{"refactor", "Рефакторинг"},
 	{"perf", "Производительность"},
+	{"other", "Прочее"},
 }
 
 var trailerRe = regexp.MustCompile(`(?im)^(co-authored-by|signed-off-by|reviewed-by):\s+.+$`)
@@ -118,7 +119,8 @@ func cleanCommitBody(body string) string {
 }
 
 // Generate turns commits into a single Keep-a-Changelog block parseable by
-// internal/updater.ParseChangelog. Only feat/fix/refactor/perf are kept.
+// internal/updater.ParseChangelog. Conventional commits are grouped into
+// typed sections; all other non-merge subjects go into "Прочее".
 func Generate(commits []Commit, version, date string) string {
 	buckets := map[string][]Commit{}
 	for _, commit := range commits {
@@ -128,6 +130,8 @@ func Generate(commits []Commit, version, date string) string {
 		}
 		m := commitRe.FindStringSubmatch(subject)
 		if m == nil {
+			commit.Subject = subject
+			buckets["other"] = append(buckets["other"], commit)
 			continue
 		}
 		commit.Subject = subject
