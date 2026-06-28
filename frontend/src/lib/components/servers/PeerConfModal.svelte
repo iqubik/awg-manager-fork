@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { SideDrawer, Button } from '$lib/components/ui';
+	import { Modal, Button } from '$lib/components/ui';
 	import AwgConfigAnalyzer from '$lib/components/diagnostics/AwgConfigAnalyzer.svelte';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
@@ -111,7 +111,7 @@
 	}
 </script>
 
-<SideDrawer {open} title="Конфигурация клиента" width={720} onClose={onclose}>
+<Modal {open} title="Конфигурация клиента" size="md" {onclose}>
 	{#if loading}
 		<div class="loading">Загрузка...</div>
 	{:else if conf}
@@ -140,15 +140,15 @@
 		<div class="loading">Нет данных</div>
 	{/if}
 
-	{#snippet footer()}
-		<div class="actions-grid drawer-footer-full">
-			<Button variant="secondary" size="md" onclick={toggleQR} disabled={!conf} loading={qrGenerating}>
+	{#snippet actions()}
+		<div class="actions-grid">
+			<Button variant="ghost" size="md" onclick={toggleQR} disabled={!conf} loading={qrGenerating}>
 				{viewMode === 'qr' ? 'Конфиг' : 'QR-код'}
 			</Button>
-			<Button variant="secondary" size="md" onclick={toggleAnalysis} disabled={!conf}>
+			<Button variant="ghost" size="md" onclick={toggleAnalysis} disabled={!conf}>
 				{viewMode === 'analysis' ? 'Конфиг' : 'Проверить'}
 			</Button>
-			<Button variant="secondary" size="md" onclick={copyConf} disabled={!conf}>
+			<Button variant="ghost" size="md" onclick={copyConf} disabled={!conf}>
 				Копировать
 			</Button>
 			<Button variant="primary" size="md" onclick={downloadConf} disabled={!conf}>
@@ -156,7 +156,7 @@
 			</Button>
 		</div>
 	{/snippet}
-</SideDrawer>
+</Modal>
 
 <style>
 	.actions-grid {

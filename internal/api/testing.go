@@ -12,12 +12,27 @@ import (
 
 // ── Response DTOs ────────────────────────────────────────────────
 
+type IPGeoInfoData struct {
+	IP          string `json:"ip,omitempty" example:"203.0.113.1"`
+	Location    string `json:"location,omitempty" example:"Frankfurt am Main, Germany"`
+	City        string `json:"city,omitempty" example:"Frankfurt am Main"`
+	Region      string `json:"region,omitempty" example:"Hesse"`
+	Country     string `json:"country,omitempty" example:"Germany"`
+	CountryCode string `json:"countryCode,omitempty" example:"DE"`
+	ISP         string `json:"isp,omitempty" example:"Hetzner Online GmbH"`
+	Hostname    string `json:"hostname,omitempty" example:"host.example.net"`
+	Source      string `json:"source,omitempty" example:"http://myip.wtf/json"`
+}
+
 // IPResultData mirrors frontend IPResult.
 type IPResultData struct {
-	DirectIp   string `json:"directIp" example:"203.0.113.1"`
-	VpnIp      string `json:"vpnIp" example:"185.220.101.1"`
-	EndpointIp string `json:"endpointIp" example:"203.0.113.42"`
-	IpChanged  bool   `json:"ipChanged" example:"true"`
+	DirectIp    string         `json:"directIp" example:"203.0.113.1"`
+	VpnIp       string         `json:"vpnIp" example:"185.220.101.1"`
+	EndpointIp  string         `json:"endpointIp" example:"203.0.113.42"`
+	IpChanged   bool           `json:"ipChanged" example:"true"`
+	DirectGeo   *IPGeoInfoData `json:"directGeo,omitempty"`
+	VpnGeo      *IPGeoInfoData `json:"vpnGeo,omitempty"`
+	EndpointGeo *IPGeoInfoData `json:"endpointGeo,omitempty"`
 }
 
 // IPResultResponse is the envelope for GET /test/ip.

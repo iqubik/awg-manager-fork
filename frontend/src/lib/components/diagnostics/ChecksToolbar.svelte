@@ -46,26 +46,32 @@
 </script>
 
 <div class="bar">
-	<Button variant="primary" onclick={onStart} disabled={running} loading={running}>
-		{startLabel}
-	</Button>
-	<Button
-		variant="secondary"
-		onclick={onDownloadReport}
-		disabled={!hasReport || downloadingReport || running}
-		loading={downloadingReport}
-	>
-		⤓ Отчёт
-	</Button>
-	<Button
-		variant="outline-danger"
-		onclick={onCreateIncident}
-		disabled={running || downloadingReport || creatingIncident}
-		loading={creatingIncident}
-		title="Подготовить публичный GitHub issue и скачать отчёт"
-	>
-		⚑ Инцидент
-	</Button>
+	<div class="actions">
+		<div class="actions-primary">
+			<Button variant="primary" onclick={onStart} disabled={running} loading={running}>
+				{startLabel}
+			</Button>
+		</div>
+		<div class="actions-secondary">
+			<Button
+				variant="secondary"
+				onclick={onDownloadReport}
+				disabled={!hasReport || downloadingReport || running}
+				loading={downloadingReport}
+			>
+				⤓ Отчёт
+			</Button>
+			<Button
+				variant="outline-danger"
+				onclick={onCreateIncident}
+				disabled={running || downloadingReport || creatingIncident}
+				loading={creatingIncident}
+				title="Подготовить публичный GitHub issue и скачать отчёт"
+			>
+				⚑ Инцидент
+			</Button>
+		</div>
+	</div>
 
 	{#if hasResults && !running}
 		<div class="counts">
@@ -83,11 +89,13 @@
 
 	<div class="spacer"></div>
 
-	<ChecksAdvancedPopover
-		{includeRestart}
-		{running}
-		{onChangeIncludeRestart}
-	/>
+	<div class="advanced-popover">
+		<ChecksAdvancedPopover
+			{includeRestart}
+			{running}
+			{onChangeIncludeRestart}
+		/>
+	</div>
 </div>
 
 {#if errorMessage}
@@ -98,9 +106,25 @@
 	.bar {
 		display: flex;
 		align-items: center;
+		flex-wrap: wrap;
 		gap: 10px;
 		padding: 10px 14px;
 		border-bottom: 1px solid var(--color-border);
+	}
+
+	.actions {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-width: 0;
+	}
+
+	.actions-primary,
+	.actions-secondary {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-width: 0;
 	}
 
 	.spacer { flex: 1; }
@@ -140,5 +164,46 @@
 		border-bottom: 1px solid var(--color-error-border);
 		color: var(--color-error);
 		font-size: 12px;
+	}
+
+	@media (max-width: 640px) {
+		.bar {
+			align-items: stretch;
+		}
+
+		.actions {
+			display: grid;
+			grid-template-columns: 1fr;
+			width: 100%;
+		}
+
+		.actions-primary,
+		.actions-secondary {
+			width: 100%;
+		}
+
+		.actions-primary :global(button),
+		.actions-secondary :global(button) {
+			flex: 1 1 0;
+			width: 100%;
+			justify-content: center;
+		}
+
+		.actions-secondary {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+
+		.counts {
+			margin-left: 0;
+		}
+
+		.spacer {
+			display: none;
+		}
+
+		.advanced-popover {
+			margin-left: auto;
+		}
 	}
 </style>
