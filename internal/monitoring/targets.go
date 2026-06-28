@@ -9,11 +9,11 @@ package monitoring
 
 // Target is a single monitoring probe target.
 //
-// URL is the HTTPS endpoint used by sing-box rows (Clash API
-// /proxies/<tag>/delay). HTTP is unsafe — sing-box upstream
-// forces HTTPS in this endpoint (sagernet/sing-box#3604) — so
-// callers must pass HTTPS URLs only. AWG rows ignore URL and
-// probe Host directly via HTTP bound to the tunnel interface.
+// URL is the preferred test endpoint for sing-box rows (Clash API
+// /proxies/<tag>/delay). When empty, the scheduler falls back to the
+// same stable generate_204 URL used by the sing-box delay checker.
+// AWG rows ignore URL and probe Host directly via HTTP bound to the
+// tunnel interface.
 type Target struct {
 	ID   string `json:"id"`
 	Host string `json:"host"`
@@ -48,10 +48,15 @@ type Tunnel struct {
 	Protocol  string `json:"protocol,omitempty"`
 	Security  string `json:"security,omitempty"`
 	Transport string `json:"transport,omitempty"`
-	// SingboxTag is the sing-box outbound tag (e.g. "veesp") for
-	// Source=="singbox" tunnels; empty otherwise. Lets the frontend
-	// reach into the per-member latency history map keyed by tag.
+	// SingboxTag is the rendered sing-box row tag (e.g. member tag or
+	// standalone outbound tag) for Source=="singbox" tunnels; empty
+	// otherwise.
 	SingboxTag string `json:"singboxTag,omitempty"`
+	// ProbeTag is the outbound tag the monitoring scheduler should
+	// probe through Clash delay. For regular sing-box rows this equals
+	// SingboxTag; for subscription rows it prefers the selector/urltest
+	// tag so monitoring matches the stable subscription-card delay path.
+	ProbeTag string `json:"probeTag,omitempty"`
 	// ClashDelay is the last-recorded sing-box urltest delay (ms) for
 	// this tunnel. 0 means: not a urltest member, or no delay recorded
 	// yet, or Clash unreachable.
@@ -61,22 +66,44 @@ type Tunnel struct {
 	UrltestGroup string `json:"urltestGroup,omitempty"`
 }
 
-// EffectiveTargets returns one connectivity-check (self) target per unique
-// SelfTarget host. Cross-target probing was removed with the matrix UI;
-// only the self-check cell feeds the per-tunnel connectivity indicator.
+// BaseTargets is the hardcoded base list. Together with each tunnel's self
+// target this forms the monitoring matrix the user worked with before the
+// temporary self-only regression.
+var BaseTargets = []Target{
+	{ID: "cf-1.1.1.1", Host: "1.1.1.1", Name: "Cloudflare DNS", URL: "https://1.1.1.1/"},
+	{ID: "g-8.8.8.8", Host: "8.8.8.8", Name: "Google DNS", URL: "https://8.8.8.8/"},
+	{ID: "q-9.9.9.9", Host: "9.9.9.9", Name: "Quad9 DNS", URL: "https://9.9.9.9/"},
+}
+
+// EffectiveTargets returns BaseTargets ∪ unique pingcheck targets ∪ unique
+// self-check targets from tunnels. Synthesised entries get id "pc-<host>"
+// (restart pingcheck target) or "cc-<host>" (connectivity-check self
+// target). Base order is preserved; dynamic entries are appended in tunnel
+// iteration order, deduplicated by Host.
 func EffectiveTargets(tunnels []Tunnel) []Target {
-	seen := make(map[string]bool)
-	out := make([]Target, 0, len(tunnels))
+	seen := make(map[string]bool, len(BaseTargets))
+	for _, target := range BaseTargets {
+		seen[target.Host] = true
+	}
+	out := make([]Target, 0, len(BaseTargets)+len(tunnels)*2)
+	out = append(out, BaseTargets...)
 	for _, tun := range tunnels {
-		if tun.SelfTarget == "" || seen[tun.SelfTarget] {
-			continue
+		if tun.PingcheckTarget != "" && !seen[tun.PingcheckTarget] {
+			seen[tun.PingcheckTarget] = true
+			out = append(out, Target{
+				ID:   "pc-" + tun.PingcheckTarget,
+				Host: tun.PingcheckTarget,
+				Name: tun.PingcheckTarget,
+			})
 		}
-		seen[tun.SelfTarget] = true
-		out = append(out, Target{
-			ID:   "cc-" + tun.SelfTarget,
-			Host: tun.SelfTarget,
-			Name: tun.SelfTarget,
-		})
+		if tun.SelfTarget != "" && !seen[tun.SelfTarget] {
+			seen[tun.SelfTarget] = true
+			out = append(out, Target{
+				ID:   "cc-" + tun.SelfTarget,
+				Host: tun.SelfTarget,
+				Name: tun.SelfTarget,
+			})
+		}
 	}
 	return out
 }

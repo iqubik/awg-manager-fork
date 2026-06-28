@@ -63,6 +63,7 @@ import type {
 	AWGTagInfo,
 	TunnelReferencedError,
 	MonitoringSnapshot,
+	MonitoringSample,
 	SingboxRouterStatus,
 	SingboxRouterSettings,
 	SingboxRouterRule,
@@ -510,6 +511,14 @@ class ApiClient {
 			method: 'POST',
 			body: JSON.stringify({ action }),
 		});
+	}
+
+	async installHydraRoute(): Promise<HydraRouteStatus> {
+		return this.request('/hydraroute/install', { method: 'POST' });
+	}
+
+	async updateHydraRoute(): Promise<HydraRouteStatus> {
+		return this.request('/hydraroute/update', { method: 'POST' });
 	}
 
 	async getHydraRouteConfig(): Promise<HydraRouteConfig> {
@@ -1875,6 +1884,13 @@ class ApiClient {
 		return this.request<DeviceProxyRuntime>(`/proxy/instance/runtime?id=${encodeURIComponent(id)}`);
 	}
 
+	async selectDeviceProxyInstanceRuntime(id: string, tag: string): Promise<{ active: string }> {
+		return this.request<{ active: string }>(`/proxy/instance/runtime/select?id=${encodeURIComponent(id)}`, {
+			method: 'POST',
+			body: JSON.stringify({ tag }),
+		});
+	}
+
 	// #endregion
 
 	// #endregion
@@ -1886,6 +1902,21 @@ class ApiClient {
 	async getMonitoringMatrix(opts?: { force?: boolean }): Promise<MonitoringSnapshot> {
 		const path = opts?.force ? '/monitoring/matrix?force=1' : '/monitoring/matrix';
 		return this.request<MonitoringSnapshot>(path);
+	}
+
+	async getMonitoringHistory(opts: {
+		target: string;
+		tunnelId: string;
+		limit?: number;
+	}): Promise<MonitoringSample[]> {
+		const params = new URLSearchParams({
+			target: opts.target,
+			tunnelId: opts.tunnelId,
+		});
+		if (typeof opts.limit === 'number' && opts.limit > 0) {
+			params.set('limit', String(opts.limit));
+		}
+		return this.request<MonitoringSample[]>(`/monitoring/history?${params.toString()}`);
 	}
 
 	// #endregion

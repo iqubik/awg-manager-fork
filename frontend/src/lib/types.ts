@@ -510,6 +510,20 @@ export interface HydraRouteStatus {
 	stalePid?: number;
 	processState?: 'not_installed' | 'stopped' | 'running' | 'dead';
 	lastError?: string;
+	managed?: boolean;
+	legacy?: boolean;
+	currentVersion?: string;
+	requiredVersion?: string;
+	currentSha256?: string;
+	requiredSha256?: string;
+	versionMatchesRequired?: boolean;
+	checksumMatchesRequired?: boolean;
+	customBuild?: boolean;
+	updateAvailable?: boolean;
+	installState?: string;
+	requiredBytes?: number;
+	freeBytes?: number;
+	installSupported?: boolean;
 }
 
 export interface HydraRouteConfig {
@@ -725,6 +739,12 @@ export interface GeoFileSettings {
 	refreshDailyTime?: string;
 }
 
+export interface MonitoringSettings {
+	historyHours: number;
+	sampleIntervalSec: number;
+	matrixRefreshIntervalSec: number;
+}
+
 export interface Settings {
 	schemaVersion?: number;
 	authEnabled: boolean;
@@ -748,6 +768,7 @@ export interface Settings {
 	download: DownloadSettings;
 	dnsRoute: DNSRouteSettings;
 	geoFile: GeoFileSettings;
+	monitoring?: MonitoringSettings;
 	connectivityCheckUrl: string;
 	usageLevel: UsageLevel;
 	hiddenSystemTunnels?: string[];
@@ -953,6 +974,21 @@ export interface IPResult {
 	vpnIp: string;
 	endpointIp: string;
 	ipChanged: boolean;
+	directGeo?: IPGeoInfo;
+	vpnGeo?: IPGeoInfo;
+	endpointGeo?: IPGeoInfo;
+}
+
+export interface IPGeoInfo {
+	ip?: string;
+	location?: string;
+	city?: string;
+	region?: string;
+	country?: string;
+	countryCode?: string;
+	isp?: string;
+	hostname?: string;
+	source?: string;
 }
 
 export interface ConnectivityResult {
@@ -1201,7 +1237,13 @@ export interface SingboxStatus {
 	currentSha256?: string;
 	/** SHA256 of the sing-box binary pinned to this awg-manager build. */
 	requiredSha256?: string;
-	/** True when the installed sing-box version or SHA256 differs from the pinned binary. */
+	/** True when the installed sing-box version matches the pinned version. */
+	versionMatchesRequired?: boolean;
+	/** True when the installed sing-box SHA256 matches the pinned binary. */
+	checksumMatchesRequired?: boolean;
+	/** True for same-version custom builds and newer external builds. */
+	customBuild?: boolean;
+	/** True only when the installed sing-box version is older than the pinned binary. */
 	updateAvailable: boolean;
 	/**
 	 * Классификация состояния installation: 'installed' | 'missing' |
@@ -1275,6 +1317,8 @@ export interface MonitoringTunnel {
 	transport?: string;
 	/** Sing-box outbound tag; empty unless source==='singbox'. */
 	singboxTag?: string;
+	/** Preferred Clash-delay probe tag; may differ for subscription rows. */
+	probeTag?: string;
 	/** Last Clash urltest delay in ms; 0 = no urltest data. */
 	clashDelay?: number;
 	/** urltest group tag this sing-box tunnel belongs to. */
@@ -1288,6 +1332,12 @@ export interface MonitoringCell {
 	ok: boolean;
 	activeForRestart: boolean;
 	isSelf: boolean;
+	ts: string;
+}
+
+export interface MonitoringSample {
+	latencyMs: number | null;
+	ok: boolean;
 	ts: string;
 }
 
