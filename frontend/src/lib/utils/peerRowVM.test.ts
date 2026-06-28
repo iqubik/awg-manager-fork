@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripHostMask, endpointHost, peerStatus, buildPeerRowVM, splitHandshake, STATUS_LABEL } from './peerRowVM';
+import { stripHostMask, endpointHost, peerStatus, buildPeerRowVM, splitEndpoint, splitHandshake, STATUS_LABEL } from './peerRowVM';
 import type { ManagedPeer, ManagedPeerStats } from '$lib/types';
 
 describe('stripHostMask', () => {
@@ -32,6 +32,31 @@ describe('endpointHost', () => {
 	});
 	it('голый ipv6 без порта оставляет как есть', () => {
 		expect(endpointHost('2001:db8::1')).toBe('2001:db8::1');
+	});
+});
+
+describe('splitEndpoint', () => {
+	it('сохраняет полный endpoint и выносит ipv4 порт отдельно', () => {
+		expect(splitEndpoint('78.108.40.214:51820')).toEqual({
+			value: '78.108.40.214:51820',
+			host: '78.108.40.214',
+			port: ':51820',
+		});
+	});
+
+	it('сохраняет bracketed ipv6 и порт отдельно', () => {
+		expect(splitEndpoint('[2001:db8::1]:51820')).toEqual({
+			value: '[2001:db8::1]:51820',
+			host: '[2001:db8::1]',
+			port: ':51820',
+		});
+	});
+
+	it('не ломает копирование у голого ipv6 без порта', () => {
+		expect(splitEndpoint('2001:db8::1')).toEqual({
+			value: '2001:db8::1',
+			host: '2001:db8::1',
+		});
 	});
 });
 
@@ -68,7 +93,9 @@ describe('buildPeerRowVM', () => {
 		const vm = buildPeerRowVM(peer, stats);
 		expect(vm.name).toBe('Mac');
 		expect(vm.ip).toBe('10.20.0.2');
+		expect(vm.endpoint).toBe('78.108.40.214:51820');
 		expect(vm.endpointHost).toBe('78.108.40.214');
+		expect(vm.endpointPort).toBe(':51820');
 		expect(vm.status).toBe('online');
 		expect(vm.enabled).toBe(true);
 	});
