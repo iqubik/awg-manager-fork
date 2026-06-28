@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ManagedServer, UpdateManagedServerRequest } from '$lib/types';
-	import { SideDrawer, Button } from '$lib/components/ui';
+	import { Modal, Button } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { isValidEndpointHost } from '$lib/utils/endpoint';
@@ -101,7 +101,7 @@
 	}
 </script>
 
-<SideDrawer {open} title="Настройки сервера" width={420} onClose={onclose} hasUnsavedChanges={() => isDirty}>
+<Modal {open} title="Настройки сервера" size="sm" {onclose} hasUnsavedChanges={() => isDirty}>
 	<div class="form-fields">
 		<div class="form-group">
 			<label class="label" for="ems-description">Название</label>
@@ -155,13 +155,13 @@
 		</div>
 	</div>
 
-	{#snippet footer()}
+	{#snippet actions()}
 		<Button variant="secondary" size="md" onclick={onclose}>Отмена</Button>
 		<Button variant="primary" size="md" onclick={handleSave} loading={saving}>
 			Сохранить
 		</Button>
 	{/snippet}
-</SideDrawer>
+</Modal>
 
 <style>
 	.form-fields {
