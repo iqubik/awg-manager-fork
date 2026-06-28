@@ -1,0 +1,986 @@
+name: "IQ Author Rebase Release"
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_source:
+        description: "Author source: release tag/latest release or develop branch"
+        required: true
+        default: release
+        type: choice
+        options:
+          - release
+          - develop
+      upstream_tag:
+        description: "Author release tag from hoaxisr/awg-manager. Empty = latest release"
+        required: false
+        type: string
+      fork_release_tag:
+        description: "Fork release tag. Empty = use upstream_tag"
+        required: false
+        type: string
+      fork_version:
+        description: "Fork package VERSION. Empty = derive from fork_release_tag or use upstream VERSION"
+        required: false
+        type: string
+      force_release:
+        description: "Delete and recreate existing release/tag in this fork"
+        required: false
+        default: false
+        type: boolean
+
+  schedule:
+    - cron: "17 */6 * * *"
+
+  repository_dispatch:
+    types:
+      - upstream-release
+
+concurrency:
+  group: iq-author-rebase-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  IQ_I18N_LANGUAGES: en,tr,fa,zh
+  IQ_I18N_PRIMARY_LANGUAGE: en
+
+jobs:
+  resolve-upstream:
+    name: Resolve upstream author release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      upstream_source: ${{ steps.resolve.outputs.upstream_source }}
+      upstream_tag: ${{ steps.resolve.outputs.upstream_tag }}
+      upstream_ref_label: ${{ steps.resolve.outputs.upstream_ref_label }}
+      fork_release_tag: ${{ steps.resolve.outputs.fork_release_tag }}
+      fork_version: ${{ steps.resolve.outputs.fork_version }}
+      skip: ${{ steps.resolve.outputs.skip }}
+      force_release: ${{ steps.resolve.outputs.force_release }}
+
+    steps:
+      - name: Resolve upstream tag and release state
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_UPSTREAM_SOURCE: ${{ inputs.upstream_source }}
+          INPUT_UPSTREAM_TAG: ${{ inputs.upstream_tag }}
+          INPUT_FORK_RELEASE_TAG: ${{ inputs.fork_release_tag }}
+          INPUT_FORK_VERSION: ${{ inputs.fork_version }}
+          INPUT_FORCE_RELEASE: ${{ inputs.force_release }}
+          PAYLOAD_UPSTREAM_TAG: ${{ github.event.client_payload.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FORCE_RELEASE=false
+          if [[ "${INPUT_FORCE_RELEASE:-}" == "true" ]]; then
+            FORCE_RELEASE=true
+          fi
+
+          UPSTREAM_SOURCE="${INPUT_UPSTREAM_SOURCE:-release}"
+          if [[ "$UPSTREAM_SOURCE" != "release" && "$UPSTREAM_SOURCE" != "develop" ]]; then
+            echo "Invalid upstream_source: $UPSTREAM_SOURCE" >&2
+            exit 1
+          fi
+
+          FORK_RELEASE_TAG="${INPUT_FORK_RELEASE_TAG:-}"
+          FORK_VERSION="${INPUT_FORK_VERSION:-}"
+
+          if [[ "$UPSTREAM_SOURCE" == "release" ]]; then
+            if [[ -n "${INPUT_UPSTREAM_TAG:-}" ]]; then
+              UPSTREAM_TAG="${INPUT_UPSTREAM_TAG}"
+              SOURCE="workflow_dispatch"
+            elif [[ -n "${PAYLOAD_UPSTREAM_TAG:-}" ]]; then
+              UPSTREAM_TAG="${PAYLOAD_UPSTREAM_TAG}"
+              SOURCE="repository_dispatch"
+            else
+              UPSTREAM_TAG="$(gh api repos/hoaxisr/awg-manager/releases/latest --jq '.tag_name')"
+              SOURCE="latest_release"
+            fi
+
+            UPSTREAM_REF_LABEL="$UPSTREAM_TAG"
+
+            if [[ -z "$FORK_RELEASE_TAG" ]]; then
+              FORK_RELEASE_TAG="$UPSTREAM_TAG"
+            fi
+          else
+            UPSTREAM_TAG=""
+            UPSTREAM_REF_LABEL="develop"
+            SOURCE="upstream_develop"
+
+            if [[ -z "$FORK_RELEASE_TAG" ]]; then
+              echo "fork_release_tag is required when upstream_source=develop" >&2
+              exit 1
+            fi
+          fi
+
+          if [[ "$UPSTREAM_SOURCE" == "release" && -z "${UPSTREAM_TAG:-}" ]]; then
+            echo "Resolved upstream tag is empty" >&2
+            exit 1
+          fi
+
+          if [[ "$UPSTREAM_SOURCE" == "release" && ! "$UPSTREAM_TAG" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "Unsafe upstream tag: $UPSTREAM_TAG" >&2
+            exit 1
+          fi
+
+          if [[ ! "$FORK_RELEASE_TAG" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "Unsafe fork release tag: $FORK_RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          if [[ -z "$FORK_VERSION" && -n "${INPUT_FORK_RELEASE_TAG:-}" ]]; then
+            FORK_VERSION="${FORK_RELEASE_TAG#v}"
+          fi
+          if [[ -n "$FORK_VERSION" && ! "$FORK_VERSION" =~ ^[0-9][A-Za-z0-9.+-]*$ ]]; then
+            echo "Unsafe fork version: $FORK_VERSION" >&2
+            exit 1
+          fi
+
+          SKIP=false
+          if gh release view "$FORK_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [[ "$FORCE_RELEASE" != "true" ]]; then
+              SKIP=true
+              echo "Release $FORK_RELEASE_TAG already exists in $GITHUB_REPOSITORY; skipping"
+            else
+              echo "Release $FORK_RELEASE_TAG already exists in $GITHUB_REPOSITORY; force rebuild enabled"
+            fi
+          fi
+
+          if git ls-remote --exit-code --tags "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${FORK_RELEASE_TAG}" >/dev/null 2>&1; then
+            if [[ "$FORCE_RELEASE" != "true" ]]; then
+              SKIP=true
+              echo "Tag $FORK_RELEASE_TAG already exists in $GITHUB_REPOSITORY; skipping"
+            else
+              echo "Tag $FORK_RELEASE_TAG already exists in $GITHUB_REPOSITORY; force rebuild enabled"
+            fi
+          fi
+
+          echo "Resolved upstream source: $UPSTREAM_SOURCE"
+          echo "Resolved upstream ref: $UPSTREAM_REF_LABEL ($SOURCE)"
+          echo "Resolved fork release tag: $FORK_RELEASE_TAG"
+          echo "Resolved fork version: ${FORK_VERSION:-<upstream VERSION>}"
+          echo "upstream_source=$UPSTREAM_SOURCE" >> "$GITHUB_OUTPUT"
+          echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+          echo "upstream_ref_label=$UPSTREAM_REF_LABEL" >> "$GITHUB_OUTPUT"
+          echo "fork_release_tag=$FORK_RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "fork_version=$FORK_VERSION" >> "$GITHUB_OUTPUT"
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+          echo "force_release=$FORCE_RELEASE" >> "$GITHUB_OUTPUT"
+
+  prepare-rebase:
+    name: Backup develop and prepare rebased work branch
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-upstream
+    if: needs.resolve-upstream.outputs.skip != 'true'
+    timeout-minutes: 20
+    outputs:
+      backup_branch: ${{ steps.prepare.outputs.backup_branch }}
+      work_branch: ${{ steps.prepare.outputs.work_branch }}
+      work_sha: ${{ steps.prepare.outputs.work_sha }}
+      ipk_version: ${{ steps.prepare.outputs.ipk_version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+
+      - name: Backup develop and rebase onto author tag
+        id: prepare
+        env:
+          UPSTREAM_SOURCE: ${{ needs.resolve-upstream.outputs.upstream_source }}
+          UPSTREAM_TAG: ${{ needs.resolve-upstream.outputs.upstream_tag }}
+          FORK_VERSION: ${{ needs.resolve-upstream.outputs.fork_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/hoaxisr/awg-manager.git
+
+          DEVELOP_BRANCH="${GITHUB_REF_NAME:-develop}"
+          if [[ "$DEVELOP_BRANCH" != "develop" ]]; then
+            DEVELOP_BRANCH="develop"
+          fi
+
+          DEVELOP_SHA="$(git ls-remote --heads origin "$DEVELOP_BRANCH" | awk '{print $1}')"
+          if [[ -z "$DEVELOP_SHA" ]]; then
+            echo "Cannot resolve origin/${DEVELOP_BRANCH}" >&2
+            git ls-remote --heads origin >&2 || true
+            exit 1
+          fi
+
+          git fetch --no-tags origin "$DEVELOP_SHA"
+          if [[ "$UPSTREAM_SOURCE" == "release" ]]; then
+            git fetch upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/upstream/${UPSTREAM_TAG}"
+            REBASE_TARGET="refs/tags/upstream/${UPSTREAM_TAG}"
+          else
+            git fetch upstream "refs/heads/develop:refs/remotes/upstream/develop"
+            REBASE_TARGET="refs/remotes/upstream/develop"
+          fi
+
+          TS="$(date -u +%Y%m%d-%H%M%S)"
+          BACKUP_BRANCH="backup/dev-${TS}"
+          WORK_BRANCH="work/dev-rebase-${TS}"
+
+          git branch "$BACKUP_BRANCH" "$DEVELOP_SHA"
+          git push origin "refs/heads/${BACKUP_BRANCH}:refs/heads/${BACKUP_BRANCH}"
+
+          git checkout -b "$WORK_BRANCH" "$DEVELOP_SHA"
+
+          finish_rebase_with_version_autoresolve() {
+            while [[ -d .git/rebase-merge || -d .git/rebase-apply ]]; do
+              conflicts="$(git diff --name-only --diff-filter=U | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+
+              if [[ "$conflicts" != "VERSION" ]]; then
+                echo "Rebase failed. Backup branch already pushed: ${BACKUP_BRANCH}" >&2
+                echo "Unresolved conflicts: ${conflicts:-<none>}" >&2
+                git status --short >&2 || true
+                git diff --name-only --diff-filter=U >&2 || true
+                git rebase --abort || true
+                exit 1
+              fi
+
+              echo "Auto-resolving VERSION from ${REBASE_TARGET}"
+              git show "${REBASE_TARGET}:VERSION" > VERSION
+              git add VERSION
+
+              if git diff --cached --quiet; then
+                echo "VERSION-only replay became empty; skipping current commit"
+                git rebase --skip || true
+              else
+                GIT_EDITOR=true git rebase --continue || true
+              fi
+            done
+          }
+
+          if ! git rebase "$REBASE_TARGET"; then
+            finish_rebase_with_version_autoresolve
+          fi
+
+          WORK_SHA="$(git rev-parse HEAD)"
+          UPSTREAM_VERSION="$(git show "${REBASE_TARGET}:VERSION" | tr -d '[:space:]')"
+          IPK_VERSION="$UPSTREAM_VERSION"
+          if [[ -n "${FORK_VERSION:-}" ]]; then
+            IPK_VERSION="$FORK_VERSION"
+            printf '%s\n' "$IPK_VERSION" > VERSION
+          fi
+          if [[ -z "${FORK_VERSION:-}" && "$IPK_VERSION" != "$UPSTREAM_VERSION" ]]; then
+            echo "Author release must keep upstream VERSION: got ${IPK_VERSION}, expected ${UPSTREAM_VERSION}" >&2
+            exit 1
+          fi
+
+          git push origin "refs/heads/${WORK_BRANCH}:refs/heads/${WORK_BRANCH}"
+
+          echo "backup_branch=${BACKUP_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "work_branch=${WORK_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "work_sha=${WORK_SHA}" >> "$GITHUB_OUTPUT"
+          echo "ipk_version=${IPK_VERSION}" >> "$GITHUB_OUTPUT"
+
+  frontend:
+    name: Build localized frontend
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-rebase
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout rebased work tree
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.prepare-rebase.outputs.work_sha }}
+          fetch-depth: 0
+
+      - name: Check i18n secrets
+        env:
+          IQ_I18N_TOKEN: ${{ secrets.IQ_I18N_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${IQ_I18N_TOKEN:-}" ]]; then
+            echo "IQ_I18N_TOKEN is required for localized release" >&2
+            exit 1
+          fi
+
+      - name: Checkout private i18n overlay
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: iqubik/awg-i18n-private
+          token: ${{ secrets.IQ_I18N_TOKEN }}
+          path: .iq-i18n-private
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build proprietary i18n runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f ".iq-i18n-private/scripts/build-runtime.mjs" ]]; then
+            echo "Missing private i18n builder: .iq-i18n-private/scripts/build-runtime.mjs" >&2
+            exit 1
+          fi
+
+          node .iq-i18n-private/scripts/build-runtime.mjs \
+            --out frontend/static/iq-i18n-runtime.min.js \
+            --languages "$IQ_I18N_LANGUAGES" \
+            --primary-language "$IQ_I18N_PRIMARY_LANGUAGE"
+
+          rm -f frontend/static/iq-i18n-runtime.min.js.map
+          rm -f frontend/static/iq-i18n-runtime.min.js.LICENSE.txt
+
+          forbidden_static="$(find frontend/static -maxdepth 1 -type f -print | grep -E '(^|/)(en|tr|fa|zh)\.json$|(^|/).*iq-i18n.*\.map$|(^|/).*iq-i18n.*LICENSE' || true)"
+          if [[ -n "$forbidden_static" ]]; then
+            echo "Forbidden standalone i18n dictionaries or private debug artifacts" >&2
+            echo "$forbidden_static" >&2
+            exit 1
+          fi
+
+          test -s frontend/static/iq-i18n-runtime.min.js
+
+      - name: Verify public repo does not contain dictionaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          forbidden_public="$(git ls-files | grep -E '(^|/)(en|tr|fa|zh)\.json$' || true)"
+          if [[ -n "$forbidden_public" ]]; then
+            echo "Public repo must not contain standalone en/tr/fa/zh dictionaries" >&2
+            echo "$forbidden_public" >&2
+            exit 1
+          fi
+
+      - name: Build frontend
+        run: ./scripts/build-frontend.sh
+
+      - name: Verify frontend build has runtime and no dictionaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -s frontend/build/iq-i18n-runtime.min.js ]]; then
+            if [[ -s frontend/static/iq-i18n-runtime.min.js ]]; then
+              echo "iq-i18n-runtime.min.js was not copied by frontend build; copying it into frontend/build" >&2
+              cp frontend/static/iq-i18n-runtime.min.js frontend/build/iq-i18n-runtime.min.js
+            else
+              echo "Missing iq-i18n-runtime.min.js in both frontend/build and frontend/static" >&2
+              echo "Known iq-i18n files:" >&2
+              find frontend -type f -name '*iq-i18n*' -print >&2 || true
+              exit 1
+            fi
+          fi
+
+          test -s frontend/build/iq-i18n-runtime.min.js
+
+          forbidden_build="$(find frontend/build -type f -print | grep -E '(^|/)(en|tr|fa|zh)\.json$|(^|/).*iq-i18n.*\.map$|(^|/).*iq-i18n.*LICENSE' || true)"
+          if [[ -n "$forbidden_build" ]]; then
+            echo "Forbidden standalone i18n dictionaries or private debug artifacts" >&2
+            echo "$forbidden_build" >&2
+            exit 1
+          fi
+
+      - name: Remove proprietary runtime from workspace
+        if: always()
+        run: rm -f frontend/static/iq-i18n-runtime.min.js frontend/static/iq-i18n-runtime.min.js.map frontend/static/iq-i18n-runtime.min.js.LICENSE.txt
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: frontend-build
+          path: frontend/build
+          if-no-files-found: error
+
+  build:
+    name: Build localized IPK (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-upstream
+      - prepare-rebase
+      - frontend
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: true
+      matrix:
+        arch:
+          - mipsel-3.4
+          - mips-3.4
+          - aarch64-3.10
+
+    steps:
+      - name: Checkout rebased work tree
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.prepare-rebase.outputs.work_sha }}
+          fetch-depth: 0
+
+      - name: Load sing-box version
+        shell: bash
+        run: |
+          set -euo pipefail
+          v="$(sed -n 's/^const RequiredVersion = "\(.*\)"/\1/p' internal/singbox/installer/embedded.go)"
+          echo "SINGBOX_VERSION=$v" >> "$GITHUB_ENV"
+          echo "SINGBOX_REF=v$v" >> "$GITHUB_ENV"
+
+      - name: Download frontend build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: frontend-build
+          path: frontend/build
+
+      - name: Setup go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: 1.25.10
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git ca-certificates gnupg curl file xz-utils unzip zip python3 python3-requests procps \
+            build-essential pkg-config
+
+          go install golang.org/dl/go1.23.12@latest
+          go1.23.12 download
+
+      - name: Restore sing-box build artifacts
+        id: singbox-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          key: iq-sing-box-${{ matrix.arch }}-${{ env.SINGBOX_VERSION }}-${{ env.SINGBOX_REF }}-${{ hashFiles('scripts/build-singbox.sh', 'scripts/patches/**') }}
+          path: |
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}.sha256
+
+      - name: Build sing-box
+        if: steps.singbox-cache.outputs.cache-hit != 'true'
+        env:
+          RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.fork_release_tag }}
+        run: |
+          set -euo pipefail
+          ./scripts/build-singbox.sh "${{ matrix.arch }}"
+
+      - name: Save sing-box build artifacts
+        if: steps.singbox-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          key: iq-sing-box-${{ matrix.arch }}-${{ env.SINGBOX_VERSION }}-${{ env.SINGBOX_REF }}-${{ hashFiles('scripts/build-singbox.sh', 'scripts/patches/**') }}
+          path: |
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}.sha256
+
+      - name: Refresh sing-box embedded metadata
+        env:
+          RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.fork_release_tag }}
+        run: |
+          set -euo pipefail
+          ./scripts/update-singbox-embedded.sh "${{ matrix.arch }}" "$SINGBOX_VERSION"
+
+      - name: Build localized IPK
+        id: build
+        env:
+          AWG_RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.fork_release_tag }}
+        run: |
+          set -euo pipefail
+
+          : "${AWG_RELEASE_BASE_URL:?AWG_RELEASE_BASE_URL must be set for IQ author release}"
+
+          file="dist/sing-box-${SINGBOX_VERSION}-${{ matrix.arch }}"
+          if [[ ! -f "$file" ]]; then
+            echo "Missing sing-box binary: $file" >&2
+            exit 1
+          fi
+
+          IPK_VERSION="${{ needs.prepare-rebase.outputs.ipk_version }}"
+          printf '%s\n' "$IPK_VERSION" > dist/VERSION
+
+          SKIP_FRONTEND_BUILD=1 AWG_RELEASE_BASE_URL="$AWG_RELEASE_BASE_URL" \
+            ./scripts/build-ipk.sh "$IPK_VERSION" "${{ matrix.arch }}"
+
+      - name: Verify localized IPK contents
+        shell: bash
+        env:
+          AWG_RELEASE_BASE_URL: https://github.com/iqubik/awg-manager-fork/releases/download/${{ needs.resolve-upstream.outputs.fork_release_tag }}
+        run: |
+          set -euo pipefail
+
+          ipk="$(find dist -maxdepth 1 -type f -name 'awg-manager_*_${{ matrix.arch }}-kn.ipk' | head -n 1)"
+          if [[ -z "$ipk" ]]; then
+            echo "Missing generated IPK for ${{ matrix.arch }}" >&2
+            exit 1
+          fi
+
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          cp "$ipk" "$tmp/package.ipk"
+          (
+            cd "$tmp"
+
+            echo "IPK file type:"
+            file package.ipk
+
+            tar -xzf package.ipk
+
+            data_tar="$(find . -maxdepth 1 -type f -name 'data.tar.*' | head -n 1)"
+            if [[ -z "$data_tar" ]]; then
+              echo "Missing data.tar.* inside IPK" >&2
+              echo "IPK contents:" >&2
+              tar -tzf package.ipk >&2 || true
+              exit 1
+            fi
+
+            if ! tar -tzf "$data_tar" | grep -E '(^|/)\.?/opt/bin/awg-manager$|^\./opt/bin/awg-manager$' >/dev/null; then
+              echo "Missing /opt/bin/awg-manager inside IPK data archive" >&2
+              echo "IPK data archive contents:" >&2
+              tar -tzf "$data_tar" >&2
+              exit 1
+            fi
+
+            mkdir -p data-root
+            tar -xzf "$data_tar" -C data-root
+
+            bin="data-root/opt/bin/awg-manager"
+            if [[ ! -s "$bin" ]]; then
+              echo "Missing extracted awg-manager binary: $bin" >&2
+              find data-root -maxdepth 4 -type f -print >&2 || true
+              exit 1
+            fi
+
+            if ! strings "$bin" | grep -F "$AWG_RELEASE_BASE_URL" >/dev/null; then
+              echo "AWG_RELEASE_BASE_URL was not embedded into packaged awg-manager binary" >&2
+              echo "Expected: $AWG_RELEASE_BASE_URL" >&2
+              echo "Known release/url strings:" >&2
+              strings "$bin" | grep -E 'github.com|repo.hoaxisr|releases/download|CHANGELOG|VERSION' >&2 || true
+              exit 1
+            fi
+
+            if ! strings "$bin" | grep -E 'iq-i18n-runtime\.min\.js|__IQ_I18N__|\[iq-i18n\]' >/dev/null; then
+              echo "Embedded frontend does not appear to contain IQ i18n runtime" >&2
+              echo "Known embedded iq-i18n strings:" >&2
+              strings "$bin" | grep -F 'iq-i18n' >&2 || true
+              exit 1
+            fi
+
+            forbidden_ipk="$(tar -tzf "$data_tar" | grep -E '(^|/)(tr|fa|zh)\.json$|(^|/).*iq-i18n.*\.map$|(^|/).*iq-i18n.*LICENSE' || true)"
+            if [[ -n "$forbidden_ipk" ]]; then
+              echo "Forbidden i18n source/debug files found inside IPK" >&2
+              echo "$forbidden_ipk" >&2
+              exit 1
+            fi
+          )
+
+      - name: Upload result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: result-${{ matrix.arch }}
+          path: |
+            dist/awg-manager_*_${{ matrix.arch }}-kn.ipk
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}
+            dist/sing-box-${{ env.SINGBOX_VERSION }}-${{ matrix.arch }}.sha256
+            dist/VERSION
+          if-no-files-found: error
+
+  backend-test:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-rebase
+
+    steps:
+      - name: Checkout rebased work tree
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.prepare-rebase.outputs.work_sha }}
+          fetch-depth: 0
+
+      - name: Setup go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: 1.25.10
+
+      - name: Run go tests
+        shell: bash
+        run: |
+          set +e
+          go test -count=1 -json ./... 2>&1 | tee /tmp/go-test.log
+          status=${PIPESTATUS[0]}
+
+          python3 - "$status" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import sys
+          from pathlib import Path
+
+          status = int(sys.argv[1])
+          log_path = Path("/tmp/go-test.log")
+          package_results = {}
+          test_results = {}
+
+          for raw_line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+              try:
+                  event = json.loads(raw_line)
+              except json.JSONDecodeError:
+                  continue
+
+              action = event.get("Action")
+              package = event.get("Package")
+              test = event.get("Test")
+
+              if package and not test and action in {"pass", "fail", "skip"}:
+                  package_results[package] = action
+
+              if package and test and action in {"pass", "fail", "skip"}:
+                  test_results[(package, test)] = action
+
+          def summarize(results):
+              counts = {"pass": 0, "fail": 0, "skip": 0}
+              for value in results.values():
+                  if value in counts:
+                      counts[value] += 1
+              counts["total"] = sum(counts.values())
+              return counts
+
+          package_counts = summarize(package_results)
+          test_counts = summarize(test_results)
+          failed_packages = sorted(name for name, value in package_results.items() if value == "fail")
+          failed_tests = sorted(f"{pkg} :: {test}" for (pkg, test), value in test_results.items() if value == "fail")
+
+          print("### Backend tests")
+          print()
+          print("Command: `go test -count=1 -json ./...`")
+          print()
+          print("| Metric | Passed | Failed | Skipped | Total |")
+          print("|--------|--------|--------|---------|-------|")
+          print(
+              f"| Packages | {package_counts['pass']} | {package_counts['fail']} | "
+              f"{package_counts['skip']} | {package_counts['total']} |"
+          )
+          print(
+              f"| Tests | {test_counts['pass']} | {test_counts['fail']} | "
+              f"{test_counts['skip']} | {test_counts['total']} |"
+          )
+
+          if status != 0 and failed_packages:
+              print()
+              print("Failed packages:")
+              for item in failed_packages:
+                  print(f"- `{item}`")
+
+          if status != 0 and failed_tests:
+              print()
+              print("Failed tests:")
+              for item in failed_tests:
+                  print(f"- `{item}`")
+          PY
+
+          if [[ "$status" -ne 0 ]]; then
+            {
+              echo
+              echo "<details><summary>Last 120 log lines</summary>"
+              echo
+              echo '```'
+              tail -n 120 /tmp/go-test.log
+              echo '```'
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          exit "$status"
+
+  frontend-check:
+    name: Frontend svelte-check
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-rebase
+
+    steps:
+      - name: Checkout rebased work tree
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.prepare-rebase.outputs.work_sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend check
+        working-directory: frontend
+        shell: bash
+        run: |
+          set +e
+          start_ts=$(date +%s)
+          NO_COLOR=1 FORCE_COLOR=0 npm run check 2>&1 | tee /tmp/frontend-check.log
+          status=${PIPESTATUS[0]}
+          end_ts=$(date +%s)
+          duration=$((end_ts - start_ts))
+
+          strip_ansi() {
+            sed -E $'s/\x1B\\[[0-9;?]*[ -/]*[@-~]//g'
+          }
+
+          result_line="$(
+            strip_ansi < /tmp/frontend-check.log \
+              | grep -E 'svelte-check found .* errors? and .* warnings?' \
+              | tail -n 1
+          )"
+
+          {
+            echo "### Frontend svelte-check"
+            echo
+            echo "Command: \`npm run check\`"
+            if [[ "$status" -eq 0 ]]; then
+              echo "Status: PASS"
+            else
+              echo "Status: FAIL"
+            fi
+            echo "Duration: ${duration}s"
+            if [[ -n "$result_line" ]]; then
+              echo
+              echo "Result:"
+              echo "$result_line"
+            fi
+            if [[ "$status" -ne 0 ]]; then
+              echo
+              echo "<details><summary>Last 120 log lines</summary>"
+              echo
+              echo '```'
+              tail -n 120 /tmp/frontend-check.log
+              echo '```'
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$status"
+
+  frontend-test:
+    name: Frontend vitest
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-rebase
+
+    steps:
+      - name: Checkout rebased work tree
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.prepare-rebase.outputs.work_sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend tests
+        working-directory: frontend
+        shell: bash
+        run: |
+          set +e
+          npx vitest run 2>&1 | tee /tmp/vitest.log
+          status=${PIPESTATUS[0]}
+
+          if [[ "$status" -ne 0 ]]; then
+            {
+              echo "### Frontend vitest failure details"
+              echo
+              echo "Command: \`npx vitest run\`"
+              echo "Status: FAIL"
+              echo
+              echo "<details><summary>Last 120 log lines</summary>"
+              echo
+              echo '```'
+              tail -n 120 /tmp/vitest.log
+              echo '```'
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          exit "$status"
+
+  release:
+    name: Publish author-tag IQ release
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-upstream
+      - prepare-rebase
+      - build
+      - backend-test
+      - frontend-check
+      - frontend-test
+
+    steps:
+      - name: Checkout rebased work tree
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.prepare-rebase.outputs.work_sha }}
+          fetch-depth: 0
+
+      - name: Download build results
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: result-*
+          path: dist
+          merge-multiple: true
+
+      - name: Setup go for changelog generator
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: 1.25.10
+
+      - name: Generate release metadata
+        shell: bash
+        env:
+          UPSTREAM_SOURCE: ${{ needs.resolve-upstream.outputs.upstream_source }}
+          UPSTREAM_TAG: ${{ needs.resolve-upstream.outputs.upstream_tag }}
+          UPSTREAM_REF_LABEL: ${{ needs.resolve-upstream.outputs.upstream_ref_label }}
+          FORK_RELEASE_TAG: ${{ needs.resolve-upstream.outputs.fork_release_tag }}
+          WORK_BRANCH: ${{ needs.prepare-rebase.outputs.work_branch }}
+          BACKUP_BRANCH: ${{ needs.prepare-rebase.outputs.backup_branch }}
+          WORK_SHA: ${{ needs.prepare-rebase.outputs.work_sha }}
+          IPK_VERSION: ${{ needs.prepare-rebase.outputs.ipk_version }}
+        run: |
+          set -euo pipefail
+
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/hoaxisr/awg-manager.git
+          if [[ "$UPSTREAM_SOURCE" == "release" ]]; then
+            git fetch upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/upstream/${UPSTREAM_TAG}"
+            CHANGELOG_BASE="refs/tags/upstream/${UPSTREAM_TAG}"
+          else
+            git fetch upstream "refs/heads/develop:refs/remotes/upstream/develop"
+            CHANGELOG_BASE="refs/remotes/upstream/develop"
+          fi
+
+          go build -o /tmp/changelog-gen ./cmd/changelog-gen
+
+          printf '%s\n' "${IPK_VERSION}" > dist/VERSION
+          printf '%s\n' "${WORK_SHA}" > dist/RELEASED_SHA
+
+          CHANGELOG_RANGE="${CHANGELOG_BASE}..${WORK_SHA}"
+          echo "author rebase changelog range: ${CHANGELOG_RANGE}"
+
+          git log --no-merges --format='%x1e%H%x1f%s%x1f%b' "${CHANGELOG_RANGE}" \
+            | /tmp/changelog-gen --version "${IPK_VERSION}" --date "$(date +%F)" > dist/CHANGELOG.md
+
+          if [[ ! -s dist/CHANGELOG.md ]]; then
+            {
+              echo "## [${IPK_VERSION}] - $(date +%F)"
+              echo
+              echo "### Сборка"
+              echo "- Сборка ${FORK_RELEASE_TAG} создана поверх upstream ${UPSTREAM_REF_LABEL}, но отдельных commit-записей поверх выбранной upstream-базы не найдено."
+              echo
+            } > dist/CHANGELOG.md
+          fi
+
+          cat > dist/RELEASE_INFO.md <<EOF
+          # IQ rebased release ${FORK_RELEASE_TAG}
+
+          Author upstream:
+          - repo: hoaxisr/awg-manager
+          - source: ${UPSTREAM_SOURCE}
+          - ref: ${UPSTREAM_REF_LABEL}
+
+          IQ fork:
+          - release tag: ${FORK_RELEASE_TAG}
+          - package version: ${IPK_VERSION}
+          - work branch: ${WORK_BRANCH}
+          - backup branch: ${BACKUP_BRANCH}
+          - release sha: ${WORK_SHA}
+
+          Develop was not rewritten automatically.
+          EOF
+
+          cat dist/CHANGELOG.md > dist/RELEASE_NOTES.md
+          {
+            echo
+            echo "---"
+            echo
+            cat dist/RELEASE_INFO.md
+          } >> dist/RELEASE_NOTES.md
+
+      - name: Publish author-tag release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_TAG: ${{ needs.resolve-upstream.outputs.upstream_tag }}
+          FORK_RELEASE_TAG: ${{ needs.resolve-upstream.outputs.fork_release_tag }}
+          FORCE_RELEASE: ${{ needs.resolve-upstream.outputs.force_release }}
+          WORK_SHA: ${{ needs.prepare-rebase.outputs.work_sha }}
+          IPK_VERSION: ${{ needs.prepare-rebase.outputs.ipk_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          files=(./dist/awg-manager_* ./dist/sing-box-* ./dist/VERSION ./dist/CHANGELOG.md ./dist/RELEASED_SHA ./dist/RELEASE_INFO.md ./dist/RELEASE_NOTES.md)
+
+          if (( ${#files[@]} == 0 )); then
+            echo "No release files found in ./dist" >&2
+            exit 1
+          fi
+
+          release_exists=false
+          tag_exists=false
+
+          if gh release view "$FORK_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            release_exists=true
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${FORK_RELEASE_TAG}" >/dev/null 2>&1; then
+            tag_exists=true
+          fi
+
+          if [[ "$release_exists" == "true" || "$tag_exists" == "true" ]]; then
+            if [[ "$FORCE_RELEASE" == "true" ]]; then
+              gh release delete "$FORK_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+              git push origin ":refs/tags/${FORK_RELEASE_TAG}" || true
+            else
+              echo "Release or tag $FORK_RELEASE_TAG already exists in $GITHUB_REPOSITORY and force_release is false" >&2
+              exit 1
+            fi
+          fi
+
+          gh release create "$FORK_RELEASE_TAG" "${files[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$WORK_SHA" \
+            --title "AWG Manager ${FORK_RELEASE_TAG} + IQ patches" \
+            --notes-file dist/RELEASE_NOTES.md
+
+          published_version="$(curl -fsSL "https://github.com/iqubik/awg-manager-fork/releases/download/${FORK_RELEASE_TAG}/VERSION" | tr -d '[:space:]')"
+          if [[ "$published_version" != "$IPK_VERSION" ]]; then
+            echo "Published VERSION mismatch: got ${published_version}, expected ${IPK_VERSION}" >&2
+            exit 1
+          fi
