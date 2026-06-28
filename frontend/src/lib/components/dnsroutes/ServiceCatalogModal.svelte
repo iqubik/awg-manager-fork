@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Modal, Button, Dropdown } from '$lib/components/ui';
+    import { SideDrawer, Button, Dropdown } from '$lib/components/ui';
     import ServiceIcon from './ServiceIcon.svelte';
     import { presetCatalog, presetCatalogLoaded, loadPresetCatalog } from '$lib/stores/presets';
     import { buildRoutingTunnelDropdownOptions } from '$lib/utils/routingTunnelOptions';
@@ -237,7 +237,7 @@
     );
 </script>
 
-<Modal {open} {title} size="wide" bodyLayout="fill" {onclose}>
+<SideDrawer {open} {title} width={960} bodyClass="drawer-body-fill" onClose={onclose}>
     <div class="catalog-root">
         {#if $presetCatalogLoaded && catalogPresets.length > 0}
             <div class="search-row">
@@ -424,7 +424,7 @@
         {/if}
     </div>
 
-    {#snippet actions()}
+    {#snippet footer()}
         <Button variant="ghost" onclick={onclose} disabled={submitting}>Отмена</Button>
         <Button
             variant="primary"
@@ -435,15 +435,14 @@
             {primaryLabel}
         </Button>
     {/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
     .catalog-root {
         display: flex;
         flex-direction: column;
-        flex: 1;
-        min-height: min(560px, calc(100dvh - 12rem));
-        max-height: min(72vh, calc(100dvh - 11rem));
+        height: 100%;
+        min-height: 0;
     }
 
     .search-row {
@@ -532,9 +531,9 @@
 
     .catalog-scroll {
         flex: 1 1 auto;
-        min-height: 22rem;
+        min-height: 0;
         overflow-y: auto;
-        overflow-x: hidden;
+        max-height: none;
         padding: 0.75rem 1rem;
     }
 
