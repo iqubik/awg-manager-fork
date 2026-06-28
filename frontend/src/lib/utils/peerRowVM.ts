@@ -8,8 +8,10 @@ export interface PeerRowVM {
 	name: string;
 	enabled: boolean;
 	status: PeerStatus;
-	ip: string;            // tunnelIP без /32 (показ и копирование)
-	endpointHost: string;  // host без порта; '—' если отсутствует
+	ip: string;
+	endpoint: string;
+	endpointHost: string;
+	endpointPort?: string;
 	rx: string;
 	tx: string;
 	handshake: { main: string; suffix?: string } | null;
@@ -41,18 +43,32 @@ export function stripHostMask(ip: string): string {
 	return ip.endsWith('/32') ? ip.slice(0, -'/32'.length) : ip;
 }
 
-/** Host из endpoint без порта; '—' если пусто/'-'. IPv6 без порта остаётся как есть. */
+export function splitEndpoint(endpoint: string | undefined): {
+	value: string;
+	host: string;
+	port?: string;
+} {
+	const trimmed = (endpoint ?? '').trim();
+	if (!trimmed || trimmed === '-') return { value: '—', host: '—' };
+
+	const bracketMatch = /^(\[[^\]]+\]):(\d+)$/.exec(trimmed);
+	if (bracketMatch) return { value: trimmed, host: bracketMatch[1], port: `:${bracketMatch[2]}` };
+
+	const lastColon = trimmed.lastIndexOf(':');
+	if (lastColon <= 0) return { value: trimmed, host: trimmed };
+
+	const host = trimmed.slice(0, lastColon);
+	const port = trimmed.slice(lastColon + 1);
+
+	if (!/^\d+$/.test(port) || host.includes(':')) {
+		return { value: trimmed, host: trimmed };
+	}
+
+	return { value: trimmed, host, port: `:${port}` };
+}
+
 export function endpointHost(endpoint: string | undefined): string {
-	const t = (endpoint ?? '').trim();
-	if (!t || t === '-') return '—';
-	const bracket = /^(\[[^\]]+\]):\d+$/.exec(t);
-	if (bracket) return bracket[1];
-	const lastColon = t.lastIndexOf(':');
-	if (lastColon <= 0) return t;
-	const host = t.slice(0, lastColon);
-	const port = t.slice(lastColon + 1);
-	if (!/^\d+$/.test(port) || host.includes(':')) return t;
-	return host;
+	return splitEndpoint(endpoint).host;
 }
 
 export function peerStatus(enabled: boolean, online: boolean | null | undefined): PeerStatus {
@@ -67,13 +83,17 @@ export function splitHandshake(value: string): { main: string; suffix?: string }
 }
 
 export function buildPeerRowVM(peer: ManagedPeer, stats: ManagedPeerStats | undefined): PeerRowVM {
+	const endpoint = splitEndpoint(stats?.endpoint);
+
 	return {
 		publicKey: peer.publicKey,
 		name: peer.description || `${peer.publicKey.slice(0, 8)}...`,
 		enabled: peer.enabled,
 		status: peerStatus(peer.enabled, stats?.online),
 		ip: stripHostMask(peer.tunnelIP),
-		endpointHost: endpointHost(stats?.endpoint),
+		endpoint: endpoint.value,
+		endpointHost: endpoint.host,
+		endpointPort: endpoint.port,
 		rx: formatBytes(stats?.rxBytes ?? 0),
 		tx: formatBytes(stats?.txBytes ?? 0),
 		handshake: stats?.lastHandshake ? splitHandshake(formatRelativeTime(stats.lastHandshake)) : null,

@@ -4,7 +4,7 @@
 	import { tunnels } from '$lib/stores/tunnels';
 	import { notifications } from '$lib/stores/notifications';
 	import { PageContainer } from '$lib/components/layout';
-	import { BackLink, Button } from '$lib/components/ui';
+	import { Button } from '$lib/components/ui';
 	import TunnelConfigImportPanel, {
 		type TunnelImportTab
 	} from '$lib/components/tunnels/TunnelConfigImportPanel.svelte';
@@ -128,13 +128,19 @@
 </svelte:head>
 
 <PageContainer>
-<div class="page-header">
-	<BackLink href="/" />
-	<h2 class="page-title">Новый туннель</h2>
-</div>
-
 <div class="import-container">
-	<label class="field-label" for="import-name">Название туннеля</label>
+	<div class="import-card">
+		<div class="import-card-head">
+			<div class="back-button">
+			<Button variant="secondary" size="sm" onclick={() => goto('/')}>
+				← Назад
+			</Button>
+		</div>
+			<h2 class="page-title">Новый туннель</h2>
+		</div>
+
+		<div class="import-card-body">
+			<label class="field-label" for="import-name">Название туннеля</label>
 	<div class="top-row">
 		<input type="text" id="import-name" class="name-input" bind:value={importName} placeholder="Мой VPN">
 		<div class="btn-import-wrap">
@@ -193,14 +199,44 @@
 	<p class="form-hint">
 		Поддерживаются WireGuard и AmneziaWG конфигурации с параметрами Jc, Jmin, Jmax, S1-S4, H1-H4, I1-I5; вкладка vpn:// распознаёт клиентский конфиг в ссылке или ключ Premium (запрос списка стран через прокси cp.amnezia.org).
 	</p>
+		</div>
+	</div>
 </div>
 </PageContainer>
 
 <style>
 	.import-container {
-		max-width: 700px;
+		max-width: 760px;
 		margin: 0 auto;
 		padding: 0 1rem;
+	}
+
+	.import-card {
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius);
+		background: color-mix(in srgb, var(--color-bg-secondary) 72%, transparent);
+		overflow: hidden;
+	}
+
+	.import-card-head {
+		display: grid;
+		grid-template-columns: auto 1fr auto;
+		align-items: center;
+		gap: 1rem;
+		padding: 1rem 1.25rem;
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.page-title {
+		margin: 0;
+		text-align: right;
+		font-size: 1.35rem;
+		font-weight: 700;
+		color: var(--color-text-primary);
+	}
+
+	.import-card-body {
+		padding: 1.25rem;
 	}
 
 	.field-label {
@@ -317,7 +353,36 @@
 		color: var(--color-text-muted);
 	}
 
-	@media (max-width: 640px) {
+	@media (max-width: 760px) {
+		.import-container {
+			padding: 0 0.75rem;
+		}
+
+		.import-card-head {
+			grid-template-columns: auto 1fr;
+			align-items: center;
+			gap: 0.75rem;
+			padding: 0.75rem 0.875rem;
+		}
+
+		.import-card-head :global(.back-button) {
+			width: auto;
+			flex: 0 0 auto;
+			white-space: nowrap;
+		}
+
+		.page-title {
+			min-width: 0;
+			margin: 0;
+			text-align: right;
+			font-size: 1.15rem;
+			line-height: 1.25;
+		}
+
+		.import-card-body {
+			padding: 0.875rem;
+		}
+
 		.top-row {
 			flex-direction: column;
 			align-items: stretch;
