@@ -14,7 +14,7 @@
   }
   let { match, winner = false }: Props = $props();
 
-  let indexStr = $derived(`#${String(match.index).padStart(2, '0')}`);
+  let indexStr = $derived(`#${match.index}`);
   let actionLabel = $derived.by(() => {
     if (match.action === 'route' && match.outbound) return `→ ${match.outbound}`;
     if (match.action === 'reject') return '✕ заблокировать';

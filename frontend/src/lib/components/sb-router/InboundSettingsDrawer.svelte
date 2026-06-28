@@ -52,18 +52,20 @@
   onClose={onClose}
   size="md"
 >
-  <SettingsCard
-    bind:this={settingsCard}
-    bind:saving
-    embedded
-    hideFooter
-    {config}
-    {outbounds}
-    {bridgeInterfaces}
-    onSaveConfig={save}
-    onSaved={() => {}}
-    onCancel={onClose}
-  />
+  {#key instance.id}
+    <SettingsCard
+      bind:this={settingsCard}
+      bind:saving
+      embedded
+      hideFooter
+      {config}
+      {outbounds}
+      {bridgeInterfaces}
+      onSaveConfig={save}
+      onSaved={() => {}}
+      onCancel={onClose}
+    />
+  {/key}
 
   {#snippet actions()}
     <Button variant="ghost" size="md" onclick={onClose} disabled={saving} type="button">Отмена</Button>

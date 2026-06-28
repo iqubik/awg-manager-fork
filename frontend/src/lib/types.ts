@@ -510,20 +510,6 @@ export interface HydraRouteStatus {
 	stalePid?: number;
 	processState?: 'not_installed' | 'stopped' | 'running' | 'dead';
 	lastError?: string;
-	managed?: boolean;
-	legacy?: boolean;
-	currentVersion?: string;
-	requiredVersion?: string;
-	currentSha256?: string;
-	requiredSha256?: string;
-	versionMatchesRequired?: boolean;
-	checksumMatchesRequired?: boolean;
-	customBuild?: boolean;
-	updateAvailable?: boolean;
-	installState?: string;
-	requiredBytes?: number;
-	freeBytes?: number;
-	installSupported?: boolean;
 }
 
 export interface HydraRouteConfig {
@@ -1347,8 +1333,6 @@ export interface MonitoringTunnel {
 	transport?: string;
 	/** Sing-box outbound tag; empty unless source==='singbox'. */
 	singboxTag?: string;
-	/** Preferred Clash-delay probe tag; may differ for subscription rows. */
-	probeTag?: string;
 	/** Last Clash urltest delay in ms; 0 = no urltest data. */
 	clashDelay?: number;
 	/** urltest group tag this sing-box tunnel belongs to. */
