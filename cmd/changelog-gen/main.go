@@ -1,12 +1,11 @@
-// Command changelog-gen reads commit subjects (one per line) from stdin and
-// prints a single Keep-a-Changelog block for the given version. Used in CI to
-// build the develop channel changelog from `git log --format='%s' <range>`.
+// Command changelog-gen reads commit subjects/bodies from stdin and prints a
+// single Keep-a-Changelog block for the given version.
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -20,16 +19,11 @@ func main() {
 		os.Exit(2)
 	}
 
-	var subjects []string
-	sc := bufio.NewScanner(os.Stdin)
-	sc.Buffer(make([]byte, 64*1024), 1024*1024)
-	for sc.Scan() {
-		subjects = append(subjects, sc.Text())
-	}
-	if err := sc.Err(); err != nil {
+	input, err := io.ReadAll(os.Stdin)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "read stdin:", err)
 		os.Exit(1)
 	}
 
-	fmt.Print(Generate(subjects, *version, *date))
+	fmt.Print(Generate(ParseCommits(string(input)), *version, *date))
 }
