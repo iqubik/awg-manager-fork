@@ -20,6 +20,7 @@
 	const latest = $derived(delayPresentation.latest ?? -1);
 
 	let testing = $state(false);
+	let showSensitive = $state(false);
 
 	async function runTest(e?: MouseEvent | KeyboardEvent): Promise<void> {
 		e?.stopPropagation(); // don't trigger card-as-radio click
@@ -39,6 +40,8 @@
 	}
 	const delayState = $derived(delayPresentation.state);
 	const delayText = $derived(delayPresentation.label);
+	const memberEndpointText = $derived(`${member.server}:${member.port}`);
+	const hiddenMemberEndpointText = $derived(`••••••••:${member.port}`);
 
 	const protocolLabel = $derived.by(() => {
 		switch (member.protocol) {
@@ -53,7 +56,60 @@
 	});
 
 	const heading = $derived(member.label || member.server);
+
+	function toggleSensitive(e: MouseEvent): void {
+		e.stopPropagation();
+		showSensitive = !showSensitive;
+	}
+
+	function onCardKeydown(e: KeyboardEvent): void {
+		if (disabled) return;
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			onclick();
+		}
+	}
 </script>
+
+{#snippet memberSensitiveLines()}
+	<div class="member-sensitive">
+		<div class="member-sensitive-main mono">
+			<span
+				class="member-sensitive-value"
+				title={showSensitive ? memberEndpointText : hiddenMemberEndpointText}
+			>
+				{showSensitive ? memberEndpointText : hiddenMemberEndpointText}
+			</span>
+			<button
+				type="button"
+				class="member-sensitive-eye"
+				onclick={toggleSensitive}
+				aria-label={showSensitive ? 'Скрыть сервер и SNI' : 'Показать сервер и SNI'}
+				title={showSensitive ? 'Скрыть сервер и SNI' : 'Показать сервер и SNI'}
+			>
+				{#if showSensitive}
+					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+						<circle cx="12" cy="12" r="3" />
+					</svg>
+				{:else}
+					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+						<line x1="1" y1="1" x2="23" y2="23" />
+					</svg>
+				{/if}
+			</button>
+		</div>
+		{#if member.sni}
+			<div class="member-sensitive-sni mono" title={showSensitive ? member.sni : 'SNI скрыт'}>
+				<span class="member-sensitive-sni-label">SNI</span>
+				<span class="member-sensitive-sni-value">
+					{showSensitive ? member.sni : '••••••••'}
+				</span>
+			</div>
+		{/if}
+	</div>
+{/snippet}
 
 {#if layout === 'list'}
 	<div class="mbr-flatten">
@@ -69,7 +125,7 @@
 		</div>
 		<div class="c c-name" data-label="Сервер">
 			<span class="n1" title={heading}>{heading}</span>
-			<span class="n2 mono" title={member.tag}>{member.server}:{member.port}</span>
+			{@render memberSensitiveLines()}
 		</div>
 	<div class="c c-badges" data-label="Протокол">
 		<span class="badge proto">{protocolLabel}</span>
@@ -113,13 +169,18 @@
 		</div>
 	</div>
 {:else}
-<button
-	type="button"
+<div
+	role="button"
+	tabindex={disabled ? -1 : 0}
+	aria-disabled={disabled}
 	class="card"
 	class:active
 	class:switching
-	{disabled}
-	onclick={onclick}
+	onclick={() => {
+		if (disabled) return;
+		onclick();
+	}}
+	onkeydown={onCardKeydown}
 	aria-pressed={active}
 >
 	<div class="header">
@@ -138,15 +199,7 @@
 			<span class="badge tls">TLS</span>
 		{/if}
 	</div>
-	{#if member.label}
-		<div class="server-line mono" title={member.tag}>{member.server}:{member.port}</div>
-	{/if}
-	{#if member.sni}
-		<div class="sni-row">
-			<span class="sni-label">SNI</span>
-			<span class="sni-value mono" title={member.sni}>{member.sni}</span>
-		</div>
-	{/if}
+	{@render memberSensitiveLines()}
 	<div class="delay-row">
 		<PingButton
 			label={delayText}
@@ -176,7 +229,7 @@
 			<span class="state-badge switching-badge">переключаем...</span>
 		{/if}
 	</div>
-</button>
+</div>
 {/if}
 
 <style>
@@ -197,10 +250,10 @@
 		cursor: pointer;
 		transition: border-color 0.15s ease, background 0.15s ease;
 	}
-	.card:hover:not(.active):not(:disabled) { border-color: var(--color-accent); }
+	.card:hover:not(.active):not([aria-disabled='true']) { border-color: var(--color-accent); }
 	.card.active { border-color: #3fb950; background: rgba(63, 185, 80, 0.06); }
 	.card.switching { opacity: 0.7; cursor: wait; }
-	.card:disabled { cursor: wait; opacity: 0.6; }
+	.card[aria-disabled='true'] { cursor: wait; opacity: 0.6; }
 	.header {
 		display: flex;
 		align-items: center;
@@ -288,30 +341,54 @@
 	.spark.slow .bar { background: var(--latency-bar-slow); }
 	.spark.fail .bar { background: var(--latency-bar-fail); }
 	.bar.empty       { opacity: 0.3; }
-	.server-line {
-		font-size: var(--sbx-card-meta);
-		color: var(--color-text-muted);
-		opacity: 0.85;
-		margin: 0.15rem 0 0.35rem;
+	.member-sensitive {
+		display: grid;
+		gap: 0.12rem;
+		min-width: 0;
+	}
+	.member-sensitive-main {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		min-width: 0;
+		max-width: 100%;
+	}
+	.member-sensitive-value {
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	.sni-row {
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
-		font-size: var(--sbx-card-label);
 		color: var(--color-text-muted);
-		margin-top: -0.15rem;
 	}
-	.sni-label {
+	.member-sensitive-eye {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.1rem;
+		border: 0;
+		background: transparent;
+		color: var(--color-text-muted);
+		cursor: pointer;
+		flex: 0 0 auto;
+	}
+	.member-sensitive-eye:hover {
+		color: var(--color-text-secondary);
+	}
+	.member-sensitive-sni {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		min-width: 0;
+		color: var(--color-text-muted);
+		font-size: var(--sbx-card-label);
+	}
+	.member-sensitive-sni-label {
 		text-transform: uppercase;
-		letter-spacing: 0.4px;
+		letter-spacing: 0.04em;
 		opacity: 0.85;
 	}
-	.sni-value {
-		flex: 1;
+	.member-sensitive-sni-value {
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -346,13 +423,12 @@
 		white-space: nowrap;
 		max-width: 100%;
 	}
-	.n2 {
+	.c-name .member-sensitive {
+		width: 100%;
+	}
+	.c-name .member-sensitive-main,
+	.c-name .member-sensitive-sni {
 		font-size: var(--sbx-card-meta);
-		color: var(--color-text-muted);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		max-width: 100%;
 	}
 	.c-badges {
 		gap: 0.3rem;

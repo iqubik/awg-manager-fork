@@ -7,7 +7,6 @@
 	import { PageContainer } from '$lib/components/layout';
 	import { SettingsSectionLabel } from '$lib/components/settings';
 	import {
-		ArrowLeft,
 		Boxes,
 		Copy,
 		Globe,
@@ -19,9 +18,10 @@
 		Waypoints,
 		Zap
 	} from 'lucide-svelte';
-	import { Button, Dropdown } from '$lib/components/ui';
+	import { BackLink, Button, Dropdown, SensitiveBlockEye } from '$lib/components/ui';
 	import { copyToClipboard } from '$lib/utils/clipboard';
 	import { notifications } from '$lib/stores/notifications';
+	import { maskSensitive } from '$lib/utils/sensitiveMask';
 
 	const EXPORTABLE_PROTOCOLS = new Set([
 		'vless',
@@ -38,15 +38,15 @@
 	let copyingLink = $state(false);
 	let linkCopied = $state(false);
 	let error = $state<string | null>(null);
-	// The outbound is an arbitrary sing-box JSON object whose shape depends on the
-	// protocol; the editor reads/writes fields by path, so it is modelled as a
-	// dynamic record rather than a fixed interface.
-	type JsonRecord = Record<string, unknown>;
-
-	let outbound = $state<JsonRecord | null>(null);
+	let outbound = $state<Record<string, any> | null>(null);
 	let protocol = $state<string>('');
 	let editableTag = $state('');
 	let initialOutboundFingerprint = $state('');
+	let hideBasicBlock = $state(true);
+	let hideProtocolBlock = $state(true);
+	let hideRealityBlock = $state(true);
+	let hideTlsBlock = $state(true);
+	let hideTransportBlock = $state(true);
 
 	let canExportShareLink = $derived(EXPORTABLE_PROTOCOLS.has(protocol));
 	let hasUnsavedChanges = $derived(
@@ -63,8 +63,8 @@
 	onMount(async () => {
 		try {
 			const r = await api.singboxGetTunnel(tag);
-			outbound = r.outbound as JsonRecord;
-			protocol = typeof outbound.type === 'string' ? outbound.type : '';
+			outbound = r.outbound as Record<string, any>;
+			protocol = outbound?.type ?? '';
 			editableTag = r.tag;
 			initialOutboundFingerprint = outboundFingerprint(outbound);
 		} catch (e) {
@@ -104,42 +104,24 @@
 		}
 	}
 
-	function setField(path: string[], value: unknown): void {
+	function setField(path: string[], value: any): void {
 		if (!outbound) return;
-		let obj: JsonRecord = outbound;
+		let obj: any = outbound;
 		for (let i = 0; i < path.length - 1; i++) {
-			const next = obj[path[i]];
-			if (next != null && typeof next === 'object') {
-				obj = next as JsonRecord;
-			} else {
-				const created: JsonRecord = {};
-				obj[path[i]] = created;
-				obj = created;
-			}
+			if (obj[path[i]] == null) obj[path[i]] = {};
+			obj = obj[path[i]];
 		}
 		obj[path[path.length - 1]] = value;
 		outbound = { ...outbound };
 	}
 
-	function getField(path: string[]): unknown {
-		let obj: unknown = outbound;
+	function getField(path: string[]): any {
+		let obj: any = outbound;
 		for (const p of path) {
-			if (obj == null || typeof obj !== 'object') return undefined;
-			obj = (obj as JsonRecord)[p];
+			if (obj == null) return undefined;
+			obj = obj[p];
 		}
 		return obj;
-	}
-
-	/** Field value coerced to a string for text inputs (empty when absent). */
-	function getFieldString(path: string[]): string {
-		const v = getField(path);
-		if (v == null) return '';
-		return typeof v === 'string' ? v : String(v);
-	}
-
-	/** Field value coerced to a boolean for checkbox inputs. */
-	function getFieldBool(path: string[]): boolean {
-		return getField(path) === true;
 	}
 
 	function serverPortsText(value: unknown): string {
@@ -154,10 +136,14 @@
 		return parts.length > 0 ? parts : undefined;
 	}
 
-	function outboundFingerprint(value: JsonRecord | null): string {
+	function outboundFingerprint(value: Record<string, any> | null): string {
 		if (!value) return '';
 		const { tag: _tag, ...rest } = value;
 		return JSON.stringify(rest);
+	}
+
+	function textValue(value: unknown): string {
+		return value == null ? '' : String(value);
 	}
 
 	async function copyShareLink(): Promise<void> {
@@ -191,9 +177,7 @@
 	<div class="edit-wrapper">
 	<div class="sticky-header">
 		<div class="header-left">
-			<Button variant="ghost" size="sm" onclick={() => goto('/?tab=singbox')} iconBefore={backIcon}>
-				Назад
-			</Button>
+			<BackLink href="/?tab=singbox" variant="accent" />
 			<h1 class="page-title">{tag}</h1>
 			{#if protocol}
 				<span class="badge-protocol">{protocol}</span>
@@ -230,7 +214,11 @@
 	{:else}
 		<form class="tab-form" onsubmit={(e) => { e.preventDefault(); save(); }}>
 				<section class="card tunnel-section">
-				<SettingsSectionLabel label="Основные параметры" icon={Globe} tone="slate" header />
+				<SettingsSectionLabel label="Основные параметры" icon={Globe} tone="slate" header>
+					{#snippet action()}
+						<SensitiveBlockEye bind:hidden={hideBasicBlock} label="основных параметров" />
+					{/snippet}
+				</SettingsSectionLabel>
 
 				<div class="form-group">
 					<label class="label" for="tag">Название / tag</label>
@@ -244,38 +232,54 @@
 
 				<div class="form-group">
 					<label class="label" for="server">Сервер</label>
-					<input
-						id="server"
-						class="input"
-						value={getFieldString(['server'])}
-						oninput={(e) => setField(['server'], (e.target as HTMLInputElement).value)}
-					/>
+					{#if hideBasicBlock}
+						<input id="server" class="input" value={maskSensitive(outbound.server)} readonly />
+					{:else}
+						<input
+							id="server"
+							class="input"
+							value={outbound.server ?? ''}
+							oninput={(e) => setField(['server'], (e.target as HTMLInputElement).value)}
+						/>
+					{/if}
 				</div>
 
 				<div class="form-group">
 					<label class="label" for="server_port">Порт</label>
-					<input
-						id="server_port"
-						class="input"
-						type="number"
-						value={getFieldString(['server_port'])}
-						oninput={(e) => setField(['server_port'], parseInt((e.target as HTMLInputElement).value, 10))}
-					/>
+					{#if hideBasicBlock}
+						<input id="server_port" class="input" value={maskSensitive(outbound.server_port)} readonly />
+					{:else}
+						<input
+							id="server_port"
+							class="input"
+							type="number"
+							value={outbound.server_port ?? 0}
+							oninput={(e) => setField(['server_port'], parseInt((e.target as HTMLInputElement).value, 10))}
+						/>
+					{/if}
 				</div>
 			</section>
 
 			{#if protocol === 'vless'}
 				<section class="card tunnel-section">
-					<SettingsSectionLabel label="VLESS" icon={Link2} tone="purple" header />
+					<SettingsSectionLabel label="VLESS" icon={Link2} tone="purple" header>
+						{#snippet action()}
+							<SensitiveBlockEye bind:hidden={hideProtocolBlock} label="параметров VLESS" />
+						{/snippet}
+					</SettingsSectionLabel>
 
 					<div class="form-group">
 						<label class="label" for="uuid">UUID</label>
-						<input
-							id="uuid"
-							class="input"
-							value={getFieldString(['uuid'])}
-							oninput={(e) => setField(['uuid'], (e.target as HTMLInputElement).value)}
-						/>
+						{#if hideProtocolBlock}
+							<input id="uuid" class="input" value={maskSensitive(outbound.uuid)} readonly />
+						{:else}
+							<input
+								id="uuid"
+								class="input"
+								value={outbound.uuid ?? ''}
+								oninput={(e) => setField(['uuid'], (e.target as HTMLInputElement).value)}
+							/>
+						{/if}
 					</div>
 
 					<div class="form-group">
@@ -283,7 +287,7 @@
 						<input
 							id="flow"
 							class="input"
-							value={getFieldString(['flow'])}
+							value={outbound.flow ?? ''}
 							oninput={(e) => setField(['flow'], (e.target as HTMLInputElement).value)}
 						/>
 					</div>
@@ -291,48 +295,68 @@
 
 				{#if getField(['tls', 'reality'])}
 					<section class="card tunnel-section">
-						<SettingsSectionLabel label="Reality" icon={ScanEye} tone="indigo" header />
+						<SettingsSectionLabel label="Reality" icon={ScanEye} tone="indigo" header>
+							{#snippet action()}
+								<SensitiveBlockEye bind:hidden={hideRealityBlock} label="параметров Reality" />
+							{/snippet}
+						</SettingsSectionLabel>
 
 						<div class="form-group">
 							<label class="label" for="reality_pubkey">Public Key</label>
-							<input
-								id="reality_pubkey"
-								class="input"
-								value={getFieldString(['tls', 'reality', 'public_key'])}
-								oninput={(e) => setField(['tls', 'reality', 'public_key'], (e.target as HTMLInputElement).value)}
-							/>
+							{#if hideRealityBlock}
+								<input id="reality_pubkey" class="input" value={maskSensitive(getField(['tls', 'reality', 'public_key']))} readonly />
+							{:else}
+								<input
+									id="reality_pubkey"
+									class="input"
+									value={getField(['tls', 'reality', 'public_key']) ?? ''}
+									oninput={(e) => setField(['tls', 'reality', 'public_key'], (e.target as HTMLInputElement).value)}
+								/>
+							{/if}
 						</div>
 
 						<div class="form-group">
 							<label class="label" for="reality_short_id">Short ID</label>
-							<input
-								id="reality_short_id"
-								class="input"
-								value={getFieldString(['tls', 'reality', 'short_id'])}
-								oninput={(e) => setField(['tls', 'reality', 'short_id'], (e.target as HTMLInputElement).value)}
-							/>
+							{#if hideRealityBlock}
+								<input id="reality_short_id" class="input" value={maskSensitive(getField(['tls', 'reality', 'short_id']))} readonly />
+							{:else}
+								<input
+									id="reality_short_id"
+									class="input"
+									value={getField(['tls', 'reality', 'short_id']) ?? ''}
+									oninput={(e) => setField(['tls', 'reality', 'short_id'], (e.target as HTMLInputElement).value)}
+								/>
+							{/if}
 						</div>
 					</section>
 				{/if}
 
 				<section class="card tunnel-section">
-					<SettingsSectionLabel label="TLS" icon={Lock} tone="blue" header />
+					<SettingsSectionLabel label="TLS" icon={Lock} tone="blue" header>
+						{#snippet action()}
+							<SensitiveBlockEye bind:hidden={hideTlsBlock} label="TLS параметров" />
+						{/snippet}
+					</SettingsSectionLabel>
 
 					<div class="form-group">
 						<label class="label" for="sni">SNI</label>
-						<input
-							id="sni"
-							class="input"
-							value={getFieldString(['tls', 'server_name'])}
-							oninput={(e) => setField(['tls', 'server_name'], (e.target as HTMLInputElement).value)}
-						/>
+						{#if hideTlsBlock}
+							<input id="sni" class="input" value={maskSensitive(getField(['tls', 'server_name']))} readonly />
+						{:else}
+							<input
+								id="sni"
+								class="input"
+								value={getField(['tls', 'server_name']) ?? ''}
+								oninput={(e) => setField(['tls', 'server_name'], (e.target as HTMLInputElement).value)}
+							/>
+						{/if}
 					</div>
 
 					<div class="form-group">
 						<Dropdown
 							id="fingerprint"
 							label="Fingerprint"
-							value={getFieldString(['tls', 'utls', 'fingerprint'])}
+							value={getField(['tls', 'utls', 'fingerprint']) ?? ''}
 							options={[
 								{ value: '', label: '—' },
 								{ value: 'chrome', label: 'chrome' },
@@ -346,43 +370,55 @@
 					</div>
 				</section>
 
-				{#if getField(['transport', 'type']) === 'grpc'}
+				{#if outbound.transport?.type === 'grpc'}
 					<section class="card tunnel-section">
-						<SettingsSectionLabel label="Transport (gRPC)" icon={Waypoints} tone="teal" header />
+						<SettingsSectionLabel label="Transport (gRPC)" icon={Waypoints} tone="teal" header>
+							{#snippet action()}
+								<SensitiveBlockEye bind:hidden={hideTransportBlock} label="transport параметров" />
+							{/snippet}
+						</SettingsSectionLabel>
 
 						<div class="form-group">
 							<label class="label" for="grpc_service">Service Name</label>
-							<input
-								id="grpc_service"
-								class="input"
-								value={getFieldString(['transport', 'service_name'])}
-								oninput={(e) => setField(['transport', 'service_name'], (e.target as HTMLInputElement).value)}
-							/>
+							{#if hideTransportBlock}
+								<input id="grpc_service" class="input" value={maskSensitive(getField(['transport', 'service_name']))} readonly />
+							{:else}
+								<input
+									id="grpc_service"
+									class="input"
+									value={getField(['transport', 'service_name']) ?? ''}
+									oninput={(e) => setField(['transport', 'service_name'], (e.target as HTMLInputElement).value)}
+								/>
+							{/if}
 						</div>
 					</section>
 				{/if}
 
-				{#if getField(['transport', 'type']) === 'ws'}
+				{#if outbound.transport?.type === 'ws'}
 					<section class="card tunnel-section">
-						<SettingsSectionLabel label="Transport (WebSocket)" icon={Radio} tone="orange" header />
+						<SettingsSectionLabel label="Transport (WebSocket)" icon={Radio} tone="orange" header>
+							{#snippet action()}
+								<SensitiveBlockEye bind:hidden={hideTransportBlock} label="transport параметров" />
+							{/snippet}
+						</SettingsSectionLabel>
 						<p class="section-hint">Параметры импортированы из ссылки и редактированию не подлежат.</p>
 
 						<div class="form-group">
 							<label class="label" for="ws_path">Path</label>
-							<input id="ws_path" class="input" value={getFieldString(['transport', 'path']) || '/'} readonly />
+							<input id="ws_path" class="input" value={hideTransportBlock ? maskSensitive(getField(['transport', 'path']) ?? '/') : (getField(['transport', 'path']) ?? '/')} readonly />
 						</div>
 
 						{#if getField(['transport', 'headers', 'Host'])}
 							<div class="form-group">
 								<label class="label" for="ws_host">Host header</label>
-								<input id="ws_host" class="input" value={getFieldString(['transport', 'headers', 'Host'])} readonly />
+								<input id="ws_host" class="input" value={hideTransportBlock ? maskSensitive(getField(['transport', 'headers', 'Host'])) : textValue(getField(['transport', 'headers', 'Host']))} readonly />
 							</div>
 						{/if}
 
 						{#if getField(['transport', 'early_data_header_name'])}
 							<div class="form-group">
 								<label class="label" for="ws_ed">Early Data Header</label>
-								<input id="ws_ed" class="input" value={getFieldString(['transport', 'early_data_header_name'])} readonly />
+								<input id="ws_ed" class="input" value={hideTransportBlock ? maskSensitive(getField(['transport', 'early_data_header_name'])) : textValue(getField(['transport', 'early_data_header_name']))} readonly />
 							</div>
 						{/if}
 					</section>
@@ -390,38 +426,54 @@
 
 			{:else if protocol === 'trojan'}
 				<section class="card tunnel-section">
-					<SettingsSectionLabel label="Trojan" icon={Link2} tone="orange" header />
+					<SettingsSectionLabel label="Trojan" icon={Link2} tone="orange" header>
+						{#snippet action()}
+							<SensitiveBlockEye bind:hidden={hideProtocolBlock} label="параметров Trojan" />
+						{/snippet}
+					</SettingsSectionLabel>
 
 					<div class="form-group">
 						<label class="label" for="trojan_password">Пароль</label>
-						<input
-							id="trojan_password"
-							class="input"
-							type="password"
-							value={getFieldString(['password'])}
-							oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
-						/>
+						{#if hideProtocolBlock}
+							<input id="trojan_password" class="input" value={maskSensitive(outbound.password)} readonly />
+						{:else}
+							<input
+								id="trojan_password"
+								class="input"
+								type="password"
+								value={outbound.password ?? ''}
+								oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
+							/>
+						{/if}
 					</div>
 				</section>
 
 				<section class="card tunnel-section">
-					<SettingsSectionLabel label="TLS" icon={Lock} tone="blue" header />
+					<SettingsSectionLabel label="TLS" icon={Lock} tone="blue" header>
+						{#snippet action()}
+							<SensitiveBlockEye bind:hidden={hideTlsBlock} label="TLS параметров" />
+						{/snippet}
+					</SettingsSectionLabel>
 
 					<div class="form-group">
 						<label class="label" for="trojan_sni">SNI</label>
-						<input
-							id="trojan_sni"
-							class="input"
-							value={getFieldString(['tls', 'server_name'])}
-							oninput={(e) => setField(['tls', 'server_name'], (e.target as HTMLInputElement).value)}
-						/>
+						{#if hideTlsBlock}
+							<input id="trojan_sni" class="input" value={maskSensitive(getField(['tls', 'server_name']))} readonly />
+						{:else}
+							<input
+								id="trojan_sni"
+								class="input"
+								value={getField(['tls', 'server_name']) ?? ''}
+								oninput={(e) => setField(['tls', 'server_name'], (e.target as HTMLInputElement).value)}
+							/>
+						{/if}
 					</div>
 
 					<div class="form-group">
 						<Dropdown
 							id="trojan_fingerprint"
 							label="Fingerprint"
-							value={getFieldString(['tls', 'utls', 'fingerprint'])}
+							value={getField(['tls', 'utls', 'fingerprint']) ?? ''}
 							options={[
 								{ value: '', label: '—' },
 								{ value: 'chrome', label: 'chrome' },
@@ -437,43 +489,55 @@
 					<label class="checkbox-label">
 						<input
 							type="checkbox"
-							checked={getFieldBool(['tls', 'insecure'])}
+							checked={getField(['tls', 'insecure']) ?? false}
 							onchange={(e) => setField(['tls', 'insecure'], (e.target as HTMLInputElement).checked)}
 						/>
 						<span>Insecure (пропустить проверку сертификата)</span>
 					</label>
 				</section>
 
-				{#if getField(['transport', 'type']) === 'grpc'}
+				{#if outbound.transport?.type === 'grpc'}
 					<section class="card tunnel-section">
-						<SettingsSectionLabel label="Transport (gRPC)" icon={Waypoints} tone="teal" header />
+						<SettingsSectionLabel label="Transport (gRPC)" icon={Waypoints} tone="teal" header>
+							{#snippet action()}
+								<SensitiveBlockEye bind:hidden={hideTransportBlock} label="transport параметров" />
+							{/snippet}
+						</SettingsSectionLabel>
 
 						<div class="form-group">
 							<label class="label" for="trojan_grpc_service">Service Name</label>
-							<input
-								id="trojan_grpc_service"
-								class="input"
-								value={getFieldString(['transport', 'service_name'])}
-								oninput={(e) => setField(['transport', 'service_name'], (e.target as HTMLInputElement).value)}
-							/>
+							{#if hideTransportBlock}
+								<input id="trojan_grpc_service" class="input" value={maskSensitive(getField(['transport', 'service_name']))} readonly />
+							{:else}
+								<input
+									id="trojan_grpc_service"
+									class="input"
+									value={getField(['transport', 'service_name']) ?? ''}
+									oninput={(e) => setField(['transport', 'service_name'], (e.target as HTMLInputElement).value)}
+								/>
+							{/if}
 						</div>
 					</section>
 				{/if}
 
-				{#if getField(['transport', 'type']) === 'ws'}
+				{#if outbound.transport?.type === 'ws'}
 					<section class="card tunnel-section">
-						<SettingsSectionLabel label="Transport (WebSocket)" icon={Radio} tone="orange" header />
+						<SettingsSectionLabel label="Transport (WebSocket)" icon={Radio} tone="orange" header>
+							{#snippet action()}
+								<SensitiveBlockEye bind:hidden={hideTransportBlock} label="transport параметров" />
+							{/snippet}
+						</SettingsSectionLabel>
 						<p class="section-hint">Параметры импортированы из ссылки и редактированию не подлежат.</p>
 
 						<div class="form-group">
 							<label class="label" for="trojan_ws_path">Path</label>
-							<input id="trojan_ws_path" class="input" value={getFieldString(['transport', 'path']) || '/'} readonly />
+							<input id="trojan_ws_path" class="input" value={hideTransportBlock ? maskSensitive(getField(['transport', 'path']) ?? '/') : (getField(['transport', 'path']) ?? '/')} readonly />
 						</div>
 
 						{#if getField(['transport', 'headers', 'Host'])}
 							<div class="form-group">
 								<label class="label" for="trojan_ws_host">Host header</label>
-								<input id="trojan_ws_host" class="input" value={getFieldString(['transport', 'headers', 'Host'])} readonly />
+								<input id="trojan_ws_host" class="input" value={hideTransportBlock ? maskSensitive(getField(['transport', 'headers', 'Host'])) : textValue(getField(['transport', 'headers', 'Host']))} readonly />
 							</div>
 						{/if}
 					</section>
@@ -481,14 +545,18 @@
 
 			{:else if protocol === 'shadowsocks'}
 				<section class="card tunnel-section">
-					<SettingsSectionLabel label="Shadowsocks" icon={ScanEye} tone="slate" header />
+					<SettingsSectionLabel label="Shadowsocks" icon={ScanEye} tone="slate" header>
+						{#snippet action()}
+							<SensitiveBlockEye bind:hidden={hideProtocolBlock} label="параметров Shadowsocks" />
+						{/snippet}
+					</SettingsSectionLabel>
 
 					<div class="form-group">
 						<label class="label" for="ss_method">Метод (cipher)</label>
 						<input
 							id="ss_method"
 							class="input"
-							value={getFieldString(['method'])}
+							value={outbound.method ?? ''}
 							oninput={(e) => setField(['method'], (e.target as HTMLInputElement).value)}
 							placeholder="aes-256-gcm"
 						/>
@@ -496,13 +564,17 @@
 
 					<div class="form-group">
 						<label class="label" for="ss_password">Пароль</label>
-						<input
-							id="ss_password"
-							class="input"
-							type="password"
-							value={getFieldString(['password'])}
-							oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
-						/>
+						{#if hideProtocolBlock}
+							<input id="ss_password" class="input" value={maskSensitive(outbound.password)} readonly />
+						{:else}
+							<input
+								id="ss_password"
+								class="input"
+								type="password"
+								value={outbound.password ?? ''}
+								oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
+							/>
+						{/if}
 					</div>
 
 					<div class="form-group">
@@ -510,7 +582,7 @@
 						<input
 							id="ss_plugin"
 							class="input"
-							value={getFieldString(['plugin'])}
+							value={outbound.plugin ?? ''}
 							oninput={(e) => setField(['plugin'], (e.target as HTMLInputElement).value)}
 							placeholder="obfs-local, v2ray-plugin…"
 						/>
@@ -518,50 +590,77 @@
 
 					<div class="form-group">
 						<label class="label" for="ss_plugin_opts">Plugin opts</label>
-						<textarea
-							id="ss_plugin_opts"
-							class="input textarea"
-							rows="2"
-							value={getFieldString(['plugin_opts'])}
-							oninput={(e) => setField(['plugin_opts'], (e.target as HTMLTextAreaElement).value)}
-							placeholder="obfs=http;obfs-host=example.com"
-						></textarea>
+						{#if hideProtocolBlock}
+							<textarea
+								id="ss_plugin_opts"
+								class="input textarea"
+								rows="2"
+								value={maskSensitive(outbound.plugin_opts)}
+								readonly
+								placeholder="obfs=http;obfs-host=example.com"
+							></textarea>
+						{:else}
+							<textarea
+								id="ss_plugin_opts"
+								class="input textarea"
+								rows="2"
+								value={outbound.plugin_opts ?? ''}
+								oninput={(e) => setField(['plugin_opts'], (e.target as HTMLTextAreaElement).value)}
+								placeholder="obfs=http;obfs-host=example.com"
+							></textarea>
+						{/if}
 					</div>
 				</section>
 
 			{:else if protocol === 'hysteria2'}
 				<section class="card tunnel-section">
-					<SettingsSectionLabel label="Hysteria2" icon={Zap} tone="pink" header />
+					<SettingsSectionLabel label="Hysteria2" icon={Zap} tone="pink" header>
+						{#snippet action()}
+							<SensitiveBlockEye bind:hidden={hideProtocolBlock} label="параметров Hysteria2" />
+						{/snippet}
+					</SettingsSectionLabel>
 
 					<div class="form-group">
 						<label class="label" for="password">Пароль</label>
-						<input
-							id="password"
-							class="input"
-							type="password"
-							value={getFieldString(['password'])}
-							oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
-						/>
+						{#if hideProtocolBlock}
+							<input id="password" class="input" value={maskSensitive(outbound.password)} readonly />
+						{:else}
+							<input
+								id="password"
+								class="input"
+								type="password"
+								value={outbound.password ?? ''}
+								oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
+							/>
+						{/if}
 					</div>
 				</section>
 
 				<section class="card tunnel-section">
-					<SettingsSectionLabel label="TLS" icon={Lock} tone="blue" header />
+					<SettingsSectionLabel label="TLS" icon={Lock} tone="blue" header>
+						{#snippet action()}
+							<SensitiveBlockEye bind:hidden={hideTlsBlock} label="TLS параметров" />
+						{/snippet}
+					</SettingsSectionLabel>
 
 					<div class="form-group">
 						<label class="label" for="hy2_sni">SNI</label>
-						<input
-							id="hy2_sni"
-							class="input"
-							value={getFieldString(['tls', 'server_name'])}
-							oninput={(e) => setField(['tls', 'server_name'], (e.target as HTMLInputElement).value)}
-						/>
+						{#if hideTlsBlock}
+							<input id="hy2_sni" class="input" value={maskSensitive(getField(['tls', 'server_name']))} readonly />
+						{:else}
+							<input
+								id="hy2_sni"
+								class="input"
+								value={getField(['tls', 'server_name']) ?? ''}
+								oninput={(e) => setField(['tls', 'server_name'], (e.target as HTMLInputElement).value)}
+							/>
+						{/if}
 					</div>
 
 					<label class="checkbox-label">
 						<input
 							type="checkbox"
-							checked={getFieldBool(['tls', 'insecure'])}
+							checked={getField(['tls', 'insecure']) ?? false}
 							onchange={(e) => setField(['tls', 'insecure'], (e.target as HTMLInputElement).checked)}
 						/>
 						<span>Insecure (пропустить проверку сертификата)</span>
@@ -570,59 +669,83 @@
 
 			{:else if protocol === 'naive'}
 				<section class="card tunnel-section">
-					<SettingsSectionLabel label="NaiveProxy" icon={UserRound} tone="green" header />
+					<SettingsSectionLabel label="NaiveProxy" icon={UserRound} tone="green" header>
+						{#snippet action()}
+							<SensitiveBlockEye bind:hidden={hideProtocolBlock} label="параметров NaiveProxy" />
+						{/snippet}
+					</SettingsSectionLabel>
 
 					<div class="form-group">
 						<label class="label" for="username">Пользователь</label>
-						<input
-							id="username"
-							class="input"
-							value={getFieldString(['username'])}
-							oninput={(e) => setField(['username'], (e.target as HTMLInputElement).value)}
-						/>
+						{#if hideProtocolBlock}
+							<input id="username" class="input" value={maskSensitive(outbound.username)} readonly />
+						{:else}
+							<input
+								id="username"
+								class="input"
+								value={outbound.username ?? ''}
+								oninput={(e) => setField(['username'], (e.target as HTMLInputElement).value)}
+							/>
+						{/if}
 					</div>
 
 					<div class="form-group">
 						<label class="label" for="naive_password">Пароль</label>
-						<input
-							id="naive_password"
-							class="input"
-							type="password"
-							value={getFieldString(['password'])}
-							oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
-						/>
+						{#if hideProtocolBlock}
+							<input id="naive_password" class="input" value={maskSensitive(outbound.password)} readonly />
+						{:else}
+							<input
+								id="naive_password"
+								class="input"
+								type="password"
+								value={outbound.password ?? ''}
+								oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
+							/>
+						{/if}
 					</div>
 				</section>
 			{:else if protocol === 'mieru'}
 				<section class="card tunnel-section">
-					<SettingsSectionLabel label="Mieru" icon={Boxes} tone="indigo" header />
+					<SettingsSectionLabel label="Mieru" icon={Boxes} tone="indigo" header>
+						{#snippet action()}
+							<SensitiveBlockEye bind:hidden={hideProtocolBlock} label="параметров Mieru" />
+						{/snippet}
+					</SettingsSectionLabel>
 
 					<div class="form-group">
 						<label class="label" for="mieru_username">Пользователь</label>
-						<input
-							id="mieru_username"
-							class="input"
-							value={getFieldString(['username'])}
-							oninput={(e) => setField(['username'], (e.target as HTMLInputElement).value)}
-						/>
+						{#if hideProtocolBlock}
+							<input id="mieru_username" class="input" value={maskSensitive(outbound.username)} readonly />
+						{:else}
+							<input
+								id="mieru_username"
+								class="input"
+								value={outbound.username ?? ''}
+								oninput={(e) => setField(['username'], (e.target as HTMLInputElement).value)}
+							/>
+						{/if}
 					</div>
 
 					<div class="form-group">
 						<label class="label" for="mieru_password">Пароль</label>
-						<input
-							id="mieru_password"
-							class="input"
-							type="password"
-							value={getFieldString(['password'])}
-							oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
-						/>
+						{#if hideProtocolBlock}
+							<input id="mieru_password" class="input" value={maskSensitive(outbound.password)} readonly />
+						{:else}
+							<input
+								id="mieru_password"
+								class="input"
+								type="password"
+								value={outbound.password ?? ''}
+								oninput={(e) => setField(['password'], (e.target as HTMLInputElement).value)}
+							/>
+						{/if}
 					</div>
 
 					<div class="form-group">
 						<Dropdown
 							id="mieru_transport"
 							label="Transport"
-							value={getFieldString(['transport']) || 'TCP'}
+							value={outbound.transport ?? 'TCP'}
 							options={[
 								{ value: 'TCP', label: 'TCP' },
 								{ value: 'UDP', label: 'UDP' },
@@ -634,13 +757,23 @@
 
 					<div class="form-group">
 						<label class="label" for="mieru_server_ports">Дополнительные порты / диапазоны</label>
-						<textarea
-							id="mieru_server_ports"
-							class="input textarea"
-							rows="3"
-							value={serverPortsText(getField(['server_ports']))}
-							oninput={(e) => setField(['server_ports'], parseServerPorts((e.target as HTMLTextAreaElement).value))}
-						></textarea>
+						{#if hideProtocolBlock}
+							<textarea
+								id="mieru_server_ports"
+								class="input textarea"
+								rows="3"
+								value={maskSensitive(serverPortsText(outbound.server_ports))}
+								readonly
+							></textarea>
+						{:else}
+							<textarea
+								id="mieru_server_ports"
+								class="input textarea"
+								rows="3"
+								value={serverPortsText(outbound.server_ports)}
+								oninput={(e) => setField(['server_ports'], parseServerPorts((e.target as HTMLTextAreaElement).value))}
+							></textarea>
+						{/if}
 					</div>
 
 					<div class="form-group">
@@ -648,7 +781,7 @@
 						<input
 							id="mieru_multiplexing"
 							class="input"
-							value={getFieldString(['multiplexing'])}
+							value={outbound.multiplexing ?? ''}
 							oninput={(e) => setField(['multiplexing'], (e.target as HTMLInputElement).value)}
 						/>
 					</div>
@@ -659,7 +792,7 @@
 							id="mieru_traffic_pattern"
 							class="input textarea"
 							rows="3"
-							value={getFieldString(['traffic_pattern'])}
+							value={outbound.traffic_pattern ?? ''}
 							oninput={(e) => setField(['traffic_pattern'], (e.target as HTMLTextAreaElement).value)}
 						></textarea>
 					</div>
@@ -669,21 +802,10 @@
 			{#if error}
 				<div class="error-msg">{error}</div>
 			{/if}
-
-			<div class="form-actions">
-				<Button variant="secondary" size="sm" onclick={() => goto('/?tab=singbox')}>Отмена</Button>
-				<Button variant="primary" size="sm" type="submit" loading={saving}>
-					Сохранить
-				</Button>
-			</div>
 		</form>
 	{/if}
 	</div>
 </PageContainer>
-
-{#snippet backIcon()}
-	<ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />
-{/snippet}
 
 {#snippet copyIcon()}
 	<Copy size={14} strokeWidth={2} aria-hidden="true" />
@@ -808,31 +930,38 @@
 		margin-bottom: 1rem;
 	}
 
-	.form-actions {
-		display: flex;
-		gap: 8px;
-		justify-content: flex-end;
-		margin-top: 1rem;
-	}
-
 	@media (max-width: 640px) {
 		.sticky-header {
 			flex-direction: column;
-			gap: 0.75rem;
+			gap: 0;
 			align-items: stretch;
 		}
 
 		.header-left {
 			flex-wrap: wrap;
+			width: 100%;
+			margin-bottom: 10px;
 		}
 
 		.header-actions {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 			width: 100%;
+			gap: 8px;
+		}
+
+		.header-left :global(.back-link.variant-accent) {
+			height: 32px;
+			min-height: 32px;
+			max-height: 32px;
 		}
 
 		.header-actions :global(.btn) {
-			flex: 1 1 0;
+			width: 100%;
 			min-width: 0;
+			height: 32px;
+			min-height: 32px;
+			max-height: 32px;
 		}
 	}
 </style>
