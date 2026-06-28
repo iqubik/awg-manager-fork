@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import { Modal, Button } from '$lib/components/ui';
+	import { SideDrawer, Button } from '$lib/components/ui';
 	import { LoadingSpinner } from '$lib/components/layout';
 	import ChangelogRender from './ChangelogRender.svelte';
 	import type { ChangelogEntry } from '$lib/types';
@@ -46,7 +46,7 @@
 	});
 </script>
 
-<Modal {open} title="Что нового" size="lg" {onclose}>
+<SideDrawer {open} title="Что нового" width={640} onClose={onclose}>
 	<div class="modal-body">
 		{#if !pendingUpdate}
 			<div class="changelog-notice" role="status">
@@ -73,10 +73,10 @@
 			<ChangelogRender {entries} />
 		{/if}
 	</div>
-	{#snippet actions()}
+	{#snippet footer()}
 		<Button variant="primary" size="md" onclick={onclose}>Закрыть</Button>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
 	.modal-body {

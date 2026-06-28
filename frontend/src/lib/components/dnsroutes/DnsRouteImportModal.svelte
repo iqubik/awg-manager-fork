@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Modal, Button, Dropdown } from '$lib/components/ui';
+    import { SideDrawer, Button, Dropdown } from '$lib/components/ui';
     import { parseImportFile, type PortableDnsRoute } from '$lib/utils/dns-export';
     import {
         buildRoutingTunnelDropdownOptions,
@@ -96,7 +96,7 @@
     }
 </script>
 
-<Modal {open} title="Загрузить набор правил" size="lg" {onclose}>
+<SideDrawer {open} title="Загрузить набор правил" width={640} onClose={onclose}>
     {#if !parsed}
         <RoutingImportDropZone
             subject="правилами DNS-маршрутизации"
@@ -172,7 +172,7 @@
         </div>
     {/if}
 
-    {#snippet actions()}
+    {#snippet footer()}
         <Button variant="ghost" onclick={onclose} disabled={importing}>Отмена</Button>
         {#if parsed}
             <Button variant="primary" onclick={handleImport} disabled={selectedCount === 0 || noTunnels} loading={importing}>
@@ -180,4 +180,4 @@
             </Button>
         {/if}
     {/snippet}
-</Modal>
+</SideDrawer>

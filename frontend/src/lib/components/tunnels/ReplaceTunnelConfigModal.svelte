@@ -1,9 +1,11 @@
 <script lang="ts">
     import { TriangleAlert } from 'lucide-svelte';
-    import { Modal, Button } from '$lib/components/ui';
+    import { SideDrawer, Button } from '$lib/components/ui';
+    import SensitiveBlockEye from '$lib/components/ui/SensitiveBlockEye.svelte';
     import TunnelConfigImportPanel from './TunnelConfigImportPanel.svelte';
     import { api } from '$lib/api/client';
     import { notifications } from '$lib/stores/notifications';
+    import { maskSensitive } from '$lib/utils/sensitiveMask';
     import { isVpnLink } from '$lib/utils/vpnlink';
 
     interface Props {
@@ -34,6 +36,7 @@
     let activeTab = $state<'file' | 'paste' | 'vpn'>('file');
     let vpnPasteInput = $state('');
     let linkPreview = $state('');
+    let privacyHidden = $state(true);
     let wasOpen = $state(false);
 
     // Reset state when modal opens (only once per open cycle so polling-tick
@@ -51,6 +54,7 @@
         vpnPasteInput = '';
         linkPreview = '';
         loading = false;
+        privacyHidden = true;
     });
 
     function handlePremiumCountryConfig(_config: string, meta: { suggestedName?: string }) {
@@ -86,15 +90,18 @@
     }
 </script>
 
-<Modal {open} title="Замена конфигурации" size="lg" {onclose}>
-    <div class="replace-info">
-        <span class="replace-tunnel-label">{ndmsName}</span>
+<SideDrawer {open} title="Замена конфигурации" width={640} onClose={onclose}>
+    <div class="replace-top-row">
+        <div class="replace-info">
+        <span class="replace-tunnel-label">{privacyHidden ? maskSensitive(ndmsName) : ndmsName}</span>
         <span class="replace-dot">&middot;</span>
         <span>{backendLabel}</span>
         <span class="replace-dot">&middot;</span>
         <span class="replace-state" class:state-running={tunnelState === 'running'}>
             {tunnelState === 'running' ? 'Работает' : 'Остановлен'}
         </span>
+        </div>
+        <SensitiveBlockEye bind:hidden={privacyHidden} label="замены конфигурации" />
     </div>
 
     {#if tunnelState === 'running'}
@@ -110,32 +117,46 @@
         bind:activeTab
         bind:vpnPasteInput
         bind:linkPreview
+        privacyHidden={privacyHidden}
         loadStoredKeyOnMount={true}
         oncountryconfig={handlePremiumCountryConfig}
     />
 
     <div class="name-field">
         <label class="field-label" for="replace-name">Имя туннеля</label>
-        <input type="text" id="replace-name" class="name-input" bind:value={newName} placeholder={tunnelName}>
+        {#if privacyHidden}
+            <input type="text" id="replace-name" class="name-input" value={maskSensitive(newName || tunnelName)} readonly placeholder={maskSensitive(tunnelName)}>
+        {:else}
+            <input type="text" id="replace-name" class="name-input" bind:value={newName} placeholder={tunnelName}>
+        {/if}
         <div class="field-hint">Оставьте без изменений чтобы сохранить текущее имя</div>
     </div>
 
-    {#snippet actions()}
+    {#snippet footer()}
         <Button variant="secondary" onclick={onclose} disabled={loading}>Отмена</Button>
         <Button variant="primary" onclick={handleReplace} disabled={!importContent.trim()} loading={loading}>
             Заменить
         </Button>
     {/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
+    .replace-top-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
     .replace-info {
         display: flex;
         align-items: center;
         gap: 6px;
         font-size: 0.75rem;
         color: var(--text-muted);
-        margin-bottom: 12px;
+        min-width: 0;
+        flex-wrap: wrap;
     }
 
     .replace-tunnel-label {
