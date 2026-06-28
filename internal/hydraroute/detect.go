@@ -2,26 +2,46 @@ package hydraroute
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 )
 
-var (
-	hrneoBinary = "/opt/bin/hrneo"     //nolint:gochecknoglobals
-	neoCommand  = "/opt/bin/neo"       //nolint:gochecknoglobals
-	pidFile     = "/var/run/hrneo.pid" //nolint:gochecknoglobals
+const (
+	defaultLegacyHrneoBinary = "/opt/bin/hrneo"
+	defaultLegacyNeoCommand  = "/opt/bin/neo"
+	defaultPIDFile           = "/var/run/hrneo.pid"
 )
+
+var (
+	legacyHrneoBinary = defaultLegacyHrneoBinary //nolint:gochecknoglobals
+	legacyNeoCommand  = defaultLegacyNeoCommand  //nolint:gochecknoglobals
+	pidFile           = defaultPIDFile           //nolint:gochecknoglobals
+)
+
+type Paths struct {
+	Binary  string
+	Control string
+}
+
+func ResolvePaths() Paths {
+	if isExecutableFile(legacyHrneoBinary) {
+		return Paths{
+			Binary:  legacyHrneoBinary,
+			Control: legacyNeoCommand,
+		}
+	}
+	return Paths{}
+}
 
 // Detect checks if HydraRoute Neo is installed and running.
 func Detect() Status {
 	s := Status{
 		ProcessState: StateNotInstalled,
 	}
-
-	if _, err := os.Stat(hrneoBinary); err == nil {
-		s.Installed = true
-	}
+	paths := ResolvePaths()
+	s.Installed = paths.Binary != ""
 
 	if !s.Installed {
 		return s
@@ -56,4 +76,33 @@ func Detect() Status {
 	s.StalePID = pid
 
 	return s
+}
+
+func activeBinaryPath() string {
+	return ResolvePaths().Binary
+}
+
+func activeControlPath() string {
+	return ResolvePaths().Control
+}
+
+func isExecutableFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
+}
+
+func binaryFingerprint(path string) string {
+	if path == "" {
+		return ""
+	}
+	st, err := os.Stat(path)
+	if err != nil || st.IsDir() {
+		return ""
+	}
+	return strings.Join([]string{
+		filepath.Clean(path),
+		st.ModTime().UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+		st.Mode().String(),
+		strconv.FormatInt(st.Size(), 10),
+	}, "|")
 }

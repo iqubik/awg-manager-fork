@@ -1945,13 +1945,6 @@ class ApiClient {
 		return this.request<DeviceProxyRuntime>(`/proxy/instance/runtime?id=${encodeURIComponent(id)}`);
 	}
 
-	async selectDeviceProxyInstanceRuntime(id: string, tag: string): Promise<{ active: string }> {
-		return this.request<{ active: string }>(`/proxy/instance/runtime/select?id=${encodeURIComponent(id)}`, {
-			method: 'POST',
-			body: JSON.stringify({ tag }),
-		});
-	}
-
 	// #endregion
 
 	// #endregion
