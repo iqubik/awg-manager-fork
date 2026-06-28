@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { onDestroy } from 'svelte';
 	import type { SystemInfo } from '$lib/types';
 	import type { UsageLevel } from '$lib/types/usageLevel';
 	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
@@ -71,6 +72,18 @@
 			minute: '2-digit',
 		});
 	});
+	let nowMs = $state(Date.now());
+	let refreshTimer: ReturnType<typeof setInterval> | null = null;
+	let autoPressResetTimer: ReturnType<typeof setTimeout> | null = null;
+	let autoPressActive = $state(false);
+	let prevRefreshing = $state(false);
+	const refreshProgress = $derived.by(() => {
+		if (!lastUpdated || autoRefreshMs <= 0) return 0;
+		const updatedMs = new Date(lastUpdated).getTime();
+		if (Number.isNaN(updatedMs)) return 0;
+		const elapsed = Math.max(0, nowMs - updatedMs);
+		return Math.min(1, elapsed / autoRefreshMs);
+	});
 
 	let collapsed = $state(false);
 
@@ -92,34 +105,113 @@
 		localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
 	});
 
+	$effect(() => {
+		if (!browser) return;
+		if (autoRefreshMs <= 0 || !lastUpdated) {
+			if (refreshTimer) {
+				clearInterval(refreshTimer);
+				refreshTimer = null;
+			}
+			return;
+		}
+		nowMs = Date.now();
+		if (refreshTimer) clearInterval(refreshTimer);
+		refreshTimer = setInterval(() => {
+			nowMs = Date.now();
+		}, 250);
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		const startedRefreshing = refreshing && !prevRefreshing;
+		if (startedRefreshing && refreshProgress >= 0.995) {
+			autoPressActive = true;
+			if (autoPressResetTimer) clearTimeout(autoPressResetTimer);
+			autoPressResetTimer = setTimeout(() => {
+				autoPressActive = false;
+				autoPressResetTimer = null;
+			}, 180);
+		}
+		prevRefreshing = refreshing;
+	});
+
+	onDestroy(() => {
+		if (refreshTimer) clearInterval(refreshTimer);
+		if (autoPressResetTimer) clearTimeout(autoPressResetTimer);
+	});
+
 	const isBasic = $derived(usageLevel === 'basic');
 	const isExpert = $derived(usageLevel === 'expert');
 </script>
 
 <div class="settings-block sysinfo-block">
 	<div class="card sysinfo-card">
-		<div class="head-row settings-card-head">
+	<div class="head-row settings-card-head system-card-head">
+		<button
+			type="button"
+			class="section-collapse-btn"
+			onclick={() => (collapsed = !collapsed)}
+			aria-expanded={!collapsed}
+			aria-label={collapsed ? 'Развернуть информацию о системе' : 'Свернуть информацию о системе'}
+		>
+			<SettingsSectionLabel label="Система" icon={Router} tone="blue" inline />
+		</button>
+
+		<div class="system-card-head-meta">
+			{#if !isBasic}
+				<div class="head-actions">
+					{#if updatedLabel}
+						{#if onrefresh}
+							<button
+								type="button"
+								class="updated-at updated-at-button"
+								class:updated-at-loading={refreshing}
+								class:auto-press={autoPressActive}
+								title="Обновить информацию о системе"
+								aria-label="Обновить информацию о системе"
+								disabled={refreshing}
+								onclick={() => onrefresh()}
+								style={`--updated-progress:${refreshProgress * 360}deg; --updated-progress-alpha:${0.4 + refreshProgress * 0.6};`}
+							>
+								<span class="live-dot" class:live-dot-loading={refreshing}></span>
+								{updatedLabel}
+							</button>
+						{:else}
+							<span
+								class="updated-at"
+								class:updated-at-loading={refreshing}
+								title="Последнее обновление"
+								style={`--updated-progress:${refreshProgress * 360}deg; --updated-progress-alpha:${0.4 + refreshProgress * 0.6};`}
+							>
+								<span class="live-dot" class:live-dot-loading={refreshing}></span>
+								{updatedLabel}
+							</span>
+						{/if}
+					{/if}
+				</div>
+			{/if}
+
 			<button
 				type="button"
-				class="section-collapse-btn"
+				class="system-collapse-marker-btn"
 				onclick={() => (collapsed = !collapsed)}
 				aria-expanded={!collapsed}
 				aria-label={collapsed ? 'Развернуть информацию о системе' : 'Свернуть информацию о системе'}
 			>
-				<SettingsSectionLabel label="Система" icon={Router} tone="blue" inline />
-				<span class="section-chevron system-collapse-marker" class:open={!collapsed} aria-hidden="true"><ChevronDown size={14} strokeWidth={2} /></span>
+			<svg
+				class="settings-card-chevron system-collapse-marker"
+					class:open={!collapsed}
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<polyline points="6 9 12 15 18 9" />
+				</svg>
 			</button>
-			{#if !isBasic}
-				<div class="head-actions">
-					{#if updatedLabel}
-						<span class="updated-at" title="Последнее обновление">
-							<span class="live-dot" class:live-dot-loading={refreshing}></span>
-							{updatedLabel}
-						</span>
-					{/if}
-				</div>
-			{/if}
 		</div>
+	</div>
 
 		<div class="collapsible-body" class:body-hidden={collapsed}>
 	<div class="setting-row">
@@ -176,10 +268,6 @@
 			<span class="info-val">{details?.opkgStorage || '—'}</span>
 		</div>
 	{/if}
-	<div class="setting-row">
-		<span class="info-key">Сообщество</span>
-		<a class="info-link" href="https://t.me/awgmanager" target="_blank" rel="noopener noreferrer">Telegram →</a>
-	</div>
 	{#if isExpert && details}
 		<details class="more-box" bind:open={detailsOpen}>
 			<summary class="more-summary">
@@ -224,12 +312,29 @@
 		padding: 1rem;
 	}
 
+	.system-card-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+	.system-card-head-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex: 0 0 auto;
+		min-width: 0;
+	}
+
 	.settings-card-head {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.75rem;
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.75rem;
+		padding-bottom: 0.625rem;
+		border-bottom: 1px solid var(--color-border);
 	}
 
 	.section-collapse-btn {
@@ -244,7 +349,6 @@
 		pointer-events: none;
 	}
 
-	.section-chevron,
 	.more-chevron {
 		display: inline-flex;
 		width: 14px;
@@ -254,7 +358,6 @@
 		transition: transform var(--t-fast) ease, color var(--t-fast) ease;
 	}
 
-	.section-chevron.open,
 	.more-chevron.open {
 		transform: rotate(180deg);
 	}
@@ -263,8 +366,23 @@
 		display: none;
 	}
 
-	.section-collapse-btn:hover .section-chevron {
-		color: var(--color-text-primary);
+	.system-collapse-marker-btn {
+		display: none;
+		align-items: center;
+		justify-content: center;
+		width: 1rem;
+		height: 1rem;
+		flex: 0 0 1rem;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: inherit;
+	}
+
+	.system-collapse-marker-btn:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+		outline-offset: 2px;
 	}
 
 	.collapsible-body {
@@ -281,6 +399,15 @@
 		}
 
 		.section-collapse-btn:hover {
+			color: var(--color-text-primary);
+		}
+
+		.system-collapse-marker-btn {
+			display: inline-flex;
+			cursor: pointer;
+		}
+
+		.system-collapse-marker-btn:hover {
 			color: var(--color-text-primary);
 		}
 
@@ -324,26 +451,95 @@
 	}
 
 	.updated-at {
+		--updated-pill-color: var(--color-success);
+		--updated-pill-tint: var(--color-success-tint);
+		--updated-progress: 0deg;
+		--updated-progress-alpha: 0.28;
 		display: inline-flex;
 		align-items: center;
 		gap: 0.375rem;
+		padding: 0.26rem 0.6rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid transparent;
+		background: color-mix(in srgb, var(--updated-pill-tint) 18%, var(--color-bg-secondary));
 		font-family: var(--font-mono);
 		font-size: 0.6875rem;
 		color: var(--color-text-muted);
 		white-space: nowrap;
+		overflow: hidden;
+		transition:
+			color var(--t-fast) ease,
+			background var(--t-fast) ease,
+			border-color var(--t-fast) ease,
+			box-shadow var(--t-fast) ease,
+			transform var(--t-fast) ease;
+	}
+
+	.updated-at-loading {
+		--updated-pill-color: var(--color-warning, var(--color-accent));
+		--updated-pill-tint: color-mix(in srgb, var(--color-warning, var(--color-accent)) 20%, transparent);
+	}
+
+	.updated-at-button {
+		cursor: pointer;
+	}
+
+	.updated-at-button:hover:not(:disabled) {
+		color: var(--color-text-secondary);
+		background: color-mix(in srgb, var(--updated-pill-tint) 28%, var(--color-bg-hover));
+		border-color: color-mix(in srgb, var(--updated-pill-color) 48%, var(--color-border));
+	}
+
+	.updated-at-button:focus-visible {
+		outline: none;
+		border-color: color-mix(in srgb, var(--updated-pill-color) 62%, var(--color-border));
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--updated-pill-color) 18%, transparent);
+	}
+
+	.updated-at-button:disabled {
+		cursor: progress;
+	}
+
+	.updated-at-button.auto-press {
+		transform: translateY(1px) scale(0.985);
+		background: color-mix(in srgb, var(--updated-pill-tint) 32%, var(--color-bg-hover));
+		border-color: color-mix(in srgb, var(--updated-pill-color) 52%, var(--color-border));
+		box-shadow: inset 0 1px 0 color-mix(in srgb, #000 10%, transparent);
 	}
 
 	.live-dot {
+		position: relative;
 		width: 7px;
 		height: 7px;
+		flex: 0 0 auto;
 		border-radius: 50%;
 		background: var(--color-success);
-		box-shadow: 0 0 0 3px var(--color-success-tint);
-		transition: background 0.2s ease;
+		box-shadow: 0 0 0 2px var(--color-success-tint);
+		transition: background 0.2s ease, box-shadow 0.2s ease;
+	}
+
+	.live-dot::before {
+		content: '';
+		position: absolute;
+		inset: -4px;
+		border-radius: 50%;
+		background:
+			conic-gradient(
+				from -90deg,
+				color-mix(in srgb, var(--updated-pill-color) calc(var(--updated-progress-alpha) * 100%), transparent) 0deg,
+				color-mix(in srgb, var(--updated-pill-color) calc(var(--updated-progress-alpha) * 100%), transparent) var(--updated-progress),
+				transparent var(--updated-progress),
+				transparent 360deg
+			);
+		-webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
+		mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
+		pointer-events: none;
+		transition: background 0.25s linear, opacity 0.25s ease;
 	}
 
 	.live-dot-loading {
 		background: var(--color-warning, var(--color-accent));
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-warning, var(--color-accent)) 22%, transparent);
 		animation: pulse 1s ease-in-out infinite;
 	}
 
@@ -381,16 +577,6 @@
 
 	.muted-inline {
 		color: var(--color-text-muted);
-	}
-
-	.info-link {
-		font-size: 0.8125rem;
-		color: var(--color-accent);
-		text-decoration: none;
-	}
-
-	.info-link:hover {
-		text-decoration: underline;
 	}
 
 	.more-box {
