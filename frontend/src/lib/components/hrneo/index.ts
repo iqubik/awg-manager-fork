@@ -7,4 +7,3 @@ export { default as HrNeoGeoTagPicker } from './HrNeoGeoTagPicker.svelte';
 export { default as HrNeoGeoDataView } from './HrNeoGeoDataView.svelte';
 export { default as HrNeoSettingsView } from './HrNeoSettingsView.svelte';
 export { default as HrNeoDisabledTagsView } from './HrNeoDisabledTagsView.svelte';
-export { default as HrNeoGeoRefreshSettings } from './HrNeoGeoRefreshSettings.svelte';
