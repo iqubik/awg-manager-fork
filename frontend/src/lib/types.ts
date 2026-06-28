@@ -802,10 +802,14 @@ export interface UpdateInfo {
 	available: boolean;
 	currentVersion: string;
 	latestVersion?: string;
+	downloadUrl?: string;
 	checkedAt: string;
 	checking: boolean;
 	error?: string;
 	warning?: string;
+	channel?: 'stable' | 'develop';
+	source?: 'release' | 'entware';
+	sourceUrl?: string;
 }
 
 export interface ChangelogGroup {
