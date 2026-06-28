@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Modal, Button, Toggle } from '$lib/components/ui';
+	import { SideDrawer, Button, Toggle } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { isValidEndpointHost } from '$lib/utils/endpoint';
@@ -156,7 +156,7 @@
 	}
 </script>
 
-<Modal {open} title="Создать WireGuard сервер" size="sm" {onclose} hasUnsavedChanges={() => isDirty}>
+<SideDrawer {open} title="Создать WireGuard сервер" width={420} onClose={onclose} hasUnsavedChanges={() => isDirty}>
 	<div class="form-fields">
 		<div class="wan-info">
 			<span class="wan-label">Внешний IP (WAN)</span>
@@ -253,13 +253,13 @@
 		</div>
 	</div>
 
-	{#snippet actions()}
-		<Button variant="ghost" size="md" onclick={onclose}>Отмена</Button>
+	{#snippet footer()}
+		<Button variant="secondary" size="md" onclick={onclose}>Отмена</Button>
 		<Button variant="primary" size="md" onclick={handleCreate} disabled={!address || !mask} loading={creating}>
 			Создать
 		</Button>
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
 	.form-fields {

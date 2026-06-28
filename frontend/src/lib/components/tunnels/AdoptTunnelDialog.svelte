@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { TriangleAlert, CircleX } from 'lucide-svelte';
-	import { Modal, Button } from '$lib/components/ui';
+	import { SideDrawer, Button } from '$lib/components/ui';
 
 	interface Props {
 		interfaceName: string;
@@ -73,11 +73,11 @@
 	}
 </script>
 
-<Modal
+<SideDrawer
 	{open}
 	title="Взять под управление: {interfaceName}"
-	onclose={handleClose}
-	size="md"
+	onClose={handleClose}
+	width={480}
 >
 	{#if step === 'upload'}
 		<p class="dialog-description">
@@ -118,7 +118,7 @@
 				<p>Для завершения импорта необходимо:</p>
 				<ol>
 					<li>Остановить туннель во внешней программе/скрипте</li>
-					<li>Отключить автозапуск туннеля (cron, init.d, rc.local и т.д.)</li>
+					<li>Отключить автозапуск туннеля (cron, init.d, rc.local и тд.)</li>
 				</ol>
 				<p>После выполнения этих действий нажмите «Продолжить».</p>
 			</div>
@@ -134,7 +134,7 @@
 		</div>
 	{/if}
 
-	{#snippet actions()}
+	{#snippet footer()}
 		{#if step === 'upload'}
 			<Button variant="secondary" onclick={handleClose}>Отмена</Button>
 			<Button variant="primary" onclick={handleNext} disabled={!configContent}>
@@ -149,7 +149,7 @@
 			<Button variant="secondary" onclick={() => step = 'instructions'}>Назад</Button>
 		{/if}
 	{/snippet}
-</Modal>
+</SideDrawer>
 
 <style>
 	.dialog-description {
