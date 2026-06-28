@@ -394,142 +394,124 @@ func TestScheduler_RunOnce_SingboxRowsHaveNoSelfCells(t *testing.T) {
 	}
 }
 
-func TestScheduler_RunProbeCell_SingboxSubscriptionUsesClashDelay(t *testing.T) {
-	clashDelay := &fakeSingboxDelay{delay: 87}
-	httpProber := &fakeProber{ok: true, latency: 14}
-	sched := NewScheduler(SchedulerDeps{
-		Prober:       httpProber,
-		SingboxDelay: clashDelay,
+func TestRunProbeCell_SingboxSubscriptionUsesCachedDelayWithoutActiveProbe(t *testing.T) {
+	active := &fakeSingboxDelayProber{delay: 111}
+
+	s := NewScheduler(SchedulerDeps{
+		SingboxDelay: active,
+		Prober:       &fakeProber{},
 	}, NewHistory(nil))
 
-	target := Target{
-		ID:   "cf-1.1.1.1",
-		Host: "1.1.1.1",
-		URL:  "https://1.1.1.1/",
-	}
-
-	latency, ok := sched.runProbeCell(context.Background(), target, Tunnel{
-		ID:           "sub-member",
+	lat, ok := s.runProbeCell(context.Background(), Target{
+		ID:  "gstatic",
+		URL: "https://www.gstatic.com/generate_204",
+	}, Tunnel{
 		Source:       "singbox",
-		SingboxTag:   "sub-member",
-		ProbeTag:     "sub-iq0-selector",
+		SingboxTag:   "sub-1a656a35",
 		Subscription: true,
-		IfaceName:    "t2s0",
+		ClashDelay:   202,
 	}, false)
-	if !ok || latency != 87 {
-		t.Fatalf("subscription sing-box row must use TestDelay, got latency=%d ok=%v", latency, ok)
-	}
-	if clashDelay.calls.Load() != 1 {
-		t.Fatalf("subscription sing-box row must call TestDelay once, got %d calls", clashDelay.calls.Load())
-	}
-	if httpProber.calls.Load() != 0 {
-		t.Fatalf("subscription sing-box row must not call interface prober, got %d calls", httpProber.calls.Load())
-	}
-	clashDelay.mu.Lock()
-	gotTag := clashDelay.lastTag
-	gotURL := clashDelay.lastURL
-	clashDelay.mu.Unlock()
-	if gotTag != "sub-iq0-selector" {
-		t.Fatalf("subscription sing-box row called TestDelay with tag %q, want sub-iq0-selector", gotTag)
-	}
-	if gotURL != singboxDefaultDelayURL {
-		t.Fatalf("subscription sing-box row called TestDelay with url %q, want %q", gotURL, singboxDefaultDelayURL)
-	}
 
-	latency, ok = sched.runProbeCell(context.Background(), target, Tunnel{
-		ID:           "plain-singbox",
-		Source:       "singbox",
-		SingboxTag:   "plain-singbox",
-		Subscription: false,
-	}, false)
-	if !ok || latency != 87 {
-		t.Fatalf("regular sing-box row should use TestDelay, got latency=%d ok=%v", latency, ok)
+	if !ok || lat != 202 {
+		t.Fatalf("expected cached delay 202/ok, got %d/%v", lat, ok)
 	}
-	if clashDelay.calls.Load() != 2 {
-		t.Fatalf("regular sing-box row should produce 2 total TestDelay calls, got %d calls", clashDelay.calls.Load())
-	}
-	clashDelay.mu.Lock()
-	gotTag = clashDelay.lastTag
-	gotURL = clashDelay.lastURL
-	clashDelay.mu.Unlock()
-	if gotTag != "plain-singbox" {
-		t.Fatalf("regular sing-box row called TestDelay with tag %q, want plain-singbox", gotTag)
-	}
-	if gotURL != "https://1.1.1.1/" {
-		t.Fatalf("regular sing-box row called TestDelay with url %q, want https://1.1.1.1/", gotURL)
+	if active.calls != 0 {
+		t.Fatalf("subscription row must not call active TestDelay, calls=%d", active.calls)
 	}
 }
 
-func TestScheduler_RunProbeCell_SingboxSubscriptionUsesStableDelayURLFallback(t *testing.T) {
-	clashDelay := &fakeSingboxDelay{delay: 87}
-	httpProber := &fakeProber{ok: true, latency: 14}
-	sched := NewScheduler(SchedulerDeps{
-		Prober:       httpProber,
-		SingboxDelay: clashDelay,
+func TestRunProbeCell_SingboxSubscriptionWithoutCachedDelayDoesNotProbe(t *testing.T) {
+	active := &fakeSingboxDelayProber{delay: 111}
+
+	s := NewScheduler(SchedulerDeps{
+		SingboxDelay: active,
+		Prober:       &fakeProber{},
 	}, NewHistory(nil))
 
-	target := Target{
-		ID:   "cf-1.1.1.1",
-		Host: "1.1.1.1",
-	}
-
-	latency, ok := sched.runProbeCell(context.Background(), target, Tunnel{
-		ID:           "sub-member",
+	lat, ok := s.runProbeCell(context.Background(), Target{
+		ID:  "gstatic",
+		URL: "https://www.gstatic.com/generate_204",
+	}, Tunnel{
 		Source:       "singbox",
-		SingboxTag:   "sub-member",
-		ProbeTag:     "sub-iq0-selector",
+		SingboxTag:   "sub-1a656a35",
 		Subscription: true,
 	}, false)
-	if !ok || latency != 87 {
-		t.Fatalf("subscription sing-box row should use stable delay fallback, got latency=%d ok=%v", latency, ok)
+
+	if ok || lat != 0 {
+		t.Fatalf("expected empty cell for subscription without cache, got %d/%v", lat, ok)
 	}
-	if clashDelay.calls.Load() != 1 {
-		t.Fatalf("subscription delay fallback should call TestDelay once, got %d calls", clashDelay.calls.Load())
-	}
-	if httpProber.calls.Load() != 0 {
-		t.Fatalf("subscription delay fallback must not call interface prober, got %d calls", httpProber.calls.Load())
-	}
-	clashDelay.mu.Lock()
-	gotTag := clashDelay.lastTag
-	gotURL := clashDelay.lastURL
-	clashDelay.mu.Unlock()
-	if gotTag != "sub-iq0-selector" {
-		t.Fatalf("subscription delay fallback called TestDelay with tag %q, want sub-iq0-selector", gotTag)
-	}
-	if gotURL != singboxDefaultDelayURL {
-		t.Fatalf("subscription delay fallback called TestDelay with url %q, want %q", gotURL, singboxDefaultDelayURL)
+	if active.calls != 0 {
+		t.Fatalf("subscription row must not call active TestDelay, calls=%d", active.calls)
 	}
 }
 
-func TestScheduler_RunProbeCell_SingboxSubscriptionDelayErrorReturnsNoData(t *testing.T) {
-	clashDelay := &fakeSingboxDelay{err: errFakeDelay}
-	httpProber := &fakeProber{ok: true, latency: 14}
-	sched := NewScheduler(SchedulerDeps{
-		Prober:       httpProber,
-		SingboxDelay: clashDelay,
+func TestRunProbeCell_SingboxStandaloneUsesStableFallbackURL(t *testing.T) {
+	active := &fakeSingboxDelayProber{delay: 209}
+
+	s := NewScheduler(SchedulerDeps{
+		SingboxDelay: active,
+		Prober:       &fakeProber{},
 	}, NewHistory(nil))
 
-	target := Target{
-		ID:   "cf-1.1.1.1",
-		Host: "1.1.1.1",
-		URL:  "https://1.1.1.1/",
-	}
-
-	latency, ok := sched.runProbeCell(context.Background(), target, Tunnel{
-		ID:           "sub-member",
-		Source:       "singbox",
-		SingboxTag:   "sub-member",
-		Subscription: true,
+	lat, ok := s.runProbeCell(context.Background(), Target{
+		ID:   "pc-example",
+		Host: "example.com",
+	}, Tunnel{
+		Source:     "singbox",
+		SingboxTag: "vless-tcp-reality",
 	}, false)
-	if ok || latency != 0 {
-		t.Fatalf("subscription sing-box row should return no data on TestDelay error, got latency=%d ok=%v", latency, ok)
+
+	if !ok || lat != 209 {
+		t.Fatalf("expected active delay 209/ok, got %d/%v", lat, ok)
 	}
-	if clashDelay.calls.Load() != 1 {
-		t.Fatalf("subscription sing-box row should call TestDelay once on error, got %d calls", clashDelay.calls.Load())
+	if active.calls != 1 {
+		t.Fatalf("expected one active delay call, got %d", active.calls)
 	}
-	if httpProber.calls.Load() != 0 {
-		t.Fatalf("subscription sing-box row must not fall back to interface prober on error, got %d calls", httpProber.calls.Load())
+	if active.lastURL != singboxDefaultDelayURL {
+		t.Fatalf("expected fallback URL %q, got %q", singboxDefaultDelayURL, active.lastURL)
 	}
+}
+
+func TestRunProbeCell_SingboxStandaloneStillUsesActiveProbe(t *testing.T) {
+	active := &fakeSingboxDelayProber{delay: 209}
+
+	s := NewScheduler(SchedulerDeps{
+		SingboxDelay: active,
+		Prober:       &fakeProber{},
+	}, NewHistory(nil))
+
+	lat, ok := s.runProbeCell(context.Background(), Target{
+		ID:  "gstatic",
+		URL: "https://www.gstatic.com/generate_204",
+	}, Tunnel{
+		Source:     "singbox",
+		SingboxTag: "vless-tcp-reality",
+	}, false)
+
+	if !ok || lat != 209 {
+		t.Fatalf("expected active delay 209/ok, got %d/%v", lat, ok)
+	}
+	if active.calls != 1 {
+		t.Fatalf("standalone sing-box row must call active TestDelay once, calls=%d", active.calls)
+	}
+}
+
+type fakeSingboxDelayProber struct {
+	delay   int
+	err     error
+	calls   int
+	lastTag string
+	lastURL string
+}
+
+func (f *fakeSingboxDelayProber) TestDelay(outboundTag, testURL string, timeout time.Duration) (int, error) {
+	f.calls++
+	f.lastTag = outboundTag
+	f.lastURL = testURL
+	if f.err != nil {
+		return 0, f.err
+	}
+	return f.delay, nil
 }
 
 func TestScheduler_AugmentSingboxClashData_PopulatesUrltestMembers(t *testing.T) {
