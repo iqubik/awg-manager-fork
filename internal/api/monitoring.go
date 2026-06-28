@@ -65,6 +65,19 @@ type MonitoringSnapshotData struct {
 	UpdatedAt string                `json:"updatedAt" example:"2024-01-15T10:30:00Z"`
 }
 
+// MonitoringSampleDTO mirrors frontend MonitoringSample.
+type MonitoringSampleDTO struct {
+	LatencyMs *int   `json:"latencyMs" swaggertype:"integer" example:"42"`
+	OK        bool   `json:"ok" example:"true"`
+	Ts        string `json:"ts" example:"2024-01-15T10:30:00Z"`
+}
+
+// MonitoringHistoryResponse is the envelope for GET /monitoring/history.
+type MonitoringHistoryResponse struct {
+	Success bool                  `json:"success" example:"true"`
+	Data    []MonitoringSampleDTO `json:"data"`
+}
+
 // MonitoringHandler exposes the monitoring matrix endpoints.
 type MonitoringHandler struct {
 	svc *monitoring.Service

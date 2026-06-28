@@ -5,9 +5,9 @@
 	import BrandLogoMark from './BrandLogoMark.svelte';
 	import NotificationCenter from './NotificationCenter.svelte';
 	import { usageLevel } from '$lib/stores/settings';
+	import { settingsUpdateHighlight } from '$lib/stores/settingsUpdateHighlight';
 	import type { ThemeState } from '$lib/stores/theme';
 	import { isAppearanceSettingsVisible, isSectionVisible, type Section } from '$lib/types/usageLevel';
-	import { handleVersionBadgeClick } from '$lib/utils/versionBadgeEasterEgg';
 	import { Sun, Moon, Heart, LogOut, X, Menu, Terminal, ChevronRight } from 'lucide-svelte';
 
 	type NavItem = {
@@ -62,9 +62,10 @@
 		hasUpdate?: boolean;
 		isPreRelease?: boolean;
 		mobileMenuOpen?: boolean;
+		showDonateButton?: boolean;
 		onToggleThemeMode: () => void;
 		onLogout: () => void;
-		onOpenDonate: () => void;
+		onOpenDonate?: () => void;
 	}
 
 	let {
@@ -90,6 +91,7 @@
 		hasUpdate = false,
 		isPreRelease = false,
 		mobileMenuOpen = $bindable(false),
+		showDonateButton = true,
 		onToggleThemeMode,
 		onLogout,
 		onOpenDonate,
@@ -133,18 +135,17 @@
 	const themeDisplayMode = $derived(theme.preset === 'neo' ? theme.legacyMode : theme.mode);
 
 	const onSettingsPage = $derived($page.url.pathname.startsWith('/settings'));
-	const versionClickableOnSettings = $derived(
-		onSettingsPage && ($usageLevel === 'expert' || hasUpdate),
-	);
+	const versionClickableOnSettings = $derived(onSettingsPage && hasUpdate);
 
 	function onVersionBadgeClick(event: MouseEvent) {
-		if (!onSettingsPage) return;
+		if (!onSettingsPage || !hasUpdate) return;
 		event.preventDefault();
-		handleVersionBadgeClick({
-			usageLevel: $usageLevel,
-			hasUpdate,
-			onSettingsPage: true,
-		});
+		settingsUpdateHighlight.pulse();
+		if (typeof window !== 'undefined') {
+			window.requestAnimationFrame(() => {
+				document.getElementById('awgm-update')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			});
+		}
 	}
 
 	const themeButtonLabel = $derived.by(() => {
@@ -243,7 +244,7 @@
 				</IconButton>
 			{/if}
 
-			{#if authenticated}
+			{#if authenticated && showDonateButton && onOpenDonate}
 				<IconButton variant="warm" ariaLabel="Поддержать проект" onclick={onOpenDonate}>
 					<Heart size={16} aria-hidden="true" />
 				</IconButton>
