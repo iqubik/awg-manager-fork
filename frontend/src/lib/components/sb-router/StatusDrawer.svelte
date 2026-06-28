@@ -536,7 +536,7 @@
         <Button variant={tproxyOn ? 'danger' : 'primary'} size="sm" fullWidth disabled={switchBusy} onclick={handleToggleClick}>
           {tproxyOn ? 'Выключить' : 'Включить'}
         </Button>
-        <Button variant="ghost" size="sm" fullWidth onclick={restartEngine}>Перезапустить</Button>
+        <Button variant="danger" size="sm" fullWidth onclick={restartEngine}>Перезапустить</Button>
       </div>
       {#if isExpert}
         <span class="save-status" class:err={lastError}>

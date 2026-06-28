@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { Button, SegmentedControl, Toggle } from '$lib/components/ui';
 	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
 	import { compactLayout } from '$lib/stores/compactLayout';
@@ -19,9 +20,10 @@
 		type ThemeModePreference,
 		type ThemePreset,
 	} from '$lib/stores/theme';
-	import { Palette, ChevronDown, Check } from 'lucide-svelte';
+	import { Palette, Check } from 'lucide-svelte';
 
 	const PRESET_ORDER: ThemePreset[] = ['legacy', 'neo', 'mint', 'custom'];
+	const APPEARANCE_EXPANDED_KEY = 'awgm_settings_appearance_expanded_v1';
 	const LEGACY_MODE_OPTIONS: Array<{ value: ThemeModePreference; label: string }> = [
 		{ value: 'system', label: 'Системная' },
 		{ value: 'dark', label: 'Тёмная' },
@@ -34,12 +36,14 @@
 	];
 
 	const ICON_MODE_OPTIONS: Array<{ value: SettingsSectionIconMode; label: string }> = [
+		{ value: 'none', label: SETTINGS_SECTION_ICON_MODE_LABELS.none },
 		{ value: 'strict', label: SETTINGS_SECTION_ICON_MODE_LABELS.strict },
 		{ value: 'harmonious', label: SETTINGS_SECTION_ICON_MODE_LABELS.harmonious },
 		{ value: 'vivid', label: SETTINGS_SECTION_ICON_MODE_LABELS.vivid },
 	];
 
-	let expanded = $state(false);
+	let appearanceExpanded = $state(true);
+	let schemeExpanded = $state(false);
 	const compactForced = $derived($usageLevel === 'basic');
 	const dashboardRowVisible = $derived(isTunnelDashboardAvailable($usageLevel));
 	const compactChecked = $derived(compactForced || $compactLayout);
@@ -65,198 +69,255 @@
 	function updateCustomColor(key: keyof ThemeCustomPalette, value: string): void {
 		theme.updateCustom({ [key]: value });
 	}
+
+	if (browser) {
+		const saved = localStorage.getItem(APPEARANCE_EXPANDED_KEY);
+		if (saved !== null) {
+			appearanceExpanded = saved === '1';
+		}
+	}
+
+	$effect(() => {
+		if (!browser) return;
+		localStorage.setItem(APPEARANCE_EXPANDED_KEY, appearanceExpanded ? '1' : '0');
+	});
 </script>
 
 <div class="settings-block">
 	<div class="card">
-	<SettingsSectionLabel label="Внешний вид" icon={Palette} tone="pink" header />
-	<div class="setting-row">
 		<button
 			type="button"
-			class="collapsible-header scheme-toggle"
-			aria-expanded={expanded}
-			aria-controls="theme-scheme-body"
-			onclick={() => (expanded = !expanded)}
+			class="settings-card-toggle"
+			aria-expanded={appearanceExpanded}
+			aria-controls="appearance-card-body"
+			onclick={() => (appearanceExpanded = !appearanceExpanded)}
 		>
-			<div class="flex flex-col gap-1">
-				<span class="font-medium">Цветовая схема</span>
-				<span class="setting-description">
-					Применяется сразу и сохраняется локально в этом браузере.
-				</span>
-			</div>
-			<span class="header-meta">
-				<span class="current-theme">{currentThemeLabel}</span>
-				<span class="chevron" class:open={expanded} aria-hidden="true"><ChevronDown size={14} strokeWidth={2} /></span>
+			<span class="settings-card-toggle-label">
+				<SettingsSectionLabel label="Внешний вид" icon={Palette} tone="pink" inline />
+			</span>
+			<span class="settings-card-toggle-meta">
+				<span class="settings-card-meta-text current-theme">{currentThemeLabel}</span>
+				<svg
+					class="settings-card-chevron"
+					class:open={appearanceExpanded}
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<polyline points="6 9 12 15 18 9" />
+				</svg>
 			</span>
 		</button>
-	</div>
 
-	{#if expanded}
-		<div id="theme-scheme-body" class="collapsible-body">
-			<div class="theme-grid" role="radiogroup" aria-label="Цветовая схема">
-				{#each PRESET_ORDER as preset (preset)}
-					{@const selected = $theme.preset === preset}
-					{@const meta = THEME_PRESETS[preset]}
+		{#if appearanceExpanded}
+			<div id="appearance-card-body" class="appearance-body">
+				<div class="setting-row">
 					<button
 						type="button"
-						role="radio"
-						aria-checked={selected}
-						class="theme-card"
-						class:selected
-						onclick={() => theme.setPreset(preset)}
+						class="collapsible-header scheme-toggle"
+						aria-expanded={schemeExpanded}
+						aria-controls="theme-scheme-body"
+						onclick={() => (schemeExpanded = !schemeExpanded)}
 					>
-						<div class="theme-card-head">
-							<div class="theme-copy">
-								<div class="theme-title">{meta.label}</div>
-								<div class="theme-summary">{meta.summary}</div>
-							</div>
-							{#if selected}
-								<span class="theme-check" aria-hidden="true">
-									<Check size={14} strokeWidth={3} />
-								</span>
-							{/if}
+						<div class="flex flex-col gap-1">
+							<span class="font-medium">Цветовая схема</span>
+							<span class="setting-description">
+								Применяется сразу и сохраняется локально в этом браузере.
+							</span>
 						</div>
-
-						<div class="theme-preview" style={previewStyleFor(preset)}>
-							<div class="preview-header">
-								<span class="preview-brand"></span>
-								<span class="preview-chip"></span>
-							</div>
-							<div class="preview-hero">
-								<span class="preview-line wide"></span>
-								<span class="preview-line medium"></span>
-							</div>
-							<div class="preview-metrics">
-								<span class="preview-pill accent"></span>
-								<span class="preview-pill"></span>
-								<span class="preview-pill"></span>
-							</div>
-							<div class="preview-grid">
-								<span class="preview-panel"></span>
-								<span class="preview-panel"></span>
-								<span class="preview-panel tall"></span>
-							</div>
-						</div>
-
+						<span class="header-meta">
+							<span class="current-theme">{currentThemeLabel}</span>
+							<svg
+								class="chevron"
+								class:open={schemeExpanded}
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								aria-hidden="true"
+							>
+								<polyline points="6 9 12 15 18 9" />
+							</svg>
+						</span>
 					</button>
-				{/each}
-			</div>
+				</div>
 
-			{#if $theme.supportsModeToggle}
-				<div class="detail-block">
-					<div class="detail-title">Режим {THEME_PRESETS[$theme.preset].label}</div>
+				{#if schemeExpanded}
+					<div id="theme-scheme-body" class="collapsible-body">
+						<div class="theme-grid" role="radiogroup" aria-label="Цветовая схема">
+							{#each PRESET_ORDER as preset (preset)}
+								{@const selected = $theme.preset === preset}
+								{@const meta = THEME_PRESETS[preset]}
+								<button
+									type="button"
+									role="radio"
+									aria-checked={selected}
+									class="theme-card"
+									class:selected
+									onclick={() => theme.setPreset(preset)}
+								>
+									<div class="theme-card-head">
+										<div class="theme-copy">
+											<div class="theme-title">{meta.label}</div>
+											<div class="theme-summary">{meta.summary}</div>
+										</div>
+										{#if selected}
+											<span class="theme-check" aria-hidden="true">
+												<Check size={14} strokeWidth={3} />
+											</span>
+										{/if}
+									</div>
+
+									<div class="theme-preview" style={previewStyleFor(preset)}>
+										<div class="preview-header">
+											<span class="preview-brand"></span>
+											<span class="preview-chip"></span>
+										</div>
+										<div class="preview-hero">
+											<span class="preview-line wide"></span>
+											<span class="preview-line medium"></span>
+										</div>
+										<div class="preview-metrics">
+											<span class="preview-pill accent"></span>
+											<span class="preview-pill"></span>
+											<span class="preview-pill"></span>
+										</div>
+										<div class="preview-grid">
+											<span class="preview-panel"></span>
+											<span class="preview-panel"></span>
+											<span class="preview-panel tall"></span>
+										</div>
+									</div>
+								</button>
+							{/each}
+						</div>
+
+						{#if $theme.supportsModeToggle}
+							<div class="detail-block">
+								<div class="detail-title">Режим {THEME_PRESETS[$theme.preset].label}</div>
+								<SegmentedControl
+									value={$theme.modePreference}
+									options={LEGACY_MODE_OPTIONS}
+									ariaLabel={`Режим темы ${THEME_PRESETS[$theme.preset].label}`}
+									onchange={(mode) => theme.setMode(mode)}
+								/>
+							</div>
+						{/if}
+
+						{#if $theme.preset === 'custom'}
+							<div class="detail-block custom-block">
+								<div class="custom-header">
+									<div>
+										<div class="detail-title">Пользовательская схема</div>
+										<p class="custom-hint">
+											Подберите три базовых цвета, а карточки, границы и вторичный текст мы
+											достроим автоматически.
+										</p>
+									</div>
+									<Button variant="ghost" size="sm" onclick={() => theme.resetCustom()}>
+										Сбросить
+									</Button>
+								</div>
+
+								<div class="custom-grid">
+									{#each CUSTOM_FIELDS as field (field.key)}
+										<label class="color-card">
+											<span class="color-label">{field.label}</span>
+											<span class="color-hint">{field.hint}</span>
+											<div class="color-row">
+												<input
+													class="color-input"
+													type="color"
+													value={$theme.custom[field.key]}
+													oninput={(event) =>
+														updateCustomColor(
+															field.key,
+															(event.currentTarget as HTMLInputElement).value,
+														)}
+												/>
+												<code class="color-code">{$theme.custom[field.key]}</code>
+											</div>
+										</label>
+									{/each}
+								</div>
+
+								<div class="auto-mode-note">
+									Авто-режим: {$theme.mode === 'light' ? 'светлая схема' : 'тёмная схема'} по
+									цвету фона.
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
+				<div class="setting-row icon-mode-row">
+					<div class="flex flex-col gap-1">
+						<span class="font-medium">Окраска иконок</span>
+						<span class="setting-description">
+							Заголовки настроек, политики доступа, VPN для устройств и глобус-заглушка в
+							списках маршрутизации.
+						</span>
+					</div>
 					<SegmentedControl
-						value={$theme.modePreference}
-						options={LEGACY_MODE_OPTIONS}
-						ariaLabel={`Режим темы ${THEME_PRESETS[$theme.preset].label}`}
-						onchange={(mode) => theme.setMode(mode)}
+						value={$settingsSectionIconMode}
+						options={ICON_MODE_OPTIONS}
+						ariaLabel="Окраска иконок"
+						onchange={(mode) => settingsSectionIconMode.setMode(mode)}
 					/>
 				</div>
-			{/if}
 
-			{#if $theme.preset === 'custom'}
-				<div class="detail-block custom-block">
-					<div class="custom-header">
-						<div>
-							<div class="detail-title">Пользовательская схема</div>
-							<p class="custom-hint">
-								Подберите три базовых цвета, а карточки, границы и вторичный текст мы
-								достроим автоматически.
-							</p>
-						</div>
-						<Button variant="ghost" size="sm" onclick={() => theme.resetCustom()}>
-							Сбросить
-						</Button>
+				<div class="setting-row compact-layout-row">
+					<div class="flex flex-col gap-1">
+						<span class="font-medium">Компактный режим</span>
+						<span class="setting-description">
+							{#if compactForced}
+								В базовом режиме всегда включена: колонка 960px и меньшие боковые отступы.
+							{:else}
+								Сужает интерфейс с краев, как в версии 2.8.2, фокусируя внимание на центре
+								экрана (автоматически включается в базовом режиме).
+							{/if}
+						</span>
 					</div>
-
-					<div class="custom-grid">
-						{#each CUSTOM_FIELDS as field (field.key)}
-							<label class="color-card">
-								<span class="color-label">{field.label}</span>
-								<span class="color-hint">{field.hint}</span>
-								<div class="color-row">
-									<input
-										class="color-input"
-										type="color"
-										value={$theme.custom[field.key]}
-										oninput={(event) =>
-											updateCustomColor(
-												field.key,
-												(event.currentTarget as HTMLInputElement).value,
-											)}
-									/>
-									<code class="color-code">{$theme.custom[field.key]}</code>
-								</div>
-							</label>
-						{/each}
-					</div>
-
-					<div class="auto-mode-note">
-						Авто-режим: {$theme.mode === 'light' ? 'светлая схема' : 'тёмная схема'} по
-						цвету фона.
-					</div>
+					<Toggle
+						checked={compactChecked}
+						disabled={compactForced}
+						onchange={(enabled) => compactLayout.setEnabled(enabled)}
+					/>
 				</div>
-			{/if}
-		</div>
-	{/if}
 
-	<div class="setting-row icon-mode-row">
-		<div class="flex flex-col gap-1">
-			<span class="font-medium">Окраска иконок</span>
-			<span class="setting-description">
-				Заголовки настроек, политики доступа, VPN для устройств и глобус-заглушка в списках маршрутизации.
-			</span>
-		</div>
-		<SegmentedControl
-			value={$settingsSectionIconMode}
-			options={ICON_MODE_OPTIONS}
-			ariaLabel="Окраска иконок"
-			onchange={(mode) => settingsSectionIconMode.setMode(mode)}
-		/>
-	</div>
-	<div class="setting-row compact-layout-row">
-		<div class="flex flex-col gap-1">
-			<span class="font-medium">Компактный режим</span>
-			<span class="setting-description">
-				{#if compactForced}
-					В базовом режиме всегда включена: колонка 960px и меньшие боковые отступы.
-				{:else}
-					Сужает интерфейс с краев, как в версии 2.8.2, фокусируя внимание на центре экрана (автоматически включается в базовом режиме).
+				{#if dashboardRowVisible}
+					<div class="setting-row dashboard-mode-row">
+						<div class="flex flex-col gap-1">
+							<span class="font-medium">Режим дашборда</span>
+							<span class="setting-description">
+								Объединяет AWG, Sing-box и подписки на одной странице с общей панелью поиска и
+								создания.
+							</span>
+						</div>
+						<Toggle
+							checked={$tunnelDashboardMode}
+							onchange={(enabled) => tunnelDashboardMode.setEnabled(enabled)}
+						/>
+					</div>
 				{/if}
-			</span>
-		</div>
-		<Toggle
-			checked={compactChecked}
-			disabled={compactForced}
-			onchange={(enabled) => compactLayout.setEnabled(enabled)}
-		/>
-	</div>
-	{#if dashboardRowVisible}
-	<div class="setting-row dashboard-mode-row">
-		<div class="flex flex-col gap-1">
-			<span class="font-medium">Режим дашборда</span>
-			<span class="setting-description">
-				Объединяет AWG, Sing-box и подписки на одной странице с общей панелью поиска и создания.
-			</span>
-		</div>
-		<Toggle
-			checked={$tunnelDashboardMode}
-			onchange={(enabled) => tunnelDashboardMode.setEnabled(enabled)}
-		/>
-	</div>
-	{/if}
-	<div class="setting-row letter-icons-row">
-		<div class="flex flex-col gap-1">
-			<span class="font-medium">Буквенные иконки</span>
-			<span class="setting-description">
-				Цветная плитка с первой буквой названия для списков маршрутизации (если не был найден логотип). 
-			</span>
-		</div>
-		<Toggle
-			checked={$serviceLetterIcons}
-			onchange={(enabled) => serviceLetterIcons.setEnabled(enabled)}
-		/>
-	</div>
+
+				<div class="setting-row letter-icons-row">
+					<div class="flex flex-col gap-1">
+						<span class="font-medium">Буквенные иконки</span>
+						<span class="setting-description">
+							Цветная плитка с первой буквой названия для списков маршрутизации (если не был
+							найден логотип).
+						</span>
+					</div>
+					<Toggle
+						checked={$serviceLetterIcons}
+						onchange={(enabled) => serviceLetterIcons.setEnabled(enabled)}
+					/>
+				</div>
+			</div>
+		{/if}
 	</div>
 </div>
 
@@ -267,7 +328,90 @@
 		align-items: center;
 	}
 
+	.settings-card-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		min-width: 0;
+		gap: 0.875rem;
+		padding: 0 0 0.625rem;
+		border: 0;
+		border-bottom: 1px solid var(--color-border);
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.settings-card-toggle-label {
+		min-width: 0;
+		flex: 1 1 auto;
+	}
+
+	.settings-card-toggle-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.625rem;
+		min-width: 0;
+		max-width: min(42vw, 18rem);
+		color: var(--color-text-secondary);
+		flex: 0 0 auto;
+	}
+
+	.settings-card-meta-text {
+		max-width: 12rem;
+		font-size: 0.75rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.settings-card-chevron {
+		width: 1rem;
+		height: 1rem;
+		flex-shrink: 0;
+		transition: transform var(--t-normal) ease;
+	}
+
+	.settings-card-chevron.open {
+		transform: rotate(180deg);
+	}
+
+	.appearance-body {
+		display: flex;
+		flex-direction: column;
+		padding-top: 0.75rem;
+	}
+
+	.icon-mode-row {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.75rem;
+	}
+
+	.icon-mode-row :global(.segmented-control) {
+		display: flex;
+		width: 100%;
+		max-width: none;
+	}
+
+	.icon-mode-row :global(.segmented-control-btn) {
+		flex: 1 1 0;
+		min-width: 0;
+		padding-inline: 0.5rem;
+	}
+
 	@media (max-width: 640px) {
+		.settings-card-toggle {
+			align-items: flex-start;
+		}
+
+		.settings-card-toggle-meta {
+			max-width: min(50vw, 11rem);
+		}
+
 		.compact-layout-row,
 		.dashboard-mode-row,
 		.letter-icons-row {
@@ -316,6 +460,7 @@
 		flex: 1 1 auto;
 	}
 
+	.settings-card-toggle:focus-visible,
 	.collapsible-header:focus-visible {
 		outline: 2px solid var(--color-accent);
 		outline-offset: 2px;
@@ -331,7 +476,6 @@
 	}
 
 	.current-theme {
-		color: var(--color-text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -361,7 +505,6 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
 		gap: 0.75rem;
-		/* width: min(100%, var(--theme-grid-max)); */
 		max-width: 100%;
 		margin-inline-start: 0;
 		margin-inline-end: auto;
@@ -435,7 +578,6 @@
 		color: var(--color-accent);
 		flex-shrink: 0;
 	}
-
 
 	.theme-preview {
 		background: var(--color-bg-primary);
@@ -630,7 +772,6 @@
 	}
 
 	@media (max-width: 980px) {
-		/* Узкая колонка настроек: компактное превью, прижато влево */
 		.theme-preview {
 			width: 100%;
 			max-width: 15rem;
