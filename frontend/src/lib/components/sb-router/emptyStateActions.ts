@@ -2,8 +2,8 @@ import { api } from '$lib/api/client';
 import { singboxRouter } from '$lib/stores/singboxRouter';
 import type { SingboxRouterDNSServer, SingboxRouterRule, SingboxRouterDNSRule } from '$lib/types';
 import type { CustomMatcherFields } from './addWizardStore';
+import type { WizardSubmitResult } from './addWizardActions';
 import type { TemplateGroup } from './templatesData';
-import type { SubmitResult } from './templatesActions';
 import { submitWizard } from './addWizardActions';
 import { mergeAndSaveSettings } from './settingsActions';
 
@@ -15,7 +15,7 @@ export interface FinishSetupArgs {
   existingRuleSetTags: string[];
 }
 
-export async function finishSetup(args: FinishSetupArgs): Promise<SubmitResult> {
+export async function finishSetup(args: FinishSetupArgs): Promise<WizardSubmitResult> {
   const result = await submitWizard({
     selectedTemplates: args.selectedTemplates,
     customFields: args.customFields,
@@ -26,7 +26,7 @@ export async function finishSetup(args: FinishSetupArgs): Promise<SubmitResult> 
     existingOutbounds: [],
   });
   try {
-    await ensureTunnelDnsInfra(args.tunnelTag);
+    await ensureTunnelDnsInfra(result.resolvedOutboundTag || args.tunnelTag);
     await syncTunnelDnsRule();
   } catch (e) {
     result.failures.push({ id: 'dns', error: e instanceof Error ? e.message : String(e) });

@@ -11,6 +11,13 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 )
 
+func withTestSubscriptionListenPortAvailability(t *testing.T, fn func(int) bool) {
+	t.Helper()
+	prev := subscriptionListenPortAvailable
+	subscriptionListenPortAvailable = fn
+	t.Cleanup(func() { subscriptionListenPortAvailable = prev })
+}
+
 // raceMutator models the REAL adapter's scan-without-reserve allocation:
 // AllocListenPort returns the lowest port not yet committed via AddInbound.
 // Two Creates that interleave between allocate and commit would otherwise both
@@ -122,6 +129,27 @@ func TestIssue287_AddInbound_RejectsDuplicateListenPort(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("want exactly 1 inbound on port 11000, got %d", count)
+	}
+}
+
+func TestOperatorAdapter_AllocListenPort_SkipsOccupiedLocalPort(t *testing.T) {
+	withTestSubscriptionListenPortAvailability(t, func(port int) bool {
+		return port != subscriptionPortBase
+	})
+
+	dir := t.TempDir()
+	orch := orchestrator.New(dir, nil)
+	if err := orch.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	a := NewOperatorAdapter(orch, nil, nil)
+
+	got, err := a.AllocListenPort()
+	if err != nil {
+		t.Fatalf("AllocListenPort: %v", err)
+	}
+	if got != subscriptionPortBase+1 {
+		t.Fatalf("AllocListenPort = %d, want %d", got, subscriptionPortBase+1)
 	}
 }
 
