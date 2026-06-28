@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { SideDrawer, Button, Dropdown } from '$lib/components/ui';
+	import { Modal, Button, Dropdown } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { singboxStatus, singboxTunnels } from '$lib/stores/singbox';
 	import { subscriptionsStore } from '$lib/stores/subscriptions';
@@ -290,7 +290,7 @@
 	}
 </script>
 
-<SideDrawer {open} title={titleByKind[kind]} width={640} onClose={close} hasUnsavedChanges={() => isDirty}>
+<Modal {open} title={titleByKind[kind]} size="lg" onclose={close} hasUnsavedChanges={() => isDirty}>
 	{#if kind === 'choose'}
 		<p class="lead">Что добавить?</p>
 		<div class="kind-grid">
@@ -509,13 +509,13 @@
 		</form>
 	{/if}
 
-	{#snippet footer()}
+	{#snippet actions()}
 		{#if kind === 'url' && urlStep === 'preview'}
 			<Button variant="secondary" onclick={() => (urlStep = 'form')} disabled={submitting}>← Назад</Button>
 		{:else if kind !== 'choose'}
 			<Button variant="secondary" onclick={backToChoose} disabled={submitting}>← Назад</Button>
 		{/if}
-		<Button variant="secondary" onclick={close} disabled={submitting}>Отмена</Button>
+	<Button variant="secondary" onclick={close} disabled={submitting}>Отмена</Button>
 		{#if kind === 'single'}
 			<Button
 				variant="primary"
@@ -556,7 +556,7 @@
 			</Button>
 		{/if}
 	{/snippet}
-</SideDrawer>
+</Modal>
 
 <style>
 	.lead { color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5; margin: 0 0 0.8rem; }

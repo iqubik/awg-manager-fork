@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ManagedServer } from '$lib/types';
-	import { SideDrawer, FormToggle, Button } from '$lib/components/ui';
+	import { Modal, FormToggle, Button } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 
@@ -79,7 +79,7 @@
 	}
 </script>
 
-<SideDrawer {open} title="Добавить клиента" width={420} onClose={onclose} hasUnsavedChanges={() => isDirty}>
+<Modal {open} title="Добавить клиента" size="sm" {onclose} hasUnsavedChanges={() => isDirty}>
 	<div class="form-fields">
 		<div class="form-group">
 			<label class="label" for="amp-desc">Имя / описание</label>
@@ -103,13 +103,13 @@
 		</div>
 	</div>
 
-	{#snippet footer()}
+	{#snippet actions()}
 		<Button variant="secondary" size="md" onclick={onclose}>Отмена</Button>
 		<Button variant="primary" size="md" onclick={handleAdd} disabled={!tunnelIP} loading={adding}>
 			Добавить
 		</Button>
 	{/snippet}
-</SideDrawer>
+</Modal>
 
 <style>
 	.form-fields {
