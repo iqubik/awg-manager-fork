@@ -22,18 +22,19 @@ type Settings struct {
 	// (/opt/etc/shadow) verified locally, without the NDMS /auth call
 	// that generates router-side notifications. When the local check
 	// fails for any reason, login falls back to the Keenetic path.
-	EntwareAuthEnabled   bool              `json:"entwareAuthEnabled"`
-	Server               ServerSettings    `json:"server"`
-	PingCheck            PingCheckSettings `json:"pingCheck"`
-	Logging              LoggingSettings   `json:"logging"`
-	DisableMemorySaving  bool              `json:"disableMemorySaving"` // false = auto, true = soft mode
-	Updates              UpdateSettings    `json:"updates"`
-	Download             DownloadSettings  `json:"download"`
-	DNSRoute             DNSRouteSettings  `json:"dnsRoute"`
-	GeoFile              GeoFileSettings   `json:"geoFile"`
-	ConnectivityCheckURL string            `json:"connectivityCheckUrl"`
-	UsageLevel           string            `json:"usageLevel"`
-	ServerInterfaces     []string          `json:"serverInterfaces,omitempty"`
+	EntwareAuthEnabled   bool               `json:"entwareAuthEnabled"`
+	Server               ServerSettings     `json:"server"`
+	PingCheck            PingCheckSettings  `json:"pingCheck"`
+	Logging              LoggingSettings    `json:"logging"`
+	DisableMemorySaving  bool               `json:"disableMemorySaving"` // false = auto, true = soft mode
+	Updates              UpdateSettings     `json:"updates"`
+	Download             DownloadSettings   `json:"download"`
+	DNSRoute             DNSRouteSettings   `json:"dnsRoute"`
+	GeoFile              GeoFileSettings    `json:"geoFile"`
+	Monitoring           MonitoringSettings `json:"monitoring"`
+	ConnectivityCheckURL string             `json:"connectivityCheckUrl"`
+	UsageLevel           string             `json:"usageLevel"`
+	ServerInterfaces     []string           `json:"serverInterfaces,omitempty"`
 	// ServerInterfaceMeta stores AWG Manager bookkeeping for built-in/marked
 	// servers (NAT static-WAN for internet-only teardown). map[serverID].
 	ServerInterfaceMeta map[string]ServerInterfaceMeta `json:"serverInterfaceMeta,omitempty"`

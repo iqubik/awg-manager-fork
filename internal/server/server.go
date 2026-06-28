@@ -815,6 +815,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// Monitoring matrix (protected)
 	monitoringHandler := api.NewMonitoringHandler(s.monitoringService)
 	mux.HandleFunc("/api/monitoring/matrix", guarded(monitoringHandler.GetMatrix))
+	mux.HandleFunc("/api/monitoring/history", guarded(monitoringHandler.GetHistory))
 
 	// Per-tunnel NDMS ping-check (nativewg)
 	mux.HandleFunc("/api/tunnels/pingcheck", guarded(func(w http.ResponseWriter, r *http.Request) {
