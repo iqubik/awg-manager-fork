@@ -65,6 +65,7 @@ type SingboxTunnelLister interface {
 // sing-box outbound to render a matrix row.
 type SingboxTunnelInfo struct {
 	Tag           string // sing-box outbound tag, e.g. "veesp"
+	ProbeTag      string // preferred Clash-delay probe tag (selector/urltest for subscriptions)
 	Name          string // human-readable name (often equals Tag)
 	InterfaceName string // kernel iface, e.g. "t2s0"
 	Subscription  bool
@@ -72,6 +73,8 @@ type SingboxTunnelInfo struct {
 	Security      string
 	Transport     string
 }
+
+const singboxDefaultDelayURL = "http://www.gstatic.com/generate_204"
 
 // CompositeOutboundLister exposes the router's composite outbound
 // list so the scheduler can identify which sing-box tunnels are
@@ -127,7 +130,6 @@ type SchedulerDeps struct {
 // Scheduler runs ICMP probes through running tunnels on a fixed interval.
 type Scheduler struct {
 	deps         SchedulerDeps
-	interval     time.Duration
 	probeTimeout time.Duration
 	workerLimit  int
 	history      *History
@@ -135,6 +137,7 @@ type Scheduler struct {
 	mu       sync.RWMutex
 	lastSnap Snapshot
 	stopCh   chan struct{}
+	resetCh  chan struct{}
 	stopOnce sync.Once
 }
 
@@ -143,11 +146,11 @@ type Scheduler struct {
 func NewScheduler(deps SchedulerDeps, history *History) *Scheduler {
 	return &Scheduler{
 		deps:         deps,
-		interval:     60 * time.Second,
 		probeTimeout: 5 * time.Second,
 		workerLimit:  10,
 		history:      history,
 		stopCh:       make(chan struct{}),
+		resetCh:      make(chan struct{}, 1),
 	}
 }
 
@@ -206,20 +209,52 @@ func (s *Scheduler) LatestSnapshot() Snapshot {
 // History exposes the underlying history buffer (used by API handler).
 func (s *Scheduler) History() *History { return s.history }
 
+// NotifySettingsChanged wakes the scheduler loop so it recomputes
+// currentInterval() immediately instead of sleeping until the old timer fires.
+func (s *Scheduler) NotifySettingsChanged() {
+	select {
+	case s.resetCh <- struct{}{}:
+	default:
+	}
+}
+
+// stopTimer drains timer.C if the timer already fired, so the caller
+// can safely reuse or discard the timer without blocking.
+func stopTimer(timer *time.Timer) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+}
+
 func (s *Scheduler) loop(ctx context.Context) {
 	s.RunOnce(ctx)
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
+	timer := time.NewTimer(s.currentInterval())
 	for {
 		select {
-		case <-ticker.C:
+		case <-timer.C:
 			s.RunOnce(ctx)
+			timer.Reset(s.currentInterval())
+		case <-s.resetCh:
+			stopTimer(timer)
+			timer.Reset(s.currentInterval())
 		case <-s.stopCh:
+			stopTimer(timer)
 			return
 		case <-ctx.Done():
+			stopTimer(timer)
 			return
 		}
 	}
+}
+
+func (s *Scheduler) currentInterval() time.Duration {
+	if s.deps.SettingsStore == nil {
+		return DefaultMonitoringSampleInterval
+	}
+	return monitoringSampleInterval(s.deps.SettingsStore)
 }
 
 // RunOnceForced invalidates the Clash cache (if wired) and runs a
@@ -260,11 +295,6 @@ func (s *Scheduler) RunOnce(ctx context.Context) {
 	for _, target := range targets {
 		for _, tun := range tunnels {
 			isSelf := tun.SelfTarget != "" && tun.SelfTarget == target.Host
-			// Cross-target probing was removed with the matrix UI; probe
-			// only each tunnel's own self-cell.
-			if !isSelf {
-				continue
-			}
 			// Skip cells the user explicitly disabled (handshake/disabled
 			// methods don't probe a host) — those tunnels still get base-
 			// target rows for visibility.
@@ -366,25 +396,47 @@ func (s *Scheduler) proberFor(tun Tunnel, isSelf bool) Prober {
 	return s.deps.Prober
 }
 
+func singboxDelayURL(t Target) string {
+	probeURL := strings.TrimSpace(t.URL)
+	if probeURL != "" {
+		return probeURL
+	}
+	return singboxDefaultDelayURL
+}
+
 // runProbeCell measures latency for one (target × tunnel) cell.
-// Sing-box tunnels go through the Clash API delay endpoint when wired —
-// honest end-to-end through the proxy outbound. Everything else uses the
-// interface-bound Prober.
+// Subscription sing-box rows use cached ClashDelay; non-subscription
+// sing-box rows go through the Clash API delay endpoint when wired.
+// Everything else uses the interface-bound Prober.
 func (s *Scheduler) runProbeCell(ctx context.Context, t Target, tn Tunnel, isSelf bool) (int, bool) {
-	if tn.Source == "singbox" && s.deps.SingboxDelay != nil && tn.SingboxTag != "" {
-		probeURL := t.URL
-		if probeURL == "" && t.Host != "" {
-			probeURL = "https://" + t.Host + "/"
+	if tn.Source == "singbox" && tn.Subscription {
+		if tn.ClashDelay > 0 {
+			return tn.ClashDelay, true
 		}
+		return 0, false
+	}
+
+	if tn.Source == "singbox" && s.deps.SingboxDelay != nil && tn.SingboxTag != "" {
+		probeTag := strings.TrimSpace(tn.ProbeTag)
+		if probeTag == "" {
+			probeTag = strings.TrimSpace(tn.SingboxTag)
+		}
+		if probeTag == "" {
+			return 0, false
+		}
+
+		probeURL := singboxDelayURL(t)
 		if probeURL == "" {
 			return 0, false
 		}
-		d, err := s.deps.SingboxDelay.TestDelay(tn.SingboxTag, probeURL, s.probeTimeout)
+
+		d, err := s.deps.SingboxDelay.TestDelay(probeTag, probeURL, s.probeTimeout)
 		if err != nil || d <= 0 {
 			return 0, false
 		}
 		return d, true
 	}
+
 	return s.proberFor(tn, isSelf).Probe(ctx, t.Host, tn.IfaceName, s.probeTimeout)
 }
 
@@ -515,20 +567,24 @@ func (s *Scheduler) collectTunnels(ctx context.Context) []Tunnel {
 				if sbt.InterfaceName != "" && seenIface[sbt.InterfaceName] {
 					continue
 				}
+				clashDelay := 0
+				if sbt.Subscription && s.deps.ClashState != nil {
+					if d, ok := s.deps.ClashState.LatencyForOutbound(ctx, sbt.Tag); ok && d > 0 {
+						clashDelay = d
+					}
+				}
 				out = append(out, Tunnel{
-					ID:        sbt.Tag, // tag is unique per outbound; safe as ID
-					Name:      sbt.Name,
-					IfaceName: sbt.InterfaceName,
-					// PingcheckTarget / SelfTarget left empty — sing-box
-					// tunnels don't have a per-tunnel restart pingcheck;
-					// connectivity targets come from EffectiveTargets,
-					// augmented later with Clash data.
+					ID:           sbt.Tag,
+					Name:         sbt.Name,
+					IfaceName:    sbt.InterfaceName,
 					Source:       "singbox",
 					SingboxTag:   sbt.Tag,
+					ProbeTag:     sbt.ProbeTag,
 					Subscription: sbt.Subscription,
 					Protocol:     sbt.Protocol,
 					Security:     sbt.Security,
 					Transport:    sbt.Transport,
+					ClashDelay:   clashDelay,
 				})
 				seenID[sbt.Tag] = true
 				if sbt.InterfaceName != "" {
@@ -561,11 +617,7 @@ func (s *Scheduler) collectTunnels(ctx context.Context) []Tunnel {
 // Mutates `tunnels` in place. Safe to call when Composites or
 // ClashState deps are nil — short-circuits.
 func (s *Scheduler) augmentSingboxClashData(ctx context.Context, tunnels []Tunnel) {
-	if s.deps.Composites == nil || s.deps.ClashState == nil {
-		return
-	}
-	composites, err := s.deps.Composites.List(ctx)
-	if err != nil {
+	if s.deps.ClashState == nil {
 		return
 	}
 	// Build memberTag → urltestGroupTag map. First urltest group wins
@@ -573,19 +625,35 @@ func (s *Scheduler) augmentSingboxClashData(ctx context.Context, tunnels []Tunne
 	// appear in multiple groups but only one urltest tracks its delay
 	// authoritatively).
 	urltestOf := make(map[string]string)
-	for _, c := range composites {
-		if strings.ToLower(c.Type) != "urltest" {
-			continue
-		}
-		for _, m := range c.Members {
-			if _, exists := urltestOf[m]; !exists {
-				urltestOf[m] = c.Tag
+	if s.deps.Composites != nil {
+		composites, err := s.deps.Composites.List(ctx)
+		if err == nil {
+			for _, c := range composites {
+				if strings.ToLower(c.Type) != "urltest" {
+					continue
+				}
+				for _, m := range c.Members {
+					if _, exists := urltestOf[m]; !exists {
+						urltestOf[m] = c.Tag
+					}
+				}
 			}
 		}
 	}
 	for i := range tunnels {
 		if tunnels[i].Source != "singbox" {
 			continue
+		}
+		probeTag := strings.TrimSpace(tunnels[i].ProbeTag)
+		if probeTag == "" {
+			probeTag = strings.TrimSpace(tunnels[i].SingboxTag)
+		}
+		if tunnels[i].Subscription && probeTag != "" {
+			if delay, hasDelay := s.deps.ClashState.LatencyForOutbound(ctx, probeTag); hasDelay {
+				tunnels[i].ClashDelay = delay
+				tunnels[i].UrltestGroup = probeTag
+				continue
+			}
 		}
 		group, ok := urltestOf[tunnels[i].SingboxTag]
 		if !ok {
