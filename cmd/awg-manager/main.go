@@ -37,6 +37,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/downloader"
 	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/hydraroute"
+	hydrainstaller "github.com/hoaxisr/awg-manager/internal/hydraroute/installer"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/managed"
 	"github.com/hoaxisr/awg-manager/internal/monitoring"
@@ -104,9 +105,9 @@ var version = "dev"
 // detectArch() falls back to runtime.GOARCH-based mapping.
 var buildArch string
 
-// detectArch returns the awg-manager arch key for installer.EmbeddedBinaries.
-// Prefers the build-time -X main.buildArch override; falls back to
-// runtime.GOARCH for dev builds.
+// detectArch returns the awg-manager arch key used by managed installers and
+// the official HydraRoute feed mapping. Prefers the build-time
+// -X main.buildArch override; falls back to runtime.GOARCH for dev builds.
 func detectArch() string {
 	if buildArch != "" {
 		return buildArch
@@ -426,6 +427,26 @@ func main() {
 
 	// HydraRoute Neo integration (optional — detected at startup)
 	hydraService := hydraroute.NewService(catalog, loggingService)
+	var hydraInstaller *hydrainstaller.Installer
+	hydraArch := detectArch()
+	if hydraArch == "" {
+		bootLog.Warn("hydraroute-install", runtime.GOARCH, "could not derive arch — install/update disabled")
+	} else {
+		hydraInstaller = hydrainstaller.New(hydrainstaller.DefaultBinaryPath, hydrainstaller.DefaultControlPath, hydraArch, loggingService)
+		if !hydraInstaller.Supported() {
+			bootLog.Warn("hydraroute-install", hydraArch, "official opkg install is not available in this environment")
+		}
+		hydraService.SetInstaller(hydraInstaller)
+		hydraService.SetInstallProgressReporter(func(op, phase string, downloaded, total int64, errMsg string) {
+			eventBus.Publish("hydraroute:install-progress", events.HydraRouteInstallProgressEvent{
+				Op:         op,
+				Phase:      phase,
+				Downloaded: downloaded,
+				Total:      total,
+				Error:      errMsg,
+			})
+		})
+	}
 	geoDataStore := hydraroute.NewGeoDataStore(*dataDir)
 	geoDataStore.SetAppLogger(loggingService)
 	hydraService.SetGeoDataStore(geoDataStore)
@@ -573,6 +594,7 @@ func main() {
 	orch.SetPingCheck(pingCheckFacade)
 	// dnsRouteService wiring to orchestrator happens later, after ndmsCommands is built.
 	orch.SetClientRoute(clientRouteService)
+	orch.SetHydraRoutePostStart(hydraService)
 
 	// Wire HookNotifier for NDMS Commands — orchestrator exists now.
 	ndmsCommands.SetHookNotifier(orch)
@@ -1011,6 +1033,8 @@ func main() {
 					for _, tag := range sub.MemberTags {
 						out = append(out, diagnostics.SingboxSubMember{
 							Tag:         tag,
+							GroupTag:    sub.SelectorTag,
+							Mode:        string(sub.EffectiveMode()),
 							ListenPort:  int(sub.ListenPort),
 							Enabled:     sub.Enabled,
 							Active:      activeKnown && sub.ActiveMember == tag,
