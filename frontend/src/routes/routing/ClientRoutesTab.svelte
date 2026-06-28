@@ -166,7 +166,7 @@
         <div class="section-buttons">
             <StoreStatusBadge store={clientRoutesStore} />
             {#if clientRoutes.length > 0}
-                <Button variant="ghost" size="sm" disabled={bodyLoading} onclick={() => { clientSelectionMode = true; clientSelected = new Set(); }}>Выбрать</Button>
+                <Button variant="secondary" size="sm" disabled={bodyLoading} onclick={() => { clientSelectionMode = true; clientSelected = new Set(); }}>Выбрать</Button>
             {/if}
             <RoutingCreateButton
                 disabled={bodyLoading}
@@ -179,16 +179,16 @@
     {:else}
         <div class="bulk-bar">
             <div class="bulk-bar-nav">
-                <button class="bulk-btn bulk-btn-cancel" onclick={exitClientSelection} disabled={clientBulkLoading}>✕ Отмена</button>
+                <Button variant="secondary" size="sm" onclick={exitClientSelection} disabled={clientBulkLoading}>✕ Отмена</Button>
                 <span class="bulk-count">{clientSelected.size} выбрано</span>
-                <button class="bulk-btn bulk-btn-select-all" onclick={clientSelectAll} disabled={clientBulkLoading}>Выбрать все</button>
+                <Button variant="secondary" size="sm" onclick={clientSelectAll} disabled={clientBulkLoading}>Выбрать все</Button>
             </div>
             {#if !clientTunnelMode}
                 <div class="bulk-bar-actions">
-                    <button class="bulk-btn bulk-btn-enable" disabled={clientSelected.size === 0 || clientBulkLoading} onclick={() => bulkClientToggle(true)}>Включить</button>
-                    <button class="bulk-btn bulk-btn-disable" disabled={clientSelected.size === 0 || clientBulkLoading} onclick={() => bulkClientToggle(false)}>Выключить</button>
-                    <button class="bulk-btn bulk-btn-delete" disabled={clientSelected.size === 0 || clientBulkLoading} onclick={() => clientBulkDeleteConfirm = true}>Удалить</button>
-                    <button class="bulk-btn bulk-btn-tunnel" disabled={clientSelected.size === 0 || clientBulkLoading} onclick={() => { clientTunnelMode = true; clientBulkTunnelId = routingTunnels.find(t => t.available)?.id ?? ''; }}>Туннель ▾</button>
+                    <Button variant="secondary" size="sm" disabled={clientSelected.size === 0 || clientBulkLoading} onclick={() => bulkClientToggle(true)}>Включить</Button>
+                    <Button variant="secondary" size="sm" disabled={clientSelected.size === 0 || clientBulkLoading} onclick={() => bulkClientToggle(false)}>Выключить</Button>
+                    <Button variant="danger" size="sm" disabled={clientSelected.size === 0 || clientBulkLoading} onclick={() => clientBulkDeleteConfirm = true}>Удалить</Button>
+                    <Button variant="secondary" size="sm" disabled={clientSelected.size === 0 || clientBulkLoading} onclick={() => { clientTunnelMode = true; clientBulkTunnelId = routingTunnels.find(t => t.available)?.id ?? ''; }}>Туннель ▾</Button>
                 </div>
             {:else}
                 {@const bulkTunnelOpts: DropdownOption[] = [

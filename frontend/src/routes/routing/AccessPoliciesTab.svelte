@@ -1,7 +1,7 @@
 <script lang="ts">
     import { api } from '$lib/api/client';
     import type { AccessPolicy, PolicyDevice, PolicyGlobalInterface } from '$lib/types';
-    import { ConfirmModal, StoreStatusBadge, Button, SideDrawer } from '$lib/components/ui';
+    import { ConfirmModal, StoreStatusBadge, Button, Modal } from '$lib/components/ui';
     import RoutingCreateButton from '$lib/components/routing/RoutingCreateButton.svelte';
     import { PolicyTable, PolicyCreateModal, PolicyEditView } from '$lib/components/accesspolicy';
     import { notifications } from '$lib/stores/notifications';
@@ -201,18 +201,17 @@
     />
 
     {#if editingPolicyData}
-        <SideDrawer
+        <Modal
             open={true}
             title={`Редактирование: ${editingPolicyData.description || editingPolicyData.name}`}
-            width={960}
-            panelClass="policy-edit-drawer"
-            bodyClass="drawer-body-fill policy-edit-drawer-body"
-            onClose={() => {
+            size="xl"
+            bodyLayout="fill"
+            onclose={() => {
                 editingPolicy = null;
                 editingPolicyData = null;
             }}
         >
-            <div class="policy-edit-shell">
+            <div class="policy-edit-modal-body">
                 <PolicyEditView
                     policy={editingPolicyData}
                     devices={policyDevices}
@@ -222,7 +221,7 @@
                     ondeviceunassigned={handleDeviceUnassigned}
                 />
             </div>
-            {#snippet footer()}
+            {#snippet actions()}
                 <Button
                     variant="secondary"
                     onclick={() => {
@@ -233,7 +232,7 @@
                     Назад
                 </Button>
             {/snippet}
-        </SideDrawer>
+        </Modal>
     {/if}
 
     {#if policyDeleteName}
@@ -277,37 +276,16 @@
         padding-right: 2px;
     }
 
-    .policy-edit-shell {
+    .policy-edit-modal-body {
+        min-height: 0;
+        height: min(72dvh, 720px);
         display: flex;
         flex-direction: column;
-        flex: 1 1 auto;
-        min-height: 0;
-        height: 100%;
-        overflow: hidden;
-    }
-
-    :global(.policy-edit-drawer) {
-        width: min(960px, calc(100vw - 32px)) !important;
-    }
-
-    :global(.policy-edit-drawer-body) {
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        min-height: 0;
-        overflow: hidden;
+        overflow-y: auto;
+        overflow-x: hidden;
     }
 
     @media (max-width: 768px) {
-        :global(.policy-edit-drawer) {
-            width: 100% !important;
-        }
-
-        .policy-edit-shell {
-            min-height: 0;
-            overflow-y: auto;
-        }
-
         .policy-tab--list {
             height: auto;
             max-height: none;
@@ -317,6 +295,10 @@
         .policy-list-scroll {
             flex: none;
             overflow-y: visible;
+        }
+
+        .policy-edit-modal-body {
+            height: min(78dvh, 680px);
         }
     }
 
