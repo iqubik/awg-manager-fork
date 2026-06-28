@@ -402,6 +402,7 @@
 					value={natMode}
 					options={natModeOptions}
 					ariaLabel="Режим NAT"
+					fullWidth
 					disabled={togglingNAT}
 					onchange={handleSetNATMode}
 				/>
