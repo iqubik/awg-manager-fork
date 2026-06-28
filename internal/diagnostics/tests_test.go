@@ -1,9 +1,14 @@
 package diagnostics
 
 import (
+	"context"
+	"errors"
+	"net"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hoaxisr/awg-manager/internal/singbox"
 )
 
 func TestRunOptions_RestartCycleOnlyWhenIncludeRestart(t *testing.T) {
@@ -192,4 +197,146 @@ func TestRouteDevFromIPRouteGet(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClassifyProxyFailure(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"timeout", errors.New("context deadline exceeded"), "timeout"},
+		{"reset", errors.New("Recv failure: Connection reset by peer"), "connection reset"},
+		{"proxy502", errors.New("proxy returned 502 Bad Gateway"), "proxy returned 502"},
+		{"noRoute", errors.New("dial tcp 1.2.3.4:443: connect: no route to host"), "no route to host"},
+		{"fallback", errors.New("some other error"), "request failed"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := classifyProxyFailure(tc.err); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDNSDetoursForOutbound(t *testing.T) {
+	r := NewRunner(Deps{
+		SingboxConfigPreview: func() (string, error) {
+			return `{
+				"dns": {
+					"servers": [
+						{"tag":"dns-bootstrap","type":"udp","server":"1.1.1.1"},
+						{"tag":"wizard-upstream","type":"tls","server":"9.9.9.9","detour":"sub-1a656a35"}
+					]
+				}
+			}`, nil
+		},
+	})
+
+	got := r.dnsDetoursForOutbound("sub-1a656a35")
+	if len(got) != 1 || got[0] != "wizard-upstream" {
+		t.Fatalf("got %#v, want [wizard-upstream]", got)
+	}
+}
+
+func TestTestSingboxTunnelConnectivity_UrlTestGroupRowCreatedWithoutActiveKnown(t *testing.T) {
+	ctx := context.Background()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	fakeSingbox := &fakeSingboxForDiag{
+		status:  singbox.Status{Installed: true, Running: true, TunnelCount: 0},
+		tunnels: []singbox.TunnelInfo{},
+	}
+
+	r := NewRunner(Deps{
+		Singbox: fakeSingbox,
+		SingboxSubMembers: func() []SingboxSubMember {
+			return []SingboxSubMember{
+				{
+					Tag:         "member-de",
+					GroupTag:    "sub-1a656a35",
+					Mode:        "urltest",
+					ListenPort:  port,
+					Enabled:     true,
+					ActiveKnown: false,
+					Active:      false,
+				},
+				{
+					Tag:         "member-fr",
+					GroupTag:    "sub-1a656a35",
+					Mode:        "urltest",
+					ListenPort:  port,
+					Enabled:     true,
+					ActiveKnown: true,
+					Active:      true,
+				},
+			}
+		},
+		SingboxConfigPreview: func() (string, error) {
+			return "{}", nil
+		},
+	})
+
+	results := r.testSingboxTunnelConnectivity(ctx)
+
+	var stateRes *TestResult
+	for i := range results {
+		if results[i].Name == "singbox_tunnel_state" && results[i].TunnelID == "singbox:sub-1a656a35" {
+			stateRes = &results[i]
+			break
+		}
+	}
+
+	if stateRes == nil {
+		t.Fatalf("expected state result for group row sub-1a656a35, got results: %v", results)
+	}
+
+	if stateRes.Status == StatusSkip {
+		t.Fatalf("group row must not be skipped due to ActiveKnown=false, got status=%v detail=%s", stateRes.Status, stateRes.Detail)
+	}
+	if stateRes.Status == StatusWarn && strings.Contains(stateRes.Detail, "активный member") {
+		t.Fatalf("group row must not warn about active member, got: %s", stateRes.Detail)
+	}
+
+	for _, tr := range results {
+		if tr.TunnelID == "singbox:member-fr" {
+			t.Fatalf("urltest member-fr must not produce its own diagnostics row when Mode=urltest, got: %+v", tr)
+		}
+		if tr.TunnelID == "singbox:member-de" {
+			t.Fatalf("urltest member-de must not produce its own diagnostics row when Mode=urltest, got: %+v", tr)
+		}
+	}
+}
+
+type fakeSingboxForDiag struct {
+	status  singbox.Status
+	tunnels []singbox.TunnelInfo
+	err     error
+}
+
+func (f *fakeSingboxForDiag) GetStatus(ctx context.Context) singbox.Status {
+	return f.status
+}
+
+func (f *fakeSingboxForDiag) ListTunnels(ctx context.Context) ([]singbox.TunnelInfo, error) {
+	return f.tunnels, f.err
 }

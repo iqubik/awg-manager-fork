@@ -8,7 +8,7 @@
 	import type { TerminalStatus } from '$lib/types';
 	import { errorMessage } from '$lib/utils/errorMessage';
 
-	type PageState = 'loading' | 'not-installed' | 'starting' | 'active' | 'session-busy' | 'error';
+	type PageState = 'loading' | 'not-installed' | 'starting' | 'active' | 'session-busy' | 'disconnected' | 'error';
 
 	let pageState: PageState = $state('loading');
 	let installing = $state(false);
@@ -64,11 +64,30 @@
 		}
 	}
 
-	function handleTerminalClose() {
-		api.terminalStop().catch(() => {});
+	function sleep(ms: number) {
+		return new Promise<void>((resolve) => setTimeout(resolve, ms));
+	}
+
+	async function waitTerminalReleased(timeoutMs = 3000) {
+		const deadline = Date.now() + timeoutMs;
+
+		while (Date.now() < deadline) {
+			const status = await api.terminalStatus().catch(() => null);
+			if (status && !status.sessionActive && !status.running) {
+				return;
+			}
+			await sleep(150);
+		}
+	}
+
+	async function handleTerminalDisconnect() {
+		await api.terminalStop().catch(() => {});
+		pageState = 'disconnected';
 	}
 
 	async function handleTerminalReconnect() {
+		await api.terminalStop().catch(() => {});
+		await waitTerminalReleased();
 		await api.terminalStart();
 	}
 
@@ -100,10 +119,17 @@
 			<Button variant="primary" size="md" onclick={checkStatus}>Повторить</Button>
 		</div>
 	</PageContainer>
+{:else if pageState === 'disconnected'}
+	<PageContainer>
+		<div class="terminal-loading">
+			<p>Терминал отключён</p>
+			<Button variant="primary" size="md" onclick={startTerminal}>Подключиться</Button>
+		</div>
+	</PageContainer>
 {:else if pageState === 'active'}
 	<div class="terminal-page">
 		<TerminalView
-			onclose={handleTerminalClose}
+			onclose={handleTerminalDisconnect}
 			onerror={handleTerminalError}
 			onreconnect={handleTerminalReconnect}
 		/>
