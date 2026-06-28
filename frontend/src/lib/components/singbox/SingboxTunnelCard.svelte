@@ -480,10 +480,14 @@
 			{:else}
 				<span class="server-hidden">●●●●●●●●</span>
 			{/if}
+			<span class="port">:{tunnel.port}</span>
 			<button class="icon-btn" onclick={() => (showServer = !showServer)} aria-label={showServer ? 'Скрыть' : 'Показать'}>
-				<Eye size={12} aria-hidden="true" />
+				{#if showServer}
+					<Eye size={12} aria-hidden="true" />
+				{:else}
+					<EyeOff size={12} aria-hidden="true" />
+				{/if}
 			</button>
-			<span class="port">{showServer ? `:${tunnel.port}` : ':•••••'}</span>
 		</div>
 	</div>
 

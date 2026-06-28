@@ -2,13 +2,22 @@
 	import type { Snippet } from 'svelte';
 	import TunnelTableSortControls from '$lib/components/tunnels/TunnelTableSortControls.svelte';
 
-	const TUNNEL_SEARCH_MIN_ROWS = 5;
+	const TUNNEL_SEARCH_MIN_ROWS = 2;
+	type SortOption = {
+		value: string;
+		label: string;
+	};
 
 	interface Props {
 		sourceRowCount?: number;
 		showViewToggle?: boolean;
 		searchQuery: string;
+		sortKey?: string | null;
+		sortAsc?: boolean;
+		sortOptions?: SortOption[];
 		onSearchChange: (value: string) => void;
+		onSortChange?: (key: string | null) => void;
+		onToggleDir?: () => void;
 		viewToggle?: Snippet;
 	}
 
@@ -16,16 +25,36 @@
 		sourceRowCount = 0,
 		showViewToggle = false,
 		searchQuery,
+		sortKey = null,
+		sortAsc = true,
+		sortOptions = [],
 		onSearchChange,
+		onSortChange = () => {},
+		onToggleDir = () => {},
 		viewToggle,
 	}: Props = $props();
 
 	let showSearch = $derived(sourceRowCount >= TUNNEL_SEARCH_MIN_ROWS);
-	let show = $derived(showSearch || showViewToggle);
+	let hasMultipleRows = $derived(sourceRowCount > 1);
+	let showEffectiveViewToggle = $derived(showViewToggle);
+	let showMobileSort = $derived(hasMultipleRows && sortOptions.length > 0);
+	let show = $derived(showSearch || showEffectiveViewToggle || showMobileSort);
+
+	$effect(() => {
+		if (sourceRowCount < TUNNEL_SEARCH_MIN_ROWS && searchQuery.trim() !== '') {
+			onSearchChange('');
+		}
+	});
+
+	$effect(() => {
+		if (sourceRowCount < TUNNEL_SEARCH_MIN_ROWS && searchQuery.trim() !== '') {
+			onSearchChange('');
+		}
+	});
 </script>
 
-{#if show && (showSearch || showViewToggle)}
-	<div class="toolbar-view-row">
+{#if show && (showSearch || showEffectiveViewToggle || showMobileSort)}
+	<div class="toolbar-view-row" class:has-search={showSearch}>
 		{#if showSearch}
 			<div class="tunnel-toolbar-search">
 				<TunnelTableSortControls
@@ -41,8 +70,24 @@
 				/>
 			</div>
 		{/if}
-		{#if showViewToggle && viewToggle}
+		{#if showEffectiveViewToggle && viewToggle}
 			{@render viewToggle()}
+		{/if}
+		{#if showMobileSort}
+			<div class="toolbar-mobile-sort">
+				<TunnelTableSortControls
+					{searchQuery}
+					{sortKey}
+					{sortAsc}
+					options={sortOptions}
+					showSearch={false}
+					showSort={true}
+					mobileSortOnly={true}
+					{onSearchChange}
+					{onSortChange}
+					{onToggleDir}
+				/>
+			</div>
 		{/if}
 	</div>
 {/if}
@@ -56,10 +101,14 @@
 		min-width: 0;
 	}
 
+	.toolbar-view-row.has-search {
+		flex: 1 1 auto;
+	}
+
 	.tunnel-toolbar-search {
-		flex: 1 1 160px;
-		min-width: 120px;
-		max-width: 220px;
+		flex: 1 1 auto;
+		min-width: 160px;
+		max-width: none;
 	}
 
 	.tunnel-toolbar-search :global(.tunnel-sort-controls) {
@@ -68,6 +117,10 @@
 
 	.tunnel-toolbar-search :global(.tunnel-search) {
 		width: 100%;
+	}
+
+	.toolbar-mobile-sort {
+		display: none;
 	}
 
 	@media (max-width: 760px) {
@@ -84,6 +137,12 @@
 
 		.toolbar-view-row > :only-child {
 			grid-column: 1 / -1;
+		}
+
+		.toolbar-mobile-sort {
+			display: block;
+			grid-column: 1 / -1;
+			width: 100%;
 		}
 
 		.tunnel-toolbar-search {

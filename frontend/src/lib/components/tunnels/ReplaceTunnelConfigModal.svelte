@@ -1,6 +1,6 @@
 <script lang="ts">
     import { TriangleAlert } from 'lucide-svelte';
-    import { SideDrawer, Button } from '$lib/components/ui';
+    import { Modal, Button } from '$lib/components/ui';
     import SensitiveBlockEye from '$lib/components/ui/SensitiveBlockEye.svelte';
     import TunnelConfigImportPanel from './TunnelConfigImportPanel.svelte';
     import { api } from '$lib/api/client';
@@ -90,7 +90,7 @@
     }
 </script>
 
-<SideDrawer {open} title="Замена конфигурации" width={640} onClose={onclose}>
+<Modal {open} title="Замена конфигурации" size="lg" {onclose}>
     <div class="replace-top-row">
         <div class="replace-info">
         <span class="replace-tunnel-label">{privacyHidden ? maskSensitive(ndmsName) : ndmsName}</span>
@@ -132,13 +132,13 @@
         <div class="field-hint">Оставьте без изменений чтобы сохранить текущее имя</div>
     </div>
 
-    {#snippet footer()}
+    {#snippet actions()}
         <Button variant="secondary" onclick={onclose} disabled={loading}>Отмена</Button>
         <Button variant="primary" onclick={handleReplace} disabled={!importContent.trim()} loading={loading}>
             Заменить
         </Button>
     {/snippet}
-</SideDrawer>
+</Modal>
 
 <style>
     .replace-top-row {
