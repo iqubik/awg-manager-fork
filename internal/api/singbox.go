@@ -24,44 +24,50 @@ import (
 
 // SingboxStatusData mirrors frontend SingboxStatus.
 type SingboxStatusData struct {
-	Installed        bool     `json:"installed" example:"true"`
-	Version          string   `json:"version,omitempty" example:"1.9.3"`
-	Running          bool     `json:"running" example:"true"`
-	PID              int      `json:"pid,omitempty" example:"12345"`
-	TunnelCount      int      `json:"tunnelCount" example:"2"`
-	ProxyComponent   bool     `json:"proxyComponent" example:"true"`
-	NDMSProxyEnabled bool     `json:"ndmsProxyEnabled" example:"true"`
-	Features         []string `json:"features,omitempty" example:"with_quic"`
-	LastError        string   `json:"lastError,omitempty" example:"+0000 2026-05-14 21:45:56 FATAL[0000] failed to initialize"`
-	CurrentVersion   string   `json:"currentVersion,omitempty" example:"1.13.11"`
-	RequiredVersion  string   `json:"requiredVersion" example:"1.13.11"`
-	CurrentSHA256    string   `json:"currentSha256,omitempty" example:"76e67bb07b5c2bf4cef108c2f21a5ffaa684d124c21ffe220fc89b39cf1de934"`
-	RequiredSHA256   string   `json:"requiredSha256,omitempty" example:"76e67bb07b5c2bf4cef108c2f21a5ffaa684d124c21ffe220fc89b39cf1de934"`
-	UpdateAvailable  bool     `json:"updateAvailable" example:"false"`
-	InstallState     string   `json:"installState" example:"outdated_no_space"`
-	RequiredBytes    int64    `json:"requiredBytes" example:"32145678"`
-	FreeBytes        int64    `json:"freeBytes" example:"8221456"`
+	Installed               bool     `json:"installed" example:"true"`
+	Version                 string   `json:"version,omitempty" example:"1.9.3"`
+	Running                 bool     `json:"running" example:"true"`
+	PID                     int      `json:"pid,omitempty" example:"12345"`
+	TunnelCount             int      `json:"tunnelCount" example:"2"`
+	ProxyComponent          bool     `json:"proxyComponent" example:"true"`
+	NDMSProxyEnabled        bool     `json:"ndmsProxyEnabled" example:"true"`
+	Features                []string `json:"features,omitempty" example:"with_quic"`
+	LastError               string   `json:"lastError,omitempty" example:"+0000 2026-05-14 21:45:56 FATAL[0000] failed to initialize"`
+	CurrentVersion          string   `json:"currentVersion,omitempty" example:"1.13.11"`
+	RequiredVersion         string   `json:"requiredVersion" example:"1.13.11"`
+	CurrentSHA256           string   `json:"currentSha256,omitempty" example:"76e67bb07b5c2bf4cef108c2f21a5ffaa684d124c21ffe220fc89b39cf1de934"`
+	RequiredSHA256          string   `json:"requiredSha256,omitempty" example:"76e67bb07b5c2bf4cef108c2f21a5ffaa684d124c21ffe220fc89b39cf1de934"`
+	VersionMatchesRequired  bool     `json:"versionMatchesRequired" example:"true"`
+	ChecksumMatchesRequired bool     `json:"checksumMatchesRequired" example:"true"`
+	CustomBuild             bool     `json:"customBuild" example:"false"`
+	UpdateAvailable         bool     `json:"updateAvailable" example:"false"`
+	InstallState            string   `json:"installState" example:"outdated_no_space"`
+	RequiredBytes           int64    `json:"requiredBytes" example:"32145678"`
+	FreeBytes               int64    `json:"freeBytes" example:"8221456"`
 }
 
 func singboxStatusData(s singbox.Status) SingboxStatusData {
 	return SingboxStatusData{
-		Installed:        s.Installed,
-		Version:          s.Version,
-		Running:          s.Running,
-		PID:              s.PID,
-		TunnelCount:      s.TunnelCount,
-		ProxyComponent:   s.ProxyComponent,
-		NDMSProxyEnabled: s.NDMSProxyEnabled,
-		Features:         s.Features,
-		LastError:        s.LastError,
-		CurrentVersion:   s.CurrentVersion,
-		RequiredVersion:  s.RequiredVersion,
-		CurrentSHA256:    s.CurrentSHA256,
-		RequiredSHA256:   s.RequiredSHA256,
-		UpdateAvailable:  s.UpdateAvailable,
-		InstallState:     s.InstallState,
-		RequiredBytes:    s.RequiredBytes,
-		FreeBytes:        s.FreeBytes,
+		Installed:               s.Installed,
+		Version:                 s.Version,
+		Running:                 s.Running,
+		PID:                     s.PID,
+		TunnelCount:             s.TunnelCount,
+		ProxyComponent:          s.ProxyComponent,
+		NDMSProxyEnabled:        s.NDMSProxyEnabled,
+		Features:                s.Features,
+		LastError:               s.LastError,
+		CurrentVersion:          s.CurrentVersion,
+		RequiredVersion:         s.RequiredVersion,
+		CurrentSHA256:           s.CurrentSHA256,
+		RequiredSHA256:          s.RequiredSHA256,
+		VersionMatchesRequired:  s.VersionMatchesRequired,
+		ChecksumMatchesRequired: s.ChecksumMatchesRequired,
+		CustomBuild:             s.CustomBuild,
+		UpdateAvailable:         s.UpdateAvailable,
+		InstallState:            s.InstallState,
+		RequiredBytes:           s.RequiredBytes,
+		FreeBytes:               s.FreeBytes,
 	}
 }
 

@@ -229,7 +229,7 @@
         <div class="section-buttons">
             <StoreStatusBadge store={staticRoutesStore} />
             {#if ipRoutes.length > 0}
-                <Button variant="ghost" size="sm" disabled={bodyLoading} onclick={() => { ipSelectionMode = true; ipSelected = new Set(); }}>Выбрать</Button>
+                <Button variant="secondary" size="sm" disabled={bodyLoading} onclick={() => { ipSelectionMode = true; ipSelected = new Set(); }}>Выбрать</Button>
             {/if}
             <RoutingRuleAddMenu
                 disabled={bodyLoading}
@@ -245,17 +245,17 @@
     {:else}
         <div class="bulk-bar">
             <div class="bulk-bar-nav">
-                <button class="bulk-btn bulk-btn-cancel" onclick={exitIpSelection} disabled={ipBulkLoading}>✕ Отмена</button>
+                <Button variant="secondary" size="sm" onclick={exitIpSelection} disabled={ipBulkLoading}>✕ Отмена</Button>
                 <span class="bulk-count">{ipSelected.size} выбрано</span>
-                <button class="bulk-btn bulk-btn-select-all" onclick={ipSelectAll} disabled={ipBulkLoading}>Выбрать все</button>
+                <Button variant="secondary" size="sm" onclick={ipSelectAll} disabled={ipBulkLoading}>Выбрать все</Button>
             </div>
             {#if !ipTunnelMode}
                 <div class="bulk-bar-actions">
-                    <button class="bulk-btn bulk-btn-enable" disabled={ipSelected.size === 0 || ipBulkLoading} onclick={() => bulkIpToggle(true)}>Включить</button>
-                    <button class="bulk-btn bulk-btn-disable" disabled={ipSelected.size === 0 || ipBulkLoading} onclick={() => bulkIpToggle(false)}>Выключить</button>
-                    <button class="bulk-btn bulk-btn-delete" disabled={ipSelected.size === 0 || ipBulkLoading} onclick={() => ipBulkDeleteConfirm = true}>Удалить</button>
-                    <button class="bulk-btn bulk-btn-tunnel" disabled={ipSelected.size === 0 || ipBulkLoading} onclick={() => { ipTunnelMode = true; ipBulkTunnelId = routingTunnels.find(t => t.available)?.id ?? ''; }}>Туннель ▾</button>
-                    <button class="bulk-btn bulk-btn-export" disabled={ipSelected.size === 0 || ipBulkLoading} onclick={downloadIpExport}>Экспорт</button>
+                    <Button variant="secondary" size="sm" disabled={ipSelected.size === 0 || ipBulkLoading} onclick={() => bulkIpToggle(true)}>Включить</Button>
+                    <Button variant="secondary" size="sm" disabled={ipSelected.size === 0 || ipBulkLoading} onclick={() => bulkIpToggle(false)}>Выключить</Button>
+                    <Button variant="danger" size="sm" disabled={ipSelected.size === 0 || ipBulkLoading} onclick={() => ipBulkDeleteConfirm = true}>Удалить</Button>
+                    <Button variant="secondary" size="sm" disabled={ipSelected.size === 0 || ipBulkLoading} onclick={() => { ipTunnelMode = true; ipBulkTunnelId = routingTunnels.find(t => t.available)?.id ?? ''; }}>Туннель ▾</Button>
+                    <Button variant="secondary" size="sm" disabled={ipSelected.size === 0 || ipBulkLoading} onclick={downloadIpExport}>Экспорт</Button>
                 </div>
             {:else}
                 {@const ipBulkTunnelOpts: DropdownOption[] = [
