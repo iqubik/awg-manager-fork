@@ -21,7 +21,7 @@
     import { subscriptionsStore } from '$lib/stores/subscriptions';
     import { notifications } from '$lib/stores/notifications';
     import type { Subscription, SubscriptionMember } from '$lib/types';
-    import { formatBitRate, formatBytes, formatRelativeTime } from '$lib/utils/format';
+    import { formatBitRate, formatBytes, formatRelativeTimeShort } from '$lib/utils/format';
     import { isCardNestedInteraction } from '$lib/utils/cardClick';
     import { showOutboundReferencedError } from '$lib/utils/outboundReferenced';
     import SubscriptionMemberPicker from './SubscriptionMemberPicker.svelte';
@@ -137,7 +137,7 @@
     const isInlineGroup = $derived(subscription.isInline || !subscription.url?.trim());
     const sourceKindLabel = $derived(isInlineGroup ? 'группа' : 'подписка');
     const lastFetchedHuman = $derived(
-        subscription.lastFetched ? formatRelativeTime(subscription.lastFetched) : '—',
+        subscription.lastFetched ? formatRelativeTimeShort(subscription.lastFetched) : '—',
     );
 
     const cardState = $derived(delayPresentation.state);
