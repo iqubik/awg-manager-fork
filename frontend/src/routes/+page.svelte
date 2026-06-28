@@ -30,7 +30,6 @@
 		TrafficSparkline,
 		Button,
 		Badge,
-		Tabs,
 		Toggle,
 		StatusDot,
 		Stat,
@@ -42,14 +41,13 @@
 	import { SingboxInstallBanner, SingboxTunnelCard } from '$lib/components/singbox';
 	import { feedTraffic, getTrafficRates, getTrafficSparklineSeries, subscribeTraffic } from '$lib/stores/traffic';
 	import { usageLevel } from '$lib/stores/settings';
-	import { isSectionVisible, isTunnelDashboardAvailable } from '$lib/types/usageLevel';
+	import { isSectionVisible } from '$lib/types/usageLevel';
 	import { subscriptionsStore } from '$lib/stores/subscriptions';
 	import SubscriptionCard from '$lib/components/subscriptions/SubscriptionCard.svelte';
 	import AddTunnelWizard from '$lib/components/subscriptions/AddTunnelWizard.svelte';
 	import SubscriptionActiveCard from '$lib/components/subscriptions/SubscriptionActiveCard.svelte';
-	import SubscriptionGroupsSection from '$lib/components/subscriptions/SubscriptionGroupsSection.svelte';
 	import type { ExternalTunnel, Subscription, SubscriptionMember, SystemTunnel, TunnelListItem } from '$lib/types';
-	import { formatBitRate, formatBytes, formatDuration, formatRelativeTime, secondsSince } from '$lib/utils/format';
+	import { formatBitRate, formatBytes, formatDuration, formatRelativeTimeShort, secondsSince } from '$lib/utils/format';
 	import { showOutboundReferencedError } from '$lib/utils/outboundReferenced';
 	import {
 		awgConnectivityDown,
@@ -64,6 +62,7 @@
 	import { nativewgUnavailableHint } from '$lib/utils/backendAvailability';
 	import {
 		SINGBOX_LAYOUT_STORAGE_KEY,
+		isTunnelListRenderMode,
 		parseSingboxLayoutMode,
 		readTunnelMobileLayout,
 		subscribeTunnelMobileLayout,
@@ -71,28 +70,20 @@
 		type TunnelRenderMode,
 	} from '$lib/constants/singboxLayout';
 	import { isMockDevMode as getIsMockDevMode } from '$lib/env';
-	import { Download, Eye, EyeOff, GripVertical, Server, Upload, LayoutGrid, Link, Globe, TriangleAlert } from 'lucide-svelte';
+	import {
+		ChevronDown,
+		Download,
+		Eye,
+		EyeOff,
+		Server,
+		Upload,
+		LayoutGrid,
+		Link,
+		Globe,
+		TriangleAlert,
+	} from 'lucide-svelte';
 	import CreateIcon from '$lib/components/ui/icons/CreateIcon.svelte';
 	import { formatRunningSub, pluralForm, SUBSCRIPTION_WORDS, TUNNEL_WORDS } from '$lib/utils/pluralize';
-	import DashboardToolbar from '$lib/components/tunnels/DashboardToolbar.svelte';
-	import DashboardSummary from '$lib/components/tunnels/DashboardSummary.svelte';
-	import TunnelTagChips from '$lib/components/tunnels/TunnelTagChips.svelte';
-	import TunnelSectionHeader from '$lib/components/tunnels/TunnelSectionHeader.svelte';
-	import {
-		tunnelDashboardLayout,
-		tunnelDashboardMode,
-		tunnelDashboardView,
-	} from '$lib/stores/tunnelDashboardMode';
-	import {
-		tunnelDashboardGroupMode,
-		tunnelDashboardManualOrder,
-		tunnelDashboardOrderMode,
-		tunnelDashboardTags,
-	} from '$lib/stores/tunnelDashboardPrefs';
-	import { applyManualOrder, mergeManualOrder, reorder } from '$lib/utils/tunnelDashboardOrder';
-	import { filterItemsByTag, getItemTags, groupFlatItemsByTag } from '$lib/utils/tunnelDashboardTags';
-	import { createReorderDrag } from '$lib/components/sb-router/reorderDrag.svelte';
-	import { buildFlatDashboardItems, type TunnelDashboardFlatItem } from '$lib/utils/tunnelDashboardFlat';
 	import {
 		awgTunnelTableSort,
 		singboxSubscriptionTableSort,
@@ -111,6 +102,7 @@
 	} from '$lib/utils/tunnelTableSort';
 
 	type TunnelTab = 'awg' | 'singbox' | 'subscriptions';
+	type TunnelSectionId = TunnelTab;
 	type AwgTunnelViewMode = 'cards' | 'compact' | 'list';
 	type TunnelSurfaceLayout = SingboxLayoutMode | 'cards';
 
@@ -126,6 +118,7 @@
 	const AWG_TUNNEL_VIEW_STORAGE_KEY = 'awg_tunnel_view_mode';
 	const SINGBOX_TUNNELS_LAYOUT_STORAGE_KEY = 'singbox_tunnels_layout_mode';
 	const SINGBOX_SUBSCRIPTIONS_LAYOUT_STORAGE_KEY = 'singbox_subscriptions_layout_mode';
+	const TUNNEL_SECTIONS_OPEN_STORAGE_KEY = 'tunnel_sections_open_v1';
 	const isMockDevMode = getIsMockDevMode();
 
 	// Polling-store subscription: first subscriber triggers the fetch,
@@ -210,7 +203,6 @@
 	let awgListSearchQuery = $state('');
 	let singboxTunnelsSearchQuery = $state('');
 	let singboxSubscriptionsSearchQuery = $state('');
-	let dashboardSearchQuery = $state('');
 
 	function endpointVisibilityKey(scope: EndpointScope, id: string): string {
 		return `${scope}:${id}`;
@@ -283,10 +275,59 @@
 
 	// Sync from URL on mount + whenever the page store changes (back/forward).
 	$effect(() => {
+		if (!tunnelSectionsHydrated) return;
+
 		const awgQ = $page.url.searchParams.get('detail');
 		const sbQ = $page.url.searchParams.get('sbDetail');
-		detailId = awgQ && awgQ.length > 0 ? awgQ : null;
-		singboxDetailTag = sbQ && sbQ.length > 0 ? sbQ : null;
+		const tabQ = $page.url.searchParams.get('tab');
+
+		const nextDetailId = awgQ && awgQ.length > 0 ? awgQ : null;
+		const nextSingboxDetailTag = sbQ && sbQ.length > 0 ? sbQ : null;
+
+		detailId = nextDetailId;
+		singboxDetailTag = nextSingboxDetailTag;
+
+		const currentSections = untrack(() => openSections);
+		const currentActiveTab = untrack(() => activeTab);
+
+		let nextSections = currentSections;
+		let nextActiveTab = currentActiveTab;
+
+		if (nextDetailId) {
+			nextSections = { ...nextSections, awg: true };
+			nextActiveTab = 'awg';
+		}
+
+		if (nextSingboxDetailTag && singboxSectionsVisible) {
+			nextSections = {
+				...nextSections,
+				singbox: true,
+				subscriptions: true,
+			};
+		}
+
+		if (tabQ === 'awg') {
+			nextSections = { ...nextSections, awg: true };
+			nextActiveTab = 'awg';
+		} else if (tabQ === 'singbox' && singboxSectionsVisible) {
+			nextSections = { ...nextSections, singbox: true };
+			nextActiveTab = 'singbox';
+		} else if (tabQ === 'subscriptions' && singboxSectionsVisible) {
+			nextSections = { ...nextSections, subscriptions: true };
+			nextActiveTab = 'subscriptions';
+		}
+
+		if (
+			nextSections.awg !== currentSections.awg ||
+			nextSections.singbox !== currentSections.singbox ||
+			nextSections.subscriptions !== currentSections.subscriptions
+		) {
+			openSections = nextSections;
+		}
+
+		if (nextActiveTab !== currentActiveTab) {
+			activeTab = nextActiveTab;
+		}
 	});
 
 	async function markAsServer(id: string) {
@@ -391,13 +432,14 @@
 	});
 
 	let singboxTunnelsList = $derived($singboxTunnels.data ?? []);
-	let singboxTunnelsInitialLoading = $derived(
-		$singboxTunnels.data === null &&
-		($singboxTunnels.status === 'idle' || $singboxTunnels.status === 'loading'),
-	);
 
 	const singboxTunnelListStats = $derived.by(() => {
 		void trafficTick;
+		type TunnelStatCandidate = {
+			tag: string;
+			bytes: number;
+		};
+
 		const list = singboxTunnelsList;
 		let running = 0;
 		let down = 0;
@@ -406,22 +448,18 @@
 		let delayN = 0;
 		let leaderBytes = 0;
 		let leaderName = '—';
+		const candidates: TunnelStatCandidate[] = [];
 		const trMap = $singboxTraffic;
 		const histMap = $singboxDelayHistory;
 		for (const t of list) {
 			if (t.running === true) running++;
 			const tr = trMap.get(t.tag);
-			if (tr) {
-				const tunnelDown = tr.download ?? 0;
-				const tunnelUp = tr.upload ?? 0;
-				const total = tunnelDown + tunnelUp;
-				down += tunnelDown;
-				up += tunnelUp;
-				if (total > leaderBytes) {
-					leaderBytes = total;
-					leaderName = t.tag;
-				}
-			}
+			const tunnelDown = tr?.download ?? 0;
+			const tunnelUp = tr?.upload ?? 0;
+			const total = tunnelDown + tunnelUp;
+			down += tunnelDown;
+			up += tunnelUp;
+			candidates.push({ tag: t.tag, bytes: total });
 			const h = histMap.get(t.tag) ?? [];
 			const last = h.length > 0 ? h[h.length - 1] : 0;
 			if (typeof last === 'number' && last > 0) {
@@ -429,6 +467,16 @@
 				delayN++;
 			}
 		}
+
+		if (candidates.length > 0) {
+			const sorted = [...candidates].sort((a, b) => {
+				if (b.bytes !== a.bytes) return b.bytes - a.bytes;
+				return a.tag.localeCompare(b.tag, 'ru');
+			});
+			leaderBytes = sorted[0].bytes;
+			leaderName = sorted[0].tag;
+		}
+
 		return {
 			count: list.length,
 			running,
@@ -560,49 +608,101 @@
 
 	const singboxSubscriptionsTrafficStats = $derived.by(() => {
 		void trafficTick;
+		type SubscriptionStatCandidate = {
+			tag: string;
+			label: string;
+			bytes: number;
+			delay: number | null;
+		};
+
 		let down = 0;
 		let up = 0;
 		let delaySum = 0;
 		let delaySamples = 0;
 		let leaderBytes = 0;
 		let leaderName = '—';
+		const candidates: SubscriptionStatCandidate[] = [];
 		const map = $singboxTraffic;
 		const delayMap = $singboxDelayHistory;
 
-		function ingestMember(tag: string, label: string, sampleDelay = false): void {
+		function latestDelayForTags(tags: Array<string | null | undefined>): number | null {
+			const seen = new Set<string>();
+
+			for (const rawTag of tags) {
+				const tag = rawTag?.trim();
+				if (!tag || seen.has(tag)) continue;
+				seen.add(tag);
+
+				const history = delayMap.get(tag) ?? [];
+				const last = history.length > 0 ? history[history.length - 1] : null;
+
+				if (typeof last === 'number' && last > 0) {
+					return last;
+				}
+			}
+
+			return null;
+		}
+
+		function ingestMember(
+			tag: string,
+			label: string,
+			delayTags: Array<string | null | undefined> = [tag],
+		): void {
 			const tr = map.get(tag);
 			const memberDown = tr?.download ?? 0;
 			const memberUp = tr?.upload ?? 0;
 			const memberTotal = memberDown + memberUp;
+			const normalizedLabel = label || tag;
 			down += memberDown;
 			up += memberUp;
-			if (memberTotal > leaderBytes) {
-				leaderBytes = memberTotal;
-				leaderName = label || tag;
+			const delay = latestDelayForTags(delayTags);
+
+			if (delay !== null) {
+				delaySum += delay;
+				delaySamples += 1;
 			}
 
-			if (sampleDelay) {
-				const delayHistory = delayMap.get(tag) ?? [];
-				const lastDelay = delayHistory.length > 0 ? delayHistory[delayHistory.length - 1] : 0;
-				if (typeof lastDelay === 'number' && lastDelay > 0) {
-					delaySum += lastDelay;
-					delaySamples += 1;
-				}
-			}
+			candidates.push({
+				tag,
+				label: normalizedLabel,
+				bytes: memberTotal,
+				delay,
+			});
 		}
 
 		for (const card of subscriptionsActiveCards) {
 			ingestMember(
 				card.activeMember.tag,
 				card.subscription.label || card.activeMember.label || card.activeMember.tag,
-				true,
+				[
+					card.subscription.selectorTag,
+					card.activeMember.tag,
+				],
 			);
 		}
 		for (const sub of subscriptionsListRows) {
 			const tag = resolveSubscriptionMemberTag(sub, liveActives[sub.id] || null);
 			if (!tag) continue;
-			ingestMember(tag, sub.label || tag);
+			ingestMember(
+				tag,
+				sub.label || tag,
+				[
+					sub.selectorTag,
+					tag,
+				],
+			);
 		}
+
+		if (candidates.length > 0) {
+			const sorted = [...candidates].sort((a, b) => {
+				if (b.bytes !== a.bytes) return b.bytes - a.bytes;
+				return a.label.localeCompare(b.label, 'ru');
+			});
+			leaderBytes = sorted[0].bytes;
+			leaderName = sorted[0].label;
+		}
+
 		const totalTraffic = down + up;
 		return {
 			count: subscriptionsList.length,
@@ -620,6 +720,12 @@
 
 	// Tabs
 	let activeTab = $state<TunnelTab>('awg');
+	let openSections = $state<Record<TunnelSectionId, boolean>>({
+		awg: true,
+		singbox: true,
+		subscriptions: true,
+	});
+	let tunnelSectionsHydrated = $state(false);
 	let awgViewMode = $state<AwgTunnelViewMode>('compact');
 	let awgViewModeReady = false;
 	let isAwgMobile = $state(readTunnelMobileLayout());
@@ -651,109 +757,128 @@
 	let awgCardViewMode = $derived<'cards' | 'compact'>(
 		awgEffectiveViewMode === 'cards' ? 'cards' : 'compact',
 	);
-
-	// Dashboard mode is only reachable while its settings toggle is available
-	// («advanced»+): on «basic» a persisted flag must fall back to tabs
-	// instead of locking the user into a hidden mode.
-	let dashboardOn = $derived($tunnelDashboardMode && isTunnelDashboardAvailable($usageLevel));
-	const showSingboxSections = $derived(isSectionVisible($usageLevel, 'singboxTunnels'));
-	// Sing-box data is admitted into the dashboard only while its sections are
-	// visible at this usage level AND sing-box is installed (or still probing).
-	const dashboardSingboxVisible = $derived(
-		showSingboxSections && (singboxStatusLoading || singboxInstalled),
-	);
-	let dashboardEffectiveView = $derived(
-		!showSingboxListOption && $tunnelDashboardView === 'list' ? 'compact' : $tunnelDashboardView,
-	);
-	let dashboardAwgViewMode = $derived<AwgTunnelViewMode>(
-		dashboardEffectiveView === 'dense' ? 'cards' : dashboardEffectiveView === 'compact' ? 'compact' : 'list',
-	);
-	let dashboardSingboxLayoutMode = $derived<SingboxLayoutMode>(
-		dashboardEffectiveView === 'dense'
-			? 'dense'
-			: dashboardEffectiveView === 'list'
-				? 'list'
-				: 'compact',
-	);
-	let dashboardFlatLayout = $derived($tunnelDashboardLayout === 'flat');
-	let dashboardSectionsLayout = $derived(dashboardOn && $tunnelDashboardLayout === 'sections');
-	let dashboardFlatCardMode = $derived(dashboardOn && dashboardFlatLayout);
-	// Sections layout splits by kind ('type') or by user tags ('tags').
-	let dashboardGroupByTags = $derived(
-		dashboardSectionsLayout && $tunnelDashboardGroupMode === 'tags',
-	);
-	let dashboardTypeSections = $derived(
-		dashboardSectionsLayout && $tunnelDashboardGroupMode === 'type',
-	);
-	// Merged card surfaces (flat list / tag groups) can't host per-kind tables:
-	// «список» renders the merged list-card list (same as mobile) there. Card
-	// densities are honest in every layout: dense → full cards with graphs,
-	// compact → compact cards.
-	let dashboardCardSurface = $derived(dashboardFlatLayout || dashboardGroupByTags);
-	let dashboardAwgRenderMode = $derived<TunnelRenderMode>(
-		dashboardCardSurface && dashboardAwgViewMode === 'list'
-			? 'list-card'
-			: resolveTunnelRenderMode(isAwgMobile, dashboardAwgViewMode),
-	);
-	let dashboardSingboxRenderMode = $derived<TunnelRenderMode>(
-		dashboardCardSurface && dashboardSingboxLayoutMode === 'list'
-			? 'list-card'
-			: resolveTunnelRenderMode(isAwgMobile, dashboardSingboxLayoutMode),
-	);
-	let dashboardCardViewMode = $derived<'cards' | 'compact'>(
-		dashboardAwgViewMode === 'cards' ? 'cards' : 'compact',
-	);
-	let effectiveAwgRenderMode = $derived(dashboardOn ? dashboardAwgRenderMode : awgRenderMode);
-	let effectiveAwgEffectiveViewMode = $derived(
-		dashboardOn ? dashboardAwgViewMode : awgEffectiveViewMode,
-	);
-	let effectiveAwgCardViewMode = $derived(
-		dashboardOn ? dashboardCardViewMode : awgCardViewMode,
-	);
-	let effectiveSingboxTunnelsRenderMode = $derived(
-		dashboardOn ? dashboardSingboxRenderMode : singboxTunnelsRenderMode,
-	);
-	let effectiveSingboxTunnelsEffectiveLayout = $derived(
-		dashboardOn ? dashboardSingboxLayoutMode : singboxTunnelsEffectiveLayout,
-	);
-	let effectiveSingboxSubscriptionsRenderMode = $derived(
-		dashboardOn ? dashboardSingboxRenderMode : singboxSubscriptionsRenderMode,
-	);
-	let effectiveSingboxSubscriptionsEffectiveLayout = $derived(
-		dashboardOn ? dashboardSingboxLayoutMode : singboxSubscriptionsEffectiveLayout,
-	);
-	let effectiveAwgSearchQuery = $derived(dashboardOn ? dashboardSearchQuery : awgListSearchQuery);
-	let effectiveSingboxTunnelsSearchQuery = $derived(
-		dashboardOn ? dashboardSearchQuery : singboxTunnelsSearchQuery,
-	);
-	let effectiveSubscriptionsSearchQuery = $derived(
-		dashboardOn ? dashboardSearchQuery : singboxSubscriptionsSearchQuery,
-	);
+	let singboxSectionsVisible = $derived(isSectionVisible($usageLevel, 'singboxTunnels'));
 
 	function isAwgTunnelViewMode(value: string | null): value is AwgTunnelViewMode {
 		return value === 'cards' || value === 'compact' || value === 'list';
 	}
 
-	const tunnelTabs = $derived(
-		[
-			{ id: 'awg', label: 'AWG', badge: awgList.length + systemList.length },
-			isSectionVisible($usageLevel, 'singboxTunnels')
-				? { id: 'singbox', label: 'Sing-box туннели', badge: singboxTunnelsList.length }
-				: null,
-			isSectionVisible($usageLevel, 'singboxTunnels')
-				? { id: 'subscriptions', label: 'Sing-box подписки', badge: subscriptionsList.length }
-				: null,
-		].filter((t): t is { id: string; label: string; badge: number } => t !== null),
-	);
+	function isSectionAvailable(id: TunnelSectionId): boolean {
+		return id === 'awg' || singboxSectionsVisible;
+	}
 
-	// Auto-switch off sing-box tab if it becomes hidden (basic mode).
+	function defaultOpenSections(): Record<TunnelSectionId, boolean> {
+		return {
+			awg: true,
+			singbox: singboxSectionsVisible,
+			subscriptions: singboxSectionsVisible,
+		};
+	}
+
+	function normalizeOpenSections(
+		value: Partial<Record<TunnelSectionId, boolean>> | null | undefined,
+	): Record<TunnelSectionId, boolean> {
+		const defaults = defaultOpenSections();
+		return {
+			awg: value?.awg ?? defaults.awg,
+			singbox: singboxSectionsVisible ? (value?.singbox ?? defaults.singbox) : false,
+			subscriptions: singboxSectionsVisible ? (value?.subscriptions ?? defaults.subscriptions) : false,
+		};
+	}
+
+	function applyUrlStateToOpenSections(
+		sections: Record<TunnelSectionId, boolean>,
+		url: URL,
+	): Record<TunnelSectionId, boolean> {
+		const nextSections = { ...sections };
+		const awgQ = url.searchParams.get('detail');
+		const sbQ = url.searchParams.get('sbDetail');
+		const tabQ = url.searchParams.get('tab');
+
+		if (awgQ && awgQ.length > 0) {
+			nextSections.awg = true;
+		}
+
+		if (sbQ && sbQ.length > 0 && singboxSectionsVisible) {
+			nextSections.singbox = true;
+			nextSections.subscriptions = true;
+		}
+
+		if (tabQ === 'awg') {
+			nextSections.awg = true;
+		} else if (tabQ === 'singbox' && singboxSectionsVisible) {
+			nextSections.singbox = true;
+		} else if (tabQ === 'subscriptions' && singboxSectionsVisible) {
+			nextSections.subscriptions = true;
+		}
+
+		return normalizeOpenSections(nextSections);
+	}
+
+	function isSectionOpen(id: TunnelSectionId): boolean {
+		return isSectionAvailable(id) && openSections[id];
+	}
+
+	function setSectionOpen(id: TunnelSectionId, open: boolean): void {
+		const nextValue = isSectionAvailable(id) ? open : false;
+		if (openSections[id] === nextValue) return;
+		openSections = {
+			...openSections,
+			[id]: nextValue,
+		};
+	}
+
+	async function syncSectionUrl(section: TunnelSectionId, open: boolean): Promise<void> {
+		if (typeof window === 'undefined') return;
+		const url = new URL(window.location.href);
+		if (open) {
+			url.searchParams.set('tab', section);
+			activeTab = section;
+		} else if (url.searchParams.get('tab') === section) {
+			url.searchParams.delete('tab');
+		}
+		await goto(`${url.pathname}${url.search}${url.hash}`, {
+			replaceState: true,
+			keepFocus: true,
+			noScroll: true,
+		});
+	}
+
+	function toggleSection(id: TunnelSectionId): void {
+		const next = !isSectionOpen(id);
+		setSectionOpen(id, next);
+		void syncSectionUrl(id, next);
+	}
+
 	$effect(() => {
-		if (!tunnelTabs.find((t) => t.id === activeTab)) {
+		const normalized = normalizeOpenSections(openSections);
+		if (
+			normalized.awg !== openSections.awg ||
+			normalized.singbox !== openSections.singbox ||
+			normalized.subscriptions !== openSections.subscriptions
+		) {
+			openSections = normalized;
+		}
+		if (!isSectionAvailable(activeTab)) {
 			activeTab = 'awg';
 		}
 	});
 
 	onMount(() => {
+		let storedSections = defaultOpenSections();
+		try {
+			const raw = localStorage.getItem(TUNNEL_SECTIONS_OPEN_STORAGE_KEY);
+			if (raw) {
+				storedSections = normalizeOpenSections(
+					JSON.parse(raw) as Partial<Record<TunnelSectionId, boolean>>,
+				);
+			}
+		} catch {
+			storedSections = defaultOpenSections();
+		}
+		openSections = applyUrlStateToOpenSections(storedSections, new URL(window.location.href));
+		tunnelSectionsHydrated = true;
+
 		const stored = localStorage.getItem(AWG_TUNNEL_VIEW_STORAGE_KEY);
 		if (isAwgTunnelViewMode(stored)) {
 			awgViewMode = stored;
@@ -798,15 +923,23 @@
 		);
 	});
 
+	$effect(() => {
+		if (typeof window === 'undefined' || !tunnelSectionsHydrated) return;
+		localStorage.setItem(TUNNEL_SECTIONS_OPEN_STORAGE_KEY, JSON.stringify(openSections));
+	});
+
 	let awgAutoConnectivityNonce = $state(0);
-	let singboxAutoDelayCheckNonce = $state(0);
-	let lastAutoCheckKey = '';
-	// Separate dedupe key for the dashboard: there both the AWG connectivity
-	// effect and the sing-box delay effect are live at once, so sharing
-	// lastAutoCheckKey would ping-pong and re-trigger checks on every poll.
-	let lastDashboardDelayKey = '';
-	let currentTunnelSurface = '';
-	let tunnelSurfaceEntryNonce = $state(0);
+	let singboxTunnelsAutoDelayCheckNonce = $state(0);
+	let singboxSubscriptionsAutoDelayCheckNonce = $state(0);
+	let lastAwgAutoCheckKey = '';
+	let lastSingboxTunnelsAutoCheckKey = '';
+	let lastSingboxSubscriptionsAutoCheckKey = '';
+	let awgSectionEpoch = $state(0);
+	let singboxTunnelsSectionEpoch = $state(0);
+	let singboxSubscriptionsSectionEpoch = $state(0);
+	let lastAwgSectionOpen = false;
+	let lastSingboxTunnelsSectionOpen = false;
+	let lastSingboxSubscriptionsSectionOpen = false;
 
 	function activeAwgConnectivityIds(): string {
 		return awgList
@@ -837,35 +970,43 @@
 	}
 
 	$effect(() => {
-		const surface = $page.url.pathname === '/' ? activeTab : 'outside';
-		if (surface === currentTunnelSurface) return;
-		currentTunnelSurface = surface;
-		tunnelSurfaceEntryNonce += 1;
+		const open = $page.url.pathname === '/' && isSectionOpen('awg');
+		if (open && !lastAwgSectionOpen) awgSectionEpoch += 1;
+		lastAwgSectionOpen = open;
+	});
+
+	$effect(() => {
+		const open = $page.url.pathname === '/' && isSectionOpen('singbox');
+		if (open && !lastSingboxTunnelsSectionOpen) singboxTunnelsSectionEpoch += 1;
+		lastSingboxTunnelsSectionOpen = open;
+	});
+
+	$effect(() => {
+		const open = $page.url.pathname === '/' && isSectionOpen('subscriptions');
+		if (open && !lastSingboxSubscriptionsSectionOpen) singboxSubscriptionsSectionEpoch += 1;
+		lastSingboxSubscriptionsSectionOpen = open;
 	});
 
 	$effect(() => {
 		const path = $page.url.pathname;
-		const tab = activeTab;
-		const entry = tunnelSurfaceEntryNonce;
-		if (path !== '/' || tab !== 'awg' || loading) return;
+		const entry = awgSectionEpoch;
+		if (path !== '/' || !isSectionOpen('awg') || loading) return;
 
 		const ids = activeAwgConnectivityIds();
 		if (!ids) return;
 
 		const key = `awg:${entry}:${ids}`;
-		if (key === lastAutoCheckKey) return;
-		lastAutoCheckKey = key;
+		if (key === lastAwgAutoCheckKey) return;
+		lastAwgAutoCheckKey = key;
 		awgAutoConnectivityNonce += 1;
 	});
 
-	// Только в табличном рендере не рендерятся TunnelCard — там срабатывает autoConnectivity.
+	// В режиме «список» не рендерятся TunnelCard — там срабатывает autoConnectivity.
 	// Иначе connectivityMap не заполняется и подстрока статуса залипает на «Проверка…».
-	// В list-card (мобильный «список» и сплошной дашборд) карточки сами
-	// проверяются по тому же nonce — дублировать запросы со страницы нельзя.
 	$effect(() => {
-		const mode = effectiveAwgRenderMode;
+		const mode = awgEffectiveViewMode;
 		const nonce = awgAutoConnectivityNonce;
-		if (mode !== 'table' || loading || nonce <= 0) return;
+		if (mode !== 'list' || loading || nonce <= 0) return;
 
 		const targets = untrack(() =>
 			awgList.filter(
@@ -900,45 +1041,30 @@
 
 	$effect(() => {
 		const path = $page.url.pathname;
-		const tab = activeTab;
-		const entry = tunnelSurfaceEntryNonce;
-		if (path !== '/') return;
+		const entry = singboxTunnelsSectionEpoch;
+		if (path !== '/' || !isSectionOpen('singbox')) return;
 
-		// Dashboard shows sing-box tunnels and subscriptions at once — run the
-		// auto delay checks for both regardless of the (hidden) active tab.
-		if (dashboardOn) {
-			const sbTags = dashboardSingboxTunnels
-				.filter((t) => t.running === true)
-				.map((t) => t.tag)
-				.sort()
-				.join(',');
-			const subTags = dashboardSubscriptionsActive
-				.map((card) => card.activeMember.tag)
-				.filter(Boolean)
-				.sort()
-				.join(',');
-			if (!sbTags && !subTags) return;
-
-			// Отдельные префиксы групп: набор тегов туннелей и подписок не
-			// должен схлопываться в один ключ при перестановке между группами.
-			const key = `dashboard:${entry}:sb:${sbTags}|sub:${subTags}`;
-			if (key === lastDashboardDelayKey) return;
-			lastDashboardDelayKey = key;
-			singboxAutoDelayCheckNonce += 1;
-			return;
-		}
-
-		if (tab !== 'singbox' && tab !== 'subscriptions') return;
-
-		const tags = tab === 'singbox'
-			? activeSingboxDelayTags()
-			: activeSubscriptionDelayTags();
+		const tags = activeSingboxDelayTags();
 		if (!tags) return;
 
-		const key = `${tab}:${entry}:${tags}`;
-		if (key === lastAutoCheckKey) return;
-		lastAutoCheckKey = key;
-		singboxAutoDelayCheckNonce += 1;
+		const key = `singbox:${entry}:${tags}`;
+		if (key === lastSingboxTunnelsAutoCheckKey) return;
+		lastSingboxTunnelsAutoCheckKey = key;
+		singboxTunnelsAutoDelayCheckNonce += 1;
+	});
+
+	$effect(() => {
+		const path = $page.url.pathname;
+		const entry = singboxSubscriptionsSectionEpoch;
+		if (path !== '/' || !isSectionOpen('subscriptions')) return;
+
+		const tags = activeSubscriptionDelayTags();
+		if (!tags) return;
+
+		const key = `subscriptions:${entry}:${tags}`;
+		if (key === lastSingboxSubscriptionsAutoCheckKey) return;
+		lastSingboxSubscriptionsAutoCheckKey = key;
+		singboxSubscriptionsAutoDelayCheckNonce += 1;
 	});
 
 	// External tunnels
@@ -1147,6 +1273,11 @@
 		visibleSystemList.filter((t) => t.status === 'up').length +
 		externalList.filter((t) => !!t.lastHandshake).length,
 	);
+	let awgSummarySystemLabel = $derived(isAwgMobile ? 'sys.' : 'system');
+	let awgSummaryExternalLabel = $derived(isAwgMobile ? 'ext.' : 'external');
+	let awgSummaryBreakdown = $derived(
+		`AWG ${awgList.length} · ${awgSummarySystemLabel} ${visibleSystemList.length} · ${awgSummaryExternalLabel} ${externalList.length}`,
+	);
 
 	let awgSummaryPeak = $derived.by(() => {
 		let rate = 0;
@@ -1188,31 +1319,37 @@
 	);
 
 	let awgTrafficLeader = $derived.by(() => {
+		type AwgTrafficCandidate = {
+			name: string;
+			bytes: number;
+		};
+
 		let bytes = 0;
 		let name = '—';
+		const candidates: AwgTrafficCandidate[] = [];
 
 		for (const tunnel of awgList) {
 			const total = (tunnel.rxBytes ?? 0) + (tunnel.txBytes ?? 0);
-			if (total > bytes) {
-				bytes = total;
-				name = tunnel.name;
-			}
+			candidates.push({ name: tunnel.name, bytes: total });
 		}
 
 		for (const tunnel of visibleSystemList) {
 			const total = (tunnel.peer?.rxBytes ?? 0) + (tunnel.peer?.txBytes ?? 0);
-			if (total > bytes) {
-				bytes = total;
-				name = tunnel.description || tunnel.interfaceName;
-			}
+			candidates.push({ name: tunnel.description || tunnel.interfaceName, bytes: total });
 		}
 
 		for (const tunnel of externalList) {
 			const total = tunnel.rxBytes + tunnel.txBytes;
-			if (total > bytes) {
-				bytes = total;
-				name = tunnel.interfaceName;
-			}
+			candidates.push({ name: tunnel.interfaceName, bytes: total });
+		}
+
+		if (candidates.length > 0) {
+			const sorted = [...candidates].sort((a, b) => {
+				if (b.bytes !== a.bytes) return b.bytes - a.bytes;
+				return a.name.localeCompare(b.name, 'ru');
+			});
+			bytes = sorted[0].bytes;
+			name = sorted[0].name;
 		}
 
 		return { bytes, name };
@@ -1282,7 +1419,7 @@
 	}
 
 	let sortedFilteredAwgList = $derived.by(() => {
-		const query = effectiveAwgSearchQuery.trim().toLowerCase();
+		const query = awgListSearchQuery.trim().toLowerCase();
 		const filtered = awgList.filter((tunnel) =>
 			matchQuery(
 				[
@@ -1327,7 +1464,7 @@
 	});
 
 	let sortedFilteredSystemList = $derived.by(() => {
-		const query = effectiveAwgSearchQuery.trim().toLowerCase();
+		const query = awgListSearchQuery.trim().toLowerCase();
 		const filtered = visibleSystemList.filter((tunnel) =>
 			matchQuery(
 				[
@@ -1374,7 +1511,7 @@
 	});
 
 	let sortedFilteredExternalList = $derived.by(() => {
-		const query = effectiveAwgSearchQuery.trim().toLowerCase();
+		const query = awgListSearchQuery.trim().toLowerCase();
 		const filtered = externalList.filter((tunnel) =>
 			matchQuery([tunnel.interfaceName, tunnel.endpoint, tunnel.publicKey, tunnel.isAWG ? 'awg' : 'wg'], query),
 		);
@@ -1414,7 +1551,7 @@
 	});
 
 	let sortedFilteredSingboxTunnels = $derived.by(() => {
-		const query = effectiveSingboxTunnelsSearchQuery.trim().toLowerCase();
+		const query = singboxTunnelsSearchQuery.trim().toLowerCase();
 		const filtered = singboxTunnelsList.filter((tunnel) =>
 			matchQuery(
 				[
@@ -1473,7 +1610,7 @@
 	}
 
 	let sortedFilteredSubscriptionsActiveCards = $derived.by(() => {
-		const query = effectiveSubscriptionsSearchQuery.trim().toLowerCase();
+		const query = singboxSubscriptionsSearchQuery.trim().toLowerCase();
 		const filtered = subscriptionsActiveCards.filter(({ subscription, activeMember }) =>
 			matchQuery(
 				[
@@ -1517,7 +1654,7 @@
 	});
 
 	let sortedFilteredSubscriptionsListRows = $derived.by(() => {
-		const query = effectiveSubscriptionsSearchQuery.trim().toLowerCase();
+		const query = singboxSubscriptionsSearchQuery.trim().toLowerCase();
 		const filtered = subscriptionsListRows.filter((subscription) => {
 			const activeTag = liveActives[subscription.id] || null;
 			const member = subscription.members?.find((m) => m.tag === activeTag) ?? null;
@@ -1578,379 +1715,23 @@
 	let singboxSubscriptionsFilteredRowsCount = $derived(
 		sortedFilteredSubscriptionsActiveCards.length + sortedFilteredSubscriptionsListRows.length,
 	);
-	let awgSearchEmpty = $derived(
-		effectiveAwgSearchQuery.trim() !== '' &&
-			awgFilteredRowsCount === 0,
-	);
+	let awgSearchEmpty = $derived(awgListSearchQuery.trim() !== '' && awgFilteredRowsCount === 0);
 	let singboxTunnelsSearchEmpty = $derived(
-		effectiveSingboxTunnelsSearchQuery.trim() !== '' &&
-			singboxTunnelsFilteredRowsCount === 0,
+		singboxTunnelsSearchQuery.trim() !== '' && singboxTunnelsFilteredRowsCount === 0,
 	);
 	let singboxSubscriptionsSearchEmpty = $derived(
-		effectiveSubscriptionsSearchQuery.trim() !== '' &&
-			singboxSubscriptionsFilteredRowsCount === 0,
+		singboxSubscriptionsSearchQuery.trim() !== '' && singboxSubscriptionsFilteredRowsCount === 0,
 	);
 
-	// Single source of gated sing-box data for the dashboard: empty unless the
-	// sections are visible at this usage level AND sing-box is installed (or
-	// its status is still probing). Hidden/unavailable sections must not leak
-	// into the merged flat list, section headers or counts.
-	let dashboardSingboxTunnels = $derived(
-		dashboardSingboxVisible ? sortedFilteredSingboxTunnels : [],
-	);
-	let dashboardSubscriptionsActive = $derived(
-		dashboardSingboxVisible ? sortedFilteredSubscriptionsActiveCards : [],
-	);
-	let dashboardSubscriptionsStopped = $derived(
-		dashboardSingboxVisible ? sortedFilteredSubscriptionsListRows : [],
-	);
-	let dashboardSubscriptionsCount = $derived(
-		dashboardSubscriptionsActive.length + dashboardSubscriptionsStopped.length,
-	);
-	// Локальный (не персистентный) фильтр по тегу; сбрасывается при выходе из
-	// дашборда и в видах, где он не применяется (секции с группировкой «Тип») —
-	// иначе чип в тулбаре остаётся, а секции показывают нефильтрованные списки.
-	let dashboardTagFilter = $state<string | null>(null);
-	$effect(() => {
-		if (!dashboardOn || dashboardTypeSections) dashboardTagFilter = null;
-	});
-	// Merged item base is needed by BOTH card surfaces: the flat layout and the
-	// tag-group view of the sections layout.
-	let dashboardFlatBase = $derived.by(() => {
-		if (!dashboardFlatCardMode && !dashboardGroupByTags) return [];
-		return buildFlatDashboardItems({
-			awg: sortedFilteredAwgList,
-			system: sortedFilteredSystemList,
-			external: sortedFilteredExternalList,
-			singbox: dashboardSingboxTunnels,
-			subscriptionsActive: dashboardSubscriptionsActive,
-			subscriptionsStopped: dashboardSubscriptionsStopped,
-		});
-	});
-	// Единственная точка применения тег-фильтра: и сплошной список, и теговые
-	// группы потребляют один и тот же отфильтрованный набор.
-	let dashboardVisibleItems = $derived(
-		dashboardTagFilter !== null
-			? filterItemsByTag(dashboardFlatBase, $tunnelDashboardTags, dashboardTagFilter)
-			: dashboardFlatBase,
-	);
-	let dashboardFlatItems = $derived.by(() => {
-		if (!dashboardFlatCardMode) return [];
-		if ($tunnelDashboardOrderMode === 'manual') {
-			return applyManualOrder(dashboardVisibleItems, $tunnelDashboardManualOrder);
-		}
-		return dashboardVisibleItems;
-	});
-	// Теговые группы сортируются всегда авто (kind → имя из buildFlatDashboardItems):
-	// контрол «Авто/Вручную» здесь скрыт, ручной порядок — фича сплошного списка.
-	// Элемент с N тегами рендерится N раз — auto-проверки (nonce) получает только
-	// первое вхождение ключа, иначе дублируются API-вызовы и гоняются обновления.
-	let dashboardTagGroups = $derived.by(() => {
-		if (!dashboardGroupByTags) return [];
-		const groups = groupFlatItemsByTag(dashboardVisibleItems, $tunnelDashboardTags);
-		const seen = new Set<string>();
-		return groups.map((group) => ({
-			tag: group.tag,
-			items: group.items.map((item) => {
-				const autoCheck = !seen.has(item.key);
-				seen.add(item.key);
-				return { item, autoCheck };
-			}),
-		}));
-	});
-	// Admitted sing-box/subscription stores still on their first load — a
-	// late-arriving list must not flash the onboarding screen (see
-	// dashboardNothingAtAll) и не должен принимать drag-переупорядочивание:
-	// коммит по неполному списку затёр бы позиции ещё не приехавших ключей.
-	let dashboardSingboxDataPending = $derived(
-		dashboardSingboxVisible &&
-			(singboxStatusLoading || singboxTunnelsInitialLoading || subscriptionsInitialLoading),
-	);
-	// D7: ручной порядок в сплошном дашборде — общее pointer-drag ядро sb-router
-	// (createReorderDrag). Активен только когда порядок реально редактируемый:
-	// без поиска, без фильтра по тегу и когда данные уже доехали.
-	let dashboardDndEnabled = $derived(
-		dashboardFlatCardMode &&
-			$tunnelDashboardOrderMode === 'manual' &&
-			dashboardSearchQuery.trim() === '' &&
-			dashboardTagFilter === null &&
-			!dashboardSingboxDataPending,
-	);
-	let flatRowEls = $state<Array<HTMLElement | null>>([]);
-	let flatGridEl = $state<HTMLElement | null>(null);
-	// dashboardFlatItems живой (5s-поллинг), а движок оперирует индексами,
-	// зафиксированными на pointerdown — на время drag грид рендерится из
-	// снапшота (те же ключи), чтобы мутация посреди drag не закоммитила чужой
-	// ключ и не подменила ghost. Обновления полла применяются после отпускания.
-	let dragSnapshot = $state<TunnelDashboardFlatItem[] | null>(null);
-	let dashboardRenderItems = $derived(dragSnapshot ?? dashboardFlatItems);
-	const flatDrag = createReorderDrag({
-		getRowElement: (i) => flatRowEls[i] ?? null,
-		count: () => dashboardRenderItems.length,
-		getPanelEl: () => flatGridEl,
-		onCommit: async (from, to) => {
-			// Движок отдаёт финальный splice-индекс `to` — переставляем ключи
-			// снапшота и вливаем видимую подпоследовательность в сохранённый
-			// порядок: позиции скрытых сейчас ключей (sing-box loading /
-			// uninstalled / другой usage level) не затираются.
-			const before = (dragSnapshot ?? dashboardFlatItems).map((item) => item.key);
-			const after = reorder(before, from, to);
-			tunnelDashboardManualOrder.set(mergeManualOrder($tunnelDashboardManualOrder, before, after));
-			dragSnapshot = null;
-		},
-	});
-	onDestroy(() => flatDrag.destroy());
-	function handleGripPointerDown(index: number, event: PointerEvent): void {
-		dragSnapshot = dashboardFlatItems;
-		flatDrag.handlePointerDown(index, event);
-		// Клик без движения не доходит ни до onCommit, ни до active=true —
-		// одноразовый слушатель снимает снапшот после того, как движок
-		// (зарегистрированный раньше) отработал свой pointerup.
-		const clearIfIdle = () => {
-			window.removeEventListener('pointerup', clearIfIdle);
-			window.removeEventListener('pointercancel', clearIfIdle);
-			if (!flatDrag.active && !flatDrag.busy) dragSnapshot = null;
-		};
-		window.addEventListener('pointerup', clearIfIdle);
-		window.addEventListener('pointercancel', clearIfIdle);
-	}
-	// Страховка: любое завершение drag (включая Escape-отмену) снимает снапшот.
-	let dragWasActive = false;
-	$effect(() => {
-		const active = flatDrag.active;
-		if (dragWasActive && !active) dragSnapshot = null;
-		dragWasActive = active;
-	});
-	// Перестановка с клавиатуры на грипе: ArrowUp/ArrowDown двигает элемент на
-	// одну позицию — тот же reorder + mergeManualOrder, без pointer.
-	function handleGripKeydown(index: number, event: KeyboardEvent): void {
-		if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-		event.preventDefault();
-		if (flatDrag.busy || flatDrag.active) return;
-		const before = dashboardFlatItems.map((item) => item.key);
-		const to = index + (event.key === 'ArrowUp' ? -1 : 1);
-		if (to < 0 || to >= before.length) return;
-		tunnelDashboardManualOrder.set(
-			mergeManualOrder($tunnelDashboardManualOrder, before, reorder(before, index, to)),
-		);
-	}
-	// Пустой результат поиска ИЛИ тег-фильтра: в карточных видах считаем по
-	// видимым элементам, в секциях по типу — по счётчикам блоков (тег-фильтр
-	// там не применяется и авто-сбрасывается).
-	let dashboardVisibleCount = $derived(
-		dashboardFlatCardMode
-			? dashboardFlatItems.length
-			: dashboardGroupByTags
-				? dashboardTagGroups.reduce((n, group) => n + group.items.length, 0)
-				: awgFilteredRowsCount + dashboardSingboxTunnels.length + dashboardSubscriptionsCount,
-	);
-	let dashboardFilterEmpty = $derived(
-		dashboardOn &&
-			(dashboardSearchQuery.trim() !== '' || dashboardTagFilter !== null) &&
-			dashboardVisibleCount === 0,
-	);
-	let dashboardNothingAtAll = $derived(
-		!dashboardSingboxDataPending &&
-			awgList.length === 0 &&
-			systemList.length === 0 &&
-			externalList.length === 0 &&
-			dashboardSingboxTunnels.length === 0 &&
-			dashboardSubscriptionsCount === 0 &&
-			dashboardSearchQuery.trim() === '',
-	);
-	// Named gates for the three per-kind template blocks. They legitimately
-	// differ: AWG hosts the shared onboarding, subscriptions must surface its
-	// loading spinner and fetch-error state even in dashboard mode.
-	// Per-kind dashboard sections render only in sections layout with grouping
-	// by kind ('type'); the tag-group view replaces them wholesale.
-	let showAwgBlock = $derived(
-		(!dashboardOn && activeTab === 'awg') ||
-			(dashboardTypeSections && awgFilteredRowsCount > 0) ||
-			(dashboardOn && dashboardNothingAtAll),
-	);
-	let showSingboxBlock = $derived(
-		(!dashboardOn && activeTab === 'singbox') ||
-			(dashboardTypeSections && dashboardSingboxTunnels.length > 0),
-	);
-	let showSubscriptionsBlock = $derived(
-		(!dashboardOn && activeTab === 'subscriptions') ||
-			(dashboardTypeSections && dashboardSubscriptionsCount > 0) ||
-			(dashboardOn &&
-				dashboardSingboxVisible &&
-				(subscriptionsInitialLoading || subscriptionsFetchFailed)),
-	);
 
-	// Единый класс сетки для сплошного и тегового карточных видов — классы
-	// плотности не могут разъехаться между двумя разметками.
-	let dashboardGridClass = $derived(
-		[
-			'tunnel-grid',
-			effectiveAwgRenderMode === 'list-card' ? 'tunnel-grid--list' : '',
-			effectiveAwgRenderMode === 'dense' || effectiveSingboxTunnelsRenderMode === 'dense'
-				? 'tunnel-grid--dense'
-				: '',
-			effectiveAwgRenderMode === 'compact' ? 'tunnel-grid--compact' : '',
-		]
-			.filter(Boolean)
-			.join(' '),
-	);
-
-	// Бейдж вида для компактных рядов переупорядочивания и ghost-токена.
-	const DASHBOARD_KIND_LABELS: Record<TunnelDashboardFlatItem['kind'], string> = {
-		'awg-managed': 'AWG',
-		'awg-system': 'system',
-		'awg-external': 'external',
-		singbox: 'sing-box',
-		'sub-active': 'подписка',
-		'sub-stopped': 'подписка',
-	};
-
-	// D6 (issue #353): комбинированная сводка дашборда по трём видам туннелей.
-	// Sing-box и подписки учитываются только когда их данные допущены в дашборд.
-	let dashboardSummaryStats = $derived.by(() => {
-		if (!dashboardOn) return [];
-		const sb = dashboardSingboxVisible ? singboxTunnelListStats : null;
-		const subs = dashboardSingboxVisible ? singboxSubscriptionsTrafficStats : null;
-		const totalAll = awgSummaryTotal + (sb?.count ?? 0) + (subs?.count ?? 0);
-		const totalActive = awgSummaryActive + (sb?.running ?? 0) + (subs?.activeCount ?? 0);
-		const kinds = [`AWG ${awgSummaryActive}/${awgSummaryTotal}`];
-		if (sb) kinds.push(`Sing-box ${sb.running}/${sb.count}`);
-		if (subs) kinds.push(`Подписки ${subs.activeCount}/${subs.count}`);
-		const rx = awgSummaryRx + (sb?.down ?? 0) + (subs?.down ?? 0);
-		const tx = awgSummaryTx + (sb?.up ?? 0) + (subs?.up ?? 0);
-		const leaders = [
-			{ bytes: awgTrafficLeader.bytes, name: awgTrafficLeader.name },
-			{ bytes: sb?.leaderBytes ?? 0, name: sb?.leaderName ?? '—' },
-			{ bytes: subs?.leaderBytes ?? 0, name: subs?.leaderName ?? '—' },
-		];
-		const leader = leaders.reduce((best, cur) => (cur.bytes > best.bytes ? cur : best));
-		return [
-			{
-				value: `${totalActive}/${totalAll}`,
-				label: 'Туннели',
-				sub: kinds.join(' · '),
-			},
-			{
-				value: awgSummaryPeak.rate > 0 ? formatBitRate(awgSummaryPeak.rate) : '—',
-				label: 'Пиковая скорость',
-				// Метрика считается только по AWG-туннелям внутри кросс-видовой
-				// сводки — область видимости заявлена явно.
-				sub: awgSummaryPeak.rate > 0 ? `AWG · ${awgSummaryPeak.name}` : '—',
-			},
-			{
-				value: formatBytes(rx + tx),
-				label: 'Трафик всего',
-				sub: `↓ ${formatBytes(rx)} · ↑ ${formatBytes(tx)}`,
-			},
-			{
-				value: leader.bytes > 0 ? leader.name : '—',
-				label: 'Лидер трафика',
-				sub: leader.bytes > 0 ? formatBytes(leader.bytes) : '—',
-			},
-		];
-	});
 </script>
 
 {#snippet createIcon()}
 	<CreateIcon />
 {/snippet}
 
-{#snippet dashboardFlatCard(item: TunnelDashboardFlatItem, suppressAutoCheck: boolean = false)}
-	{#if item.kind === 'awg-managed'}
-		<TunnelCard
-			tunnel={item.tunnel}
-			view={effectiveAwgRenderMode === 'list-card' ? 'list' : effectiveAwgCardViewMode}
-			toggleLoading={toggleLoading[item.tunnel.id] ?? false}
-			deleteLoading={deleteLoading[item.tunnel.id] ?? false}
-			autoConnectivityNonce={suppressAutoCheck ? 0 : awgAutoConnectivityNonce}
-			autoConnectivityDelayMs={item.index * 180}
-			onToggleOnOff={() => handleToggleOnOff(item.tunnel.id)}
-			ondelete={() => requestDelete(item.tunnel.id)}
-			ondetail={(id) => openDetail(id)}
-		/>
-	{:else if item.kind === 'awg-system'}
-		<SystemTunnelCard
-			tunnel={item.tunnel}
-			view={effectiveAwgRenderMode === 'list-card' ? 'list' : effectiveAwgCardViewMode}
-			onMarkServer={markAsServer}
-			ondetail={(id) => openDetail(id)}
-			ontest={(id, name) => openAwgDiagnostics(id, name, 'system')}
-		/>
-	{:else if item.kind === 'awg-external'}
-		<ExternalTunnelCard
-			tunnel={item.tunnel}
-			view={effectiveAwgRenderMode === 'list-card' ? 'list' : effectiveAwgCardViewMode}
-			onadopt={(name) => handleAdoptClick(name)}
-		/>
-	{:else if item.kind === 'singbox'}
-		<SingboxTunnelCard
-			tunnel={item.tunnel}
-			layout={effectiveSingboxTunnelsRenderMode === 'list-card' ? 'list' : effectiveSingboxTunnelsEffectiveLayout}
-			renderMode={effectiveSingboxTunnelsRenderMode}
-			autoDelayCheckNonce={suppressAutoCheck ? 0 : singboxAutoDelayCheckNonce}
-			autoDelayCheckDelayMs={item.index * 180}
-			ondetail={(tag) => openSingboxDetail(tag)}
-		/>
-	{:else if item.kind === 'sub-active'}
-		<SubscriptionActiveCard
-			subscription={item.card.subscription}
-			activeMember={item.card.activeMember}
-			autoDelayCheckNonce={suppressAutoCheck ? 0 : singboxAutoDelayCheckNonce}
-			autoDelayCheckDelayMs={item.index * 180}
-			layout={effectiveSingboxSubscriptionsEffectiveLayout}
-			renderMode={effectiveSingboxSubscriptionsRenderMode}
-			ondetail={(tag) => openSingboxDetail(tag)}
-		/>
-	{:else if item.kind === 'sub-stopped'}
-		<SubscriptionCard
-			subscription={item.subscription}
-			liveActiveMember={liveActives[item.subscription.id] || null}
-			layout={effectiveSingboxSubscriptionsEffectiveLayout}
-			renderMode={effectiveSingboxSubscriptionsRenderMode}
-			ondelete={requestSubscriptionDelete}
-			ondetail={(tag) => openSingboxDetail(tag)}
-		/>
-	{/if}
-{/snippet}
-
-{#snippet dashboardItemFooter(item: TunnelDashboardFlatItem, dragIndex: number | null, dragDisabled: boolean = false)}
-	{@const itemTags = getItemTags($tunnelDashboardTags, item.key)}
-	<!-- Футер рендерится только когда в нём есть содержимое: грип ручного
-	     порядка и/или чипы тегов. Без тегов и вне тегового вида ряд с одиноким
-	     «+» под каждой карточкой не показывается; редактирование тегов живёт в
-	     группировке «Теги», в сплошном виде чипы readonly (клик = фильтр). -->
-	{#if dragIndex !== null || itemTags.length > 0 || dashboardGroupByTags}
-		<div class="dashboard-item-footer">
-			{#if dragIndex !== null}
-				<button
-					type="button"
-					class="dashboard-item-grip"
-					class:is-busy={flatDrag.busy}
-					disabled={dragDisabled}
-					title={dragDisabled
-						? 'Перетаскивание недоступно при поиске и фильтре'
-						: 'Перетащить для изменения порядка'}
-					aria-label="Перетащить «{item.name}»"
-					onpointerdown={dragDisabled || flatDrag.busy
-						? undefined
-						: (e) => handleGripPointerDown(dragIndex, e)}
-					onkeydown={dragDisabled ? undefined : (e) => handleGripKeydown(dragIndex, e)}
-				>
-					<GripVertical size={14} strokeWidth={2} aria-hidden="true" />
-				</button>
-			{/if}
-			{#if itemTags.length > 0 || dashboardGroupByTags}
-				<TunnelTagChips
-					tags={itemTags}
-					readonly={!dashboardGroupByTags}
-					onAdd={(raw) => tunnelDashboardTags.addTag(item.key, raw)}
-					onRemove={(tag) => tunnelDashboardTags.removeTag(item.key, tag)}
-					onSelect={(tag) => (dashboardTagFilter = tag)}
-					activeTag={dashboardTagFilter}
-				/>
-			{/if}
-		</div>
-	{/if}
+{#snippet importIcon()}
+	<Upload size={16} />
 {/snippet}
 
 <svelte:head>
@@ -1970,155 +1751,8 @@
 			description={tunnelSnap.error ?? 'Не удалось получить список туннелей'}
 		/>
 	{:else}
-		{#if dashboardOn}
-			{#if showSingboxSections}
-				<SingboxInstallBanner />
-			{/if}
-			<div class="dashboard-sticky">
-				<div class="tunnels-toolbar">
-					<div class="toolbar-actions">
-						<DashboardToolbar
-							searchQuery={dashboardSearchQuery}
-							onSearchChange={(value) => (dashboardSearchQuery = value)}
-							layout={$tunnelDashboardLayout}
-							onLayoutChange={(layout) => tunnelDashboardLayout.setLayout(layout)}
-							viewMode={$tunnelDashboardView}
-							onViewModeChange={tunnelDashboardView.setViewMode}
-							showViewToggle={showSingboxListOption}
-							showListOption={showSingboxListOption}
-							orderMode={$tunnelDashboardOrderMode}
-							onOrderModeChange={tunnelDashboardOrderMode.setMode}
-							showOrderControl={dashboardFlatLayout}
-							groupMode={$tunnelDashboardGroupMode}
-							onGroupModeChange={tunnelDashboardGroupMode.setMode}
-							showGroupControl={!dashboardFlatLayout}
-							activeTagFilter={dashboardTagFilter}
-							onClearTagFilter={() => (dashboardTagFilter = null)}
-							showSingboxCreate={showSingboxSections}
-							onCreateAwg={() => goto('/tunnels/new')}
-							onCreateSingboxSingle={() => openWizard('single')}
-							onCreateSingboxGroup={() => openWizard('inline')}
-							onCreateSingboxSubscription={() => openWizard('url')}
-							{createIcon}
-						>
-							{#snippet actions()}
-								<StoreStatusBadge store={tunnels} />
-								<Button variant="secondary" size="md" onclick={handleExportAll} disabled={exporting} iconBefore={exportIcon}>
-									Экспорт
-								</Button>
-							{/snippet}
-						</DashboardToolbar>
-					</div>
-				</div>
-				<DashboardSummary stats={dashboardSummaryStats} />
-			</div>
-			{#if dashboardFlatCardMode}
-				<div
-					bind:this={flatGridEl}
-					class={dashboardGridClass}
-					class:dashboard-grid--reordering={flatDrag.active}
-					style={dashboardDndEnabled ? flatDrag.cardsMotionStyle() : undefined}
-				>
-					{#each dashboardRenderItems as item, i (item.key)}
-						<div
-							class="dashboard-flat-item"
-							class:drag-source-exiting={flatDrag.isDragSource(i)}
-							class:drag-source-collapsed={flatDrag.sourceCollapsed(i)}
-							style={flatDrag.isDragSource(i) ? flatDrag.dropIndicatorStyle() : undefined}
-							bind:this={flatRowEls[i]}
-						>
-							{#if flatDrag.showsDropBefore(i)}
-								<div
-									class="drop-indicator"
-									class:expanded={flatDrag.dropBeforeExpanded(i)}
-									class:collapsing={flatDrag.dropBeforeCollapsing(i)}
-									style={flatDrag.dropIndicatorStyle()}
-								></div>
-							{/if}
-							{#if flatDrag.active}
-								<!-- Во время drag карточки (с графиками) заменяются
-								     компактными рядами фиксированной высоты: без двух
-								     полных релэйаутов страницы, и длинный список влезает
-								     на экран. Ключи те же — ключи снапшота. -->
-								<div class="dashboard-reorder-row">
-									<span class="dashboard-kind-badge">{DASHBOARD_KIND_LABELS[item.kind]}</span>
-									<span class="dashboard-reorder-name">{item.name}</span>
-								</div>
-							{:else}
-								{@render dashboardFlatCard(item)}
-								{@render dashboardItemFooter(
-									item,
-									$tunnelDashboardOrderMode === 'manual' ? i : null,
-									!dashboardDndEnabled,
-								)}
-							{/if}
-						</div>
-					{/each}
-					{#if flatDrag.showsDropAtEnd()}
-						<div
-							class="drop-indicator drop-indicator-end"
-							class:expanded={flatDrag.dropEndExpanded()}
-							class:collapsing={flatDrag.dropEndCollapsing()}
-							style={flatDrag.dropIndicatorStyle()}
-						></div>
-					{/if}
-				</div>
-			{:else if dashboardGroupByTags}
-				{#each dashboardTagGroups as group (group.tag ?? ' untagged')}
-					<TunnelSectionHeader
-						title={group.tag ?? 'Без тегов'}
-						count={group.items.length}
-						countLabel={pluralForm(group.items.length, TUNNEL_WORDS)}
-					/>
-					<div class={dashboardGridClass}>
-						{#each group.items as entry (entry.item.key)}
-							<div class="dashboard-flat-item">
-								{@render dashboardFlatCard(entry.item, !entry.autoCheck)}
-								{@render dashboardItemFooter(entry.item, null)}
-							</div>
-						{/each}
-					</div>
-				{/each}
-			{/if}
-			{#if dashboardFilterEmpty}
-				<EmptyState
-					title="Ничего не найдено"
-					description={dashboardTagFilter !== null
-						? `Нет туннелей с тегом «${dashboardTagFilter}»${dashboardSearchQuery.trim() !== '' ? ' по этому запросу' : ''}.`
-						: 'По запросу не нашлось ни одного туннеля.'}
-				>
-					{#snippet action()}
-						{#if dashboardTagFilter !== null}
-							<Button variant="secondary" size="md" onclick={() => (dashboardTagFilter = null)}>
-								Сбросить фильтр
-							</Button>
-						{:else}
-							<Button variant="secondary" size="md" onclick={() => (dashboardSearchQuery = '')}>
-								Очистить поиск
-							</Button>
-						{/if}
-					{/snippet}
-				</EmptyState>
-			{/if}
-		{:else}
-			<Tabs
-				tabs={tunnelTabs}
-				active={activeTab}
-				onchange={(id) => (activeTab = id as TunnelTab)}
-				urlParam="tab"
-				defaultTab="awg"
-			/>
-		{/if}
-
-		{#if dashboardTypeSections && awgFilteredRowsCount > 0}
-			<TunnelSectionHeader
-				title="Amnezia WireGuard"
-				count={awgFilteredRowsCount}
-				countLabel={pluralForm(awgFilteredRowsCount, TUNNEL_WORDS)}
-			/>
-		{/if}
-		{#if showAwgBlock}
-		{#if (!dashboardOn || dashboardNothingAtAll) && awgList.length === 0 && systemList.length === 0}
+		{#snippet awgSectionContent()}
+		{#if awgList.length === 0 && systemList.length === 0}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="ghost-terminal"
@@ -2235,44 +1869,49 @@
 
 		{:else}
 			{@const totalCount = awgSummaryTotal}
-			{#if !dashboardOn}
 			<div class="tunnels-toolbar">
 				<div class="count-group">
 					<span class="tunnel-count">{totalCount} {pluralForm(totalCount, TUNNEL_WORDS)}</span>
 					<StoreStatusBadge store={tunnels} />
 				</div>
 				<div class="toolbar-actions">
-					<TunnelToolbarViewRow
-						sourceRowCount={awgSourceRowCount}
-						showViewToggle={showAwgViewModeSwitch}
-						searchQuery={awgListSearchQuery}
-						onSearchChange={(value) => (awgListSearchQuery = value)}
-					>
-						{#snippet viewToggle()}
-							<LayoutViewToggle
-								value={awgViewMode}
-								denseValue="cards"
-								ariaLabel="Вид туннелей"
-								onchange={(mode) => (awgViewMode = mode)}
-							/>
-						{/snippet}
-					</TunnelToolbarViewRow>
+					<div class="toolbar-view-row-desktop">
+						<TunnelToolbarViewRow
+							sourceRowCount={awgSourceRowCount}
+							showViewToggle={showAwgViewModeSwitch}
+							searchQuery={awgListSearchQuery}
+							sortKey={$awgTunnelTableSort.sortBy}
+							sortAsc={$awgTunnelTableSort.sortAsc}
+							sortOptions={awgSortOptions}
+							onSearchChange={(value) => (awgListSearchQuery = value)}
+							onSortChange={(key) => key === null ? awgTunnelTableSort.setSort(null) : awgTunnelTableSort.setSort(key as AwgTunnelSortKey)}
+							onToggleDir={() => awgTunnelTableSort.toggleDirection()}
+						>
+							{#snippet viewToggle()}
+								<LayoutViewToggle
+									value={awgViewMode}
+									denseValue="cards"
+									ariaLabel="Вид туннелей"
+									onchange={(mode) => (awgViewMode = mode)}
+								/>
+							{/snippet}
+						</TunnelToolbarViewRow>
+					</div>
 					<Button variant="secondary" size="md" onclick={handleExportAll} disabled={exporting} iconBefore={exportIcon}>
 						Экспорт
 					</Button>
-					<Button variant="primary" size="md" onclick={() => goto('/tunnels/new')} iconBefore={createIcon}>
-						Создать
+					<Button variant="primary" size="md" onclick={() => goto('/tunnels/new')} iconBefore={importIcon}>
+						Импорт
 					</Button>
 				</div>
 			</div>
-			{/if}
-			{#if !dashboardOn}
+			{#if awgSummaryTotal > 0}
 				<div class="awg-summary-row">
 					<StatStrip>
 						<Stat
 							value={`${awgSummaryActive}/${awgSummaryTotal}`}
 							label={pluralForm(awgSummaryActive, TUNNEL_WORDS)}
-							sub={`AWG ${awgList.length} · system ${visibleSystemList.length} · external ${externalList.length}`}
+							sub={awgSummaryBreakdown}
 						/>
 						<Stat
 							value={formatBitRate(awgSummaryPeak.rate)}
@@ -2285,14 +1924,18 @@
 							sub={`↓ ${formatBytes(awgSummaryRx)} · ↑ ${formatBytes(awgSummaryTx)}`}
 						/>
 						<Stat
-							value={awgTrafficLeader.bytes > 0 ? formatBytes(awgTrafficLeader.bytes) : '—'}
+							value={awgList.length + visibleSystemList.length + externalList.length > 0
+								? formatBytes(awgTrafficLeader.bytes)
+								: '—'}
 							label="Лидер по трафику"
-							sub={awgTrafficLeader.name}
+							sub={awgList.length + visibleSystemList.length + externalList.length > 0
+								? awgTrafficLeader.name
+								: '—'}
 						/>
 					</StatStrip>
 				</div>
 			{/if}
-			{#if effectiveAwgRenderMode === 'table'}
+			{#if awgRenderMode === 'table'}
 				<div class="awg-list-table">
 					<div class="awg-list-table-track">
 					<div class="awg-list-row awg-list-row--head">
@@ -2357,6 +2000,7 @@
 								size="sm"
 								variant="flip"
 								tint={awgToggleTint(tunnel, connectivity)}
+								ariaLabel={isManagedTunnelOn(tunnel) ? `Выключить туннель ${tunnel.name}` : `Включить туннель ${tunnel.name}`}
 								disabled={(toggleLoading[tunnel.id] ?? false) || tunnel.hasAddressConflict === true}
 								onchange={() => handleToggleOnOff(tunnel.id)}
 							/>
@@ -2381,64 +2025,66 @@
 									<TunnelMetaText>
 										{tunnel.address || '—'}
 										<span class="meta-dot" aria-hidden="true">·</span>
-										{tunnel.interfaceName || tunnel.id}
+										<span title={isEndpointShown ? (tunnel.interfaceName || tunnel.id) : ''}>
+											{isEndpointShown ? (tunnel.interfaceName || tunnel.id) : '••••'}
+										</span>
 										<span class="meta-dot" aria-hidden="true">·</span>
 										MTU {tunnel.mtu ?? '—'}
 									</TunnelMetaText>
-									<TunnelMetaText mono>
-										Uptime {tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
-									</TunnelMetaText>
+									{#if tunnel.hasAddressConflict}
+										<div class="awg-list-sub awg-list-sub--error">Дублирует адрес уже запущенного туннеля</div>
+									{:else if showConnectivityRow}
+										<div
+											class="awg-list-connectivity-row awg-list-connectivity-row--name"
+											class:recovering={awgRecoveringVisual(tunnel)}
+										>
+											{#if showPing}
+												<TunnelPingButton
+													layout="list"
+													connectivity={connState}
+													latencyMs={connectivity?.latency ?? null}
+													statusNote={pingStatusNote?.text}
+													statusNoteTone={pingStatusNote?.tone}
+													checking={pingChecking[tunnel.id] ?? false}
+													onclick={() => checkPing(tunnel.id)}
+												/>
+											{/if}
+											<button
+												type="button"
+												class="awg-connectivity-gear"
+												onclick={() => openConnectivitySettings(tunnel)}
+												title="Настройки проверки связности"
+											>
+												<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+													<path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
+												</svg>
+											</button>
+										</div>
+									{:else if isActive && checkDisabled}
+										<div class="awg-list-sub">Проверка связи выключена</div>
+									{/if}
 								</div>
 							</div>
 							<div class="awg-list-cell awg-list-cell-status" data-label="Статус">
 								<div class="awg-list-status-stack">
 									<div class="awg-list-status-line">
-									<StatusDot
-										variant={statusDot.variant}
-										pulse={statusDot.pulse}
-										ariaLabel={statusDot.label}
-									/>
-									<span class="awg-list-status-text">{statusDot.label}</span>
+										<StatusDot
+											variant={statusDot.variant}
+											pulse={statusDot.pulse}
+											ariaLabel={statusDot.label}
+										/>
+										<span class="awg-list-status-text">{statusDot.label}</span>
+									</div>
+									<div class="awg-list-sub awg-list-uptime">
+										Uptime {tunnel.startedAt ? formatDuration(secondsSince(tunnel.startedAt)) : '—'}
 									</div>
 									<div class="awg-list-sub awg-list-handshake">
-										Handshake {tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
+										Handshake {tunnel.lastHandshake ? formatRelativeTimeShort(tunnel.lastHandshake) : '—'}
 									</div>
-									{#if tunnel.hasAddressConflict}
-								<div class="awg-list-sub awg-list-sub--error">Дублирует адрес уже запущенного туннеля</div>
-							{:else if showConnectivityRow}
-								<div
-									class="awg-list-connectivity-row"
-									class:recovering={awgRecoveringVisual(tunnel)}
-								>
-									{#if showPing}
-										<TunnelPingButton
-											layout="list"
-											connectivity={connState}
-											latencyMs={connectivity?.latency ?? null}
-											statusNote={pingStatusNote?.text}
-											statusNoteTone={pingStatusNote?.tone}
-											checking={pingChecking[tunnel.id] ?? false}
-											onclick={() => checkPing(tunnel.id)}
-										/>
-									{/if}
-									<button
-										type="button"
-										class="awg-connectivity-gear"
-										onclick={() => openConnectivitySettings(tunnel)}
-										title="Настройки проверки связности"
-									>
-										<svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-											<path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
-										</svg>
-									</button>
 								</div>
-							{:else if isActive && checkDisabled}
-								<div class="awg-list-sub">Проверка связи выключена</div>
-							{/if}
-							</div>
 							</div>
 							<div class="awg-list-cell" data-label="Endpoint">
-								<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line">
+								<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line awg-list-endpoint-primary">
 									<span class="awg-endpoint-value" title={isEndpointShown ? endpointHost(tunnel.endpoint) : ''}>
 										{#if tunnel.endpoint}
 											{isEndpointShown ? endpointHost(tunnel.endpoint) : '•••••••••'}
@@ -2446,11 +2092,15 @@
 											—
 										{/if}
 									</span>
+									{#if endpointPort(tunnel.endpoint)}
+										<span class="awg-endpoint-port">:{endpointPort(tunnel.endpoint)}</span>
+									{/if}
 									{#if tunnel.endpoint}
 										<button
 											type="button"
 											class="awg-endpoint-eye"
 											onclick={() => toggleEndpointVisible('managed', tunnel.id)}
+											aria-label={isEndpointShown ? 'Скрыть endpoint' : 'Показать endpoint'}
 											title={isEndpointShown ? 'Скрыть' : 'Показать'}
 										>
 											{#if isEndpointShown}
@@ -2460,11 +2110,10 @@
 											{/if}
 										</button>
 									{/if}
-									{#if endpointPort(tunnel.endpoint)}
-										<span class="awg-endpoint-port">:{endpointPort(tunnel.endpoint)}</span>
-									{/if}
 								</div>
-								<div class="awg-list-sub">{managedRouteMeta(tunnel)}</div>
+								<div class="awg-list-sub" title={isEndpointShown ? managedRouteMeta(tunnel) : ''}>
+									{isEndpointShown ? managedRouteMeta(tunnel) : '•••••••••'}
+								</div>
 							</div>
 							<div class="awg-list-cell awg-list-cell-rate" data-label="Трафик">
 								<TunnelListTrafficCell
@@ -2491,18 +2140,9 @@
 					{/each}
 
 					{#if sortedFilteredSystemList.length > 0}
-						{#if dashboardSectionsLayout}
-							<TunnelSectionHeader
-								nested
-								title="Системные"
-								count={sortedFilteredSystemList.length}
-								countLabel={pluralForm(sortedFilteredSystemList.length, TUNNEL_WORDS)}
-							/>
-						{:else}
-							<div class="awg-list-row awg-list-row--section">
-								<div class="awg-list-section-title">Системные · {sortedFilteredSystemList.length}</div>
-							</div>
-						{/if}
+						<div class="awg-list-row awg-list-row--section">
+							<div class="awg-list-section-title">Системные · {sortedFilteredSystemList.length}</div>
+						</div>
 						{#each sortedFilteredSystemList as tunnel (tunnel.id)}
 							{@const isEndpointShown = endpointVisible('system', tunnel.id)}
 							{@const rate = latestRate(tunnel.id)}
@@ -2532,7 +2172,7 @@
 											MTU {tunnel.mtu}
 										</TunnelMetaText>
 										<TunnelMetaText mono>
-											Uptime {tunnel.status === 'up' && tunnel.uptime ? formatDuration(tunnel.uptime) : '—'}
+											Uptime: {tunnel.status === 'up' && tunnel.uptime ? formatDuration(tunnel.uptime) : '—'}
 										</TunnelMetaText>
 									</div>
 								</div>
@@ -2545,12 +2185,12 @@
 										<span class="awg-list-status-text">{systemStatusLabel(tunnel)}</span>
 									</div>
 									<div class="awg-list-sub awg-list-handshake">
-										Handshake {tunnel.peer?.lastHandshake ? formatRelativeTime(tunnel.peer.lastHandshake) : '—'}
+										Handshake {tunnel.peer?.lastHandshake ? formatRelativeTimeShort(tunnel.peer.lastHandshake) : '—'}
 									</div>
 									<div class="awg-list-sub">{tunnel.peer?.via || 'Маршрут не определён'}</div>
 								</div>
 								<div class="awg-list-cell" data-label="Endpoint">
-								<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line">
+								<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line awg-list-endpoint-primary">
 									<span class="awg-endpoint-value" title={isEndpointShown ? endpointHost(tunnel.peer?.endpoint) : ''}>
 										{#if tunnel.peer?.endpoint}
 											{isEndpointShown ? endpointHost(tunnel.peer.endpoint) : '•••••••••'}
@@ -2558,11 +2198,15 @@
 											—
 										{/if}
 									</span>
+									{#if endpointPort(tunnel.peer?.endpoint)}
+										<span class="awg-endpoint-port">:{endpointPort(tunnel.peer?.endpoint)}</span>
+									{/if}
 									{#if tunnel.peer?.endpoint}
 										<button
 											type="button"
 											class="awg-endpoint-eye"
 											onclick={() => toggleEndpointVisible('system', tunnel.id)}
+											aria-label={isEndpointShown ? 'Скрыть endpoint' : 'Показать endpoint'}
 											title={isEndpointShown ? 'Скрыть' : 'Показать'}
 										>
 											{#if isEndpointShown}
@@ -2571,9 +2215,6 @@
 												<EyeOff size={14} aria-hidden="true" />
 											{/if}
 										</button>
-									{/if}
-									{#if endpointPort(tunnel.peer?.endpoint)}
-										<span class="awg-endpoint-port">:{endpointPort(tunnel.peer?.endpoint)}</span>
 									{/if}
 								</div>
 									<div class="awg-list-sub">{tunnel.address || '—'}</div>
@@ -2613,18 +2254,9 @@
 					{/if}
 
 					{#if sortedFilteredExternalList.length > 0}
-						{#if dashboardSectionsLayout}
-							<TunnelSectionHeader
-								nested
-								title="Внешние"
-								count={sortedFilteredExternalList.length}
-								countLabel={pluralForm(sortedFilteredExternalList.length, TUNNEL_WORDS)}
-							/>
-						{:else}
-							<div class="awg-list-row awg-list-row--section">
-								<div class="awg-list-section-title">Внешние · {sortedFilteredExternalList.length}</div>
-							</div>
-						{/if}
+						<div class="awg-list-row awg-list-row--section">
+							<div class="awg-list-section-title">Внешние · {sortedFilteredExternalList.length}</div>
+						</div>
 						{#each sortedFilteredExternalList as tunnel (tunnel.interfaceName)}
 							{@const isEndpointShown = endpointVisible('external', tunnel.interfaceName)}
 							<div class="awg-list-row">
@@ -2656,12 +2288,12 @@
 										<span class="awg-list-status-text">{externalStatusLabel(tunnel)}</span>
 									</div>
 									<div class="awg-list-sub awg-list-handshake">
-										Handshake {tunnel.lastHandshake ? formatRelativeTime(tunnel.lastHandshake) : '—'}
+										Handshake {tunnel.lastHandshake ? formatRelativeTimeShort(tunnel.lastHandshake) : '—'}
 									</div>
 									<div class="awg-list-sub">Не управляется AWG Manager</div>
 								</div>
 								<div class="awg-list-cell" data-label="Endpoint">
-									<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line">
+									<div class="awg-list-kv-primary awg-list-mono awg-endpoint-line awg-list-endpoint-primary">
 										<span class="awg-endpoint-value" title={isEndpointShown ? endpointHost(tunnel.endpoint) : ''}>
 											{#if tunnel.endpoint}
 												{isEndpointShown ? endpointHost(tunnel.endpoint) : '•••••••••'}
@@ -2669,11 +2301,15 @@
 												—
 											{/if}
 										</span>
+										{#if endpointPort(tunnel.endpoint)}
+											<span class="awg-endpoint-port">:{endpointPort(tunnel.endpoint)}</span>
+										{/if}
 										{#if tunnel.endpoint}
 											<button
 												type="button"
 												class="awg-endpoint-eye"
 												onclick={() => toggleEndpointVisible('external', tunnel.interfaceName)}
+												aria-label={isEndpointShown ? 'Скрыть endpoint' : 'Показать endpoint'}
 												title={isEndpointShown ? 'Скрыть' : 'Показать'}
 											>
 												{#if isEndpointShown}
@@ -2682,9 +2318,6 @@
 													<EyeOff size={14} aria-hidden="true" />
 												{/if}
 											</button>
-										{/if}
-										{#if endpointPort(tunnel.endpoint)}
-											<span class="awg-endpoint-port">:{endpointPort(tunnel.endpoint)}</span>
 										{/if}
 									</div>
 									<div class="awg-list-sub">WG интерфейс</div>
@@ -2712,12 +2345,12 @@
 					</div>
 				</div>
 			{:else}
-				{@const awgGridView = effectiveAwgRenderMode === 'list-card' ? 'list' : effectiveAwgCardViewMode}
+				{@const awgGridView = awgRenderMode === 'list-card' ? 'list' : awgCardViewMode}
 				<div
 					class="tunnel-grid"
-					class:tunnel-grid--list={effectiveAwgRenderMode === 'list-card'}
-					class:tunnel-grid--dense={effectiveAwgRenderMode !== 'list-card' && effectiveAwgEffectiveViewMode === 'cards'}
-					class:tunnel-grid--compact={effectiveAwgRenderMode !== 'list-card' && effectiveAwgEffectiveViewMode === 'compact'}
+					class:tunnel-grid--list={awgRenderMode === 'list-card'}
+					class:tunnel-grid--dense={awgRenderMode !== 'list-card' && awgEffectiveViewMode === 'cards'}
+					class:tunnel-grid--compact={awgRenderMode !== 'list-card' && awgEffectiveViewMode === 'compact'}
 				>
 					{#each sortedFilteredAwgList as tunnel, i (tunnel.id)}
 						<TunnelCard
@@ -2744,24 +2377,13 @@
 				</div>
 
 				{#if sortedFilteredExternalList.length > 0}
-					<div
-						class:external-section={!dashboardSectionsLayout}
-					>
-						{#if dashboardSectionsLayout}
-							<TunnelSectionHeader
-								nested
-								title="Внешние"
-								count={sortedFilteredExternalList.length}
-								countLabel={pluralForm(sortedFilteredExternalList.length, TUNNEL_WORDS)}
-							/>
-						{:else}
-							<h2 class="section-title">Внешние туннели</h2>
-						{/if}
+					<div class="external-section">
+						<h2 class="section-title">Внешние туннели</h2>
 						<div
 							class="tunnel-grid"
-							class:tunnel-grid--list={effectiveAwgRenderMode === 'list-card'}
-							class:tunnel-grid--dense={effectiveAwgRenderMode !== 'list-card' && effectiveAwgEffectiveViewMode === 'cards'}
-							class:tunnel-grid--compact={effectiveAwgRenderMode !== 'list-card' && effectiveAwgEffectiveViewMode === 'compact'}
+							class:tunnel-grid--list={awgRenderMode === 'list-card'}
+							class:tunnel-grid--dense={awgRenderMode !== 'list-card' && awgEffectiveViewMode === 'cards'}
+							class:tunnel-grid--compact={awgRenderMode !== 'list-card' && awgEffectiveViewMode === 'compact'}
 						>
 							{#each sortedFilteredExternalList as extTunnel (extTunnel.interfaceName)}
 								<ExternalTunnelCard
@@ -2778,17 +2400,266 @@
 				{/if}
 			{/if}
 		{/if}
-		{/if}
+		{/snippet}
 
-		{#if dashboardTypeSections && dashboardSingboxTunnels.length > 0}
-			<TunnelSectionHeader
-				title="Sing-box туннели"
-				count={dashboardSingboxTunnels.length}
-				countLabel={pluralForm(dashboardSingboxTunnels.length, TUNNEL_WORDS)}
-			/>
-		{/if}
-		{#if showSingboxBlock}
-			{#if !dashboardOn}
+		{#snippet subscriptionsSectionContent()}
+			{#if subscriptionsInitialLoading}
+				<div class="loading-centered">
+					<LoadingSpinner size="md" message="Загружаем подписки..." />
+				</div>
+			{:else if subscriptionsFetchFailed}
+				<EmptyState
+					title="Не удалось загрузить подписки"
+					description={subscriptionsState.error ?? 'Проверьте соединение с роутером и обновите страницу.'}
+				/>
+			{:else}
+				{#if !singboxStatusLoading}
+					<SingboxInstallBanner />
+				{/if}
+
+				{#if singboxStatusLoading || singboxInstalled}
+					<div class="tunnels-toolbar">
+						<span class="tunnel-count">
+							{subscriptionsList.length}
+							{pluralForm(subscriptionsList.length, SUBSCRIPTION_WORDS)}
+						</span>
+						<div class="toolbar-actions">
+							<div class="toolbar-view-row-desktop">
+								<TunnelToolbarViewRow
+									sourceRowCount={singboxSubscriptionsSourceRowCount}
+									showViewToggle={subscriptionsList.length > 0}
+									searchQuery={singboxSubscriptionsSearchQuery}
+									sortKey={$singboxSubscriptionTableSort.sortBy}
+									sortAsc={$singboxSubscriptionTableSort.sortAsc}
+									sortOptions={subscriptionSortOptions}
+									onSearchChange={(value) => (singboxSubscriptionsSearchQuery = value)}
+									onSortChange={(key) => key === null ? singboxSubscriptionTableSort.setSort(null) : singboxSubscriptionTableSort.setSort(key as SubscriptionSortKey)}
+									onToggleDir={() => singboxSubscriptionTableSort.toggleDirection()}
+								>
+									{#snippet viewToggle()}
+										<LayoutViewToggle
+											value={singboxSubscriptionsLayoutMode}
+											showListOption={showSingboxGridListToggle}
+											ariaLabel="Вид подписок"
+											onchange={(v) => (singboxSubscriptionsLayoutMode = v)}
+										/>
+									{/snippet}
+								</TunnelToolbarViewRow>
+							</div>
+							<Button
+								variant="primary"
+								size="md"
+								onclick={() => openWizard('url')}
+								iconBefore={createIcon}
+							>
+								Добавить
+							</Button>
+						</div>
+					</div>
+					{#if subscriptionsList.length === 0}
+						<div class="subscription-empty">
+							<div class="subscription-empty-title">Нет подписок</div>
+							<p class="subscription-empty-desc">
+								Добавьте подписку — мастер скачает список серверов и создаст selector-туннель.
+							</p>
+							<Button
+								variant="primary"
+								size="md"
+								onclick={() => openWizard('url')}
+								iconBefore={createIcon}
+							>
+								Добавить подписку
+							</Button>
+						</div>
+					{:else}
+						{#if singboxSubscriptionsTrafficStats.count > 0}
+							<div class="awg-summary-row">
+								<StatStrip>
+									<Stat
+										value={`${singboxSubscriptionsTrafficStats.activeCount}/${singboxSubscriptionsTrafficStats.count}`}
+										label={pluralForm(singboxSubscriptionsTrafficStats.activeCount, SUBSCRIPTION_WORDS)}
+										sub={formatRunningSub(
+											singboxSubscriptionsTrafficStats.activeCount,
+											singboxSubscriptionsTrafficStats.count,
+										)}
+									/>
+									<Stat
+										value={formatBytes(
+											singboxSubscriptionsTrafficStats.down + singboxSubscriptionsTrafficStats.up,
+										)}
+										label="Суммарный трафик"
+										sub={`↓ ${formatBytes(singboxSubscriptionsTrafficStats.down)} · ↑ ${formatBytes(singboxSubscriptionsTrafficStats.up)}`}
+									/>
+									<Stat
+										value={singboxSubscriptionsTrafficStats.avgDelayMs !== null
+											? `${singboxSubscriptionsTrafficStats.avgDelayMs} ms`
+											: '—'}
+										label="Средний delay"
+										sub={singboxSubscriptionsTrafficStats.delaySamples > 0
+											? `по ${singboxSubscriptionsTrafficStats.delaySamples} активным подпискам`
+											: 'нет активных замеров'}
+									/>
+									<Stat
+										value={singboxSubscriptionsTrafficStats.count > 0
+											? formatBytes(singboxSubscriptionsTrafficStats.leaderBytes)
+											: '—'}
+										label="Лидер по трафику"
+										sub={singboxSubscriptionsTrafficStats.count > 0
+											? `${singboxSubscriptionsTrafficStats.leaderName} · ${singboxSubscriptionsTrafficStats.leaderSharePct}% всего`
+											: '—'}
+									/>
+								</StatStrip>
+							</div>
+						{/if}
+						{#if singboxSubscriptionsRenderMode === 'table'}
+						<div class="tunnel-table-wrap">
+							<table class="tunnel-data-table singbox-sub-table">
+								<colgroup>
+									<col class="col-delay" />
+									<col class="col-name" />
+									<col class="col-active" />
+									<col class="col-traffic" />
+									<col class="col-ping" />
+									<col class="col-actions" />
+								</colgroup>
+								<thead>
+									<tr>
+										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'delay', $singboxSubscriptionTableSort.sortAsc)}>
+											<TableSortHeader label="Delay" sortKey={'delay'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
+										</th>
+										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'label', $singboxSubscriptionTableSort.sortAsc)}>
+											<TableSortHeader label="Подписка" sortKey={'label'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
+										</th>
+										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'active', $singboxSubscriptionTableSort.sortAsc)}>
+											<TableSortHeader label="Активный сервер" sortKey={'active'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
+										</th>
+										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'traffic', $singboxSubscriptionTableSort.sortAsc)}>
+											<TableSortHeader label="Трафик" sortKey={'traffic'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
+										</th>
+										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'ping', $singboxSubscriptionTableSort.sortAsc)}>
+											<TableSortHeader label="Ping" sortKey={'ping'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
+										</th>
+										<th class="col-actions">Действия</th>
+									</tr>
+								</thead>
+								<tbody>
+							{#if sortedFilteredSubscriptionsActiveCards.length > 0}
+								{#each sortedFilteredSubscriptionsActiveCards as card, i (card.subscription.id)}
+									<SubscriptionActiveCard
+										subscription={card.subscription}
+										activeMember={card.activeMember}
+										autoDelayCheckNonce={singboxSubscriptionsAutoDelayCheckNonce}
+										autoDelayCheckDelayMs={i * 180}
+										layout="list"
+										renderMode="table"
+										ondetail={(tag) => openSingboxDetail(tag)}
+									/>
+								{/each}
+							{/if}
+							{#if sortedFilteredSubscriptionsListRows.length > 0}
+								<tr class="tunnel-section-row">
+									<td colspan="6">Остановлено · {sortedFilteredSubscriptionsListRows.length}</td>
+								</tr>
+								{#each sortedFilteredSubscriptionsListRows as sub (sub.id)}
+									<SubscriptionCard
+										subscription={sub}
+										liveActiveMember={liveActives[sub.id] || null}
+										layout="list"
+										renderMode="table"
+										ondelete={requestSubscriptionDelete}
+										ondetail={(tag) => openSingboxDetail(tag)}
+									/>
+								{/each}
+							{/if}
+							{#if singboxSubscriptionsSearchEmpty}
+								<tr class="tunnel-empty-row">
+									<td colspan="6">Ничего не найдено</td>
+								</tr>
+							{/if}
+								</tbody>
+							</table>
+						</div>
+						{:else if singboxSubscriptionsRenderMode === 'list-card'}
+						<div class="tunnel-grid tunnel-grid--list">
+							{#each sortedFilteredSubscriptionsActiveCards as card, i (card.subscription.id)}
+								<SubscriptionActiveCard
+									subscription={card.subscription}
+									activeMember={card.activeMember}
+									autoDelayCheckNonce={singboxSubscriptionsAutoDelayCheckNonce}
+									autoDelayCheckDelayMs={i * 180}
+									layout="list"
+									renderMode="list-card"
+									ondetail={(tag) => openSingboxDetail(tag)}
+								/>
+							{/each}
+							{#each sortedFilteredSubscriptionsListRows as sub (sub.id)}
+								<SubscriptionCard
+									subscription={sub}
+									liveActiveMember={liveActives[sub.id] || null}
+									layout="list"
+									renderMode="list-card"
+									ondelete={requestSubscriptionDelete}
+									ondetail={(tag) => openSingboxDetail(tag)}
+								/>
+							{/each}
+						</div>
+						{#if singboxSubscriptionsSearchEmpty}
+							<p class="tunnel-list-empty">Ничего не найдено</p>
+						{/if}
+						{:else}
+						{#if subscriptionsActiveCards.length > 0}
+							<div
+								class="tunnel-grid"
+								class:tunnel-grid--dense={singboxSubscriptionsEffectiveLayout === 'dense'}
+								class:tunnel-grid--compact={singboxSubscriptionsEffectiveLayout === 'compact'}
+							>
+								{#each sortedFilteredSubscriptionsActiveCards as card, i (card.subscription.id)}
+									<SubscriptionActiveCard
+										subscription={card.subscription}
+										activeMember={card.activeMember}
+										autoDelayCheckNonce={singboxSubscriptionsAutoDelayCheckNonce}
+										autoDelayCheckDelayMs={i * 180}
+										layout={singboxSubscriptionsEffectiveLayout}
+										renderMode={singboxSubscriptionsRenderMode}
+										ondetail={(tag) => openSingboxDetail(tag)}
+									/>
+								{/each}
+							</div>
+						{/if}
+						{#if sortedFilteredSubscriptionsListRows.length > 0}
+							<div
+								class="external-section"
+								class:singbox-sub-inactive-section={sortedFilteredSubscriptionsActiveCards.length === 0}
+							>
+								<h2 class="section-title">Остановлено</h2>
+								<div
+									class="tunnel-grid"
+									class:tunnel-grid--dense={singboxSubscriptionsEffectiveLayout === 'dense'}
+									class:tunnel-grid--compact={singboxSubscriptionsEffectiveLayout === 'compact'}
+								>
+									{#each sortedFilteredSubscriptionsListRows as sub (sub.id)}
+										<SubscriptionCard
+											subscription={sub}
+											liveActiveMember={liveActives[sub.id] || null}
+											layout={singboxSubscriptionsEffectiveLayout}
+											renderMode={singboxSubscriptionsRenderMode}
+											ondelete={requestSubscriptionDelete}
+											ondetail={(tag) => openSingboxDetail(tag)}
+										/>
+									{/each}
+								</div>
+							</div>
+						{/if}
+						{#if singboxSubscriptionsSearchEmpty}
+							<p class="tunnel-list-empty">Ничего не найдено</p>
+						{/if}
+						{/if}
+					{/if}
+				{/if}
+			{/if}
+		{/snippet}
+
+		{#snippet singboxSectionContent()}
 			<SingboxInstallBanner />
 			{#if singboxTunnelsList.length > 0 || subscriptionsActiveCards.length > 0}
 				<div class="tunnels-toolbar">
@@ -2797,21 +2668,28 @@
 						{pluralForm(singboxTunnelsList.length, TUNNEL_WORDS)}
 					</span>
 					<div class="toolbar-actions">
-						<TunnelToolbarViewRow
-							sourceRowCount={singboxTunnelsSourceRowCount}
-							showViewToggle={singboxTunnelsList.length > 0}
-							searchQuery={singboxTunnelsSearchQuery}
-							onSearchChange={(value) => (singboxTunnelsSearchQuery = value)}
-						>
-							{#snippet viewToggle()}
-								<LayoutViewToggle
-									value={singboxTunnelsLayoutMode}
-									showListOption={showSingboxGridListToggle}
-									ariaLabel="Вид туннелей"
-									onchange={(v) => (singboxTunnelsLayoutMode = v)}
-								/>
-							{/snippet}
-						</TunnelToolbarViewRow>
+						<div class="toolbar-view-row-desktop">
+							<TunnelToolbarViewRow
+								sourceRowCount={singboxTunnelsSourceRowCount}
+								showViewToggle={singboxTunnelsList.length > 0}
+								searchQuery={singboxTunnelsSearchQuery}
+								sortKey={$singboxTunnelTableSort.sortBy}
+								sortAsc={$singboxTunnelTableSort.sortAsc}
+								sortOptions={singboxTunnelSortOptions}
+								onSearchChange={(value) => (singboxTunnelsSearchQuery = value)}
+								onSortChange={(key) => key === null ? singboxTunnelTableSort.setSort(null) : singboxTunnelTableSort.setSort(key as SingboxTunnelSortKey)}
+								onToggleDir={() => singboxTunnelTableSort.toggleDirection()}
+							>
+								{#snippet viewToggle()}
+									<LayoutViewToggle
+										value={singboxTunnelsLayoutMode}
+										showListOption={showSingboxGridListToggle}
+										ariaLabel="Вид туннелей"
+										onchange={(v) => (singboxTunnelsLayoutMode = v)}
+									/>
+								{/snippet}
+							</TunnelToolbarViewRow>
+						</div>
 						<Button
 							variant="primary"
 							size="md"
@@ -2823,8 +2701,7 @@
 					</div>
 				</div>
 			{/if}
-			{/if}
-			{#if !dashboardOn && singboxTunnelsList.length === 0}
+			{#if singboxTunnelsList.length === 0}
 				<div class="empty-kinds">
 					<button type="button" class="empty-kind-card" onclick={() => openWizard('single')}>
 						<Link class="empty-kind-icon" size={28} strokeWidth={1.6} aria-hidden="true" />
@@ -2880,8 +2757,8 @@
 						</div>
 					</div>
 				</div>
-			{:else if singboxTunnelsList.length > 0 || (dashboardOn && dashboardSingboxTunnels.length > 0)}
-				{#if !dashboardOn}
+			{:else if singboxTunnelsList.length > 0}
+				{#if singboxTunnelListStats.count > 0}
 					<div class="awg-summary-row">
 						<StatStrip>
 							<Stat
@@ -2902,16 +2779,16 @@
 								sub="по последним проверкам"
 							/>
 							<Stat
-								value={singboxTunnelListStats.leaderBytes > 0
+								value={singboxTunnelListStats.count > 0
 									? formatBytes(singboxTunnelListStats.leaderBytes)
 									: '—'}
 								label="Лидер по трафику"
-								sub={singboxTunnelListStats.leaderName}
+								sub={singboxTunnelListStats.count > 0 ? singboxTunnelListStats.leaderName : '—'}
 							/>
-							</StatStrip>
-						</div>
+						</StatStrip>
+					</div>
 				{/if}
-				{#if effectiveSingboxTunnelsRenderMode === 'table'}
+				{#if singboxTunnelsRenderMode === 'table'}
 					<div class="tunnel-table-wrap">
 						<table class="tunnel-data-table singbox-tunnel-table">
 							<colgroup>
@@ -2952,7 +2829,7 @@
 								{tunnel}
 								layout="list"
 								renderMode="table"
-								autoDelayCheckNonce={singboxAutoDelayCheckNonce}
+								autoDelayCheckNonce={singboxTunnelsAutoDelayCheckNonce}
 								autoDelayCheckDelayMs={i * 180}
 								ondetail={(tag) => openSingboxDetail(tag)}
 							/>
@@ -2966,19 +2843,19 @@
 						</table>
 					</div>
 				{:else}
-					{@const sbTunnelCardLayout = effectiveSingboxTunnelsRenderMode === 'list-card' ? 'list' : effectiveSingboxTunnelsEffectiveLayout}
+					{@const sbTunnelCardLayout = singboxTunnelsRenderMode === 'list-card' ? 'list' : singboxTunnelsEffectiveLayout}
 					<div
 						class="tunnel-grid"
-						class:tunnel-grid--list={effectiveSingboxTunnelsRenderMode === 'list-card'}
-						class:tunnel-grid--dense={effectiveSingboxTunnelsRenderMode !== 'list-card' && effectiveSingboxTunnelsEffectiveLayout === 'dense'}
-						class:tunnel-grid--compact={effectiveSingboxTunnelsRenderMode !== 'list-card' && effectiveSingboxTunnelsEffectiveLayout === 'compact'}
+						class:tunnel-grid--list={singboxTunnelsRenderMode === 'list-card'}
+						class:tunnel-grid--dense={singboxTunnelsRenderMode !== 'list-card' && singboxTunnelsEffectiveLayout === 'dense'}
+						class:tunnel-grid--compact={singboxTunnelsRenderMode !== 'list-card' && singboxTunnelsEffectiveLayout === 'compact'}
 					>
 						{#each sortedFilteredSingboxTunnels as tunnel, i (tunnel.tag)}
 							<SingboxTunnelCard
 								{tunnel}
 								layout={sbTunnelCardLayout}
-								renderMode={effectiveSingboxTunnelsRenderMode}
-								autoDelayCheckNonce={singboxAutoDelayCheckNonce}
+								renderMode={singboxTunnelsRenderMode}
+								autoDelayCheckNonce={singboxTunnelsAutoDelayCheckNonce}
 								autoDelayCheckDelayMs={i * 180}
 								ondetail={(tag) => openSingboxDetail(tag)}
 							/>
@@ -2986,339 +2863,172 @@
 					</div>
 					{#if singboxTunnelsSearchEmpty}
 						<p class="tunnel-list-empty">Ничего не найдено</p>
-					{/if}
 				{/if}
-		{/if}
-		{/if}
-
-		{#if dashboardTypeSections && dashboardSubscriptionsCount > 0}
-			<TunnelSectionHeader
-				title="Sing-box подписки"
-				count={dashboardSubscriptionsCount}
-				countLabel={pluralForm(dashboardSubscriptionsCount, SUBSCRIPTION_WORDS)}
-			/>
-		{/if}
-		{#if showSubscriptionsBlock}
-			{#if subscriptionsInitialLoading}
-				<div class="loading-centered">
-					<LoadingSpinner size="md" message="Загружаем подписки..." />
-				</div>
-			{:else if subscriptionsFetchFailed}
-				<EmptyState
-					title="Не удалось загрузить подписки"
-					description={subscriptionsState.error ?? 'Проверьте соединение с роутером и обновите страницу.'}
-				/>
-			{:else}
-				{#if !dashboardOn && !singboxStatusLoading}
-					<SingboxInstallBanner />
-				{/if}
-
-				{#if singboxStatusLoading || singboxInstalled}
-					{#if !dashboardOn}
-					<div class="tunnels-toolbar">
-						<span class="tunnel-count">
-							{subscriptionsList.length}
-							{pluralForm(subscriptionsList.length, SUBSCRIPTION_WORDS)}
-						</span>
-						<div class="toolbar-actions">
-							<TunnelToolbarViewRow
-								sourceRowCount={singboxSubscriptionsSourceRowCount}
-								showViewToggle={subscriptionsList.length > 0}
-								searchQuery={singboxSubscriptionsSearchQuery}
-								onSearchChange={(value) => (singboxSubscriptionsSearchQuery = value)}
-							>
-								{#snippet viewToggle()}
-									<LayoutViewToggle
-										value={singboxSubscriptionsLayoutMode}
-										showListOption={showSingboxGridListToggle}
-										ariaLabel="Вид подписок"
-										onchange={(v) => (singboxSubscriptionsLayoutMode = v)}
-									/>
-								{/snippet}
-							</TunnelToolbarViewRow>
-							<Button
-								variant="primary"
-								size="md"
-								onclick={() => openWizard('url')}
-								iconBefore={createIcon}
-							>
-								Добавить
-							</Button>
-						</div>
-					</div>
-					{/if}
-					{#if subscriptionsList.length === 0}
-						<div class="subscription-empty">
-							<div class="subscription-empty-title">Нет подписок</div>
-							<p class="subscription-empty-desc">
-								Добавьте подписку — мастер скачает список серверов и создаст selector-туннель.
-							</p>
-							<Button
-								variant="primary"
-								size="md"
-								onclick={() => openWizard('url')}
-								iconBefore={createIcon}
-							>
-								Добавить подписку
-							</Button>
-						</div>
-					{:else}
-						{#if !dashboardOn}
-							<div class="awg-summary-row">
-								<StatStrip>
-									<Stat
-										value={`${singboxSubscriptionsTrafficStats.activeCount}/${singboxSubscriptionsTrafficStats.count}`}
-										label={pluralForm(singboxSubscriptionsTrafficStats.activeCount, SUBSCRIPTION_WORDS)}
-										sub={formatRunningSub(
-											singboxSubscriptionsTrafficStats.activeCount,
-											singboxSubscriptionsTrafficStats.count,
-										)}
-									/>
-									<Stat
-										value={formatBytes(
-											singboxSubscriptionsTrafficStats.down + singboxSubscriptionsTrafficStats.up,
-										)}
-										label="Суммарный трафик"
-										sub={`↓ ${formatBytes(singboxSubscriptionsTrafficStats.down)} · ↑ ${formatBytes(singboxSubscriptionsTrafficStats.up)}`}
-									/>
-									<Stat
-										value={singboxSubscriptionsTrafficStats.avgDelayMs !== null
-											? `${singboxSubscriptionsTrafficStats.avgDelayMs} ms`
-											: '—'}
-										label="Средний delay"
-										sub={singboxSubscriptionsTrafficStats.delaySamples > 0
-											? `по ${singboxSubscriptionsTrafficStats.delaySamples} активным подпискам`
-											: 'нет активных замеров'}
-									/>
-									<Stat
-										value={singboxSubscriptionsTrafficStats.leaderBytes > 0
-											? formatBytes(singboxSubscriptionsTrafficStats.leaderBytes)
-											: '—'}
-										label="Лидер по трафику"
-										sub={singboxSubscriptionsTrafficStats.leaderBytes > 0
-											? `${singboxSubscriptionsTrafficStats.leaderName} · ${singboxSubscriptionsTrafficStats.leaderSharePct}% всего`
-											: '—'}
-									/>
-								</StatStrip>
-							</div>
-						{/if}
-						{#if effectiveSingboxSubscriptionsRenderMode === 'table'}
-						<div class="tunnel-table-wrap">
-							<table class="tunnel-data-table singbox-sub-table">
-								<colgroup>
-									<col class="col-delay" />
-									<col class="col-name" />
-									<col class="col-active" />
-									<col class="col-traffic" />
-									<col class="col-ping" />
-									<col class="col-actions" />
-								</colgroup>
-								<thead>
-									<tr>
-										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'delay', $singboxSubscriptionTableSort.sortAsc)}>
-											<TableSortHeader label="Delay" sortKey={'delay'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
-										</th>
-										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'label', $singboxSubscriptionTableSort.sortAsc)}>
-											<TableSortHeader label="Подписка" sortKey={'label'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
-										</th>
-										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'active', $singboxSubscriptionTableSort.sortAsc)}>
-											<TableSortHeader label="Активный сервер" sortKey={'active'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
-										</th>
-										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'traffic', $singboxSubscriptionTableSort.sortAsc)}>
-											<TableSortHeader label="Трафик" sortKey={'traffic'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
-										</th>
-										<th aria-sort={ariaSort($singboxSubscriptionTableSort.sortBy, 'ping', $singboxSubscriptionTableSort.sortAsc)}>
-											<TableSortHeader label="Ping" sortKey={'ping'} activeSortKey={$singboxSubscriptionTableSort.sortBy} sortAsc={$singboxSubscriptionTableSort.sortAsc} onchange={(key) => handleSubscriptionSortChange(key as SubscriptionSortKey)} />
-										</th>
-										<th class="col-actions">Действия</th>
-									</tr>
-								</thead>
-								<tbody>
-							{#if sortedFilteredSubscriptionsActiveCards.length > 0}
-								{#each sortedFilteredSubscriptionsActiveCards as card, i (card.subscription.id)}
-									<SubscriptionActiveCard
-										subscription={card.subscription}
-										activeMember={card.activeMember}
-										autoDelayCheckNonce={singboxAutoDelayCheckNonce}
-										autoDelayCheckDelayMs={i * 180}
-										layout="list"
-										renderMode="table"
-										ondetail={(tag) => openSingboxDetail(tag)}
-									/>
-								{/each}
-							{/if}
-							{#if sortedFilteredSubscriptionsListRows.length > 0}
-								{#if dashboardSectionsLayout}
-									<TunnelSectionHeader
-										variant="table-row"
-										title="Остановлено"
-										count={sortedFilteredSubscriptionsListRows.length}
-										countLabel={pluralForm(sortedFilteredSubscriptionsListRows.length, SUBSCRIPTION_WORDS)}
-										colspan={6}
-									/>
-								{:else}
-									<tr class="tunnel-section-row">
-										<td colspan="6">Остановлено · {sortedFilteredSubscriptionsListRows.length}</td>
-									</tr>
-								{/if}
-								{#each sortedFilteredSubscriptionsListRows as sub (sub.id)}
-									<SubscriptionCard
-										subscription={sub}
-										liveActiveMember={liveActives[sub.id] || null}
-										layout="list"
-										renderMode="table"
-										ondelete={requestSubscriptionDelete}
-										ondetail={(tag) => openSingboxDetail(tag)}
-									/>
-								{/each}
-							{/if}
-							{#if singboxSubscriptionsSearchEmpty}
-								<tr class="tunnel-empty-row">
-									<td colspan="6">Ничего не найдено</td>
-								</tr>
-							{/if}
-								</tbody>
-							</table>
-						</div>
-						{:else if effectiveSingboxSubscriptionsRenderMode === 'list-card'}
-						{#snippet subscriptionActiveListCards()}
-							{#each sortedFilteredSubscriptionsActiveCards as card, i (card.subscription.id)}
-								<SubscriptionActiveCard
-									subscription={card.subscription}
-									activeMember={card.activeMember}
-									autoDelayCheckNonce={singboxAutoDelayCheckNonce}
-									autoDelayCheckDelayMs={i * 180}
-									layout="list"
-									renderMode="list-card"
-									ondetail={(tag) => openSingboxDetail(tag)}
-								/>
-							{/each}
-						{/snippet}
-						{#snippet subscriptionStoppedListCards()}
-							{#each sortedFilteredSubscriptionsListRows as sub (sub.id)}
-								<SubscriptionCard
-									subscription={sub}
-									liveActiveMember={liveActives[sub.id] || null}
-									layout="list"
-									renderMode="list-card"
-									ondelete={requestSubscriptionDelete}
-									ondetail={(tag) => openSingboxDetail(tag)}
-								/>
-							{/each}
-						{/snippet}
-						{#if dashboardOn}
-							{#if sortedFilteredSubscriptionsActiveCards.length > 0}
-								<div class="tunnel-grid tunnel-grid--list">
-									{@render subscriptionActiveListCards()}
-								</div>
-							{/if}
-							{#if sortedFilteredSubscriptionsListRows.length > 0}
-								{#if dashboardSectionsLayout}
-									<TunnelSectionHeader
-										nested
-										title="Остановлено"
-										count={sortedFilteredSubscriptionsListRows.length}
-										countLabel={pluralForm(sortedFilteredSubscriptionsListRows.length, SUBSCRIPTION_WORDS)}
-									/>
-								{/if}
-								<div class="tunnel-grid tunnel-grid--list">
-									{@render subscriptionStoppedListCards()}
-								</div>
-							{/if}
-						{:else}
-						<div class="tunnel-grid tunnel-grid--list">
-							{@render subscriptionActiveListCards()}
-							{@render subscriptionStoppedListCards()}
-						</div>
-						{/if}
-						{#if singboxSubscriptionsSearchEmpty}
-							<p class="tunnel-list-empty">Ничего не найдено</p>
-						{/if}
-						{:else}
-						{#if subscriptionsActiveCards.length > 0}
-							<div
-								class="tunnel-grid"
-								class:tunnel-grid--dense={effectiveSingboxSubscriptionsEffectiveLayout === 'dense'}
-								class:tunnel-grid--compact={effectiveSingboxSubscriptionsEffectiveLayout === 'compact'}
-							>
-								{#each sortedFilteredSubscriptionsActiveCards as card, i (card.subscription.id)}
-									<SubscriptionActiveCard
-										subscription={card.subscription}
-										activeMember={card.activeMember}
-										autoDelayCheckNonce={singboxAutoDelayCheckNonce}
-										autoDelayCheckDelayMs={i * 180}
-										layout={effectiveSingboxSubscriptionsEffectiveLayout}
-										renderMode={effectiveSingboxSubscriptionsRenderMode}
-										ondetail={(tag) => openSingboxDetail(tag)}
-									/>
-								{/each}
-							</div>
-						{/if}
-						{#if sortedFilteredSubscriptionsListRows.length > 0}
-							{#snippet subscriptionStoppedGrid()}
-								<div
-									class="tunnel-grid"
-									class:tunnel-grid--dense={effectiveSingboxSubscriptionsEffectiveLayout === 'dense'}
-									class:tunnel-grid--compact={effectiveSingboxSubscriptionsEffectiveLayout === 'compact'}
-								>
-									{#each sortedFilteredSubscriptionsListRows as sub (sub.id)}
-										<SubscriptionCard
-											subscription={sub}
-											liveActiveMember={liveActives[sub.id] || null}
-											layout={effectiveSingboxSubscriptionsEffectiveLayout}
-											renderMode={effectiveSingboxSubscriptionsRenderMode}
-											ondelete={requestSubscriptionDelete}
-											ondetail={(tag) => openSingboxDetail(tag)}
-										/>
-									{/each}
-								</div>
-							{/snippet}
-							{#if dashboardSectionsLayout}
-								<TunnelSectionHeader
-									nested
-									title="Остановлено"
-									count={sortedFilteredSubscriptionsListRows.length}
-									countLabel={pluralForm(sortedFilteredSubscriptionsListRows.length, SUBSCRIPTION_WORDS)}
-								/>
-								{@render subscriptionStoppedGrid()}
-							{:else}
-								<div
-									class="external-section"
-									class:singbox-sub-inactive-section={sortedFilteredSubscriptionsActiveCards.length === 0}
-								>
-									<h2 class="section-title">Остановлено</h2>
-									{@render subscriptionStoppedGrid()}
-								</div>
-							{/if}
-						{/if}
-						{#if singboxSubscriptionsSearchEmpty}
-							<p class="tunnel-list-empty">Ничего не найдено</p>
-						{/if}
-						{/if}
-					{/if}
-					{#if !dashboardOn}
-						<SubscriptionGroupsSection subscriptions={subscriptionsList} />
-					{/if}
-				{/if}
-			{/if}
 		{/if}
 	{/if}
-</PageContainer>
+		{/snippet}
 
-{#if flatDrag.ghostVisible && flatDrag.ghostFromIndex !== null && dashboardRenderItems[flatDrag.ghostFromIndex]}
-	{@const ghostItem = dashboardRenderItems[flatDrag.ghostFromIndex]}
-	<!-- Ghost — компактный токен, а не полная карточка: полный рендер монтировал
-	     графики и стрелял loadHistory/subscribeTraffic на каждый захват. -->
-	<div
-		class="dashboard-drag-ghost"
-		style={`top:${flatDrag.ghostTop}px;left:${flatDrag.ghostLeft}px;width:${flatDrag.ghostWidth}px;`}
-	>
-		<div class="drag-ghost-token">
-			<span class="dashboard-kind-badge">{DASHBOARD_KIND_LABELS[ghostItem.kind]}</span>
-			<span class="dashboard-reorder-name">{ghostItem.name}</span>
+		{#snippet awgHeaderMobileControls()}
+			<TunnelToolbarViewRow
+				sourceRowCount={awgSourceRowCount}
+				showViewToggle={showAwgViewModeSwitch}
+				searchQuery={awgListSearchQuery}
+				sortKey={$awgTunnelTableSort.sortBy}
+				sortAsc={$awgTunnelTableSort.sortAsc}
+				sortOptions={awgSortOptions}
+				onSearchChange={(value) => (awgListSearchQuery = value)}
+				onSortChange={(key) => key === null ? awgTunnelTableSort.setSort(null) : awgTunnelTableSort.setSort(key as AwgTunnelSortKey)}
+				onToggleDir={() => awgTunnelTableSort.toggleDirection()}
+			>
+				{#snippet viewToggle()}
+					<LayoutViewToggle
+						value={awgViewMode}
+						denseValue="cards"
+						ariaLabel="Вид туннелей"
+						onchange={(mode) => (awgViewMode = mode)}
+					/>
+				{/snippet}
+			</TunnelToolbarViewRow>
+		{/snippet}
+
+		{#snippet singboxHeaderMobileControls()}
+			<TunnelToolbarViewRow
+				sourceRowCount={singboxTunnelsSourceRowCount}
+				showViewToggle={singboxTunnelsList.length > 0}
+				searchQuery={singboxTunnelsSearchQuery}
+				sortKey={$singboxTunnelTableSort.sortBy}
+				sortAsc={$singboxTunnelTableSort.sortAsc}
+				sortOptions={singboxTunnelSortOptions}
+				onSearchChange={(value) => (singboxTunnelsSearchQuery = value)}
+				onSortChange={(key) => key === null ? singboxTunnelTableSort.setSort(null) : singboxTunnelTableSort.setSort(key as SingboxTunnelSortKey)}
+				onToggleDir={() => singboxTunnelTableSort.toggleDirection()}
+			>
+				{#snippet viewToggle()}
+					<LayoutViewToggle
+						value={singboxTunnelsLayoutMode}
+						showListOption={showSingboxGridListToggle}
+						ariaLabel="Вид туннелей"
+						onchange={(v) => (singboxTunnelsLayoutMode = v)}
+					/>
+				{/snippet}
+			</TunnelToolbarViewRow>
+		{/snippet}
+
+		{#snippet subscriptionsHeaderMobileControls()}
+			<TunnelToolbarViewRow
+				sourceRowCount={singboxSubscriptionsSourceRowCount}
+				showViewToggle={subscriptionsList.length > 0}
+				searchQuery={singboxSubscriptionsSearchQuery}
+				sortKey={$singboxSubscriptionTableSort.sortBy}
+				sortAsc={$singboxSubscriptionTableSort.sortAsc}
+				sortOptions={subscriptionSortOptions}
+				onSearchChange={(value) => (singboxSubscriptionsSearchQuery = value)}
+				onSortChange={(key) => key === null ? singboxSubscriptionTableSort.setSort(null) : singboxSubscriptionTableSort.setSort(key as SubscriptionSortKey)}
+				onToggleDir={() => singboxSubscriptionTableSort.toggleDirection()}
+			>
+				{#snippet viewToggle()}
+					<LayoutViewToggle
+						value={singboxSubscriptionsLayoutMode}
+						showListOption={showSingboxGridListToggle}
+						ariaLabel="Вид подписок"
+						onchange={(v) => (singboxSubscriptionsLayoutMode = v)}
+					/>
+				{/snippet}
+			</TunnelToolbarViewRow>
+		{/snippet}
+
+		<div class="tunnel-section-stack">
+			<section class="tunnel-spoiler tunnel-spoiler--awg">
+				<div class="tunnel-spoiler__header">
+					<button
+						type="button"
+						class="tunnel-spoiler__summary"
+						aria-expanded={isSectionOpen('awg')}
+						aria-controls="tunnel-section-awg"
+						onclick={() => toggleSection('awg')}
+					>
+						<span class="tunnel-spoiler__title">AWG</span>
+						<span class="tunnel-spoiler__badge">{awgSummaryTotal}</span>
+						<span class="tunnel-spoiler__meta">{awgSummaryActive}/{awgSummaryTotal} активны</span>
+						<span class="tunnel-spoiler__chevron" aria-hidden="true">
+							<ChevronDown size={16} strokeWidth={2.25} />
+						</span>
+					</button>
+					{#if isSectionOpen('awg')}
+						<div class="tunnel-spoiler__mobile-controls">
+							{@render awgHeaderMobileControls()}
+						</div>
+					{/if}
+				</div>
+				{#if isSectionOpen('awg')}
+					<div id="tunnel-section-awg" class="tunnel-spoiler__body">
+						{@render awgSectionContent()}
+					</div>
+				{/if}
+			</section>
+
+			{#if singboxSectionsVisible}
+				<section class="tunnel-spoiler tunnel-spoiler--singbox">
+					<div class="tunnel-spoiler__header">
+						<button
+							type="button"
+							class="tunnel-spoiler__summary"
+							aria-expanded={isSectionOpen('singbox')}
+							aria-controls="tunnel-section-singbox"
+							onclick={() => toggleSection('singbox')}
+						>
+							<span class="tunnel-spoiler__title">Sing-box туннели</span>
+							<span class="tunnel-spoiler__badge">{singboxTunnelsList.length}</span>
+							<span class="tunnel-spoiler__meta">{singboxTunnelListStats.running}/{singboxTunnelListStats.count} активны</span>
+							<span class="tunnel-spoiler__chevron" aria-hidden="true">
+								<ChevronDown size={16} strokeWidth={2.25} />
+							</span>
+						</button>
+						{#if isSectionOpen('singbox')}
+							<div class="tunnel-spoiler__mobile-controls">
+								{@render singboxHeaderMobileControls()}
+							</div>
+						{/if}
+					</div>
+					{#if isSectionOpen('singbox')}
+						<div id="tunnel-section-singbox" class="tunnel-spoiler__body">
+							{@render singboxSectionContent()}
+						</div>
+					{/if}
+				</section>
+
+				<section class="tunnel-spoiler tunnel-spoiler--subscriptions">
+					<div class="tunnel-spoiler__header">
+						<button
+							type="button"
+							class="tunnel-spoiler__summary"
+							aria-expanded={isSectionOpen('subscriptions')}
+							aria-controls="tunnel-section-subscriptions"
+							onclick={() => toggleSection('subscriptions')}
+						>
+							<span class="tunnel-spoiler__title">Sing-box подписки</span>
+							<span class="tunnel-spoiler__badge">{subscriptionsList.length}</span>
+							<span class="tunnel-spoiler__meta">{subscriptionsActiveCards.length}/{subscriptionsList.length} активны</span>
+							<span class="tunnel-spoiler__chevron" aria-hidden="true">
+								<ChevronDown size={16} strokeWidth={2.25} />
+							</span>
+						</button>
+						{#if isSectionOpen('subscriptions')}
+							<div class="tunnel-spoiler__mobile-controls">
+								{@render subscriptionsHeaderMobileControls()}
+							</div>
+						{/if}
+					</div>
+					{#if isSectionOpen('subscriptions')}
+						<div id="tunnel-section-subscriptions" class="tunnel-spoiler__body">
+							{@render subscriptionsSectionContent()}
+						</div>
+					{/if}
+				</section>
+			{/if}
 		</div>
-	</div>
-{/if}
+	{/if}
+</PageContainer>
 
 <AdoptTunnelDialog
 	interfaceName={adoptingInterface}
@@ -3419,9 +3129,12 @@
 				: (sb?.proxyInterface ?? ''))}
 	<TrafficChartModal
 		open={true}
-		tunnelId={singboxDetailTag}
-		tunnelName={detailName}
-		ifaceName={detailIface}
+		source={{
+			kind: 'traffic-store',
+			key: singboxDetailTag,
+			title: detailName,
+			ifaceName: detailIface,
+		}}
 		onclose={closeSingboxDetail}
 	/>
 {/if}
@@ -3474,266 +3187,228 @@
 {/if}
 
 <style>
-	/* Комбинированная сводка дашборда (issue #353): липкий блок «тулбар +
-	   сводка» под AppHeader — тот же паттерн, что sticky-header в
-	   TunnelEditHeader.svelte. */
-	.dashboard-sticky {
-		position: sticky;
-		top: 56px;
-		z-index: var(--z-sticky-secondary);
-		background: var(--color-bg-primary);
-		padding-bottom: 0.75rem;
-		border-bottom: 1px solid var(--color-border);
-		margin-bottom: 1rem;
-	}
-
-	.dashboard-sticky .tunnels-toolbar {
-		margin-bottom: 0.75rem;
-	}
-
-	/* На мобильном тулбар складывается в несколько рядов — прилипший блок
-	   съедал бы половину вьюпорта, поэтому ниже 760px он статичен. */
-	@media (max-width: 760px) {
-		.dashboard-sticky {
-			position: static;
-		}
-	}
-
-	/* Обёртка карточки в сплошном/теговом дашборде: карточка + футер
-	   (грип ручного порядка + чипы тегов). */
-	.dashboard-flat-item {
-		position: relative;
+	.tunnel-section-stack {
 		display: flex;
 		flex-direction: column;
-		gap: 0.375rem;
-		min-width: 0;
+		gap: 0.875rem;
+		padding-top: 0.35rem;
 	}
 
-	.dashboard-item-footer {
-		display: flex;
+	.tunnel-spoiler {
+		position: relative;
+		border: 1px solid var(--section-border, var(--border));
+		border-radius: var(--radius);
+		background:
+			linear-gradient(
+				135deg,
+				var(--section-tint, transparent) 0%,
+				transparent 42%
+			),
+			var(--bg-secondary);
+		overflow: hidden;
+	}
+
+	.tunnel-spoiler::before {
+		content: '';
+		position: absolute;
+		inset: 0 auto 0 0;
+		width: 2px;
+		background: color-mix(in srgb, var(--section-rail, var(--accent)) 70%, transparent);
+		opacity: 0.75;
+		pointer-events: none;
+	}
+
+	.tunnel-spoiler--awg {
+		--section-tint: color-mix(in srgb, var(--accent) 10%, transparent);
+		--section-tint-strong: color-mix(in srgb, var(--accent) 18%, transparent);
+		--section-border: color-mix(in srgb, var(--accent) 28%, var(--border));
+		--section-badge-bg: color-mix(in srgb, var(--accent) 88%, #ffffff 12%);
+		--section-rail: var(--accent);
+	}
+
+	.tunnel-spoiler--singbox {
+		--section-tint: color-mix(in srgb, #22c55e 8%, transparent);
+		--section-tint-strong: color-mix(in srgb, #22c55e 14%, transparent);
+		--section-border: color-mix(in srgb, #22c55e 24%, var(--border));
+		--section-badge-bg: color-mix(in srgb, #22c55e 76%, var(--accent) 24%);
+		--section-rail: #22c55e;
+	}
+
+	.tunnel-spoiler--subscriptions {
+		--section-tint: color-mix(in srgb, #f59e0b 8%, transparent);
+		--section-tint-strong: color-mix(in srgb, #f59e0b 14%, transparent);
+		--section-border: color-mix(in srgb, #f59e0b 24%, var(--border));
+		--section-badge-bg: color-mix(in srgb, #f59e0b 78%, var(--accent) 22%);
+		--section-rail: #f59e0b;
+	}
+
+	.tunnel-spoiler__header {
+		background:
+			linear-gradient(
+				90deg,
+				var(--section-tint-strong, transparent) 0%,
+				transparent 55%
+			),
+			color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-tertiary) 18%);
+	}
+
+	.tunnel-spoiler__summary {
+		width: 100%;
+		display: grid;
+		grid-template-columns: auto auto minmax(0, 1fr) 2rem;
 		align-items: center;
-		gap: 0.375rem;
-		min-width: 0;
-		margin-top: auto;
+		gap: 0.625rem;
+		min-height: 3rem;
+		padding: 0.875rem 1rem;
+		border: 0;
+		background: transparent;
+		color: var(--text-primary);
+		text-align: left;
+		cursor: pointer;
+		transition:
+			background 0.16s ease,
+			box-shadow 0.16s ease;
 	}
 
-	.dashboard-item-grip {
+	.tunnel-spoiler__summary:hover {
+		background:
+			linear-gradient(
+				90deg,
+				var(--section-tint-strong, transparent) 0%,
+				transparent 55%
+			),
+			color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-tertiary) 30%);
+	}
+
+	.tunnel-spoiler__summary:focus-visible {
+		outline: none;
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
+	}
+
+	.tunnel-spoiler__summary[aria-expanded="true"] {
+		background:
+			linear-gradient(
+				90deg,
+				var(--section-tint-strong, transparent) 0%,
+				transparent 58%
+			),
+			color-mix(in srgb, var(--bg-secondary) 62%, var(--bg-tertiary) 38%);
+	}
+
+	.tunnel-spoiler__mobile-controls {
+		display: none;
+	}
+
+	.tunnel-spoiler__title {
+		font-weight: 700;
+	}
+
+	.tunnel-spoiler__badge {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		flex: 0 0 auto;
-		background: transparent;
-		border: none;
-		padding: 0.125rem;
-		color: var(--color-text-muted);
-		opacity: 0.55;
-		cursor: grab;
-		touch-action: none;
-		border-radius: 4px;
-	}
-
-	.dashboard-item-grip:hover {
-		color: var(--color-text-primary);
-		opacity: 1;
-	}
-
-	.dashboard-item-grip:active {
-		cursor: grabbing;
-	}
-
-	.dashboard-item-grip.is-busy {
-		cursor: wait;
-		opacity: 0.3;
-		pointer-events: none;
-	}
-
-	/* Ручной порядок включён, но dnd заблокирован (поиск/фильтр/загрузка
-	   данных): грип виден, но неактивен — не исчезает молча. */
-	.dashboard-item-grip:disabled {
-		opacity: 0.3;
-		cursor: not-allowed;
-	}
-
-	/* ── D7: drag-reorder (общее pointer-ядро sb-router/reorderDrag).
-	   Движок вертикальный, поэтому на время активного drag сетка
-	   схлопывается в одну колонку — индексы вставки и индикатор
-	   становятся однозначными на любой плотности. ── */
-	.tunnel-grid.dashboard-grid--reordering {
-		--reorder-row-height: 40px;
-		display: flex;
-		flex-direction: column;
-		gap: var(--card-gap, 6px);
-		user-select: none;
-	}
-
-	/* Компактный ряд на время drag и ghost-токен: бейдж вида + имя. */
-	.dashboard-reorder-row,
-	.drag-ghost-token {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		box-sizing: border-box;
-		height: var(--reorder-row-height, 40px);
-		padding: 0 0.75rem;
-		min-width: 0;
-		background: var(--color-bg-secondary);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-sm);
-	}
-
-	.dashboard-kind-badge {
-		flex: 0 0 auto;
-		font-family: var(--font-mono);
+		min-width: 1.25rem;
+		height: 1.25rem;
+		padding: 0 0.375rem;
+		border-radius: var(--radius-pill);
+		background: var(--section-badge-bg, var(--accent));
+		color: var(--color-accent-contrast, #fff);
 		font-size: 0.6875rem;
-		line-height: 1.3;
-		color: var(--color-text-muted);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-sm);
-		padding: 1px 6px;
-		white-space: nowrap;
+		font-weight: 700;
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--section-rail, var(--accent)) 30%, transparent);
 	}
 
-	.dashboard-reorder-name {
+	.tunnel-spoiler__meta {
+		min-width: 0;
+		color: var(--text-muted);
 		font-size: 0.8125rem;
-		font-weight: 500;
-		color: var(--color-text-primary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		min-width: 0;
 	}
 
-	/* Во время drag строки компактные — слот источника и раскрытый
-	   drop-скелетон ужимаются до высоты ряда, а не исходной карточки
-	   (--drop-height меряется на pointerdown по полной карточке). */
-	.dashboard-grid--reordering .dashboard-flat-item.drag-source-exiting:not(.drag-source-collapsed) {
-		height: var(--reorder-row-height, 40px);
-	}
-
-	.dashboard-grid--reordering .drop-indicator.expanded:not(.collapsing) {
-		height: var(--reorder-row-height, 40px);
-	}
-
-	.dashboard-flat-item.drag-source-exiting {
-		overflow: hidden;
-		height: var(--drop-height);
-		opacity: 1;
-		transition:
-			height var(--drop-slot-motion-ms, 360ms) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95)),
-			opacity var(--drop-slot-motion-ms, 360ms) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95)),
-			margin var(--drop-slot-motion-ms, 360ms) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95));
-	}
-
-	.dashboard-flat-item.drag-source-exiting.drag-source-collapsed {
-		height: 0;
-		max-height: 0;
-		opacity: 0;
-		margin-bottom: calc(-1 * var(--card-gap, 6px));
-	}
-
-	.drop-indicator {
-		box-sizing: border-box;
-		overflow: hidden;
+	.tunnel-spoiler__chevron {
+		justify-self: end;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		border-radius: 0.5rem;
+		color: var(--text-muted);
 		border: 1px solid transparent;
-		border-radius: 999px;
-		background: var(--color-accent);
-		box-shadow: 0 0 10px color-mix(in srgb, var(--color-accent) 45%, transparent);
-		opacity: 1;
-		pointer-events: none;
-		transition:
-			height var(--drop-slot-motion-ms, 360ms) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95)),
-			margin var(--drop-slot-motion-ms, 360ms) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95)),
-			border-radius calc(var(--drop-slot-motion-ms, 360ms) * 0.85) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95)),
-			background calc(var(--drop-slot-motion-ms, 360ms) * 0.85) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95)),
-			box-shadow calc(var(--drop-slot-motion-ms, 360ms) * 0.85) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95)),
-			border-color calc(var(--drop-slot-motion-ms, 360ms) * 0.85) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95)),
-			opacity calc(var(--drop-slot-motion-ms, 360ms) * 0.85) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95));
-	}
-
-	.drop-indicator:not(.expanded):not(.collapsing) {
-		position: absolute;
-		top: -1px;
-		left: 0;
-		right: 0;
-		height: 2px;
-		margin: 0;
-		z-index: 2;
-	}
-
-	.drop-indicator.expanded:not(.collapsing) {
-		position: static;
-		top: auto;
-		height: var(--drop-height);
-		margin: 0 0 var(--card-gap, 6px);
-		border-radius: var(--radius-sm, 6px);
-		background: color-mix(in srgb, var(--color-accent) 6%, transparent);
-		border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
-		border-style: dashed;
-		box-shadow: none;
-	}
-
-	.drop-indicator.collapsing {
-		margin: 0 !important;
-		opacity: 0;
-		border-color: transparent;
 		background: transparent;
-		box-shadow: none;
-	}
-
-	.drop-indicator.collapsing.expanded {
-		position: static;
-		height: 0 !important;
-	}
-
-	.drop-indicator.collapsing:not(.expanded) {
-		position: absolute;
-		top: -1px;
-		left: 0;
-		right: 0;
-		height: 2px !important;
-		z-index: 2;
 		transition:
-			opacity var(--drop-line-collapse-ms, 240ms) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95)),
-			box-shadow calc(var(--drop-line-collapse-ms, 240ms) * 0.85) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95)),
-			background calc(var(--drop-line-collapse-ms, 240ms) * 0.85) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95)),
-			border-color calc(var(--drop-line-collapse-ms, 240ms) * 0.85) var(--slot-ease, cubic-bezier(0.45, 0.05, 0.55, 0.95));
+			color 0.16s ease,
+			background 0.16s ease,
+			border-color 0.16s ease;
 	}
 
-	.drop-indicator-end:not(.expanded):not(.collapsing) {
-		position: relative;
-		top: auto;
-		height: 2px;
-		margin: -1px 0 0;
+	.tunnel-spoiler__chevron :global(svg) {
+		display: block;
+		transition: transform 0.16s ease;
 	}
 
-	.drop-indicator-end.collapsing:not(.expanded) {
-		position: relative;
-		top: auto;
-		left: auto;
-		right: auto;
-		height: 2px !important;
-		margin: -1px 0 0 !important;
+	.tunnel-spoiler__summary:hover .tunnel-spoiler__chevron {
+		color: var(--text-primary);
+		background: color-mix(in srgb, var(--section-rail, var(--accent)) 10%, transparent);
+		border-color: color-mix(in srgb, var(--section-rail, var(--accent)) 22%, transparent);
 	}
 
-	.dashboard-drag-ghost {
-		position: fixed;
-		z-index: 10000;
-		pointer-events: none;
-		opacity: 0.96;
-		filter: drop-shadow(0 14px 24px rgba(0, 0, 0, 0.35));
+	.tunnel-spoiler__summary[aria-expanded="true"] .tunnel-spoiler__chevron {
+		color: var(--section-rail, var(--accent));
+		background: color-mix(in srgb, var(--section-rail, var(--accent)) 12%, transparent);
+		border-color: color-mix(in srgb, var(--section-rail, var(--accent)) 26%, transparent);
 	}
 
-	:global(body.reorder-dragging) {
-		user-select: none;
-		cursor: grabbing;
+	.tunnel-spoiler__summary[aria-expanded="true"] .tunnel-spoiler__chevron :global(svg) {
+		transform: rotate(180deg);
+	}
+
+	.tunnel-spoiler__body {
+		padding: 0.75rem 1rem 1rem;
+		background: transparent;
 	}
 
 	/* Toolbar (count + actions row above the tunnel grid) */
 	.tunnels-toolbar {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		gap: 1rem;
 		margin-bottom: 1rem;
+	}
+
+	.toolbar-view-row-desktop {
+		display: contents;
+	}
+
+	@media (max-width: 760px) {
+		.tunnel-spoiler__summary {
+			grid-template-columns: auto auto minmax(0, 1fr) 2rem;
+			padding: 0.8rem 0.85rem 0.45rem;
+		}
+
+		.tunnel-spoiler__mobile-controls {
+			display: block;
+			padding: 0.35rem 0.85rem 0.75rem;
+		}
+
+		.tunnel-spoiler__mobile-controls :global(.toolbar-view-row) {
+			width: 100%;
+		}
+
+		.tunnel-spoiler__body {
+			padding: 0.65rem 0.75rem 0.85rem;
+		}
+
+		.tunnels-toolbar > .tunnel-count,
+		.count-group > .tunnel-count {
+			display: none;
+		}
+
+		.toolbar-view-row-desktop {
+			display: none;
+		}
 	}
 
 	.tunnel-count {
@@ -3751,8 +3426,15 @@
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
+		flex: 1 1 auto;
+		min-width: 0;
 		flex-wrap: wrap;
 		gap: 0.5rem;
+	}
+
+	.toolbar-actions :global(.toolbar-view-row.has-search) {
+		flex: 1 1 auto;
+		min-width: 220px;
 	}
 
 	.toolbar-actions :global(.btn.size-md) {
@@ -4175,4 +3857,5 @@
 			grid-column: 1 / -1;
 		}
 	}
+
 </style>
