@@ -68,6 +68,7 @@
 		saving = true;
 		try {
 			const saved = await onSaveConfig(draft);
+			draft = structuredClone(saved);
 			onSaved(saved);
 			notifications.success('Настройки сохранены');
 		} catch (e) {
@@ -81,10 +82,10 @@
 	async function toggleEnabled(next: boolean) {
 		if (togglingEnabled) return;
 		togglingEnabled = true;
-		const payload = { ...config, enabled: next };
+		const payload = { ...structuredClone(draft), enabled: next };
 		try {
 			const saved = await onSaveConfig(payload);
-			draft = structuredClone(payload);
+			draft = structuredClone(saved);
 			onSaved(saved);
 			notifications.success(next ? 'Прокси включён' : 'Прокси выключен');
 		} catch (e) {
@@ -406,7 +407,7 @@
 	.text-input { min-width: 200px; }
 	.select { min-width: 240px; }
 
-	@media (max-width: 640px) {
+	@media (max-width: 768px) {
 		.card-head {
 			padding: 0.875rem 0.875rem 0.75rem;
 		}
@@ -426,6 +427,7 @@
 		.card-footer :global(.btn) {
 			width: 100%;
 			min-width: 0;
+			justify-content: center;
 		}
 
 		.setting-row {
