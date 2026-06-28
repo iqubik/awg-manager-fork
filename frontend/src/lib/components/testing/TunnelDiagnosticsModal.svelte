@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Modal } from '$lib/components/ui';
+	import { SideDrawer, Button } from '$lib/components/ui';
 	import TunnelDiagnosticsPanel from './TunnelDiagnosticsPanel.svelte';
 
 	type DiagnosticsKind = 'awg' | 'system' | 'singbox' | 'subscription';
@@ -38,11 +38,11 @@
 	let modalTitle = $derived(`${diagnosticsTitlePrefix} тестирование: ${displayName}`);
 </script>
 
-<Modal
+<SideDrawer
 	{open}
-	{onclose}
+	onClose={onclose}
 	title={modalTitle}
-	size="xl"
+	width={720}
 >
 	<TunnelDiagnosticsPanel
 		{kind}
@@ -56,4 +56,8 @@
 		{unavailableReason}
 		mode="modal"
 	/>
-</Modal>
+
+	{#snippet footer()}
+		<Button variant="secondary" onclick={onclose}>Закрыть</Button>
+	{/snippet}
+</SideDrawer>

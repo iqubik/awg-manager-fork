@@ -21,7 +21,7 @@
 </script>
 
 <script lang="ts">
-	import { Button, Modal } from '$lib/components/ui';
+	import { Button, SideDrawer } from '$lib/components/ui';
 	import { JsonConfigDrawer } from '$lib/components/singbox-routing';
 	import { TracePanel, traceOpen, openTrace, closeTrace } from '$lib/components/sb-router';
 	import { FileJson, Search, RotateCw } from 'lucide-svelte';
@@ -142,16 +142,23 @@
 <!-- config.json — drawer с конфигом sing-box (copy/download внутри). -->
 <JsonConfigDrawer open={configOpen} onClose={() => (configOpen = false)} />
 
-<!-- Инспектор маршрутов — route-трейс в модале (✕ и «← Назад» внутри закрывают). -->
-<Modal
+<!-- Инспектор маршрутов — route-трейс в slide drawer, как остальные рабочие окна. -->
+<SideDrawer
 	open={$traceOpen}
+	onClose={closeTrace}
 	title="Инспектор маршрутов"
-	size="wide"
-	bodyLayout="fill"
-	onclose={closeTrace}
+	width={760}
 >
 	<TracePanel embedded />
-</Modal>
+
+	{#snippet footer()}
+		<div class="trace-drawer-footer">
+			<Button variant="secondary" size="md" fullWidth onclick={closeTrace}>
+				Закрыть
+			</Button>
+		</div>
+	{/snippet}
+</SideDrawer>
 
 <style>
 	.hero {
@@ -193,5 +200,9 @@
 		gap: var(--sp-2, 0.5rem);
 		flex-wrap: wrap;
 		align-items: center;
+	}
+
+	.trace-drawer-footer {
+		width: 100%;
 	}
 </style>
