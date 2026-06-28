@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { highlightAmneziaConfContent } from '$lib/utils/amneziaConfHighlight';
+	import { maskSensitive } from '$lib/utils/sensitiveMask';
 	import { tick } from 'svelte';
 
 	type Variant = 'page' | 'modal' | 'preview' | 'modal-preview';
@@ -9,6 +10,7 @@
 		placeholder?: string;
 		disabled?: boolean;
 		readonly?: boolean;
+		privacyHidden?: boolean;
 		/** page: /tunnels/new; modal: replace modal paste; preview: vpn:// decode on new tunnel; modal-preview: decode in modal */
 		variant?: Variant;
 	}
@@ -18,13 +20,15 @@
 		placeholder = '',
 		disabled = false,
 		readonly = false,
+		privacyHidden = false,
 		variant = 'page',
 	}: Props = $props();
 
 	let ta = $state<HTMLTextAreaElement | null>(null);
 	let back = $state<HTMLPreElement | null>(null);
 
-	let highlightHtml = $derived(highlightAmneziaConfContent(value));
+	const displayValue = $derived(privacyHidden ? maskSensitive(value) : value);
+	let highlightHtml = $derived(highlightAmneziaConfContent(displayValue));
 
 	/** Default editor block height (like ShareLinksTextarea --sl-rows); user can resize vertically. */
 	function outerHeightVar(): string {
@@ -59,7 +63,7 @@
 	}
 
 	$effect(() => {
-		value;
+		displayValue;
 		void tick().then(syncScroll);
 	});
 
@@ -85,20 +89,37 @@
 >
 	<div class="ace-stack">
 		<pre class="ace-back" aria-hidden="true" bind:this={back}>{@html highlightHtml}</pre>
-		<textarea
-			class="ace-ta"
-			bind:this={ta}
-			bind:value
-			rows={1}
-			{placeholder}
-			{disabled}
-			{readonly}
-			spellcheck="false"
-			autocomplete="off"
-			autocapitalize="off"
-			onscroll={syncScroll}
-			oninput={syncScroll}
-		></textarea>
+		{#if privacyHidden}
+			<textarea
+				class="ace-ta"
+				class:ace-ta-masked={privacyHidden}
+				bind:this={ta}
+				rows={1}
+				value={displayValue}
+				placeholder={placeholder}
+				disabled={disabled}
+				readonly={true}
+				spellcheck="false"
+				autocomplete="off"
+				autocapitalize="off"
+				onscroll={syncScroll}
+			></textarea>
+		{:else}
+			<textarea
+				class="ace-ta"
+				bind:this={ta}
+				bind:value
+				rows={1}
+				{placeholder}
+				{disabled}
+				{readonly}
+				spellcheck="false"
+				autocomplete="off"
+				autocapitalize="off"
+				onscroll={syncScroll}
+				oninput={syncScroll}
+			></textarea>
+		{/if}
 	</div>
 </div>
 
@@ -278,5 +299,9 @@
 
 	.ace-ta::selection {
 		background: color-mix(in srgb, var(--color-accent, #7aa2f7) 38%, transparent);
+	}
+
+	.ace-ta-masked {
+		caret-color: transparent;
 	}
 </style>
