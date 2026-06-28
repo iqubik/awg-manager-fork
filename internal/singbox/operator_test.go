@@ -113,7 +113,7 @@ func TestOperator_ConfigPaths(t *testing.T) {
 	}
 }
 
-func TestOperator_GetStatus_UpdateAvailableWhenSameVersionSHADiffers(t *testing.T) {
+func TestOperator_GetStatus_SameVersionSHADiffers_IsCustomBuildWithoutUpdate(t *testing.T) {
 	dir := t.TempDir()
 	binary := filepath.Join(dir, "sing-box")
 	body := []byte("#!/bin/sh\necho 'sing-box version 1.2.3'\n")
@@ -130,17 +130,72 @@ func TestOperator_GetStatus_UpdateAvailableWhenSameVersionSHADiffers(t *testing.
 	}, nil))
 
 	status := op.GetStatus(context.Background())
-	if !status.UpdateAvailable {
-		t.Fatal("UpdateAvailable = false, want true for same version with different SHA")
+	if status.UpdateAvailable {
+		t.Fatal("UpdateAvailable = true, want false for same version with different SHA")
 	}
 	if status.CurrentVersion != "1.2.3" || status.RequiredVersion != "1.2.3" {
 		t.Fatalf("version pair = %q/%q, want 1.2.3/1.2.3", status.CurrentVersion, status.RequiredVersion)
+	}
+	if !status.VersionMatchesRequired {
+		t.Fatal("VersionMatchesRequired = false, want true")
+	}
+	if status.ChecksumMatchesRequired {
+		t.Fatal("ChecksumMatchesRequired = true, want false")
+	}
+	if !status.CustomBuild {
+		t.Fatal("CustomBuild = false, want true")
 	}
 	if status.CurrentSHA256 != currentSHA {
 		t.Errorf("CurrentSHA256 = %q, want %q", status.CurrentSHA256, currentSHA)
 	}
 	if status.RequiredSHA256 != strings.Repeat("f", 64) {
 		t.Errorf("RequiredSHA256 = %q", status.RequiredSHA256)
+	}
+}
+
+func TestOperator_GetStatus_OlderVersion_ReportsUpdateAvailable(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "sing-box")
+	body := []byte("#!/bin/sh\necho 'sing-box version 1.2.2'\n")
+	if err := os.WriteFile(binary, body, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	op := NewOperator(OperatorDeps{Dir: dir, Binary: binary})
+	op.SetInstaller(installer.New(binary, "test-arch", installer.BinarySpec{
+		Version: "1.2.3",
+		SHA256:  strings.Repeat("f", 64),
+	}, nil))
+
+	status := op.GetStatus(context.Background())
+	if !status.UpdateAvailable {
+		t.Fatal("UpdateAvailable = false, want true for older version")
+	}
+	if status.CustomBuild {
+		t.Fatal("CustomBuild = true, want false for older version")
+	}
+}
+
+func TestOperator_GetStatus_NewerVersion_IsCustomBuildWithoutUpdate(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "sing-box")
+	body := []byte("#!/bin/sh\necho 'sing-box version 1.2.4'\n")
+	if err := os.WriteFile(binary, body, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	op := NewOperator(OperatorDeps{Dir: dir, Binary: binary})
+	op.SetInstaller(installer.New(binary, "test-arch", installer.BinarySpec{
+		Version: "1.2.3",
+		SHA256:  strings.Repeat("f", 64),
+	}, nil))
+
+	status := op.GetStatus(context.Background())
+	if status.UpdateAvailable {
+		t.Fatal("UpdateAvailable = true, want false for newer version")
+	}
+	if !status.CustomBuild {
+		t.Fatal("CustomBuild = false, want true for newer version")
 	}
 }
 
@@ -1669,6 +1724,8 @@ func newOperatorForTest(t *testing.T, opts ...operatorOpt) *Operator {
 // requires a live sing-box binary (preflight + startAndWait fork/exec) — out
 // of scope for a unit test; manual scenarios (Task 23, S2) cover that path.
 func TestNextFreeListenPortSlot(t *testing.T) {
+	withTestLocalListenPortAvailability(t, func(int) bool { return true })
+
 	tests := []struct {
 		name     string
 		existing []int // existing listen ports
@@ -1685,11 +1742,43 @@ func TestNextFreeListenPortSlot(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := newTestConfigWithListenPorts(t, tc.existing)
-			got := nextFreeListenPortSlot(cfg, tc.reserved)
+			got, err := nextFreeListenPortSlot(cfg, tc.reserved)
+			if err != nil {
+				t.Fatalf("nextFreeListenPortSlot: %v", err)
+			}
 			if got != tc.want {
 				t.Errorf("nextFreeListenPortSlot = %d, want %d", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestNextFreeListenPortSlot_SkipsOccupiedPort_WhenNDMSProxyDisabled(t *testing.T) {
+	withTestLocalListenPortAvailability(t, func(port int) bool {
+		return port != firstPort
+	})
+
+	cfg := newTestConfigWithListenPorts(t, nil)
+	got, err := nextFreeListenPortSlot(cfg, nil)
+	if err != nil {
+		t.Fatalf("nextFreeListenPortSlot: %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("nextFreeListenPortSlot = %d, want 1", got)
+	}
+}
+
+func TestNextFreePortSlot_SkipsOccupiedLocalPort(t *testing.T) {
+	withTestLocalListenPortAvailability(t, func(port int) bool {
+		return port != firstPort
+	})
+
+	got, err := nextFreePortSlot(map[int]bool{})
+	if err != nil {
+		t.Fatalf("nextFreePortSlot: %v", err)
+	}
+	if got != 1 {
+		t.Fatalf("nextFreePortSlot = %d, want 1", got)
 	}
 }
 
@@ -1941,6 +2030,28 @@ func TestOperator_Update_SameVersionSameSHA_NoOp(t *testing.T) {
 		t.Fatalf("Update returned error, expected no-op nil: %v", err)
 	}
 	// Бинарь не тронут — Update вернулся через MatchesRequired до gate'а.
+	if _, err := os.Stat(binary); err != nil {
+		t.Fatalf("binary disappeared: %v", err)
+	}
+}
+
+func TestOperator_Update_SameVersionDifferentSHA_NoOp(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "sing-box")
+	body := []byte("#!/bin/sh\necho 'sing-box version 1.2.3'\n")
+	if err := os.WriteFile(binary, body, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	op := NewOperator(OperatorDeps{Dir: dir, Binary: binary})
+	inst := installer.New(binary, "test-arch", installer.BinarySpec{
+		Version: "1.2.3", URL: "u", SHA256: strings.Repeat("f", 64), Size: 100 << 20,
+	}, nil)
+	inst.SetFreeDiskFn(func(string) (int64, bool) { return 1 << 10, true })
+	op.SetInstaller(inst)
+
+	if err := op.Update(context.Background()); err != nil {
+		t.Fatalf("Update returned error, expected nil no-op: %v", err)
+	}
 	if _, err := os.Stat(binary); err != nil {
 		t.Fatalf("binary disappeared: %v", err)
 	}
