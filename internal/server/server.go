@@ -33,6 +33,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/openapi"
 	"github.com/hoaxisr/awg-manager/internal/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/presets"
+	"github.com/hoaxisr/awg-manager/internal/response"
 	"github.com/hoaxisr/awg-manager/internal/routing"
 	"github.com/hoaxisr/awg-manager/internal/singbox"
 	singboxorch "github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
@@ -730,11 +731,26 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// HydraRoute settings (protected + boot guarded)
 	if s.hydraService != nil {
-		hrHandler := api.NewHydraRouteHandler(s.hydraService, s.downloadSvc)
+		hrHandler := api.NewHydraRouteHandler(s.hydraService, s.downloadSvc, s.settings)
 		hrHandler.SetEventBus(s.bus)
 		mux.HandleFunc("/api/hydraroute/config", guarded(hrHandler.GetConfig))
 		mux.HandleFunc("/api/hydraroute/config/update", guarded(hrHandler.UpdateConfig))
+		mux.HandleFunc("/api/hydraroute/install", guarded(hrHandler.Install))
+		mux.HandleFunc("/api/hydraroute/update", guarded(hrHandler.Update))
 		mux.HandleFunc("/api/hydraroute/geo-files", guarded(hrHandler.ListGeoFiles))
+		mux.HandleFunc("/api/hydraroute/geo-files/schedule", guarded(
+			func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					hrHandler.GetGeoUpdateSchedule(w, r)
+					return
+				}
+				if r.Method == http.MethodPut {
+					hrHandler.SetGeoUpdateSchedule(w, r)
+					return
+				}
+				response.MethodNotAllowed(w)
+			},
+		))
 		mux.HandleFunc("/api/hydraroute/geo-files/add", guarded(hrHandler.AddGeoFile))
 		mux.HandleFunc("/api/hydraroute/geo-files/delete", guarded(hrHandler.DeleteGeoFile))
 		mux.HandleFunc("/api/hydraroute/geo-files/update", guarded(hrHandler.UpdateGeoFile))
