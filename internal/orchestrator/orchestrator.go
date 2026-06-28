@@ -54,6 +54,12 @@ type ClientRouteExecutor interface {
 	OnTunnelDelete(ctx context.Context, tunnelID string) error
 }
 
+// HydraRoutePostStartExecutor handles delayed HR Neo reconciliation after a
+// managed tunnel's interface actually reaches the online state.
+type HydraRoutePostStartExecutor interface {
+	ScheduleRestartAfterInterfaceOnline(ctx context.Context, reason, ndmsIface, kernelIface string)
+}
+
 // Orchestrator centralizes ALL tunnel lifecycle decisions.
 // One brain: receives events, decides actions, executes them.
 type Orchestrator struct {
@@ -80,6 +86,7 @@ type Orchestrator struct {
 	dnsRoute    DNSRouteExecutor
 	staticRoute StaticRouteExecutor
 	clientRoute ClientRouteExecutor
+	hydraRoute  HydraRoutePostStartExecutor
 
 	// Event bus for SSE publishing
 	bus *events.Bus
@@ -133,6 +140,9 @@ func (o *Orchestrator) SetStaticRoute(sr StaticRouteExecutor) { o.staticRoute = 
 
 // SetClientRoute sets the client route executor.
 func (o *Orchestrator) SetClientRoute(cr ClientRouteExecutor) { o.clientRoute = cr }
+
+// SetHydraRoutePostStart sets the HR Neo post-start executor.
+func (o *Orchestrator) SetHydraRoutePostStart(hr HydraRoutePostStartExecutor) { o.hydraRoute = hr }
 
 // SetEventBus sets the event bus for SSE publishing.
 func (o *Orchestrator) SetEventBus(bus *events.Bus) { o.bus = bus }

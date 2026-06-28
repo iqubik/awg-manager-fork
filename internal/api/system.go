@@ -91,6 +91,21 @@ type HydraRouteStatusData struct {
 	StalePID     int    `json:"stalePid,omitempty" example:"12345"`
 	ProcessState string `json:"processState" example:"running" enums:"not_installed,stopped,running,dead"`
 	LastError    string `json:"lastError,omitempty" example:"neo restart: exit status 1"`
+	Managed      bool   `json:"managed" example:"true"`
+	Legacy       bool   `json:"legacy" example:"false"`
+
+	CurrentVersion          string `json:"currentVersion,omitempty" example:"2.4.1"`
+	RequiredVersion         string `json:"requiredVersion,omitempty" example:"2.4.1"`
+	CurrentSHA256           string `json:"currentSha256,omitempty" example:"0123abcd"`
+	RequiredSHA256          string `json:"requiredSha256,omitempty" example:"89ef4567"`
+	VersionMatchesRequired  bool   `json:"versionMatchesRequired" example:"true"`
+	ChecksumMatchesRequired bool   `json:"checksumMatchesRequired" example:"true"`
+	CustomBuild             bool   `json:"customBuild" example:"false"`
+	UpdateAvailable         bool   `json:"updateAvailable" example:"false"`
+	InstallState            string `json:"installState,omitempty" example:"installed"`
+	RequiredBytes           int64  `json:"requiredBytes,omitempty" example:"32145678"`
+	FreeBytes               int64  `json:"freeBytes,omitempty" example:"8221456"`
+	InstallSupported        bool   `json:"installSupported" example:"true"`
 }
 
 // HydraRouteStatusResponse is the envelope for GET /system/hydraroute-status.
@@ -118,6 +133,21 @@ func hydraRouteStatusData(s hydraroute.Status) HydraRouteStatusData {
 		StalePID:     s.StalePID,
 		ProcessState: string(state),
 		LastError:    s.LastError,
+		Managed:      s.Managed,
+		Legacy:       s.Legacy,
+
+		CurrentVersion:          s.CurrentVersion,
+		RequiredVersion:         s.RequiredVersion,
+		CurrentSHA256:           s.CurrentSHA256,
+		RequiredSHA256:          s.RequiredSHA256,
+		VersionMatchesRequired:  s.VersionMatchesRequired,
+		ChecksumMatchesRequired: s.ChecksumMatchesRequired,
+		CustomBuild:             s.CustomBuild,
+		UpdateAvailable:         s.UpdateAvailable,
+		InstallState:            s.InstallState,
+		RequiredBytes:           s.RequiredBytes,
+		FreeBytes:               s.FreeBytes,
+		InstallSupported:        s.InstallSupported,
 	}
 }
 
