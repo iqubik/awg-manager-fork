@@ -311,7 +311,7 @@
         <Button variant={tproxyOn ? 'danger' : 'primary'} size="sm" fullWidth disabled={switchBusy} onclick={handleToggleClick}>
           {tproxyOn ? 'Выключить' : 'Включить'}
         </Button>
-        <Button variant="ghost" size="sm" fullWidth onclick={restartEngine}>Перезапустить</Button>
+        <Button variant="danger" size="sm" fullWidth onclick={restartEngine}>Перезапустить</Button>
       </div>
       {#if isExpert}
         <span class="save-status" class:err={lastError}>
@@ -482,7 +482,6 @@
   .chip-label { font-size: 12.5px; font-weight: 600; }
   .chip-desc { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
 
-<<<<<<< HEAD
   .footer-actions {
 	width: 100%;
 	display: flex;
@@ -524,6 +523,4 @@
 	padding: 0 3px;
 	color: var(--text-secondary);
   }
-=======
->>>>>>> abdcc081 (feat(singbox): improve routing flows and live outbound selection)
 </style>

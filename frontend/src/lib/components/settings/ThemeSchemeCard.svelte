@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { Button, SegmentedControl, Toggle } from '$lib/components/ui';
 	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
 	import { compactLayout } from '$lib/stores/compactLayout';
@@ -7,7 +8,6 @@
 		SETTINGS_SECTION_ICON_MODE_LABELS,
 		type SettingsSectionIconMode,
 	} from '$lib/stores/settingsSectionIconMode';
-	import { serviceLetterIcons } from '$lib/stores/serviceLetterIcons';
 	import { usageLevel } from '$lib/stores/settings';
 	import {
 		theme,
@@ -17,9 +17,10 @@
 		type ThemeModePreference,
 		type ThemePreset,
 	} from '$lib/stores/theme';
-	import { Palette, ChevronDown, Check } from 'lucide-svelte';
+	import { Palette, Check } from 'lucide-svelte';
 
 	const PRESET_ORDER: ThemePreset[] = ['legacy', 'neo', 'mint', 'custom'];
+	const APPEARANCE_EXPANDED_KEY = 'awgm_settings_appearance_expanded_v1';
 	const LEGACY_MODE_OPTIONS: Array<{ value: ThemeModePreference; label: string }> = [
 		{ value: 'system', label: 'Системная' },
 		{ value: 'dark', label: 'Тёмная' },
@@ -35,9 +36,11 @@
 		{ value: 'strict', label: SETTINGS_SECTION_ICON_MODE_LABELS.strict },
 		{ value: 'harmonious', label: SETTINGS_SECTION_ICON_MODE_LABELS.harmonious },
 		{ value: 'vivid', label: SETTINGS_SECTION_ICON_MODE_LABELS.vivid },
+		{ value: 'none', label: SETTINGS_SECTION_ICON_MODE_LABELS.none },
 	];
 
-	let expanded = $state(false);
+	let appearanceExpanded = $state(true);
+	let schemeExpanded = $state(false);
 	const compactForced = $derived($usageLevel === 'basic');
 	const compactChecked = $derived(compactForced || $compactLayout);
 
@@ -62,34 +65,83 @@
 	function updateCustomColor(key: keyof ThemeCustomPalette, value: string): void {
 		theme.updateCustom({ [key]: value });
 	}
+
+	if (browser) {
+		const saved = localStorage.getItem(APPEARANCE_EXPANDED_KEY);
+		if (saved !== null) {
+			appearanceExpanded = saved === '1';
+		}
+	}
+
+	$effect(() => {
+		if (!browser) return;
+		localStorage.setItem(APPEARANCE_EXPANDED_KEY, appearanceExpanded ? '1' : '0');
+	});
 </script>
 
 <div class="settings-block">
 	<div class="card">
-	<SettingsSectionLabel label="Внешний вид" icon={Palette} tone="pink" header />
-	<div class="setting-row">
 		<button
 			type="button"
-			class="collapsible-header scheme-toggle"
-			aria-expanded={expanded}
-			aria-controls="theme-scheme-body"
-			onclick={() => (expanded = !expanded)}
+			class="settings-card-toggle"
+			aria-expanded={appearanceExpanded}
+			aria-controls="appearance-card-body"
+			onclick={() => (appearanceExpanded = !appearanceExpanded)}
 		>
-			<div class="flex flex-col gap-1">
-				<span class="font-medium">Цветовая схема</span>
-				<span class="setting-description">
-					Применяется сразу и сохраняется локально в этом браузере.
-				</span>
-			</div>
-			<span class="header-meta">
-				<span class="current-theme">{currentThemeLabel}</span>
-				<span class="chevron" class:open={expanded} aria-hidden="true"><ChevronDown size={14} strokeWidth={2} /></span>
+			<span class="settings-card-toggle-label">
+				<SettingsSectionLabel label="Внешний вид" icon={Palette} tone="pink" inline />
+			</span>
+			<span class="settings-card-toggle-meta">
+				<span class="settings-card-meta-text current-theme">{currentThemeLabel}</span>
+				<svg
+					class="settings-card-chevron"
+					class:open={appearanceExpanded}
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<polyline points="6 9 12 15 18 9" />
+				</svg>
 			</span>
 		</button>
-	</div>
 
-	{#if expanded}
-		<div id="theme-scheme-body" class="collapsible-body">
+	{#if appearanceExpanded}
+		<div id="appearance-card-body" class="appearance-body">
+			<div class="setting-row">
+				<button
+					type="button"
+					class="collapsible-header scheme-toggle"
+					aria-expanded={schemeExpanded}
+					aria-controls="theme-scheme-body"
+					onclick={() => (schemeExpanded = !schemeExpanded)}
+				>
+					<div class="flex flex-col gap-1">
+						<span class="font-medium">Цветовая схема</span>
+						<span class="setting-description">
+							Применяется сразу и сохраняется локально в этом браузере.
+						</span>
+					</div>
+					<span class="header-meta">
+						<span class="current-theme">{currentThemeLabel}</span>
+						<svg
+							class="chevron"
+							class:open={schemeExpanded}
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							aria-hidden="true"
+						>
+							<polyline points="6 9 12 15 18 9" />
+						</svg>
+					</span>
+				</button>
+			</div>
+
+		{#if schemeExpanded}
+			<div id="theme-scheme-body" class="collapsible-body">
 			<div class="theme-grid" role="radiogroup" aria-label="Цветовая схема">
 				{#each PRESET_ORDER as preset (preset)}
 					{@const selected = $theme.preset === preset}
@@ -194,8 +246,8 @@
 					</div>
 				</div>
 			{/if}
-		</div>
-	{/if}
+			</div>
+		{/if}
 
 	<div class="setting-row icon-mode-row">
 		<div class="flex flex-col gap-1">
@@ -228,38 +280,108 @@
 			onchange={(enabled) => compactLayout.setEnabled(enabled)}
 		/>
 	</div>
-	<div class="setting-row letter-icons-row">
-		<div class="flex flex-col gap-1">
-			<span class="font-medium">Буквенные иконки</span>
-			<span class="setting-description">
-				Цветная плитка с первой буквой названия для списков маршрутизации (если не был найден логотип). 
-			</span>
 		</div>
-		<Toggle
-			checked={$serviceLetterIcons}
-			onchange={(enabled) => serviceLetterIcons.setEnabled(enabled)}
-		/>
-	</div>
+	{/if}
 	</div>
 </div>
 
 <style>
-	.compact-layout-row,
-	.letter-icons-row {
+	.settings-card-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		min-width: 0;
+		gap: 0.875rem;
+		padding: 0 0 0.625rem;
+		border: 0;
+		border-bottom: 1px solid var(--color-border);
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.settings-card-toggle-label {
+		min-width: 0;
+		flex: 1 1 auto;
+	}
+
+	.settings-card-toggle-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.625rem;
+		min-width: 0;
+		max-width: min(42vw, 18rem);
+		color: var(--color-text-secondary);
+		flex: 0 0 auto;
+	}
+
+	.settings-card-meta-text {
+		max-width: 12rem;
+		font-size: 0.75rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.settings-card-chevron {
+		width: 1rem;
+		height: 1rem;
+		flex-shrink: 0;
+		transition: transform var(--t-normal) ease;
+	}
+
+	.settings-card-chevron.open {
+		transform: rotate(180deg);
+	}
+
+	.appearance-body {
+		display: flex;
+		flex-direction: column;
+		padding-top: 0.75rem;
+	}
+
+	.compact-layout-row {
 		align-items: center;
 	}
 
+	.icon-mode-row {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.75rem;
+	}
+
+	.icon-mode-row :global(.segmented-control) {
+		display: flex;
+		width: 100%;
+		max-width: none;
+	}
+
+	.icon-mode-row :global(.segmented-control-btn) {
+		flex: 1 1 0;
+		min-width: 0;
+		padding-inline: 0.5rem;
+	}
+
 	@media (max-width: 640px) {
-		.compact-layout-row,
-		.letter-icons-row {
+		.settings-card-toggle {
+			align-items: flex-start;
+		}
+
+		.settings-card-toggle-meta {
+			max-width: min(50vw, 11rem);
+		}
+
+		.compact-layout-row {
 			flex-direction: row;
 			align-items: center;
 			flex-wrap: nowrap;
 			gap: 0.75rem;
 		}
 
-		.compact-layout-row > *:first-child,
-		.letter-icons-row > *:first-child {
+		.compact-layout-row > *:first-child {
 			flex: 1 1 auto;
 			min-width: 0;
 		}
@@ -296,6 +418,7 @@
 		flex: 1 1 auto;
 	}
 
+	.settings-card-toggle:focus-visible,
 	.collapsible-header:focus-visible {
 		outline: 2px solid var(--color-accent);
 		outline-offset: 2px;
@@ -311,7 +434,6 @@
 	}
 
 	.current-theme {
-		color: var(--color-text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
