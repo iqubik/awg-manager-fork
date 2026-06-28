@@ -23,6 +23,24 @@ function createTunnelTableSortStore<T extends string>(
 		toggleSort(key: T) {
 			store.mutate((state) => cycleTableSort(state, key));
 		},
+		setSort(key: T | null) {
+			update((state) => {
+				const next =
+					key === null
+						? defaultState()
+						: { sortBy: key, sortAsc: defaults[key] };
+				persist(next);
+				return next;
+			});
+		},
+		toggleDirection() {
+			update((state) => {
+				if (state.sortBy === null) return state;
+				const next = { ...state, sortAsc: !state.sortAsc };
+				persist(next);
+				return next;
+			});
+		},
 	};
 }
 

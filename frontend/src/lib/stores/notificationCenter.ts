@@ -92,20 +92,54 @@ export function dayBucket(ts: number, now: number): DayBucket {
   return 'earlier';
 }
 
+function parseGeneratedId(id: string): number {
+  const match = /^nc-(\d+)$/.exec(id);
+  return match ? Number(match[1]) : 0;
+}
+
+function maxGeneratedId(entries: CenterEntry[]): number {
+  return entries.reduce((max, e) => Math.max(max, parseGeneratedId(e.id)), 0);
+}
+
+function ensureUniqueIds(entries: CenterEntry[]): CenterEntry[] {
+  const seen = new Set<string>();
+  let counter = maxGeneratedId(entries);
+
+  return entries.map((e) => {
+    if (!seen.has(e.id)) {
+      seen.add(e.id);
+      return e;
+    }
+
+    let id: string;
+    do {
+      id = `nc-${++counter}`;
+    } while (seen.has(id));
+
+    seen.add(id);
+    return { ...e, id };
+  });
+}
+
 export function createNotificationCenterStore() {
-  const initial = prune(loadStored(), Date.now());
-  // Seed from the max stored suffix: counter is in-memory and resets on reload,
-  // but ids persist in localStorage — without seeding, new ids (nc-1, nc-2, …)
-  // collide with stored ones and the keyed {#each} throws each_key_duplicate.
-  let counter = initial.reduce((max, e) => {
-    const n = Number(e.id.slice(3)); // strip "nc-"
-    return Number.isFinite(n) && n > max ? n : max;
-  }, 0);
-  const { subscribe, update, set } = writable<CenterEntry[]>(initial);
+  const initialEntries = ensureUniqueIds(prune(loadStored(), Date.now()));
+  let counter = maxGeneratedId(initialEntries);
+  const { subscribe, update, set } = writable<CenterEntry[]>(initialEntries);
 
   function commit(entries: CenterEntry[]): CenterEntry[] {
     writeStored(entries);
     return entries;
+  }
+
+  function allocateId(entries: CenterEntry[]): string {
+    const existing = new Set(entries.map((e) => e.id));
+    let id: string;
+
+    do {
+      id = `nc-${++counter}`;
+    } while (existing.has(id));
+
+    return id;
   }
 
   function record(input: RecordInput) {
@@ -130,7 +164,7 @@ export function createNotificationCenterStore() {
       } else {
         next = [
           {
-            id: `nc-${++counter}`,
+            id: allocateId(entries),
             type: input.type,
             message: input.message,
             action: input.action,
