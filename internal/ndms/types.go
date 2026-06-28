@@ -238,6 +238,7 @@ type InterfaceDetails struct {
 	State     string // "up", "down", "error"
 	Link      string // "up", "down"
 	Connected bool
+	Online    bool
 	ConfLayer string // "running", "disabled", "pending"
 	Uptime    int    // seconds since interface came up (0 if down)
 }

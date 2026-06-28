@@ -490,42 +490,6 @@ const MOCK_SYSTEM_TUNNELS = [
 	},
 ];
 
-const MOCK_IP_CHECK_SERVICES = [
-	{ label: 'Auto (geo + fallback)', url: '' },
-	{ label: 'myip.wtf geo', url: 'http://myip.wtf/json' },
-	{ label: '2ip', url: 'https://2ip.ru' },
-	{ label: 'wtfismyip', url: 'https://wtfismyip.com/text' },
-	{ label: 'ipinfo', url: 'https://ipinfo.io/ip' },
-];
-
-function mockGeo(ip, location, isp, extra = {}) {
-	return {
-		ip,
-		location,
-		isp,
-		...extra,
-	};
-}
-
-function buildMockIPCheckResult({
-	directIp,
-	vpnIp,
-	endpointIp = '',
-	directGeo,
-	vpnGeo,
-	endpointGeo,
-}) {
-	return {
-		directIp,
-		vpnIp,
-		endpointIp,
-		ipChanged: Boolean(directIp && vpnIp && directIp !== vpnIp),
-		directGeo,
-		vpnGeo,
-		endpointGeo,
-	};
-}
-
 /** Merge tunnel summary for GET /connections mocks (Prism omits map entries). */
 function enrichConnectionsTunnels(body) {
 	if (!body || typeof body !== 'object' || !body.data || typeof body.data !== 'object') return body;
@@ -6703,46 +6667,6 @@ const server = http.createServer(async (req, res) => {
 		return;
 	}
 
-	if (req.method === 'GET' && path === '/test/ip/services') {
-		send(res, 200, {
-			success: true,
-			data: MOCK_IP_CHECK_SERVICES,
-		});
-		return;
-	}
-
-	if (req.method === 'GET' && path === '/test/ip') {
-		const id = url.searchParams.get('id') ?? '';
-		const tunnel = MOCK_AWG_TUNNELS.find((t) => t.id === id);
-		if (!tunnel) {
-			send(res, 404, { success: false, error: 'tunnel not found', code: 'NOT_FOUND' });
-			return;
-		}
-		send(res, 200, {
-			success: true,
-			data: buildMockIPCheckResult({
-				directIp: '203.0.113.10',
-				vpnIp: tunnel.address?.split('/')[0] ?? '10.8.0.2',
-				endpointIp: tunnel.endpoint?.split(':')[0] ?? '',
-				directGeo: mockGeo('203.0.113.10', 'Frankfurt am Main, DE', 'Hetzner Online GmbH', {
-					city: 'Frankfurt am Main',
-					countryCode: 'DE',
-				}),
-				vpnGeo: mockGeo(tunnel.address?.split('/')[0] ?? '10.8.0.2', 'Stockholm, SE', 'Example VPN ISP', {
-					city: 'Stockholm',
-					countryCode: 'SE',
-				}),
-				endpointGeo: tunnel.endpoint
-					? mockGeo(tunnel.endpoint.split(':')[0], 'Stockholm, SE', 'Example Hosting', {
-						city: 'Stockholm',
-						countryCode: 'SE',
-					})
-					: undefined,
-			}),
-		});
-		return;
-	}
-
 	if (req.method === 'GET' && path === '/system-tunnels/test-connectivity') {
 		const name = url.searchParams.get('name');
 		const tunnel = MOCK_SYSTEM_TUNNELS.find((t) => t.id === name);
@@ -6766,63 +6690,10 @@ const server = http.createServer(async (req, res) => {
 			send(res, 200, {
 				success: true,
 				data: up
-					? buildMockIPCheckResult({
-						directIp: '185.10.68.1',
-						vpnIp: tunnel?.address?.split('/')[0] ?? '10.20.1.2',
-						endpointIp: tunnel?.peer?.endpoint?.split(':')[0] ?? '',
-						directGeo: mockGeo('185.10.68.1', 'Moscow, RU', 'Rostelecom', {
-							city: 'Moscow',
-							countryCode: 'RU',
-						}),
-						vpnGeo: mockGeo(tunnel?.address?.split('/')[0] ?? '10.20.1.2', 'Amsterdam, NL', 'Example VPN ISP', {
-							city: 'Amsterdam',
-							countryCode: 'NL',
-						}),
-						endpointGeo: tunnel?.peer?.endpoint
-							? mockGeo(tunnel.peer.endpoint.split(':')[0], 'Amsterdam, NL', 'Example Hosting', {
-								city: 'Amsterdam',
-								countryCode: 'NL',
-							})
-							: undefined,
-					})
-					: buildMockIPCheckResult({
-						directIp: '85.174.10.1',
-						vpnIp: '',
-						endpointIp: '',
-						directGeo: mockGeo('85.174.10.1', 'St Petersburg, RU', 'Дом.ru', {
-							city: 'St Petersburg',
-							countryCode: 'RU',
-						}),
-					}),
+					? { directIp: '185.10.68.1', vpnIp: tunnel?.address?.split('/')[0] ?? '10.20.1.2', endpointIp: tunnel?.peer?.endpoint?.split(':')[0] ?? '', ipChanged: true }
+					: { directIp: '85.174.10.1', vpnIp: '', endpointIp: '', ipChanged: false },
 			});
 		}, 1200);
-		return;
-	}
-
-	if (req.method === 'GET' && path === '/singbox/tunnels/test/ip') {
-		const tag = url.searchParams.get('tag') ?? '';
-		send(res, 200, {
-			success: true,
-			data: buildMockIPCheckResult({
-				directIp: '198.51.100.20',
-				vpnIp: '185.220.101.1',
-				endpointIp: tag ? '203.0.113.44' : '',
-				directGeo: mockGeo('198.51.100.20', 'Frankfurt am Main, DE', 'Hetzner Online GmbH', {
-					city: 'Frankfurt am Main',
-					countryCode: 'DE',
-				}),
-				vpnGeo: mockGeo('185.220.101.1', 'Stockholm, SE', 'Example ISP', {
-					city: 'Stockholm',
-					countryCode: 'SE',
-				}),
-				endpointGeo: tag
-					? mockGeo('203.0.113.44', 'Stockholm, SE', 'Example Hosting', {
-						city: 'Stockholm',
-						countryCode: 'SE',
-					})
-					: undefined,
-			}),
-		});
 		return;
 	}
 
