@@ -142,6 +142,7 @@ type Service struct {
 // requests a tag that is not in the current list of available outbounds.
 var ErrOutboundUnavailable = errors.New("outbound is not available")
 var ErrInstanceNotFound = errors.New("instance not found")
+var ErrDefaultInstanceDelete = errors.New("default device proxy instance cannot be deleted")
 
 // deviceProxyInstanceSelectorTag returns the selector tag for a given instance.
 // The default instance uses the shared "device-proxy-selector" tag;
@@ -184,6 +185,10 @@ func (s *Service) SaveInstance(ctx context.Context, in Instance) error {
 	if in.Name == "" {
 		in.Name = in.ID
 	}
+	in.SelectedOutbound = strings.TrimSpace(in.SelectedOutbound)
+	if in.SelectedOutbound == "" {
+		in.SelectedOutbound = "direct"
+	}
 
 	s.mu.Lock()
 	portFn := s.tunnelPorts
@@ -201,6 +206,15 @@ func (s *Service) SaveInstance(ctx context.Context, in Instance) error {
 	cfg := instanceToConfig(in)
 	if err := validateConfigRaw(cfg, portFn, others); err != nil {
 		return err
+	}
+
+	s.mu.Lock()
+	available := s.listOutboundsLocked(ctx)
+	s.mu.Unlock()
+	if in.Enabled {
+		if err := validateSelectedOutbound(in.SelectedOutbound, available); err != nil {
+			return err
+		}
 	}
 
 	s.mu.Lock()
@@ -227,6 +241,9 @@ func (s *Service) SaveInstance(ctx context.Context, in Instance) error {
 func (s *Service) DeleteInstance(ctx context.Context, id string) (applied bool, err error) {
 	if id == "" {
 		return false, fmt.Errorf("instance id is empty")
+	}
+	if id == "default" {
+		return false, ErrDefaultInstanceDelete
 	}
 
 	s.mu.Lock()
@@ -299,11 +316,35 @@ func (s *Service) applyInstancesLocked(ctx context.Context) error {
 		if err := s.d.Singbox.ApplyDeviceProxyInstances(ctx, specs); err != nil {
 			return fmt.Errorf("apply device proxy instances: %w", err)
 		}
+		if err := s.syncInstanceSelectors(ctx, specs); err != nil {
+			return err
+		}
 	}
 
 	if s.d.Bus != nil {
 		s.d.Bus.Publish("resource:invalidated", events.ResourceInvalidatedEvent{Resource: "deviceproxy.config"})
 		s.d.Bus.Publish("resource:invalidated", events.ResourceInvalidatedEvent{Resource: "deviceproxy.runtime"})
+	}
+	return nil
+}
+
+func (s *Service) syncInstanceSelectors(ctx context.Context, specs []ExternalInstanceSpec) error {
+	if s.d.Singbox == nil || !s.d.Singbox.IsRunning() {
+		return nil
+	}
+
+	for _, spec := range specs {
+		if !spec.Enabled {
+			continue
+		}
+		selected := strings.TrimSpace(spec.SelectedTag)
+		if selected == "" {
+			selected = "direct"
+		}
+		selectorTag := deviceProxyInstanceSelectorTag(spec.ID)
+		if err := s.d.Singbox.SetSelectorDefault(ctx, selectorTag, selected); err != nil {
+			return fmt.Errorf("sync device proxy selector %q to %q: %w", selectorTag, selected, err)
+		}
 	}
 	return nil
 }
@@ -504,19 +545,6 @@ func (s *Service) ForceApply(ctx context.Context) error {
 
 	cfg := s.d.Store.Get()
 
-	if cfg.Enabled && s.d.Singbox != nil {
-		active, err := s.d.Singbox.GetSelectorActive(ctx, "device-proxy-selector")
-		if err != nil {
-			return fmt.Errorf("force apply read active selector: %w", err)
-		}
-		if active != "" && active != cfg.SelectedOutbound {
-			cfg.SelectedOutbound = active
-			if err := s.d.Store.Save(cfg); err != nil {
-				return fmt.Errorf("force apply persist active selector: %w", err)
-			}
-		}
-	}
-
 	spec, err := s.buildSpec(ctx, cfg)
 	if err != nil {
 		return err
@@ -527,8 +555,12 @@ func (s *Service) ForceApply(ctx context.Context) error {
 			return fmt.Errorf("force apply: %w", err)
 		}
 
-		if cfg.Enabled && cfg.SelectedOutbound != "" {
-			if err := s.d.Singbox.SetSelectorDefault(ctx, "device-proxy-selector", cfg.SelectedOutbound); err != nil {
+		if cfg.Enabled {
+			selected := strings.TrimSpace(cfg.SelectedOutbound)
+			if selected == "" {
+				selected = "direct"
+			}
+			if err := s.d.Singbox.SetSelectorDefault(ctx, "device-proxy-selector", selected); err != nil {
 				return fmt.Errorf("force apply selector: %w", err)
 			}
 		}
@@ -782,6 +814,19 @@ func (s *Service) listOutboundsLocked(ctx context.Context) []Outbound {
 		}
 	}
 	return out
+}
+
+func validateSelectedOutbound(tag string, available []Outbound) error {
+	tag = strings.TrimSpace(tag)
+	if tag == "" || tag == "direct" {
+		return nil
+	}
+	for _, ob := range available {
+		if ob.Tag == tag {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %q", ErrOutboundUnavailable, tag)
 }
 
 // SelectRuntimeOutbound switches the live selector.now via Clash API.
@@ -1077,9 +1122,9 @@ func parseIPResult(stdout string) (string, bool) {
 func fetchIPViaHTTP(ctx context.Context, serviceURL string, proxyURL string) (string, string, error) {
 	if serviceURL != "" {
 		res, err := httpclient.DefaultClient.Do(ctx, httpclient.CallConfig{
-			URL:       serviceURL,
-			ProxyURL:  proxyURL,
-			MaxTime:   instanceIPMaxTimeSec * time.Second,
+			URL:      serviceURL,
+			ProxyURL: proxyURL,
+			MaxTime:  instanceIPMaxTimeSec * time.Second,
 		})
 		if err != nil {
 			return "", "", fmt.Errorf("%s: %w", serviceURL, err)

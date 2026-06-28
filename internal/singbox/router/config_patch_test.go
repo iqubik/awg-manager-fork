@@ -628,6 +628,84 @@ func TestCompositeOutboundDeleteReferenced(t *testing.T) {
 	}
 }
 
+func TestCompositeOutboundDeleteForcePrunesNestedOutboundRules(t *testing.T) {
+	cfg := NewEmptyConfig()
+	cfg.Outbounds = []Outbound{
+		{Type: "urltest", Tag: "fast", Outbounds: []string{"awg10", "awg20"}},
+	}
+	cfg.Route.Rules = []Rule{
+		{
+			Type:   "logical",
+			Mode:   "or",
+			Action: "route",
+			Rules: []Rule{
+				{DomainSuffix: []string{"drop.example"}, Outbound: "fast"},
+				{DomainSuffix: []string{"keep.example"}, Outbound: "keep"},
+				{
+					Type: "logical",
+					Mode: "or",
+					Rules: []Rule{
+						{DomainSuffix: []string{"nested-drop.example"}, Outbound: "fast"},
+						{DomainSuffix: []string{"nested-keep.example"}, Outbound: "keep"},
+					},
+				},
+			},
+		},
+	}
+
+	if err := cfg.DeleteCompositeOutbound("fast", true); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Route.Rules) != 1 {
+		t.Fatalf("top-level logical rule should remain, got %+v", cfg.Route.Rules)
+	}
+	got := cfg.Route.Rules[0].Rules
+	if len(got) != 2 {
+		t.Fatalf("nested rules should prune deleted-outbound entries only, got %+v", got)
+	}
+	if got[0].Outbound != "keep" || len(got[0].DomainSuffix) != 1 || got[0].DomainSuffix[0] != "keep.example" {
+		t.Fatalf("first kept nested rule mismatch: %+v", got[0])
+	}
+	if len(got[1].Rules) != 1 || got[1].Rules[0].Outbound != "keep" || got[1].Rules[0].DomainSuffix[0] != "nested-keep.example" {
+		t.Fatalf("nested logical rule should retain only keep child: %+v", got[1])
+	}
+	if ruleReferencesOutbound(cfg.Route.Rules[0], "fast") {
+		t.Fatalf("deleted outbound reference must be fully pruned from nested rules: %+v", cfg.Route.Rules[0])
+	}
+}
+
+func TestCompositeOutboundDeleteForceDropsEmptyTopLevelLogicalRule(t *testing.T) {
+	cfg := NewEmptyConfig()
+	cfg.Outbounds = []Outbound{
+		{Type: "urltest", Tag: "fast", Outbounds: []string{"awg10", "awg20"}},
+	}
+	cfg.Route.Rules = []Rule{
+		{
+			Type:   "logical",
+			Mode:   "or",
+			Action: "route",
+			Rules: []Rule{
+				{DomainSuffix: []string{"x.example"}, Outbound: "fast"},
+			},
+		},
+		{
+			DomainSuffix: []string{"keep.example"},
+			Action:       "route",
+			Outbound:     "direct",
+		},
+	}
+
+	if err := cfg.DeleteCompositeOutbound("fast", true); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Route.Rules) != 1 {
+		t.Fatalf("empty top-level logical rule must be removed, got %+v", cfg.Route.Rules)
+	}
+	if len(cfg.Route.Rules[0].DomainSuffix) != 1 || cfg.Route.Rules[0].DomainSuffix[0] != "keep.example" {
+		t.Fatalf("unexpected remaining rule after prune: %+v", cfg.Route.Rules[0])
+	}
+}
+
 func TestEnsureRouteWAN_AutoDetectMode(t *testing.T) {
 	cfg := NewEmptyConfig()
 	// Pre-populate stale state to confirm EnsureRouteWAN clears it.

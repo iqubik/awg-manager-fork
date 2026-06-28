@@ -92,7 +92,8 @@ type fakeSingboxOperator struct {
 	lastSpecNR          *ExternalSpec // ApplyDeviceProxyNoReload call
 	lastSelector        string
 	lastMember          string
-	runtimeActive       string // what GetSelectorActive returns
+	selectorCalls       []string
+	runtimeActive       string                 // what GetSelectorActive returns
 	lastInstanceSpecs   []ExternalInstanceSpec // last ApplyDeviceProxyInstances call payload
 	applyInstancesCalls int                    // number of ApplyDeviceProxyInstances invocations
 	applyInstancesErr   error                  // error to return from ApplyDeviceProxyInstances (nil = succeed)
@@ -110,9 +111,10 @@ func (f *fakeSingboxOperator) TunnelTags() []string { return f.tags }
 func (f *fakeSingboxOperator) TunnelOutbounds() []TunnelOutboundInfo {
 	return f.tunnelInfos
 }
-func (f *fakeSingboxOperator) IsRunning() bool      { return f.running }
+func (f *fakeSingboxOperator) IsRunning() bool { return f.running }
 func (f *fakeSingboxOperator) SetSelectorDefault(_ context.Context, selector, member string) error {
 	f.lastSelector, f.lastMember = selector, member
+	f.selectorCalls = append(f.selectorCalls, selector+"="+member)
 	return nil
 }
 func (f *fakeSingboxOperator) GetSelectorActive(_ context.Context, _ string) (string, error) {
@@ -527,6 +529,150 @@ func TestService_SaveInstance_FailureRollbackReappliesSingbox(t *testing.T) {
 	}
 }
 
+func TestService_SaveInstance_SyncsDefaultSelectorAfterApply(t *testing.T) {
+	sb := &fakeSingboxOperator{running: true, tags: []string{"warp"}}
+	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
+	s := NewService(Deps{Store: store, Singbox: sb})
+
+	inst := Instance{
+		ID:               "default",
+		Name:             "Proxy",
+		Enabled:          true,
+		ListenAll:        true,
+		Port:             1099,
+		SelectedOutbound: "warp",
+	}
+	if err := s.SaveInstance(context.Background(), inst); err != nil {
+		t.Fatalf("SaveInstance: %v", err)
+	}
+
+	if sb.lastSelector != "device-proxy-selector" || sb.lastMember != "warp" {
+		t.Fatalf("selector sync mismatch: selector=%q member=%q", sb.lastSelector, sb.lastMember)
+	}
+}
+
+func TestService_SaveInstance_SyncsNamedSelectorAfterApply(t *testing.T) {
+	sb := &fakeSingboxOperator{running: true, tags: []string{"warp"}}
+	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
+	s := NewService(Deps{Store: store, Singbox: sb})
+
+	inst := Instance{
+		ID:               "phone",
+		Name:             "Phone",
+		Enabled:          true,
+		ListenAll:        true,
+		Port:             1100,
+		SelectedOutbound: "warp",
+	}
+	if err := s.SaveInstance(context.Background(), inst); err != nil {
+		t.Fatalf("SaveInstance: %v", err)
+	}
+
+	if sb.lastSelector != "device-proxy-phone-selector" || sb.lastMember != "warp" {
+		t.Fatalf("selector sync mismatch: selector=%q member=%q", sb.lastSelector, sb.lastMember)
+	}
+}
+
+func TestService_SaveInstance_NormalizesEmptySelectedOutboundToDirect(t *testing.T) {
+	sb := &fakeSingboxOperator{running: true}
+	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
+	s := NewService(Deps{Store: store, Singbox: sb})
+
+	inst := Instance{
+		ID:               "default",
+		Name:             "Proxy",
+		Enabled:          true,
+		ListenAll:        true,
+		Port:             1099,
+		SelectedOutbound: "",
+	}
+	if err := s.SaveInstance(context.Background(), inst); err != nil {
+		t.Fatalf("SaveInstance: %v", err)
+	}
+
+	got, ok := store.GetInstance("default")
+	if !ok {
+		t.Fatal("default instance not found in store")
+	}
+	if got.SelectedOutbound != "direct" {
+		t.Fatalf("SelectedOutbound = %q, want direct", got.SelectedOutbound)
+	}
+	if sb.lastSelector != "device-proxy-selector" || sb.lastMember != "direct" {
+		t.Fatalf("selector sync mismatch: selector=%q member=%q", sb.lastSelector, sb.lastMember)
+	}
+}
+
+func TestService_SaveInstance_DisabledAllowsUnknownOutbound(t *testing.T) {
+	sb := &fakeSingboxOperator{running: true, tags: []string{"warp"}}
+	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
+	s := NewService(Deps{Store: store, Singbox: sb})
+
+	inst := Instance{
+		ID:               "default",
+		Name:             "Proxy",
+		Enabled:          false,
+		ListenAll:        true,
+		Port:             1099,
+		SelectedOutbound: "missing-tag",
+	}
+	if err := s.SaveInstance(context.Background(), inst); err != nil {
+		t.Fatalf("SaveInstance: %v", err)
+	}
+
+	got, ok := store.GetInstance("default")
+	if !ok {
+		t.Fatal("default instance not found in store")
+	}
+	if got.SelectedOutbound != "missing-tag" {
+		t.Fatalf("SelectedOutbound = %q, want missing-tag", got.SelectedOutbound)
+	}
+	if len(sb.selectorCalls) != 0 {
+		t.Fatalf("selector sync should not run for disabled instance, got %v", sb.selectorCalls)
+	}
+}
+
+func TestService_SaveInstance_RejectsUnknownOutbound(t *testing.T) {
+	sb := &fakeSingboxOperator{running: true, tags: []string{"warp"}}
+	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
+	s := NewService(Deps{Store: store, Singbox: sb})
+
+	inst := Instance{
+		ID:               "default",
+		Name:             "Proxy",
+		Enabled:          true,
+		ListenAll:        true,
+		Port:             1099,
+		SelectedOutbound: "missing-tag",
+	}
+	err := s.SaveInstance(context.Background(), inst)
+	if err == nil || !errors.Is(err, ErrOutboundUnavailable) {
+		t.Fatalf("got %v, want ErrOutboundUnavailable", err)
+	}
+}
+
+func TestService_ForceApply_DoesNotOverwritePersistedSelectedOutbound(t *testing.T) {
+	sb := &fakeSingboxOperator{running: true, runtimeActive: "direct"}
+	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
+	_ = store.Save(Config{
+		Enabled:          true,
+		ListenAll:        true,
+		Port:             1099,
+		SelectedOutbound: "warp",
+	})
+	s := NewService(Deps{Store: store, Singbox: sb})
+
+	if err := s.ForceApply(context.Background()); err != nil {
+		t.Fatalf("ForceApply: %v", err)
+	}
+
+	if got := store.Get().SelectedOutbound; got != "warp" {
+		t.Fatalf("SelectedOutbound = %q, want warp", got)
+	}
+	if sb.lastSelector != "device-proxy-selector" || sb.lastMember != "warp" {
+		t.Fatalf("selector sync mismatch: selector=%q member=%q", sb.lastSelector, sb.lastMember)
+	}
+}
+
 func TestService_Reconcile_MissingTargetDisables(t *testing.T) {
 	sb := &fakeSingboxOperator{running: true}
 	ndms := &fakeNDMSQuery{addr: "10.10.10.1"}
@@ -615,23 +761,20 @@ func TestService_SaveInstance_PortCollisionAcrossInstances(t *testing.T) {
 	}
 }
 
-func TestService_DeleteInstance_Default_PersistsWhenApplyFails(t *testing.T) {
+func TestService_DeleteInstance_DefaultForbidden(t *testing.T) {
 	sb := &fakeSingboxOperator{running: true, applyInstancesErr: errors.New("simulated apply failure")}
 	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
 	s := NewService(Deps{Store: store, Singbox: sb})
 
-	if applied, err := s.DeleteInstance(context.Background(), "default"); err != nil {
-		t.Fatalf("delete default: %v", err)
-	} else if applied {
-		t.Fatalf("expected apply to fail in this test")
+	applied, err := s.DeleteInstance(context.Background(), "default")
+	if !errors.Is(err, ErrDefaultInstanceDelete) {
+		t.Fatalf("got %v, want ErrDefaultInstanceDelete", err)
 	}
-
-	snap := store.Snapshot()
-	if len(snap.Instances) != 0 {
-		t.Fatalf("expected empty snapshot after deleting default, got %#v", snap.Instances)
+	if applied {
+		t.Fatalf("applied = true, want false")
 	}
-	if sb.applyInstancesCalls != 1 {
-		t.Fatalf("expected one apply attempt, got %d", sb.applyInstancesCalls)
+	if sb.applyInstancesCalls != 0 {
+		t.Fatalf("expected no apply attempt, got %d", sb.applyInstancesCalls)
 	}
 }
 
