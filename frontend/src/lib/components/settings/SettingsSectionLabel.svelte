@@ -33,6 +33,7 @@
 </script>
 
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { settingsSectionIconMode } from '$lib/stores/settingsSectionIconMode';
 
 	interface Props {
@@ -45,6 +46,7 @@
 		inline?: boolean;
 		/** In «Красочная» mode — slowly cycle hue (experimental sections). */
 		cycleInVivid?: boolean;
+		action?: Snippet;
 	}
 
 	let {
@@ -54,36 +56,46 @@
 		header = false,
 		inline = false,
 		cycleInVivid = false,
+		action,
 	}: Props = $props();
 
 	const iconMode = $derived($settingsSectionIconMode);
 	const toneColor = $derived(SETTINGS_SECTION_TONE_COLORS[tone]);
 	const vividToneCycle = $derived(cycleInVivid && iconMode === 'vivid');
+	const showIcon = $derived(iconMode !== 'none');
 </script>
 
 <div
 	class="settings-section-label"
 	class:header
 	class:inline
+	class:mode-none={iconMode === 'none'}
 	class:vivid-tone-cycle={vividToneCycle}
 	style:--tone-color={toneColor}
 >
-	<span
-		class="icon-badge"
-		class:mode-strict={iconMode === 'strict'}
-		class:mode-harmonious={iconMode === 'harmonious'}
-		class:mode-vivid={iconMode === 'vivid'}
-		class:vivid-tone-cycle={vividToneCycle}
-		data-tone={tone}
-		aria-hidden="true"
-	>
-		{#key iconMode}
-			<Icon size={18} strokeWidth={2.25} color="currentColor" />
-		{/key}
-	</span>
+	{#if showIcon}
+		<span
+			class="icon-badge"
+			class:mode-strict={iconMode === 'strict'}
+			class:mode-harmonious={iconMode === 'harmonious'}
+			class:mode-vivid={iconMode === 'vivid'}
+			class:vivid-tone-cycle={vividToneCycle}
+			data-tone={tone}
+			aria-hidden="true"
+		>
+			{#key iconMode}
+				<Icon size={18} strokeWidth={2.25} color="currentColor" />
+			{/key}
+		</span>
+	{/if}
 	<span class="label-wrap">
-		<span class="label-text">{label}</span>
-		<span class="label-divider" class:hidden={iconMode === 'strict'} aria-hidden="true"></span>
+		<span class="label-row">
+			<span class="label-text">{label}</span>
+			{#if action}
+				<span class="label-action">{@render action()}</span>
+			{/if}
+		</span>
+		<span class="label-divider" class:hidden={iconMode === 'strict' || iconMode === 'none'} aria-hidden="true"></span>
 	</span>
 </div>
 
@@ -98,6 +110,20 @@
 
 	.settings-section-label.header {
 		margin-bottom: 0.5rem;
+	}
+
+	.settings-section-label.header .label-divider {
+		display: inline-block;
+	}
+
+	.settings-section-label.header.mode-none {
+		margin-bottom: 0.75rem;
+		padding-bottom: 0.625rem;
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.settings-section-label.header.mode-none .label-divider {
+		display: none;
 	}
 
 	.icon-badge {
@@ -146,12 +172,26 @@
 		max-width: 100%;
 	}
 
+	.label-row {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		min-width: 0;
+		max-width: 100%;
+	}
+
 	.label-text {
 		font-size: 0.9375rem;
 		font-weight: 600;
 		line-height: 1.25;
 		color: var(--text, var(--color-text));
 		min-width: 0;
+	}
+
+	.label-action {
+		display: inline-flex;
+		align-items: center;
+		flex: 0 0 auto;
 	}
 
 	.label-divider {
