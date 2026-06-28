@@ -411,16 +411,27 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 
 	subByGroup := map[string]SingboxSubMember{}
 	for _, m := range subByTag {
-		if strings.EqualFold(strings.TrimSpace(m.Mode), "urltest") && strings.TrimSpace(m.GroupTag) != "" {
-			if _, exists := subByGroup[m.GroupTag]; !exists {
-				subByGroup[m.GroupTag] = m
-			}
+		groupTag := strings.TrimSpace(m.GroupTag)
+		if groupTag == "" {
+			continue
+		}
+
+		existing, exists := subByGroup[groupTag]
+		if !exists || (m.Active && !existing.Active) {
+			subByGroup[groupTag] = m
 		}
 	}
 
 	seen := make(map[string]bool, len(tunnels)+len(subByTag))
 	for _, t := range tunnels {
 		seen[t.Tag] = true
+	}
+
+	for i := range tunnels {
+		if m, ok := subByGroup[tunnels[i].Tag]; ok {
+			tunnels[i].ListenPort = m.ListenPort
+			tunnels[i].Running = st.Running && m.Enabled
+		}
 	}
 
 	// Add synthetic tunnel entries for active+enabled subscription
@@ -464,7 +475,11 @@ func (r *Runner) testSingboxTunnelConnectivity(ctx context.Context) []TestResult
 		tunnelID := "singbox:" + t.Tag
 		tunnelName := t.Tag
 		if m, ok := subByGroup[t.Tag]; ok && m.GroupTag != "" {
-			tunnelName = m.GroupTag + " (urltest)"
+			modeLabel := strings.TrimSpace(m.Mode)
+			if modeLabel == "" {
+				modeLabel = "subscription"
+			}
+			tunnelName = m.GroupTag + " (" + modeLabel + ")"
 		}
 
 		stateRes := TestResult{
