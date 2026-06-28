@@ -311,6 +311,10 @@ export interface UpdateInfo {
 	available: boolean;
 	currentVersion: string;
 	latestVersion?: string;
+	downloadUrl?: string;
+	channel?: 'stable' | 'develop';
+	source?: 'release' | 'entware';
+	sourceUrl?: string;
 	checkedAt: string;
 	checking: boolean;
 	error?: string;

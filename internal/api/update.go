@@ -8,6 +8,8 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/updater"
 )
 
+const changelogFetchUnavailableMessage = "Список изменений временно недоступен. Повторите попытку позже."
+
 // ── Response DTOs ────────────────────────────────────────────────
 
 // UpdateInfoData mirrors frontend UpdateInfo.
@@ -27,14 +29,14 @@ type UpdateCheckResponse struct {
 
 // ChangelogGroupDTO mirrors frontend ChangelogGroup.
 type ChangelogGroupDTO struct {
-	Heading string   `json:"heading" example:"Bug Fixes"`
-	Items   []string `json:"items" example:"Fixed tunnel restart loop"`
+	Heading string   `json:"heading" example:"Исправлено"`
+	Items   []string `json:"items" example:"fix(dev): align local build version with VERSION file\nКомментарий: локальная dev-сборка теперь берёт base VERSION и добавляет +r0 сама."`
 }
 
 // ChangelogEntryDTO mirrors frontend ChangelogEntry.
 type ChangelogEntryDTO struct {
-	Version string              `json:"version" example:"2.5.0"`
-	Date    string              `json:"date" example:"2024-01-15"`
+	Version string              `json:"version" example:"2.12.3.10+r2"`
+	Date    string              `json:"date" example:"2026-06-12"`
 	Groups  []ChangelogGroupDTO `json:"groups"`
 }
 
@@ -172,7 +174,13 @@ func (h *UpdateHandler) Changelog(w http.ResponseWriter, r *http.Request) {
 	if from == "" {
 		entries, err := h.updater.GetChangelogMinor(r.Context(), to)
 		if err != nil {
-			response.ErrorWithStatus(w, http.StatusBadGateway, err.Error(), "CHANGELOG_FETCH_FAILED")
+			h.log.Warn("changelog", "", "Changelog fetch failed: "+err.Error())
+			response.ErrorWithStatus(
+				w,
+				http.StatusBadGateway,
+				changelogFetchUnavailableMessage,
+				"CHANGELOG_FETCH_FAILED",
+			)
 			return
 		}
 		response.Success(w, map[string]interface{}{"entries": entries})
@@ -181,7 +189,13 @@ func (h *UpdateHandler) Changelog(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := h.updater.GetChangelog(r.Context(), from, to)
 	if err != nil {
-		response.ErrorWithStatus(w, http.StatusBadGateway, err.Error(), "CHANGELOG_FETCH_FAILED")
+		h.log.Warn("changelog", "", "Changelog fetch failed: "+err.Error())
+		response.ErrorWithStatus(
+			w,
+			http.StatusBadGateway,
+			changelogFetchUnavailableMessage,
+			"CHANGELOG_FETCH_FAILED",
+		)
 		return
 	}
 	response.Success(w, map[string]interface{}{"entries": entries})
