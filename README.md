@@ -5,7 +5,7 @@
 
 > **Disclaimer:** AWG Manager — независимый open-source проект, не аффилированный с [Amnezia.org](https://amnezia.org) и Sing-box [SagerNet](https://github.com/SagerNet/sing-box) и не являющийся их официальным продуктом.Програма находится в стадии вечной BETA версии.
 
-![awgm-showcase](https://raw.githubusercontent.com/hoaxisr/awg-manager/develop/scripts/dev/awgm-showcase.webp)
+![awgm-showcase](https://raw.githubusercontent.com/iqubik/awg-manager-fork/develop/scripts/dev/awgm-showcase.webp)
 
 ---
 
@@ -43,6 +43,12 @@ opkg install curl
 curl -sL https://raw.githubusercontent.com/hoaxisr/awg-manager/master/scripts/install.sh | sh
 ```
 
+Вариант форка с локализованным установщиком через GitHub:
+```sh
+opkg install curl
+curl -sL https://raw.githubusercontent.com/iqubik/awg-manager-fork/master/scripts/iq/install-localized.sh | sh
+```
+
 После установки веб-интерфейс доступен по адресу роутера и обычно по 2222 порту.
 
 ---
@@ -67,7 +73,7 @@ AWG Manager создан как независимый инструмент дл
 
 ## Сообщество
 
-Telegram: [@awgmanager](https://t.me/awgmanager)
+Telegram: [@iqubik](https://t.me/kub26)
 
 ---
 
@@ -75,14 +81,10 @@ Telegram: [@awgmanager](https://t.me/awgmanager)
 
 Если проект оказался полезным, можно поддержать разработку донатом:
 
-**USDT (TRC20):** `TEpJh2p9j3fp6MigyqGvq1gC5D3CsxBeJw`
+**USDT (TRC20):** ``
 
 ---
 
 ## Полезное
-
-Установить и управлять AmneziaWG сервером - https://github.com/bivlked/amneziawg-installer
-
-Другой вариант управления AmneziaWG сервером - https://github.com/pumbaX/awg-multi-script
 
 Документация проекта - https://awgm.hoaxisr.ru/install/

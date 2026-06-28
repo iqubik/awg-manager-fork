@@ -29,7 +29,11 @@ rm -rf /opt/share/www/awg-manager
 
 # Start awg-manager
 START_OK=1
-/opt/etc/init.d/S99awg-manager start || START_OK=0
+if /opt/etc/init.d/S99awg-manager status >/dev/null 2>&1; then
+    /opt/etc/init.d/S99awg-manager restart || START_OK=0
+else
+    /opt/etc/init.d/S99awg-manager start || START_OK=0
+fi
 
 # Wait a moment for settings to be initialized
 sleep 2
