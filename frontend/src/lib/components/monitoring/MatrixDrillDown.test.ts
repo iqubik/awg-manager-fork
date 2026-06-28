@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { render, screen, waitFor, fireEvent } from '@testing-library/svelte';
 import MatrixDrillDown from './MatrixDrillDown.svelte';
 import type { MonitoringSample } from '$lib/types';
 
@@ -35,7 +35,7 @@ describe('MatrixDrillDown', () => {
 		getMonitoringHistory.mockResolvedValue(makeSamples(12));
 	});
 
-	it('requests 1440-point history and shows honest 24h footer', async () => {
+	it('requests full retained history and paginates through it honestly', async () => {
 		render(MatrixDrillDown, {
 			props: {
 				target: { id: 'cf-1.1.1.1', host: '1.1.1.1', name: 'Cloudflare DNS' },
@@ -62,7 +62,15 @@ describe('MatrixDrillDown', () => {
 			});
 		});
 
-		expect(await screen.findByText(/Последние 10 замеров/i)).toBeTruthy();
+		expect(await screen.findByText(/История замеров/i)).toBeTruthy();
 		expect(screen.getByText(/Окно: 24 часа · до 1440 точек · шаг 60 секунд/i)).toBeTruthy();
+		expect(screen.getByText(/1-10 из 12/i)).toBeTruthy();
+		expect((screen.getByRole('button', { name: 'Новее' }) as HTMLButtonElement).disabled).toBe(true);
+		expect((screen.getByRole('button', { name: 'Старее' }) as HTMLButtonElement).disabled).toBe(false);
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Старее' }));
+		expect(screen.getByText(/11-12 из 12/i)).toBeTruthy();
+		expect((screen.getByRole('button', { name: 'Новее' }) as HTMLButtonElement).disabled).toBe(false);
+		expect((screen.getByRole('button', { name: 'Старее' }) as HTMLButtonElement).disabled).toBe(true);
 	});
 });

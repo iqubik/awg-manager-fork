@@ -23,6 +23,7 @@
 
 	let samples = $state<MonitoringSample[]>([]);
 	let loading = $state(true);
+	let recentPage = $state(0);
 	const historyLimit = $derived(historyCapacity);
 
 	function downsamplePoints(points: MonitoringSample[], maxPoints: number): MonitoringSample[] {
@@ -79,7 +80,21 @@
 	});
 
 	const sparklinePoints = $derived(downsamplePoints(samples, MONITORING_SPARKLINE_POINTS));
-	const recent = $derived([...samples].reverse().slice(0, MONITORING_RECENT_ROWS));
+	const newestFirstSamples = $derived([...samples].reverse());
+	const recentPageCount = $derived(Math.max(1, Math.ceil(samples.length / MONITORING_RECENT_ROWS)));
+	const recentPageStart = $derived(recentPage * MONITORING_RECENT_ROWS);
+	const recentPageEnd = $derived(Math.min(samples.length, recentPageStart + MONITORING_RECENT_ROWS));
+	const recent = $derived(newestFirstSamples.slice(recentPageStart, recentPageEnd));
+	const recentRangeLabel = $derived.by(() => {
+		if (samples.length === 0) return '0-0';
+		return `${recentPageStart + 1}-${recentPageEnd}`;
+	});
+
+	$effect(() => {
+		if (recentPage >= recentPageCount) {
+			recentPage = Math.max(0, recentPageCount - 1);
+		}
+	});
 </script>
 
 <div class="drill">
@@ -107,7 +122,30 @@
 			</div>
 		</div>
 
-		<h4 class="recent-title">Последние {MONITORING_RECENT_ROWS} замеров</h4>
+		<div class="recent-head">
+			<h4 class="recent-title">История замеров</h4>
+			{#if samples.length > 0}
+				<div class="recent-nav">
+					<span class="recent-range">{recentRangeLabel} из {samples.length}</span>
+					<button
+						type="button"
+						class="recent-nav-btn"
+						onclick={() => (recentPage = Math.max(0, recentPage - 1))}
+						disabled={recentPage === 0}
+					>
+						Новее
+					</button>
+					<button
+						type="button"
+						class="recent-nav-btn"
+						onclick={() => (recentPage = Math.min(recentPageCount - 1, recentPage + 1))}
+						disabled={recentPage >= recentPageCount - 1}
+					>
+						Старее
+					</button>
+				</div>
+			{/if}
+		</div>
 		<table class="recent">
 			<thead>
 				<tr>
@@ -179,6 +217,54 @@
 		font-size: 12px;
 		font-weight: 600;
 		color: var(--color-text-secondary);
+	}
+
+	.recent-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+
+	.recent-nav {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		flex-wrap: wrap;
+	}
+
+	.recent-range {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--color-text-muted);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.recent-nav-btn {
+		height: 26px;
+		padding: 0 0.625rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--color-border);
+		background: var(--color-bg-secondary);
+		color: var(--color-text-secondary);
+		font-size: 11px;
+		font-weight: 600;
+		cursor: pointer;
+		transition:
+			background var(--t-fast) ease,
+			color var(--t-fast) ease,
+			border-color var(--t-fast) ease;
+	}
+
+	.recent-nav-btn:hover:not(:disabled) {
+		background: var(--color-bg-hover);
+		color: var(--color-text-primary);
+	}
+
+	.recent-nav-btn:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 
 	.recent {
