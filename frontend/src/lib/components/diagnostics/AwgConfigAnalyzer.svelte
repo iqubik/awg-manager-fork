@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, ConfirmModal, Dropdown } from '$lib/components/ui';
+	import { Button, ConfirmModal, Dropdown, SensitiveBlockEye } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { notifications } from '$lib/stores/notifications';
 	import { tunnels as tunnelsStore } from '$lib/stores/tunnels';
@@ -36,14 +36,28 @@
 
 	interface Props {
 		initialTunnelId?: string;
+		initialRaw?: string;
+		autoAnalyze?: boolean;
+		sourceLabel?: string;
+		readonlySource?: boolean;
+		allowTunnelSave?: boolean;
+		forceSingleColumn?: boolean;
 		embedded?: boolean;
+		layoutMode?: 'embedded' | 'standalone';
 		lockTunnelSelection?: boolean;
 		onTunnelSaved?: () => void;
 	}
 
 	let {
 		initialTunnelId = '',
+		initialRaw = '',
+		autoAnalyze = false,
+		sourceLabel = '',
+		readonlySource = false,
+		allowTunnelSave = true,
+		forceSingleColumn = false,
 		embedded = false,
+		layoutMode = 'standalone',
 		lockTunnelSelection = false,
 		onTunnelSaved,
 	}: Props = $props();
@@ -60,6 +74,9 @@
 	let fixes: string[] = $state([]);
 	let camouflage = $state<'LOW' | 'MEDIUM' | 'HIGH'>('LOW');
 	let fileInput: HTMLInputElement | undefined = $state();
+	let configSensitiveHidden = $state(true);
+	let tunnelSelectionHidden = $state(true);
+	let hasAnalysisResults = $derived(Boolean(version && awgScores && verdict && parsed));
 
 	let tunnels = $state<TunnelListItem[]>([]);
 	let selectedTunnelId = $state('');
@@ -78,8 +95,36 @@
 	let savingTunnel = $state(false);
 	let confirmSaveOpen = $state(false);
 
+	const SENSITIVE_AWG_KEYS = new Set([
+		'privatekey',
+		'publickey',
+		'presharedkey',
+		'address',
+		'dns',
+		'endpoint',
+		'allowedips',
+	]);
+
+	function maskAwgConfigSensitiveLines(value: string): string {
+		return value
+			.split('\n')
+			.map((line) => {
+				const match = line.match(/^(\s*([A-Za-z0-9]+)\s*=\s*)(.*)$/);
+				if (!match) return line;
+
+				const [, prefix, key, rawValue] = match;
+				if (!SENSITIVE_AWG_KEYS.has(key.toLowerCase())) return line;
+				return rawValue.trim() ? `${prefix}********` : line;
+			})
+			.join('\n');
+	}
+
 	function isEmbeddedLocked(): boolean {
 		return embedded && lockTunnelSelection && !!initialTunnelId;
+	}
+
+	function hideTunnelSelection(): boolean {
+		return readonlySource || (embedded && lockTunnelSelection);
 	}
 
 	async function ensureEmbeddedBaseline() {
@@ -134,6 +179,21 @@
 			error = e instanceof Error ? e.message : String(e);
 		}
 	}
+
+	$effect(() => {
+		const next = initialRaw.trim();
+		if (!next) return;
+		if (raw.trim() === next && lastAnalyzedRaw === next) return;
+
+		raw = next;
+		loadedTunnelRaw = '';
+		selectedTunnelId = '';
+		tunnelLoadError = '';
+
+		if (autoAnalyze) {
+			analyze();
+		}
+	});
 
 	function clearAll() {
 		raw = '';
@@ -476,6 +536,12 @@
 	}
 
 	onMount(async () => {
+		if (readonlySource) {
+			if (initialTunnelId) {
+				selectedTunnelId = initialTunnelId;
+			}
+			return;
+		}
 		tunnelsLoading = true;
 		tunnelLoadError = '';
 		try {
@@ -495,7 +561,14 @@
 		}
 	});
 
-	const tunnelOptions = $derived(buildManagedTunnelListDropdownOptions(tunnels));
+	const tunnelOptions = $derived.by(() => {
+		const options = buildManagedTunnelListDropdownOptions(tunnels);
+		if (!tunnelSelectionHidden) return options;
+		return options.map((option) => ({
+			...option,
+			label: '********',
+		}));
+	});
 	const serverPeerOptions = $derived(buildServerPeerDropdownOptions(serverSnap));
 	const serverPlaceholder = $derived(
 		serversLoading
@@ -514,6 +587,7 @@
 
 	let parsedLines = $derived.by(() => {
 		if (!parsed) return [] as { key: string; value: string }[];
+		const hidden = configSensitiveHidden;
 		const { iface, peer } = parsed;
 		const rows: [string, string][] = [
 			['privatekey', iface.privatekey ? `${iface.privatekey.slice(0, 16)}…` : '—'],
@@ -541,8 +615,14 @@
 		];
 		return rows
 			.filter(([, v]) => v && v !== '—')
-			.map(([key, value]) => ({ key, value }));
+			.map(([key, value]) => ({
+				key,
+				value:
+					hidden && SENSITIVE_AWG_KEYS.has(key.toLowerCase()) && value !== '—' ? '********' : value,
+			}));
 	});
+
+	let maskedRaw = $derived(maskAwgConfigSensitiveLines(raw));
 
 	let categories = $derived([...new Set(checks.map((c) => c.cat))]);
 	let canAnalyze = $derived(raw.trim().length > 0);
@@ -573,7 +653,14 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="awg-analyzer">
+<div
+	class="awg-analyzer"
+	class:embedded={embedded || layoutMode === 'embedded'}
+	class:standalone={!embedded && layoutMode === 'standalone'}
+	class:single-column={forceSingleColumn}
+	class:has-results={hasAnalysisResults}
+	class:no-results={!hasAnalysisResults}
+>
 	<div class="privacy-banner" role="status">
 		<div class="privacy-banner-icon" aria-hidden="true">
 			<ShieldCheck size={18} />
@@ -593,7 +680,7 @@
 
 	<div class="layout">
 		<div class="col-input">
-			{#if !embedded || !lockTunnelSelection}
+			{#if !hideTunnelSelection()}
 				<div class="source-toggle">
 					<button
 						type="button"
@@ -616,8 +703,11 @@
 				{#if sourceMode === 'tunnel'}
 					<div class="existing-tunnel-box">
 						<div class="existing-tunnel-head">
-							<span class="existing-tunnel-title">Существующий AWG-туннель</span>
-							<span class="existing-tunnel-note">или вставьте .conf ниже</span>
+							<div class="existing-tunnel-head-copy">
+								<span class="existing-tunnel-title">Существующий AWG-туннель</span>
+								<span class="existing-tunnel-note">или вставьте .conf ниже</span>
+							</div>
+							<SensitiveBlockEye bind:hidden={tunnelSelectionHidden} label="выбранного AWG-туннеля" />
 						</div>
 						<div class="existing-tunnel-row">
 							<div class="existing-tunnel-select">
@@ -666,7 +756,7 @@
 						{/if}
 					</div>
 				{/if}
-			{:else}
+			{:else if embedded && lockTunnelSelection}
 				<div class="existing-tunnel-box embedded">
 					<div class="existing-tunnel-head">
 						<span class="existing-tunnel-title">Текущий AWG-туннель</span>
@@ -676,6 +766,13 @@
 						<div class="warn" role="alert">{tunnelLoadError}</div>
 					{/if}
 				</div>
+			{:else if sourceLabel}
+				<div class="existing-tunnel-box embedded">
+					<div class="existing-tunnel-head">
+						<span class="existing-tunnel-title">Источник конфига</span>
+						<span class="existing-tunnel-note">{sourceLabel}</span>
+					</div>
+				</div>
 			{/if}
 
 			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -684,25 +781,44 @@
 				ondragover={(e) => e.preventDefault()}
 				ondrop={onDrop}
 			>
-				<span class="drop-label">AWG / WireGuard .conf — вставьте или перетащите файл</span>
-				<textarea
-					class="ta"
-					bind:value={raw}
-					rows="16"
-					spellcheck="false"
-					autocomplete="off"
-					placeholder="[Interface]&#10;PrivateKey = …&#10;…"
-				></textarea>
+				<div class="drop-head">
+					<span class="drop-label">AWG / WireGuard .conf — вставьте или перетащите файл</span>
+					<SensitiveBlockEye bind:hidden={configSensitiveHidden} label="конфиг AWG" />
+				</div>
+				{#if configSensitiveHidden}
+					<textarea
+						class="ta"
+						value={maskedRaw}
+						rows="16"
+						spellcheck="false"
+						autocomplete="off"
+						readonly
+						placeholder="[Interface]&#10;PrivateKey = …&#10;…"
+					></textarea>
+				{:else}
+					<textarea
+						class="ta"
+						bind:value={raw}
+						rows="16"
+						spellcheck="false"
+						autocomplete="off"
+						placeholder="[Interface]&#10;PrivateKey = …&#10;…"
+					></textarea>
+				{/if}
 			</label>
 
 			<div class="bar">
 				<Button variant="primary" onclick={analyze} disabled={!canAnalyze}>Анализировать</Button>
 				<Button variant="secondary" onclick={() => fileInput?.click()}>Загрузить файл</Button>
-				<Button variant="ghost" onclick={clearAll}>Очистить</Button>
-				{#if canSave}
-					<Button variant="outline-primary" onclick={saveToTunnel} loading={savingTunnel}>
-						Записать в туннель
-					</Button>
+				<span class="bar-clear">
+					<Button variant="secondary" onclick={clearAll}>Очистить</Button>
+				</span>
+				{#if allowTunnelSave && canSave}
+					<span class="bar-save">
+						<Button variant="outline-primary" onclick={saveToTunnel} loading={savingTunnel}>
+							Записать в туннель
+						</Button>
+					</span>
 				{/if}
 				<span class="kbd">⌘/Ctrl+Enter</span>
 			</div>
@@ -726,8 +842,8 @@
 			{/if}
 		</div>
 
-		<div class="col-results">
-			{#if version && awgScores && verdict && parsed}
+		{#if hasAnalysisResults && version && awgScores && verdict && parsed}
+			<div class="col-results">
 		<section class="card ver">
 			<span class="ver-badge">{version.ver}</span>
 			<p class="ver-desc">{version.desc}</p>
@@ -887,15 +1003,8 @@
 				{/each}
 			</div>
 		{/each}
-			{:else}
-				<div class="results-empty">
-					<p class="results-empty-title">Результаты анализа</p>
-					<p class="results-empty-text">
-						После нажатия «Анализировать» здесь появятся оценка, рекомендации и список проверок.
-					</p>
-				</div>
-			{/if}
-		</div>
+			</div>
+		{/if}
 	</div>
 </div>
 
@@ -920,6 +1029,11 @@
 		padding: 12px 16px 28px;
 		color: var(--color-text-primary, var(--text-primary));
 		overflow-x: clip;
+	}
+
+	.awg-analyzer.embedded {
+		max-width: none;
+		padding: 0;
 	}
 
 	.privacy-banner {
@@ -1045,6 +1159,160 @@
 			overflow-y: auto;
 			resize: none;
 		}
+
+		.awg-analyzer.embedded .layout {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			column-gap: 24px;
+			row-gap: 0;
+			align-items: start;
+		}
+
+		.awg-analyzer.single-column .layout {
+			grid-template-columns: minmax(0, 1fr);
+			column-gap: 0;
+			row-gap: 16px;
+		}
+
+		.awg-analyzer.embedded .col-input {
+			position: static;
+			max-height: none;
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+		}
+
+		.awg-analyzer.embedded .col-input > :not(.drop) {
+			flex-shrink: 0;
+		}
+
+		.awg-analyzer.embedded .drop {
+			flex: none;
+			min-height: auto;
+			overflow: visible;
+		}
+
+		.awg-analyzer.embedded .ta {
+			min-height: 300px;
+			max-height: 420px;
+			resize: vertical;
+			overflow-y: auto;
+		}
+
+		.awg-analyzer.embedded .existing-tunnel-box {
+			margin: 0;
+		}
+
+		.awg-analyzer.embedded .col-results {
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+		}
+
+		.awg-analyzer.embedded .col-results > .card {
+			margin-bottom: 0;
+		}
+
+		.awg-analyzer.single-column .col-input {
+			position: static;
+			max-height: none;
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+			min-height: 0;
+		}
+
+		.awg-analyzer.single-column .drop {
+			flex: none;
+			min-height: auto;
+			overflow: visible;
+		}
+
+		.awg-analyzer.single-column .ta {
+			min-height: 260px;
+			max-height: 420px;
+			resize: vertical;
+			overflow-y: auto;
+		}
+
+		.awg-analyzer.single-column .col-results {
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+		}
+
+		.awg-analyzer.single-column .col-results > .card {
+			margin-bottom: 0;
+		}
+
+		.awg-analyzer.standalone .layout {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			column-gap: 24px;
+			row-gap: 0;
+			align-items: start;
+		}
+
+		.awg-analyzer.standalone .col-input {
+			position: static;
+			max-height: none;
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+			min-height: 0;
+		}
+
+		.awg-analyzer.standalone .drop {
+			flex: none;
+			min-height: auto;
+			overflow: visible;
+		}
+
+		.awg-analyzer.standalone .ta {
+			min-height: 300px;
+			max-height: 420px;
+			resize: vertical;
+			overflow-y: auto;
+		}
+
+		.awg-analyzer.standalone .existing-tunnel-box {
+			margin: 0;
+		}
+
+		.awg-analyzer.standalone .col-results {
+			display: flex;
+			flex-direction: column;
+			gap: 12px;
+		}
+
+		.awg-analyzer.standalone .col-results > .card {
+			margin-bottom: 0;
+		}
+
+		.awg-analyzer.standalone.no-results .layout {
+			grid-template-columns: minmax(0, 1fr);
+			column-gap: 0;
+		}
+
+		.awg-analyzer.standalone.no-results .col-input {
+			width: 100%;
+		}
+	}
+
+	@media (min-width: 641px) and (max-width: 900px) {
+		.existing-tunnel-head {
+			flex-wrap: wrap;
+		}
+
+		.existing-tunnel-title,
+		.existing-tunnel-note {
+			min-width: 0;
+			overflow-wrap: anywhere;
+		}
+
+		.existing-tunnel-row {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			gap: 8px;
+		}
 	}
 
 	.col-input,
@@ -1077,7 +1345,6 @@
 		line-height: 1.5;
 		color: var(--color-text-secondary, var(--text-secondary));
 	}
-
 	.drop {
 		display: block;
 		padding: 12px 14px;
@@ -1093,6 +1360,14 @@
 		background: var(--color-bg-tertiary, var(--bg-tertiary));
 	}
 
+	.drop-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+
 	.drop-label {
 		display: block;
 		font-size: 11px;
@@ -1101,6 +1376,11 @@
 		letter-spacing: 0.06em;
 		color: var(--color-text-muted, var(--text-muted));
 		margin-bottom: 8px;
+	}
+
+	.drop-head .drop-label {
+		margin-bottom: 0;
+		min-width: 0;
 	}
 
 	.ta {
@@ -1297,6 +1577,8 @@
 		border: 0;
 		opacity: 0;
 		pointer-events: none;
+		top: 0;
+		left: 0;
 	}
 
 	.err {
@@ -1783,8 +2065,17 @@
 	.existing-tunnel-head {
 		display: flex;
 		align-items: baseline;
+		justify-content: space-between;
 		gap: 8px;
 		margin-bottom: 10px;
+	}
+
+	.existing-tunnel-head-copy {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		min-width: 0;
+		flex-wrap: wrap;
 	}
 
 	.existing-tunnel-title {
@@ -1816,5 +2107,126 @@
 		flex-shrink: 0;
 		font-size: 12px;
 		color: var(--color-text-muted, var(--text-muted));
+	}
+
+	@media (max-width: 640px) {
+		.existing-tunnel-row {
+			display: grid;
+			grid-template-columns: 1fr;
+			gap: 8px;
+			align-items: stretch;
+		}
+
+		.existing-tunnel-select {
+			width: 100%;
+			min-width: 0;
+		}
+
+		.existing-tunnel-row :global(button) {
+			width: 100%;
+			min-width: 0;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.shell {
+			width: 100%;
+			max-width: none;
+			padding: 10px 12px 24px;
+		}
+
+		.analyzer-note {
+			width: 100%;
+			max-width: none;
+			margin-bottom: 12px;
+			padding: 8px 9px;
+			font-size: 11.5px;
+			text-align: left;
+			overflow-wrap: anywhere;
+		}
+
+		.existing-tunnel-head {
+			display: grid;
+			grid-template-columns: 1fr;
+			gap: 4px;
+			align-items: start;
+		}
+
+		.existing-tunnel-title,
+		.existing-tunnel-note,
+		.drop-label {
+			min-width: 0;
+			white-space: normal;
+			overflow-wrap: anywhere;
+			word-break: normal;
+		}
+
+		.drop {
+			padding: 10px 12px;
+		}
+		.bar {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 8px;
+			align-items: stretch;
+			margin-top: 10px;
+			margin-bottom: 12px;
+			width: 100%;
+		}
+
+		.bar :global(.btn) {
+			width: 100%;
+			min-width: 0;
+			padding-inline: 0.5rem;
+		}
+
+		.bar-clear,
+		.bar-save {
+			grid-column: 1 / -1;
+			min-width: 0;
+		}
+
+		.bar-clear :global(.btn),
+		.bar-save :global(.btn) {
+			width: 100%;
+		}
+
+		.kbd {
+			display: none;
+		}
+
+		.score-row {
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			text-align: center;
+			gap: 12px;
+		}
+
+		.ring-hold {
+			width: 100px;
+			height: 100px;
+			margin-inline: auto;
+		}
+
+		.ring {
+			width: 100px;
+			height: 100px;
+		}
+
+		.verdict {
+			flex: 1 1 100%;
+			min-width: 0;
+			text-align: center;
+		}
+
+		.verdict-badge {
+			margin-inline: auto;
+		}
+
+		.verdict-text {
+			max-width: 18rem;
+			margin-inline: auto;
+		}
 	}
 </style>
