@@ -13,7 +13,7 @@ import (
 // WANStatusEnvelope is the swagger-friendly envelope for GET /wan/status.
 // (The actual handler uses the local WANStatusResponse which embeds wanpkg types.)
 type WANStatusEnvelope struct {
-	Success bool   `json:"success" example:"true"`
+	Success bool `json:"success" example:"true"`
 	Data    struct {
 		AnyWANUp bool `json:"anyWANUp" example:"true"`
 	} `json:"data"`

@@ -39,11 +39,11 @@ type ExternalTunnelService interface {
 
 // ExternalTunnelsHandler handles external tunnel operations.
 type ExternalTunnelsHandler struct {
-	svc                ExternalTunnelService
-	tunnelSvc          TunnelService
-	store              *storage.AWGTunnelStore
-	log                *logging.ScopedLogger
-	publishTunnelList  func(ctx context.Context)
+	svc               ExternalTunnelService
+	tunnelSvc         TunnelService
+	store             *storage.AWGTunnelStore
+	log               *logging.ScopedLogger
+	publishTunnelList func(ctx context.Context)
 }
 
 // NewExternalTunnelsHandler creates a new external tunnels handler.
