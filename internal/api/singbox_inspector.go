@@ -96,10 +96,10 @@ type SingboxRouterInspectProgressDTO struct {
 
 // SingboxRouterInspectStreamEventDTO mirrors router.InspectStreamEvent.
 type SingboxRouterInspectStreamEventDTO struct {
-	Type     string                            `json:"type" example:"progress"`
-	Progress *SingboxRouterInspectProgressDTO  `json:"progress,omitempty"`
-	Result   *SingboxRouterInspectData         `json:"result,omitempty"`
-	Error    string                            `json:"error,omitempty" example:"load router config: ..."`
+	Type     string                           `json:"type" example:"progress"`
+	Progress *SingboxRouterInspectProgressDTO `json:"progress,omitempty"`
+	Result   *SingboxRouterInspectData        `json:"result,omitempty"`
+	Error    string                           `json:"error,omitempty" example:"load router config: ..."`
 }
 
 // Inspect simulates which router rule would match the given domain/IP.

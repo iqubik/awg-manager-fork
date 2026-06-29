@@ -85,6 +85,9 @@ import type {
 	SingboxProxiesSelectRequest,
 	SingboxProxiesTestRequest,
 	SingboxProxiesTestResponse,
+	SingboxWatchdogConfig,
+	SingboxWatchdogLogEntry,
+	SingboxWatchdogStatus,
 	Subscription,
 	SubscriptionHeader,
 	SubscriptionPreviewMember,
@@ -2006,6 +2009,47 @@ class ApiClient {
 		return this.request<SingboxProxiesTestResponse>('/singbox/router/proxies/test', {
 			method: 'POST',
 			body: JSON.stringify(req),
+		});
+	}
+
+	async singboxWatchdogStatus(): Promise<SingboxWatchdogStatus[]> {
+		return this.request('/singbox/watchdog/status');
+	}
+
+	async singboxWatchdogLogs(targetId?: string): Promise<SingboxWatchdogLogEntry[]> {
+		const qs = targetId ? `?targetId=${encodeURIComponent(targetId)}` : '';
+		return this.request(`/singbox/watchdog/logs${qs}`);
+	}
+
+	async singboxWatchdogClearLogs(): Promise<void> {
+		await this.request('/singbox/watchdog/logs/clear', { method: 'POST' });
+	}
+
+	async singboxWatchdogConfigure(config: SingboxWatchdogConfig): Promise<void> {
+		await this.request('/singbox/watchdog/configure', {
+			method: 'POST',
+			body: JSON.stringify(config),
+		});
+	}
+
+	async singboxWatchdogEnable(id: string): Promise<void> {
+		await this.request('/singbox/watchdog/enable', {
+			method: 'POST',
+			body: JSON.stringify({ id }),
+		});
+	}
+
+	async singboxWatchdogDisable(id: string): Promise<void> {
+		await this.request('/singbox/watchdog/disable', {
+			method: 'POST',
+			body: JSON.stringify({ id }),
+		});
+	}
+
+	async singboxWatchdogCheckNow(id?: string): Promise<void> {
+		await this.request('/singbox/watchdog/check-now', {
+			method: 'POST',
+			body: JSON.stringify(id ? { id } : {}),
 		});
 	}
 

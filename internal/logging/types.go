@@ -83,6 +83,7 @@ const (
 	SubSBRouter   = "router"
 	SubSBRuntime  = "runtime"
 	SubSBProcess  = "process"
+	SubSBWatchdog = "watchdog"
 )
 
 // Bucket identifies which buffer a log entry belongs to. Sing-box logs are
@@ -126,7 +127,7 @@ var KnownSubgroups = map[string][]string{
 		SubProfiling, SubRCI, SubNDMS, SubStorage,
 	},
 	GroupSingbox: {
-		SubSBProcess, SubSBInbound, SubSBOutbound, SubSBDNS, SubSBRouter, SubSBRuntime,
+		SubSBProcess, SubSBInbound, SubSBOutbound, SubSBDNS, SubSBRouter, SubSBRuntime, SubSBWatchdog,
 	},
 }
 
