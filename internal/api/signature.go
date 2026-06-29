@@ -29,7 +29,7 @@ type SignatureCaptureData struct {
 
 // SignatureCaptureResponse is the envelope for GET /signature/capture.
 type SignatureCaptureResponse struct {
-	Success bool                `json:"success" example:"true"`
+	Success bool                 `json:"success" example:"true"`
 	Data    SignatureCaptureData `json:"data"`
 }
 
