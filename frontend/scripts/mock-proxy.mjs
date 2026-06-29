@@ -1955,6 +1955,120 @@ function toMockSubscriptionDTO(sub) {
 	return dto;
 }
 
+let mockSingboxWatchdogConfigs = new Map([
+	['subscription:sub-inlinegrp', { enabled: true, interval: 30, failThreshold: 3, timeout: 5, recoveryMode: 'switch-member', persistSwitch: false }],
+	['subscription:sub-demo0001', { enabled: true, interval: 30, failThreshold: 3, timeout: 5, recoveryMode: 'switch-member', persistSwitch: false }],
+	['subscription:sub-demo0002', { enabled: true, interval: 45, failThreshold: 4, timeout: 5, recoveryMode: 'switch-member', persistSwitch: false }],
+	['tunnel:Kto-VLESS-kto-po-drova', { enabled: true, interval: 30, failThreshold: 3, timeout: 5, recoveryMode: 'off', persistSwitch: false }],
+	['tunnel:vless-nl-ws', { enabled: true, interval: 30, failThreshold: 3, timeout: 5, recoveryMode: 'off', persistSwitch: false }],
+	['tunnel:naive-us-edge', { enabled: false, interval: 30, failThreshold: 3, timeout: 5, recoveryMode: 'off', persistSwitch: false }],
+	['tunnel:trojan-jp-timeout', { enabled: true, interval: 30, failThreshold: 3, timeout: 5, recoveryMode: 'off', persistSwitch: false }],
+	['tunnel:ss-backup-demo', { enabled: true, interval: 30, failThreshold: 3, timeout: 5, recoveryMode: 'off', persistSwitch: false }],
+]);
+
+let mockSingboxWatchdogLogs = new Map([
+	['subscription:sub-inlinegrp', [
+		{ timestamp: new Date(Date.now() - 90_000).toISOString(), targetId: 'subscription:sub-inlinegrp', targetName: 'Neo Inline Group', kind: 'subscription', checkTag: 'sub-inlinegrp', success: true, latency: 94, error: '', failCount: 0, threshold: 3, stateChange: '' },
+		{ timestamp: new Date(Date.now() - 30_000).toISOString(), targetId: 'subscription:sub-inlinegrp', targetName: 'Neo Inline Group', kind: 'subscription', checkTag: 'sub-inlinegrp', success: true, latency: 99, error: '', failCount: 0, threshold: 3, stateChange: '' },
+	]],
+	['subscription:sub-demo0001', [
+		{ timestamp: new Date(Date.now() - 150_000).toISOString(), targetId: 'subscription:sub-demo0001', targetName: 'Provider Demo', kind: 'subscription', checkTag: 'sub-demo0001', success: false, latency: 0, error: 'timeout', failCount: 2, threshold: 3, stateChange: '' },
+		{ timestamp: new Date(Date.now() - 70_000).toISOString(), targetId: 'subscription:sub-demo0001', targetName: 'Provider Demo', kind: 'subscription', checkTag: 'sub-demo0001', success: true, latency: 133, error: '', failCount: 0, threshold: 3, stateChange: 'member_switch', memberFrom: 'sub-demo0001-eeff0011', memberTo: 'sub-demo0001-aabbccdd' },
+	]],
+	['tunnel:trojan-jp-timeout', [
+		{ timestamp: new Date(Date.now() - 180_000).toISOString(), targetId: 'tunnel:trojan-jp-timeout', targetName: 'trojan-jp-timeout', kind: 'tunnel', checkTag: 'trojan-jp-timeout', success: false, latency: 0, error: 'timeout', failCount: 3, threshold: 3, stateChange: 'recovery_skipped' },
+	]],
+]);
+
+function getMockWatchdogConfig(id) {
+	return mockSingboxWatchdogConfigs.get(id) ?? { enabled: false, interval: 30, failThreshold: 3, timeout: 5, recoveryMode: 'off', persistSwitch: false };
+}
+
+function buildMockSingboxWatchdogStatuses() {
+	const raw = MOCK_SINGBOX_TUNNELS.slice(0, 6).map((tunnel, index) => {
+		const id = `tunnel:${tunnel.tag}`;
+		const cfg = getMockWatchdogConfig(id);
+		const latestLatency = typeof tunnel.connectivity?.latency === 'number' ? tunnel.connectivity.latency : 0;
+		const status = !cfg.enabled ? 'disabled' : !tunnel.running ? 'stopped' : latestLatency > 0 ? 'alive' : 'dead';
+		const failCount = status === 'dead' ? cfg.failThreshold : 0;
+		const restartCount = status === 'dead' ? 1 : 0;
+		return {
+			id,
+			kind: 'tunnel',
+			ref: tunnel.tag,
+			name: tunnel.tag,
+			checkTag: tunnel.tag,
+			trafficTag: tunnel.tag,
+			protocol: tunnel.protocol,
+			security: tunnel.security,
+			transport: tunnel.transport,
+			proxyInterface: tunnel.proxyInterface,
+			kernelInterface: tunnel.kernelInterface,
+			running: tunnel.running,
+			configured: true,
+			enabled: cfg.enabled,
+			status,
+			interval: cfg.interval,
+			timeout: cfg.timeout,
+			lastCheck: new Date(Date.now() - (index + 1) * 45_000).toISOString(),
+			lastLatency: latestLatency,
+			failCount,
+			failThreshold: cfg.failThreshold,
+			restartCount,
+			switchCount: 0,
+			lastError: status === 'dead' ? 'timeout' : '',
+			lastRecovery: status === 'dead' ? 'recovery_skipped' : '',
+			recoveryMode: cfg.recoveryMode,
+			persistSwitch: cfg.persistSwitch,
+		};
+	});
+
+	const subs = mockSubscriptions
+		.filter((sub) => sub.enabled !== false)
+		.slice(0, 3)
+		.map((sub, index) => {
+			const id = `subscription:${sub.id}`;
+			const cfg = getMockWatchdogConfig(id);
+			const activeMemberTag = sub.activeMember || sub.memberTags?.[0] || '';
+			const activeMember = (sub.members || []).find((member) => member.tag === activeMemberTag) || sub.members?.[0] || {};
+			const selectorTag = sub.selectorTag || sub.id;
+			const latestLatency = index === 1 ? 133 : index === 2 ? 128 : 94;
+			return {
+				id,
+				kind: 'subscription',
+				ref: sub.id,
+				name: sub.label || selectorTag,
+				checkTag: selectorTag,
+				trafficTag: activeMemberTag,
+				selectorTag,
+				activeMemberTag,
+				protocol: activeMember.protocol || '',
+				security: activeMember.security || '',
+				transport: activeMember.transport || '',
+				proxyInterface: `Proxy${sub.proxyIndex ?? index}`,
+				kernelInterface: `t2s${sub.proxyIndex ?? index}`,
+				running: true,
+				configured: true,
+				enabled: cfg.enabled,
+				status: cfg.enabled ? 'alive' : 'disabled',
+				interval: cfg.interval,
+				timeout: cfg.timeout,
+				lastCheck: new Date(Date.now() - (index + 1) * 60_000).toISOString(),
+				lastLatency: latestLatency,
+				failCount: 0,
+				failThreshold: cfg.failThreshold,
+				restartCount: 0,
+				switchCount: index === 1 ? 1 : 0,
+				lastError: '',
+				lastRecovery: index === 1 ? 'member_switch' : '',
+				recoveryMode: cfg.recoveryMode || 'switch-member',
+				persistSwitch: cfg.persistSwitch,
+			};
+		});
+
+	return [...subs, ...raw];
+}
+
 function newSub(input) {
 	mockSubID++;
 	const id = `sub-${mockSubID.toString().padStart(8, '0')}`;
@@ -6176,6 +6290,116 @@ const server = http.createServer(async (req, res) => {
 		send(res, 200, {
 			success: true,
 			data: mockSubscriptions.map(toMockSubscriptionDTO),
+		});
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/singbox/watchdog/status') {
+		sendData(res, buildMockSingboxWatchdogStatuses());
+		return;
+	}
+
+	if (req.method === 'GET' && path === '/singbox/watchdog/logs') {
+		const targetId = url.searchParams.get('targetId') || '';
+		if (targetId) {
+			sendData(res, mockSingboxWatchdogLogs.get(targetId) ?? []);
+			return;
+		}
+		sendData(res, Array.from(mockSingboxWatchdogLogs.values()).flat());
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/watchdog/logs/clear') {
+		mockSingboxWatchdogLogs = new Map();
+		sendData(res, { message: 'Logs cleared' });
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/watchdog/configure') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const body = JSON.parse(raw || '{}');
+				mockSingboxWatchdogConfigs.set(body.id, {
+					enabled: body.enabled !== false,
+					interval: body.interval ?? 30,
+					failThreshold: body.failThreshold ?? 3,
+					timeout: body.timeout ?? 5,
+					recoveryMode: body.recoveryMode ?? 'off',
+					persistSwitch: body.persistSwitch === true,
+				});
+				sendData(res, { success: true });
+			} catch (e) {
+				sendInvalidRequest(res, e);
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/watchdog/enable') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const body = JSON.parse(raw || '{}');
+				const cfg = getMockWatchdogConfig(body.id);
+				mockSingboxWatchdogConfigs.set(body.id, { ...cfg, enabled: true });
+				sendData(res, { success: true });
+			} catch (e) {
+				sendInvalidRequest(res, e);
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/watchdog/disable') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const body = JSON.parse(raw || '{}');
+				const cfg = getMockWatchdogConfig(body.id);
+				mockSingboxWatchdogConfigs.set(body.id, { ...cfg, enabled: false });
+				sendData(res, { success: true });
+			} catch (e) {
+				sendInvalidRequest(res, e);
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'POST' && path === '/singbox/watchdog/check-now') {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			try {
+				const body = JSON.parse(raw || '{}');
+				const targetId = body.id || 'subscription:sub-inlinegrp';
+				const target = buildMockSingboxWatchdogStatuses().find((item) => item.id === targetId);
+				if (target) {
+					const prev = mockSingboxWatchdogLogs.get(targetId) ?? [];
+					mockSingboxWatchdogLogs.set(targetId, [
+						...prev,
+						{
+							timestamp: new Date().toISOString(),
+							targetId,
+							targetName: target.name,
+							kind: target.kind,
+							checkTag: target.checkTag,
+							success: true,
+							latency: target.lastLatency || 97,
+							error: '',
+							failCount: 0,
+							threshold: target.failThreshold,
+							stateChange: '',
+						},
+					].slice(-8));
+				}
+				sendData(res, { success: true });
+			} catch (e) {
+				sendInvalidRequest(res, e);
+			}
 		});
 		return;
 	}
