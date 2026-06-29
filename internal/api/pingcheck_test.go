@@ -86,7 +86,7 @@ func TestPingCheckHandler_GetStatus(t *testing.T) {
 
 	var resp struct {
 		Data struct {
-			Enabled bool               `json:"enabled"`
+			Enabled bool                     `json:"enabled"`
 			Tunnels []pingcheck.TunnelStatus `json:"tunnels"`
 		} `json:"data"`
 	}

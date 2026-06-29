@@ -1991,6 +1991,76 @@ export interface SubscriptionActiveNowResponse {
 	now: string;
 }
 
+export type SingboxWatchdogTargetKind = 'tunnel' | 'subscription';
+export type SingboxWatchdogRecoveryMode = 'off' | 'restart-singbox' | 'switch-member';
+export type SingboxWatchdogStatusKind =
+	| 'alive'
+	| 'warming'
+	| 'recovering'
+	| 'dead'
+	| 'disabled'
+	| 'stopped';
+
+export interface SingboxWatchdogConfig {
+	id: string;
+	kind: SingboxWatchdogTargetKind;
+	ref: string;
+	enabled: boolean;
+	interval: number;
+	failThreshold: number;
+	timeout: number;
+	recoveryMode: SingboxWatchdogRecoveryMode;
+	persistSwitch?: boolean;
+}
+
+export interface SingboxWatchdogStatus {
+	id: string;
+	kind: SingboxWatchdogTargetKind;
+	ref: string;
+	name: string;
+	checkTag: string;
+	trafficTag: string;
+	selectorTag?: string;
+	activeMemberTag?: string;
+	protocol?: string;
+	security?: string;
+	transport?: string;
+	proxyInterface?: string;
+	kernelInterface?: string;
+	running: boolean;
+	configured: boolean;
+	enabled: boolean;
+	status: SingboxWatchdogStatusKind;
+	interval: number;
+	timeout: number;
+	lastCheck?: string;
+	lastLatency: number;
+	failCount: number;
+	failThreshold: number;
+	restartCount: number;
+	switchCount: number;
+	lastError?: string;
+	lastRecovery?: string;
+	recoveryMode: SingboxWatchdogRecoveryMode;
+	persistSwitch?: boolean;
+}
+
+export interface SingboxWatchdogLogEntry {
+	timestamp: string;
+	targetId: string;
+	targetName: string;
+	kind: SingboxWatchdogTargetKind;
+	checkTag: string;
+	success: boolean;
+	latency: number;
+	error: string;
+	failCount: number;
+	threshold: number;
+	stateChange: string;
+	memberFrom?: string;
+	memberTo?: string;
+}
+
 export interface CreateSubscriptionInput {
 	label: string;
 	url?: string;

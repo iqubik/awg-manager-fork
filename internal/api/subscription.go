@@ -147,9 +147,12 @@ type SubscriptionDTO struct {
 	ActiveMember    string                    `json:"activeMember" example:"sub-demo-001"`
 	ExcludedTags    []string                  `json:"excludedTags"`
 	ExcludedMembers []SubscriptionMemberDTO   `json:"excludedMembers,omitempty"`
+<<<<<<< HEAD
 	FilterInclude   string                    `json:"filterInclude,omitempty" example:"(?i)(DE|NL)"`
 	FilterExclude   string                    `json:"filterExclude,omitempty" example:"(?i)(RU|Russia)"`
 	FilteredMembers []SubscriptionMemberDTO   `json:"filteredMembers,omitempty"`
+=======
+>>>>>>> bc2e24d4 (feat(monitoring): add Sing-box watchdog health recovery)
 	Enabled         bool                      `json:"enabled" example:"true"`
 	Mode            string                    `json:"mode" example:"selector"`
 	URLTest         *SubscriptionURLTestDTO   `json:"urlTest,omitempty"`
@@ -372,9 +375,12 @@ func toSubscriptionDTO(s subscription.Subscription, ndmsProxyEnabled bool) Subsc
 		ActiveMember:    s.ActiveMember,
 		ExcludedTags:    excludedTags,
 		ExcludedMembers: excludedMemberDTOs,
+<<<<<<< HEAD
 		FilterInclude:   s.FilterInclude,
 		FilterExclude:   s.FilterExclude,
 		FilteredMembers: filteredMemberDTOs,
+=======
+>>>>>>> bc2e24d4 (feat(monitoring): add Sing-box watchdog health recovery)
 		Enabled:         s.Enabled,
 		Mode:            mode,
 		URLTest:         urltest,
@@ -404,8 +410,11 @@ type SubscriptionMetaDTO struct {
 	Total           int                       `json:"total"`
 	RejectedMembers []SubscriptionRejectedDTO `json:"rejectedMembers"`
 	InfoItems       []SubscriptionInfoItemDTO `json:"infoItems"`
+<<<<<<< HEAD
 	FilterInclude   string                    `json:"filterInclude,omitempty"`
 	FilterExclude   string                    `json:"filterExclude,omitempty"`
+=======
+>>>>>>> bc2e24d4 (feat(monitoring): add Sing-box watchdog health recovery)
 }
 
 // SubscriptionStreamMemberDTO wraps a single member with its index for
