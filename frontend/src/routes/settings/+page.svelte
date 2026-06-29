@@ -22,7 +22,6 @@
 		HttpServerCard,
 		DevelopChannelGateModal,
 		ExperimentalSettingsCard,
-		PukhososPatrol,
 		SettingsSectionLabel,
 	} from "$lib/components/settings";
 	import { setSettings as setGlobalSettings } from "$lib/stores/settings";
@@ -106,8 +105,6 @@
 	let systemInfoUpdatedAt = $state<string | null>(null);
 	let systemInfoInFlight: Promise<void> | null = null;
 	let developGateOpen = $state(false);
-	let footerPatrolWidth = $state(0);
-
 	const singboxStatusValue = $derived($singboxStatus.data ?? null);
 	const singboxStatusLoading = $derived(
 		$singboxStatus.lastFetchedAt === 0 &&
@@ -1082,8 +1079,7 @@ $effect(() => {
 		</div>
 
 		<div class="settings-doc-block" id="settings-footer-block">
-			<div class="settings-footer-patrol-host" bind:clientWidth={footerPatrolWidth}>
-				<PukhososPatrol trackWidth={footerPatrolWidth} />
+			<div class="settings-footer-patrol-host">
 				<SettingsFooter />
 			</div>
 		</div>

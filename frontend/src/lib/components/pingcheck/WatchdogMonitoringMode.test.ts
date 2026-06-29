@@ -14,7 +14,10 @@ const {
 	getNativePingCheckStatus,
 	triggerPingCheck,
 	singboxDelayCheck,
-	getSubscriptionActiveNow,
+	singboxWatchdogCheckNow,
+	singboxWatchdogEnable,
+	singboxWatchdogDisable,
+	singboxWatchdogLogs,
 	loadPingLogs,
 	goto,
 	loadHistory,
@@ -24,7 +27,7 @@ const {
 	pingLogsStore,
 	singboxStatusStore,
 	singboxTunnelsStore,
-	subscriptionsStoreMock,
+	singboxWatchdogStore,
 	singboxDelayHistoryStore,
 	usageLevelStore,
 } = vi.hoisted(() => {
@@ -48,7 +51,10 @@ const {
 		getNativePingCheckStatus: vi.fn(),
 		triggerPingCheck: vi.fn(),
 		singboxDelayCheck: vi.fn(),
-		getSubscriptionActiveNow: vi.fn(),
+		singboxWatchdogCheckNow: vi.fn(),
+		singboxWatchdogEnable: vi.fn(),
+		singboxWatchdogDisable: vi.fn(),
+		singboxWatchdogLogs: vi.fn(),
 		loadPingLogs: vi.fn(),
 		goto: vi.fn(),
 		loadHistory: vi.fn(),
@@ -79,7 +85,7 @@ const {
 			lastFetchedAt: 0,
 			consecutiveFailures: 0,
 		}),
-		subscriptionsStoreMock: writable<any>({
+		singboxWatchdogStore: writable<any>({
 			data: null,
 			status: 'idle',
 			error: null,
@@ -98,7 +104,10 @@ vi.mock('$lib/api/client', () => ({
 		getNativePingCheckStatus,
 		triggerPingCheck,
 		singboxDelayCheck,
-		getSubscriptionActiveNow,
+		singboxWatchdogCheckNow,
+		singboxWatchdogEnable,
+		singboxWatchdogDisable,
+		singboxWatchdogLogs,
 	},
 }));
 
@@ -133,9 +142,9 @@ vi.mock('$lib/stores/singbox', () => ({
 	},
 }));
 
-vi.mock('$lib/stores/subscriptions', () => ({
-	subscriptionsStore: {
-		subscribe: subscriptionsStoreMock.subscribe,
+vi.mock('$lib/stores/singboxWatchdog', () => ({
+	singboxWatchdogStatus: {
+		subscribe: singboxWatchdogStore.subscribe,
 		refetch: vi.fn(),
 		invalidate: vi.fn(),
 		applyMutationResponse: vi.fn(),
@@ -195,8 +204,8 @@ function setSingboxTunnels(data: SingboxTunnel[] | null, status: 'idle' | 'loadi
 	});
 }
 
-function setSubscriptions(data: Subscription[] | null, status: 'idle' | 'loading' | 'fresh' | 'stale' | 'error' = 'fresh'): void {
-	subscriptionsStoreMock.set({
+function setWatchdogStatuses(data: any[] | null, status: 'idle' | 'loading' | 'fresh' | 'stale' | 'error' = 'fresh'): void {
+	singboxWatchdogStore.set({
 		data,
 		status,
 		error: status === 'error' ? 'boom' : null,
@@ -249,34 +258,54 @@ const sampleAwgMeta: TunnelListItem = {
 	},
 };
 
-const sampleSubscription: Subscription = {
-	id: 'sub-1',
-	label: 'America Pool',
-	url: 'https://example.com/sub',
-	isInline: false,
-	headers: [],
-	refreshHours: 12,
-	lastFetched: '',
-	selectorTag: 'iq0',
-	inboundTag: 'default',
-	listenPort: 1081,
-	proxyIndex: 5,
-	memberTags: ['member-1'],
-	members: [
-		{
-			tag: 'member-1',
-			label: 'US-1',
-			protocol: 'vless',
-			server: '5.5.5.5',
-			port: 443,
-			security: 'reality',
-			transport: 'tcp',
-		},
-	],
-	orphanTags: [],
-	activeMember: 'member-1',
+const sampleWatchdogTunnel = {
+	id: 'tunnel:sb-main',
+	kind: 'tunnel',
+	ref: 'sb-main',
+	name: 'sb-main',
+	checkTag: 'sb-main',
+	trafficTag: 'sb-main',
+	protocol: 'vless',
+	security: 'reality',
+	transport: 'tcp',
+	proxyInterface: 'proxy0',
+	kernelInterface: 'tun0',
+	running: true,
+	configured: true,
 	enabled: true,
-	mode: 'urltest',
+	status: 'alive',
+	lastLatency: 125,
+	failCount: 0,
+	failThreshold: 3,
+	restartCount: 1,
+	switchCount: 0,
+	recoveryMode: 'restart-singbox',
+};
+
+const sampleWatchdogSubscription = {
+	id: 'subscription:sub-1',
+	kind: 'subscription',
+	ref: 'sub-1',
+	name: 'America Pool',
+	checkTag: 'iq0',
+	trafficTag: 'member-1',
+	selectorTag: 'iq0',
+	activeMemberTag: 'member-1',
+	protocol: 'vless',
+	security: 'reality',
+	transport: 'tcp',
+	proxyInterface: 'Proxy5',
+	kernelInterface: 't2s5',
+	running: true,
+	configured: true,
+	enabled: true,
+	status: 'alive',
+	lastLatency: 155,
+	failCount: 0,
+	failThreshold: 3,
+	restartCount: 0,
+	switchCount: 2,
+	recoveryMode: 'switch-member',
 };
 
 const { default: WatchdogMonitoringMode } = await import('./WatchdogMonitoringMode.svelte');
@@ -301,20 +330,22 @@ describe('WatchdogMonitoringMode', () => {
 			},
 		});
 		singboxDelayCheck.mockResolvedValue(undefined);
-		getSubscriptionActiveNow.mockResolvedValue({ now: 'member-1' });
+		singboxWatchdogCheckNow.mockResolvedValue(undefined);
+		singboxWatchdogEnable.mockResolvedValue(undefined);
+		singboxWatchdogDisable.mockResolvedValue(undefined);
+		singboxWatchdogLogs.mockResolvedValue([]);
 		setPingStatuses([]);
 		pingLogsStore.set([]);
 		setSingboxStatus(null, 'idle');
 		setSingboxTunnels(null, 'idle');
-		setSubscriptions(null, 'idle');
+		setWatchdogStatuses(null, 'idle');
 		singboxDelayHistoryStore.set(new Map());
 		usageLevelStore.set('advanced');
 	});
 
 	it('shows a raw sing-box card when AWG is empty', async () => {
 		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
-		setSingboxTunnels([sampleSingboxTunnel]);
-		setSubscriptions([]);
+		setWatchdogStatuses([sampleWatchdogTunnel]);
 		singboxDelayHistoryStore.set(new Map([['sb-main', [125]]])); 
 
 		render(WatchdogMonitoringMode);
@@ -342,8 +373,7 @@ describe('WatchdogMonitoringMode', () => {
 		]);
 		getTunnelsAll.mockResolvedValue({ tunnels: [sampleAwgMeta] });
 		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
-		setSingboxTunnels([sampleSingboxTunnel]);
-		setSubscriptions([]);
+		setWatchdogStatuses([sampleWatchdogTunnel]);
 		singboxDelayHistoryStore.set(new Map([['sb-main', [125]]]));
 
 		render(WatchdogMonitoringMode);
@@ -359,7 +389,7 @@ describe('WatchdogMonitoringMode', () => {
 	it('shows loading notice while sing-box data is still loading', async () => {
 		setSingboxStatus(null, 'loading');
 		setSingboxTunnels(null, 'loading');
-		setSubscriptions(null, 'loading');
+		setWatchdogStatuses(null, 'loading');
 
 		render(WatchdogMonitoringMode);
 
@@ -369,7 +399,7 @@ describe('WatchdogMonitoringMode', () => {
 	it('shows error notice when sing-box status fails to load', async () => {
 		setSingboxStatus(null, 'error');
 		setSingboxTunnels(null, 'idle');
-		setSubscriptions(null, 'idle');
+		setWatchdogStatuses(null, 'idle');
 
 		render(WatchdogMonitoringMode);
 
@@ -384,51 +414,73 @@ describe('WatchdogMonitoringMode', () => {
 			tunnelCount: 0,
 		});
 		setSingboxTunnels([]);
-		setSubscriptions([]);
+		setWatchdogStatuses([]);
 
 		render(WatchdogMonitoringMode);
 
 		expect(await screen.findByText('Sing-box не установлен.')).toBeTruthy();
 	});
 
-	it('shows active subscription member with selector delay check and member-history fallback', async () => {
+	it('shows subscription watchdog card from backend status', async () => {
 		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 0 });
-		setSingboxTunnels([]);
-		setSubscriptions([sampleSubscription]);
+		setWatchdogStatuses([sampleWatchdogSubscription]);
 		singboxDelayHistoryStore.set(new Map([['member-1', [155]]]));
 
 		render(WatchdogMonitoringMode);
 
 		expect(await screen.findByRole('button', { name: /Sing-box/i })).toBeTruthy();
 		expect(screen.getByText('America Pool')).toBeTruthy();
-		expect(screen.getByText('Подписка · URLTest')).toBeTruthy();
+		expect(screen.getByText('Подписка')).toBeTruthy();
 		expect(screen.getAllByText('155ms').length).toBeGreaterThan(0);
 		expect(loadHistory).toHaveBeenCalledWith('member-1');
 
 		const card = screen.getByLabelText(/Subscription watchdog America Pool/);
-		await fireEvent.click(within(card).getByRole('button', { name: 'Проверить' }));
-		expect(singboxDelayCheck).toHaveBeenCalledWith('iq0');
+		await fireEvent.click(within(card).getByRole('button', { name: 'Проверка watchdog' }));
+		expect(singboxWatchdogCheckNow).toHaveBeenCalledWith('subscription:sub-1');
 	});
 
-	it('disables check button while delay check is pending and sends only one request', async () => {
+	it('loads sing-box watchdog logs with one shared request for multiple cards', async () => {
+		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 3 });
+		setWatchdogStatuses([
+			sampleWatchdogTunnel,
+			{ ...sampleWatchdogSubscription },
+			{ ...sampleWatchdogTunnel, id: 'tunnel:sb-alt', ref: 'sb-alt', name: 'sb-alt', checkTag: 'sb-alt', trafficTag: 'sb-alt' },
+		]);
+		singboxWatchdogLogs.mockResolvedValue([
+			{ targetId: 'tunnel:sb-main', timestamp: new Date().toISOString() },
+			{ targetId: 'subscription:sub-1', timestamp: new Date().toISOString() },
+		]);
+
+		render(WatchdogMonitoringMode);
+
+		await screen.findByText('sb-main');
+		await screen.findByText('America Pool');
+		await screen.findByText('sb-alt');
+
+		await waitFor(() => {
+			expect(singboxWatchdogLogs).toHaveBeenCalledTimes(1);
+		});
+		expect(singboxWatchdogLogs).toHaveBeenCalledWith();
+	});
+
+	it('disables check button while watchdog check is pending and sends only one request', async () => {
 		let resolveCheck = () => {};
-		singboxDelayCheck.mockReturnValue(
+		singboxWatchdogCheckNow.mockReturnValue(
 			new Promise<void>((resolve) => {
 				resolveCheck = resolve;
 			}),
 		);
 
 		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
-		setSingboxTunnels([sampleSingboxTunnel]);
-		setSubscriptions([]);
+		setWatchdogStatuses([sampleWatchdogTunnel]);
 
 		render(WatchdogMonitoringMode);
 
-		const button = await screen.findByRole('button', { name: 'Проверить' });
+		const button = await screen.findByRole('button', { name: 'Проверка watchdog' });
 		await fireEvent.click(button);
 		await fireEvent.click(button);
 
-		expect(singboxDelayCheck).toHaveBeenCalledTimes(1);
+		expect(singboxWatchdogCheckNow).toHaveBeenCalledTimes(1);
 		expect((button as HTMLButtonElement).disabled).toBe(true);
 
 		resolveCheck();
@@ -440,8 +492,7 @@ describe('WatchdogMonitoringMode', () => {
 	it('hides sing-box block below singbox usage level', async () => {
 		usageLevelStore.set('basic');
 		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
-		setSingboxTunnels([sampleSingboxTunnel]);
-		setSubscriptions([]);
+		setWatchdogStatuses([sampleWatchdogTunnel]);
 
 		render(WatchdogMonitoringMode);
 
@@ -478,8 +529,7 @@ describe('WatchdogMonitoringMode', () => {
 
 	it('collapses sing-box spoiler and hides sing-box content', async () => {
 		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
-		setSingboxTunnels([sampleSingboxTunnel]);
-		setSubscriptions([]);
+		setWatchdogStatuses([sampleWatchdogTunnel]);
 
 		render(WatchdogMonitoringMode);
 
@@ -494,8 +544,7 @@ describe('WatchdogMonitoringMode', () => {
 
 	it('persists collapsed sing-box spoiler state in localStorage', async () => {
 		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
-		setSingboxTunnels([sampleSingboxTunnel]);
-		setSubscriptions([]);
+		setWatchdogStatuses([sampleWatchdogTunnel]);
 
 		const firstRender = render(WatchdogMonitoringMode);
 		const singboxToggle = await screen.findByRole('button', { name: /Sing-box/i });
@@ -519,7 +568,7 @@ describe('WatchdogMonitoringMode', () => {
 		getTunnelsAll.mockResolvedValue({ tunnels: [sampleAwgMeta] });
 		setSingboxStatus(null, 'idle');
 		setSingboxTunnels(null, 'idle');
-		setSubscriptions(null, 'idle');
+		setWatchdogStatuses(null, 'idle');
 
 		render(WatchdogMonitoringMode);
 
@@ -543,8 +592,7 @@ describe('WatchdogMonitoringMode', () => {
 
 		usageLevelStore.set('basic');
 		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
-		setSingboxTunnels([sampleSingboxTunnel]);
-		setSubscriptions([]);
+		setWatchdogStatuses([sampleWatchdogTunnel]);
 
 		render(WatchdogMonitoringMode);
 
@@ -555,43 +603,21 @@ describe('WatchdogMonitoringMode', () => {
 		expect(screen.queryByRole('button', { name: /Sing-box/i })).toBeNull();
 	});
 
-	it('runs initial auto-check once for running sing-box cards', async () => {
-		vi.useFakeTimers();
+	it('enables and disables sing-box watchdog via backend actions', async () => {
 		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
-		setSingboxTunnels([sampleSingboxTunnel]);
-		setSubscriptions([]);
+		setWatchdogStatuses([{ ...sampleWatchdogTunnel, enabled: false, status: 'disabled' }]);
 
 		render(WatchdogMonitoringMode);
 
-		await vi.runAllTimersAsync();
+		const enableButton = await screen.findByRole('button', { name: 'Включить' });
+		await fireEvent.click(enableButton);
+		expect(singboxWatchdogEnable).toHaveBeenCalledWith('tunnel:sb-main');
 
-		expect(singboxDelayCheck).toHaveBeenCalledWith('sb-main');
-		vi.useRealTimers();
-	});
-
-	it('deduplicates initial auto-check for cards with the same delayCheckTag', async () => {
-		vi.useFakeTimers();
-
-		const rawSelectorTunnel: SingboxTunnel = {
-			...sampleSingboxTunnel,
-			tag: 'iq0',
-			proxyInterface: 'proxy-iq0',
-			kernelInterface: 'tun-iq0',
-		};
-
-		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
-		setSingboxTunnels([rawSelectorTunnel]);
-		setSubscriptions([sampleSubscription]);
-
-		singboxDelayCheck.mockClear();
-
-		render(WatchdogMonitoringMode);
-
-		await vi.advanceTimersByTimeAsync(1000);
-
-		const iq0Calls = singboxDelayCheck.mock.calls.filter(([tag]) => tag === 'iq0');
-		expect(iq0Calls).toHaveLength(1);
-
-		vi.useRealTimers();
+		setWatchdogStatuses([sampleWatchdogTunnel]);
+		await waitFor(() => {
+			expect(screen.getByRole('button', { name: 'Выключить' })).toBeTruthy();
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Выключить' }));
+		expect(singboxWatchdogDisable).toHaveBeenCalledWith('tunnel:sb-main');
 	});
 });
