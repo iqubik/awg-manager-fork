@@ -59,6 +59,7 @@ import (
 	singboxorch "github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/singbox/router"
 	"github.com/hoaxisr/awg-manager/internal/singbox/subscription"
+	"github.com/hoaxisr/awg-manager/internal/singboxwatchdog"
 	"github.com/hoaxisr/awg-manager/internal/staticroute"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/sys/env"
@@ -865,6 +866,10 @@ func main() {
 		bootLog.Warn("subscription-adapter", "load-from-disk", err.Error())
 	}
 	subSvc := subscription.NewService(subStore, subAdapter)
+	singboxWatchdogStore := singboxwatchdog.NewStore(filepath.Join(*dataDir, "singbox_watchdog.json"))
+	if err := singboxWatchdogStore.Load(); err != nil {
+		bootLog.Warn("singbox-watchdog-store", "", err.Error())
+	}
 	subSvc.SetAppLogger(loggingService)
 	// Gate subscription ProxyN creation on the global toggle (same flag the
 	// Operator uses for tunnels) so disabling it stops subscriptions from
@@ -920,6 +925,10 @@ func main() {
 		eventBus,
 	)
 	singboxHandler := api.NewSingboxHandler(singboxOp, eventBus, delayChecker, testService, loggingService)
+	singboxWatchdogSvc := singboxwatchdog.NewService(singboxWatchdogStore, singboxOp, subSvc, loggingService)
+	singboxWatchdogSvc.SetEventBus(eventBus)
+	singboxWatchdogSvc.SetManualStopReader(&singboxManualStopAdapter{store: settingsStore})
+	singboxWatchdogHandler := api.NewSingboxWatchdogHandler(singboxWatchdogSvc, loggingService)
 	singboxMigrator := singbox.NewMigrator(singboxOp, settingsStore)
 	singboxHandler.SetNDMSProxyMigrator(singboxMigrator, settingsStore)
 	clashProxy := api.NewClashProxy(singboxOp)
@@ -1295,6 +1304,7 @@ func main() {
 	subHandler.SetNDMSProxyToggler(settingsStore)
 	subHandler.SetOutboundRefCheckers(deviceProxySvc, routerSvc)
 	srv.SetSubscriptionHandler(subHandler)
+	srv.SetSingboxWatchdogHandler(singboxWatchdogHandler)
 	srv.AddShutdownHook(subSched.Stop)
 
 	// DNS Rewrites — sing-box slot 17-dns-rewrites.json.
@@ -1365,6 +1375,7 @@ func main() {
 
 	// Start the monitoring scheduler now that shutdownCtx exists.
 	monitoringService.Start(shutdownCtx)
+	singboxWatchdogSvc.Start(shutdownCtx)
 
 	// Register shutdown hooks for graceful cleanup before syscall.Exec restart.
 	srv.AddShutdownHook(shutdownCancel)
@@ -1378,6 +1389,7 @@ func main() {
 	// race on awg_proxy < 1.1.10 (issue #234) — slots are now left
 	// to the reconnect path.
 	srv.AddShutdownHook(pingCheckService.Stop)
+	srv.AddShutdownHook(singboxWatchdogSvc.Stop)
 	srv.AddShutdownHook(monitoringService.Stop)
 	srv.AddShutdownHook(dnsRefreshScheduler.Stop)
 	srv.AddShutdownHook(geoRefreshScheduler.Stop)
@@ -2241,6 +2253,21 @@ func (l *operatorLifecycle) Stop(ctx context.Context) error {
 
 func (l *operatorLifecycle) Start(ctx context.Context) error {
 	return l.op.Control(ctx, "start")
+}
+
+type singboxManualStopAdapter struct {
+	store *storage.SettingsStore
+}
+
+func (a *singboxManualStopAdapter) IsSingboxManuallyStopped() bool {
+	if a == nil || a.store == nil {
+		return false
+	}
+	settings, err := a.store.Get()
+	if err != nil || settings == nil {
+		return false
+	}
+	return settings.SingboxManuallyStopped
 }
 
 type installerDownloaderAdapter struct {

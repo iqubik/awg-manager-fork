@@ -4201,6 +4201,175 @@ definitions:
         example: true
         type: boolean
     type: object
+  api.SingboxWatchdogLogEntryDTO:
+    properties:
+      checkTag:
+        example: iq0
+        type: string
+      error:
+        example: timeout
+        type: string
+      failCount:
+        example: 0
+        type: integer
+      kind:
+        enum:
+        - tunnel
+        - subscription
+        example: subscription
+        type: string
+      latency:
+        example: 94
+        type: integer
+      memberFrom:
+        example: member-old
+        type: string
+      memberTo:
+        example: member-new
+        type: string
+      stateChange:
+        example: member_switch
+        type: string
+      success:
+        example: true
+        type: boolean
+      targetId:
+        example: subscription:sub-demo
+        type: string
+      targetName:
+        example: Provider Demo
+        type: string
+      threshold:
+        example: 3
+        type: integer
+      timestamp:
+        example: "2026-06-29T08:00:00Z"
+        type: string
+    type: object
+  api.SingboxWatchdogLogsEnvelope:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/api.SingboxWatchdogLogEntryDTO'
+        type: array
+      success:
+        example: true
+        type: boolean
+    type: object
+  api.SingboxWatchdogStatusDTO:
+    properties:
+      activeMemberTag:
+        example: member-1
+        type: string
+      checkTag:
+        example: sb-main
+        type: string
+      configured:
+        example: true
+        type: boolean
+      enabled:
+        example: true
+        type: boolean
+      failCount:
+        example: 0
+        type: integer
+      failThreshold:
+        example: 3
+        type: integer
+      id:
+        example: tunnel:sb-main
+        type: string
+      interval:
+        example: 30
+        type: integer
+      kernelInterface:
+        example: t2s5
+        type: string
+      kind:
+        enum:
+        - tunnel
+        - subscription
+        example: tunnel
+        type: string
+      lastCheck:
+        example: "2026-06-29T08:00:00Z"
+        type: string
+      lastError:
+        example: timeout
+        type: string
+      lastLatency:
+        example: 94
+        type: integer
+      lastRecovery:
+        example: member_switch
+        type: string
+      name:
+        example: sb-main
+        type: string
+      persistSwitch:
+        example: false
+        type: boolean
+      protocol:
+        example: vless
+        type: string
+      proxyInterface:
+        example: Proxy5
+        type: string
+      recoveryMode:
+        enum:
+        - "off"
+        - restart-singbox
+        - switch-member
+        example: switch-member
+        type: string
+      ref:
+        example: sb-main
+        type: string
+      restartCount:
+        example: 0
+        type: integer
+      running:
+        example: true
+        type: boolean
+      security:
+        example: reality
+        type: string
+      selectorTag:
+        example: iq0
+        type: string
+      status:
+        enum:
+        - alive
+        - warming
+        - recovering
+        - dead
+        - disabled
+        - stopped
+        example: alive
+        type: string
+      switchCount:
+        example: 1
+        type: integer
+      timeout:
+        example: 5
+        type: integer
+      trafficTag:
+        example: sb-main
+        type: string
+      transport:
+        example: tcp
+        type: string
+    type: object
+  api.SingboxWatchdogStatusEnvelope:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/api.SingboxWatchdogStatusDTO'
+        type: array
+      success:
+        example: true
+        type: boolean
+    type: object
   api.SpeedTestInfoData:
     properties:
       available:
@@ -5221,6 +5390,89 @@ definitions:
       success:
         example: true
         type: boolean
+    type: object
+  api.WatchdogActionEnvelope:
+    properties:
+      data:
+        $ref: '#/definitions/api.WatchdogActionEnvelopeData'
+      success:
+        example: true
+        type: boolean
+    type: object
+  api.WatchdogActionEnvelopeData:
+    properties:
+      success:
+        example: true
+        type: boolean
+    type: object
+  api.WatchdogCheckRequest:
+    properties:
+      id:
+        example: subscription:sub-demo
+        type: string
+    type: object
+  api.WatchdogConfigDTO:
+    properties:
+      enabled:
+        example: true
+        type: boolean
+      failThreshold:
+        example: 3
+        maximum: 20
+        minimum: 1
+        type: integer
+      id:
+        example: tunnel:sb-main
+        type: string
+      interval:
+        example: 30
+        maximum: 3600
+        minimum: 5
+        type: integer
+      kind:
+        enum:
+        - tunnel
+        - subscription
+        example: tunnel
+        type: string
+      persistSwitch:
+        example: false
+        type: boolean
+      recoveryMode:
+        enum:
+        - "off"
+        - restart-singbox
+        - switch-member
+        example: "off"
+        type: string
+      ref:
+        example: sb-main
+        type: string
+      timeout:
+        example: 5
+        maximum: 30
+        minimum: 1
+        type: integer
+    type: object
+  api.WatchdogIDRequest:
+    properties:
+      id:
+        example: tunnel:sb-main
+        type: string
+    type: object
+  api.WatchdogMessageEnvelope:
+    properties:
+      data:
+        $ref: '#/definitions/api.WatchdogMessageEnvelopeData'
+      success:
+        example: true
+        type: boolean
+    type: object
+  api.WatchdogMessageEnvelopeData:
+    properties:
+      message:
+        example: Logs cleared
+        type: string
     type: object
   api.WireguardServerDTO:
     properties:
@@ -13498,6 +13750,184 @@ paths:
       security:
       - CookieAuth: []
       summary: Update managed sing-box binary
+      tags:
+      - singbox
+  /singbox/watchdog/check-now:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Optional target id
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/api.WatchdogCheckRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WatchdogActionEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Trigger Sing-box watchdog check
+      tags:
+      - singbox
+  /singbox/watchdog/configure:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Watchdog target config
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.WatchdogConfigDTO'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WatchdogActionEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Configure Sing-box watchdog target
+      tags:
+      - singbox
+  /singbox/watchdog/disable:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Target id
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.WatchdogIDRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WatchdogActionEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Disable Sing-box watchdog target
+      tags:
+      - singbox
+  /singbox/watchdog/enable:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Target id
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.WatchdogIDRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WatchdogActionEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Enable Sing-box watchdog target
+      tags:
+      - singbox
+  /singbox/watchdog/logs:
+    get:
+      parameters:
+      - description: Filter by target id
+        in: query
+        name: targetId
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SingboxWatchdogLogsEnvelope'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Sing-box watchdog logs
+      tags:
+      - singbox
+  /singbox/watchdog/logs/clear:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.WatchdogMessageEnvelope'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Clear Sing-box watchdog logs
+      tags:
+      - singbox
+  /singbox/watchdog/status:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SingboxWatchdogStatusEnvelope'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Sing-box watchdog status
       tags:
       - singbox
   /static-routes/create:
