@@ -114,6 +114,7 @@ type Server struct {
 	orch                       *orchestrator.Orchestrator
 	bus                        *events.Bus
 	singboxHandler             *api.SingboxHandler
+	singboxWatchdogHandler     *api.SingboxWatchdogHandler
 	singboxConnsHandler        *api.SingboxConnectionsHandler
 	singboxRouterHandler       *api.SingboxRouterHandler
 	singboxFakeIPConfigHandler *api.SingboxFakeIPConfigHandler
@@ -320,6 +321,12 @@ func (s *Server) SetDownloadService(svc *downloader.Service) {
 // /api/singbox/router/* routes can be registered.
 func (s *Server) SetSingboxRouterHandler(h *api.SingboxRouterHandler) {
 	s.singboxRouterHandler = h
+}
+
+// SetSingboxWatchdogHandler wires the Sing-box watchdog HTTP handler so the
+// /api/singbox/watchdog/* routes can be registered.
+func (s *Server) SetSingboxWatchdogHandler(h *api.SingboxWatchdogHandler) {
+	s.singboxWatchdogHandler = h
 }
 
 // SetSingboxFakeIPConfigHandler wires the fakeip-tun config CRUD handler so
@@ -1142,6 +1149,16 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
 		}))
+	}
+	if s.singboxWatchdogHandler != nil {
+		wh := s.singboxWatchdogHandler
+		mux.HandleFunc("/api/singbox/watchdog/status", guarded(wh.GetStatus))
+		mux.HandleFunc("/api/singbox/watchdog/logs", guarded(wh.GetLogs))
+		mux.HandleFunc("/api/singbox/watchdog/logs/clear", guarded(wh.ClearLogs))
+		mux.HandleFunc("/api/singbox/watchdog/configure", guarded(wh.Configure))
+		mux.HandleFunc("/api/singbox/watchdog/enable", guarded(wh.Enable))
+		mux.HandleFunc("/api/singbox/watchdog/disable", guarded(wh.Disable))
+		mux.HandleFunc("/api/singbox/watchdog/check-now", guarded(wh.CheckNow))
 	}
 	if s.singboxConfigHandler != nil {
 		mux.HandleFunc("/api/singbox/config-preview", guarded(s.singboxConfigHandler.Preview))

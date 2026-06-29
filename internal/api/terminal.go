@@ -178,8 +178,8 @@ func (h *TerminalHandler) WebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Accept client WebSocket. Disable compression for transparent binary passthrough.
 	clientConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify:  true, // same-origin, auth already checked by middleware
-		CompressionMode:     websocket.CompressionDisabled,
+		InsecureSkipVerify: true, // same-origin, auth already checked by middleware
+		CompressionMode:    websocket.CompressionDisabled,
 	})
 	if err != nil {
 		return // Accept already wrote HTTP error
