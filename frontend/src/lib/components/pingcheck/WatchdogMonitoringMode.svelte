@@ -4,13 +4,13 @@
 	import { api } from '$lib/api/client';
 	import { pingCheckStatus, pingCheckLogs, loadPingLogs } from '$lib/stores/pingcheck';
 	import { singboxStatus, singboxTunnels } from '$lib/stores/singbox';
-	import { subscriptionsStore } from '$lib/stores/subscriptions';
+	import { singboxWatchdogStatus } from '$lib/stores/singboxWatchdog';
 	import { usageLevel } from '$lib/stores/settings';
 	import { isSectionVisible } from '$lib/types/usageLevel';
-	import { resolveSubscriptionMemberTag } from '$lib/utils/subscriptionMember';
 	import { groupLogsByTunnel, computeCardStats } from '$lib/utils/pingStats';
 	import { WatchdogCard } from '$lib/components/pingcheck';
 	import SingboxWatchdogCard, { type SingboxWatchdogCardModel } from './SingboxWatchdogCard.svelte';
+	import SingboxWatchdogSettingsDrawer from './SingboxWatchdogSettingsDrawer.svelte';
 	import KernelPingCheckModal from '$lib/components/pingcheck/KernelPingCheckModal.svelte';
 	import NativeWGPingCheckModal from '$lib/components/pingcheck/NativeWGPingCheckModal.svelte';
 	import { EmptyState } from '$lib/components/layout';
@@ -19,8 +19,8 @@
 		AWGTunnel,
 		NativePingCheckConfig,
 		NativePingCheckStatus,
-		Subscription,
-		SubscriptionMember,
+		SingboxWatchdogLogEntry,
+		SingboxWatchdogStatus,
 		TunnelListItem,
 	} from '$lib/types';
 
@@ -34,10 +34,7 @@
 	let editNativeStatus = $state<NativePingCheckStatus | null>(null);
 	let unsubSingboxStatus: (() => void) | undefined;
 	let unsubSingboxTunnels: (() => void) | undefined;
-	let unsubSubscriptions: (() => void) | undefined;
-	let singboxAutoDelayCheckNonce = $state(0);
-	let lastSingboxAutoCheckKey = '';
-	const URLTEST_POLL_MS = 5000;
+	let unsubSingboxWatchdog: (() => void) | undefined;
 	type WatchdogSectionId = 'awg' | 'singbox';
 	const WATCHDOG_SECTIONS_OPEN_STORAGE_KEY = 'watchdog_monitoring_sections_open_v1';
 	let watchdogSectionsHydrated = $state(false);
@@ -45,70 +42,19 @@
 		awg: true,
 		singbox: true,
 	});
-	let liveActives = $state<Record<string, string>>({});
+	let singboxWatchdogDrawerOpen = $state(false);
+	let singboxWatchdogDrawerTarget = $state<SingboxWatchdogStatus | null>(null);
+	let singboxWatchdogLogs = $state<Record<string, SingboxWatchdogLogEntry[]>>({});
+	let singboxWatchdogLogsLoaded = $state(false);
+	let singboxWatchdogLogsLoadedKey = $state('');
 
 	const statuses = $derived($pingCheckStatus.data ?? []);
 	const logsByTunnel = $derived(groupLogsByTunnel($pingCheckLogs));
 	const singboxSectionVisible = $derived(isSectionVisible($usageLevel, 'singboxTunnels'));
 	const singboxState = $derived($singboxStatus);
-	const singboxTunnelsState = $derived($singboxTunnels);
-	const subscriptionsState = $derived($subscriptionsStore);
+	const singboxWatchdogState = $derived($singboxWatchdogStatus);
 	const singboxInstalled = $derived(singboxState.data?.installed === true);
-	const singboxRunning = $derived(singboxState.data?.running === true);
-	const singboxList = $derived(singboxTunnelsState.data ?? []);
-	const subscriptions = $derived(subscriptionsState.data ?? []);
-
-	$effect(() => {
-		if (!singboxSectionVisible || !singboxInstalled) {
-			liveActives = {};
-			return;
-		}
-
-		const urltestSubs = subscriptions.filter(
-			(subscription) =>
-				subscription.enabled &&
-				subscription.mode === 'urltest' &&
-				(subscription.members?.length ?? 0) > 0,
-		);
-
-		if (urltestSubs.length === 0) {
-			liveActives = {};
-			return;
-		}
-
-		let cancelled = false;
-
-		const tick = async (): Promise<void> => {
-			try {
-				const results = await Promise.all(
-					urltestSubs.map((subscription) =>
-						api
-							.getSubscriptionActiveNow(subscription.id)
-							.then((result) => [subscription.id, result.now] as const)
-							.catch(() => [subscription.id, ''] as const),
-					),
-				);
-
-				if (cancelled) return;
-
-				const next: Record<string, string> = {};
-				for (const [id, now] of results) {
-					if (now) next[id] = now;
-				}
-				liveActives = next;
-			} catch {
-				// Keep previous known active pointers.
-			}
-		};
-
-		void tick();
-		const timer = setInterval(() => void tick(), URLTEST_POLL_MS);
-
-		return () => {
-			cancelled = true;
-			clearInterval(timer);
-		};
-	});
+	const singboxWatchdogList = $derived(Array.isArray(singboxWatchdogState.data) ? singboxWatchdogState.data : []);
 
 	async function loadConfigs(ids: string[]) {
 		const next: Record<string, AWGTunnel['pingCheck']> = {};
@@ -128,7 +74,7 @@
 	onMount(async () => {
 		unsubSingboxStatus = singboxStatus.subscribe(() => {});
 		unsubSingboxTunnels = singboxTunnels.subscribe(() => {});
-		unsubSubscriptions = subscriptionsStore.subscribe(() => {});
+		unsubSingboxWatchdog = singboxWatchdogStatus.subscribe(() => {});
 
 		try {
 			const raw = localStorage.getItem(WATCHDOG_SECTIONS_OPEN_STORAGE_KEY);
@@ -159,7 +105,7 @@
 	onDestroy(() => {
 		unsubSingboxStatus?.();
 		unsubSingboxTunnels?.();
-		unsubSubscriptions?.();
+		unsubSingboxWatchdog?.();
 	});
 
 	$effect(() => {
@@ -212,82 +158,39 @@
 		return [...enabled, ...noPc];
 	});
 
-	function buildSubscriptionCard(subscription: Subscription): SingboxWatchdogCardModel | null {
-		if (!subscription.enabled || (subscription.members?.length ?? 0) === 0) return null;
-
-		const activeTag = resolveSubscriptionMemberTag(subscription, liveActives[subscription.id] || null);
-		if (!activeTag) return null;
-
-		const activeMember: SubscriptionMember | undefined =
-			subscription.members.find((member) => member.tag === activeTag) ?? subscription.members[0];
-
-		if (!activeMember) return null;
-
-		const selectorTag = subscription.selectorTag?.trim() || '';
-		const delayCheckTag = selectorTag || activeMember.tag;
-		const proxyInterface = subscription.proxyIndex >= 0 ? `Proxy${subscription.proxyIndex}` : '';
-		const kernelInterface = subscription.proxyIndex >= 0 ? `t2s${subscription.proxyIndex}` : '';
-		const modeLabel = subscription.mode === 'urltest' ? 'Подписка · URLTest' : 'Подписка · Selector';
-
-		return {
-			id: `subscription:${subscription.id}`,
-			name: subscription.label?.trim() || activeMember.label?.trim() || activeMember.tag,
-			routeHref: `/subscriptions/${encodeURIComponent(subscription.id)}`,
-			source: 'subscription',
-			sourceLabel: modeLabel,
-			tag: activeMember.tag,
-			delayCheckTag,
-			primaryHistoryTag: delayCheckTag,
-			fallbackHistoryTag: activeMember.tag,
-			trafficTag: activeMember.tag,
-			protocol: activeMember.protocol,
-			security: activeMember.security,
-			transport: activeMember.transport,
-			proxyInterface,
-			kernelInterface,
-			running: singboxRunning,
-		};
-	}
-
 	const singboxCards = $derived.by(() => {
-		const rawCards: SingboxWatchdogCardModel[] = singboxList.map((tunnel) => ({
-			id: `tunnel:${tunnel.tag}`,
-			name: tunnel.tag,
-			routeHref: `/singbox/${encodeURIComponent(tunnel.tag)}`,
-			source: 'tunnel',
-			sourceLabel: 'Sing-box',
-			tag: tunnel.tag,
-			delayCheckTag: tunnel.tag,
-			primaryHistoryTag: tunnel.tag,
-			trafficTag: tunnel.tag,
-			protocol: tunnel.protocol,
-			security: tunnel.security,
-			transport: tunnel.transport,
-			proxyInterface: tunnel.proxyInterface,
-			kernelInterface: tunnel.kernelInterface,
-			running: tunnel.running === true,
-		}));
-
-		const subscriptionCards = subscriptions
-			.map((subscription) => buildSubscriptionCard(subscription))
-			.filter((card): card is SingboxWatchdogCardModel => card !== null);
-
-		return [...subscriptionCards, ...rawCards];
-	});
-
-	const singboxAutoCheckOrder = $derived.by(() => {
-		const seenTags = new Set<string>();
-		const order = new Map<string, number>();
-
-		for (const card of singboxCards) {
-			const tag = card.delayCheckTag.trim();
-			if (!card.running || !tag || seenTags.has(tag)) continue;
-
-			seenTags.add(tag);
-			order.set(card.id, order.size);
-		}
-
-		return order;
+		return singboxWatchdogList.map((status) => ({
+			id: status.id,
+			name: status.name,
+			routeHref:
+				status.kind === 'subscription'
+					? `/subscriptions/${encodeURIComponent(status.ref)}`
+					: `/singbox/${encodeURIComponent(status.ref)}`,
+			source: status.kind,
+			sourceLabel: status.kind === 'subscription' ? 'Подписка' : 'Sing-box',
+			tag: status.activeMemberTag || status.checkTag,
+			delayCheckTag: status.checkTag,
+			primaryHistoryTag: status.checkTag,
+			fallbackHistoryTag: status.activeMemberTag || undefined,
+			trafficTag: status.trafficTag,
+			protocol: status.protocol,
+			security: status.security,
+			transport: status.transport,
+			proxyInterface: status.proxyInterface,
+			kernelInterface: status.kernelInterface,
+			running: status.running,
+			configured: status.configured,
+			enabled: status.enabled,
+			statusKind: status.status,
+			failCount: status.failCount,
+			failThreshold: status.failThreshold,
+			restartCount: status.restartCount,
+			switchCount: status.switchCount,
+			lastError: status.lastError,
+			lastRecovery: status.lastRecovery,
+			status,
+			logs: singboxWatchdogLogs[status.id] ?? [],
+		} satisfies SingboxWatchdogCardModel));
 	});
 
 	function isWatchdogSectionAvailable(id: WatchdogSectionId): boolean {
@@ -327,48 +230,54 @@
 	);
 	const singboxWatchdogTotal = $derived(singboxCards.length);
 	const singboxWatchdogRunning = $derived(
-		singboxCards.filter((card) => card.running).length,
+		singboxCards.filter((card) => card.enabled).length,
 	);
 
 	const singboxLoading = $derived.by(() => {
 		if (!singboxSectionVisible) return false;
 		if (!singboxState.data && (singboxState.status === 'idle' || singboxState.status === 'loading')) return true;
 		if (!singboxInstalled) return false;
-		const tunnelsLoading =
-			!singboxTunnelsState.data &&
-			(singboxTunnelsState.status === 'idle' || singboxTunnelsState.status === 'loading');
-		const subscriptionsLoading =
-			!subscriptionsState.data &&
-			(subscriptionsState.status === 'idle' || subscriptionsState.status === 'loading');
-		return tunnelsLoading || subscriptionsLoading;
+		return (
+			!singboxWatchdogState.data &&
+			(singboxWatchdogState.status === 'idle' || singboxWatchdogState.status === 'loading')
+		);
 	});
 
 	const singboxErrorMessage = $derived.by(() => {
 		if (!singboxSectionVisible) return '';
 		if (!singboxState.data && singboxState.status === 'error') return 'Не удалось загрузить Sing-box.';
-		if (singboxInstalled && !singboxTunnelsState.data && singboxTunnelsState.status === 'error') {
-			return 'Не удалось загрузить Sing-box туннели.';
-		}
-		if (singboxInstalled && !subscriptionsState.data && subscriptionsState.status === 'error') {
-			return 'Не удалось загрузить подписки Sing-box.';
+		if (singboxInstalled && !singboxWatchdogState.data && singboxWatchdogState.status === 'error') {
+			return 'Не удалось загрузить Sing-box Watchdog.';
 		}
 		return '';
 	});
 
+	function groupSingboxWatchdogLogs(logs: SingboxWatchdogLogEntry[]): Record<string, SingboxWatchdogLogEntry[]> {
+		const grouped: Record<string, SingboxWatchdogLogEntry[]> = {};
+		for (const entry of logs) {
+			if (!entry?.targetId) continue;
+			(grouped[entry.targetId] ??= []).push(entry);
+		}
+		return grouped;
+	}
+
+	async function loadSingboxWatchdogLogs(): Promise<void> {
+		try {
+			const rawLogs = await api.singboxWatchdogLogs();
+			const logs = Array.isArray(rawLogs) ? rawLogs : [];
+			singboxWatchdogLogs = groupSingboxWatchdogLogs(logs);
+			singboxWatchdogLogsLoaded = true;
+		} catch {
+			// Keep previous logs.
+		}
+	}
+
 	$effect(() => {
-		if (!singboxSectionVisible || singboxLoading || !singboxInstalled) return;
-		const tags = [...new Set(
-			singboxCards
-				.filter((card) => card.running && card.delayCheckTag.trim())
-				.map((card) => card.delayCheckTag.trim()),
-		)]
-			.sort()
-			.join(',');
-		if (!tags) return;
-		const key = `watchdog:${tags}`;
-		if (key === lastSingboxAutoCheckKey) return;
-		lastSingboxAutoCheckKey = key;
-		singboxAutoDelayCheckNonce += 1;
+		if (!singboxSectionVisible || !singboxInstalled || singboxCards.length === 0) return;
+		const logsKey = singboxCards.map((card) => card.id).sort().join(',');
+		if (singboxWatchdogLogsLoaded && singboxWatchdogLogsLoadedKey === logsKey) return;
+		singboxWatchdogLogsLoadedKey = logsKey;
+		void loadSingboxWatchdogLogs();
 	});
 
 	async function openConfig(id: string, name: string, backend: 'kernel' | 'nativewg') {
@@ -450,6 +359,61 @@
 			void loadPingLogs();
 		} catch {
 			notifications.error('Не удалось выключить watchdog');
+		}
+	}
+
+	function openSingboxWatchdogSettings(target: SingboxWatchdogStatus): void {
+		singboxWatchdogDrawerTarget = target;
+		singboxWatchdogDrawerOpen = true;
+	}
+
+	function closeSingboxWatchdogSettings(): void {
+		singboxWatchdogDrawerOpen = false;
+		singboxWatchdogDrawerTarget = null;
+	}
+
+	function afterSingboxWatchdogSave(): void {
+		closeSingboxWatchdogSettings();
+		singboxWatchdogStatus.refetch();
+		void loadSingboxWatchdogLogs();
+	}
+
+	async function checkSingboxWatchdogNow(card: SingboxWatchdogCardModel): Promise<void> {
+		try {
+			await api.singboxWatchdogCheckNow(card.id);
+			await Promise.all([
+				singboxWatchdogStatus.refetch(),
+				loadSingboxWatchdogLogs(),
+			]);
+		} catch {
+			notifications.error('Не удалось запустить Sing-box watchdog');
+		}
+	}
+
+	async function enableSingboxWatchdog(card: SingboxWatchdogCardModel): Promise<void> {
+		try {
+			if (card.configured) {
+				await api.singboxWatchdogEnable(card.id);
+			} else if (card.status) {
+				openSingboxWatchdogSettings(card.status);
+				return;
+			}
+			await singboxWatchdogStatus.refetch();
+			void loadSingboxWatchdogLogs();
+			notifications.success(`Watchdog включён: ${card.name}`);
+		} catch {
+			notifications.error('Не удалось включить Sing-box watchdog');
+		}
+	}
+
+	async function disableSingboxWatchdog(card: SingboxWatchdogCardModel): Promise<void> {
+		try {
+			await api.singboxWatchdogDisable(card.id);
+			await singboxWatchdogStatus.refetch();
+			void loadSingboxWatchdogLogs();
+			notifications.success(`Watchdog выключен: ${card.name}`);
+		} catch {
+			notifications.error('Не удалось выключить Sing-box watchdog');
 		}
 	}
 </script>
@@ -572,8 +536,10 @@
 									{#each singboxCards as card (card.id)}
 										<SingboxWatchdogCard
 											{card}
-											autoDelayCheckNonce={singboxAutoCheckOrder.has(card.id) ? singboxAutoDelayCheckNonce : 0}
-											autoDelayCheckDelayMs={(singboxAutoCheckOrder.get(card.id) ?? 0) * 180}
+											onConfigure={() => card.status && openSingboxWatchdogSettings(card.status)}
+											onCheckNow={() => checkSingboxWatchdogNow(card)}
+											onDisable={() => disableSingboxWatchdog(card)}
+											onEnable={() => enableSingboxWatchdog(card)}
 										/>
 									{/each}
 								</div>
@@ -599,6 +565,13 @@
 		onRemoved={afterSave}
 	/>
 {/if}
+
+<SingboxWatchdogSettingsDrawer
+	open={singboxWatchdogDrawerOpen}
+	target={singboxWatchdogDrawerTarget}
+	onclose={closeSingboxWatchdogSettings}
+	onSaved={afterSingboxWatchdogSave}
+/>
 
 <style>
 	.wd-grid {
