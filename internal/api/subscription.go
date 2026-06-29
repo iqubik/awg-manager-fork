@@ -122,29 +122,29 @@ type SubscriptionURLTestDTO struct {
 // only needs IsInline to gate UI affordances; raw paste stays
 // server-side until a future single-record endpoint requires it.
 type SubscriptionDTO struct {
-	ID           string                  `json:"id" example:"sub-demo"`
-	Label        string                  `json:"label" example:"Demo Provider"`
-	URL          string                  `json:"url" example:"https://example.com/subscriptions/demo.txt"`
-	IsInline     bool                    `json:"isInline" example:"false"`
-	Headers      []SubscriptionHeader    `json:"headers"`
-	RefreshHours int                     `json:"refreshHours" example:"24"`
-	LastFetched  string                  `json:"lastFetched" example:"2026-05-14T21:30:00Z"`
-	LastError    string                  `json:"lastError,omitempty" example:""`
-	SelectorTag  string                  `json:"selectorTag" example:"sub-demo"`
-	InboundTag   string                  `json:"inboundTag" example:"sub-demo-in"`
-	ListenPort   int                     `json:"listenPort" example:"11000"`
-	ProxyIndex   int                     `json:"proxyIndex" example:"1" description:"NDMS ProxyN index for this subscription. -1 when no proxy is allocated yet OR when global 'Create NDMS Proxy for sing-box' is disabled (the composite interface does not exist in that mode — UI should hide t2sN/ProxyN labels and disable per-subscription speedtest)."`
-	MemberTags   []string                `json:"memberTags" example:"sub-demo-001,sub-demo-002,sub-demo-003"`
-	Members      []SubscriptionMemberDTO `json:"members"`
-	OrphanTags        []string                      `json:"orphanTags" example:""`
-	RejectedMembers   []SubscriptionRejectedDTO   `json:"rejectedMembers"`
-	InfoItems         []SubscriptionInfoItemDTO   `json:"infoItems"`
-	ActiveMember      string                      `json:"activeMember" example:"sub-demo-001"`
-	ExcludedTags      []string                    `json:"excludedTags"`
-	ExcludedMembers   []SubscriptionMemberDTO     `json:"excludedMembers,omitempty"`
-	Enabled      bool                    `json:"enabled" example:"true"`
-	Mode         string                  `json:"mode" example:"selector"`
-	URLTest      *SubscriptionURLTestDTO `json:"urlTest,omitempty"`
+	ID              string                    `json:"id" example:"sub-demo"`
+	Label           string                    `json:"label" example:"Demo Provider"`
+	URL             string                    `json:"url" example:"https://example.com/subscriptions/demo.txt"`
+	IsInline        bool                      `json:"isInline" example:"false"`
+	Headers         []SubscriptionHeader      `json:"headers"`
+	RefreshHours    int                       `json:"refreshHours" example:"24"`
+	LastFetched     string                    `json:"lastFetched" example:"2026-05-14T21:30:00Z"`
+	LastError       string                    `json:"lastError,omitempty" example:""`
+	SelectorTag     string                    `json:"selectorTag" example:"sub-demo"`
+	InboundTag      string                    `json:"inboundTag" example:"sub-demo-in"`
+	ListenPort      int                       `json:"listenPort" example:"11000"`
+	ProxyIndex      int                       `json:"proxyIndex" example:"1" description:"NDMS ProxyN index for this subscription. -1 when no proxy is allocated yet OR when global 'Create NDMS Proxy for sing-box' is disabled (the composite interface does not exist in that mode — UI should hide t2sN/ProxyN labels and disable per-subscription speedtest)."`
+	MemberTags      []string                  `json:"memberTags" example:"sub-demo-001,sub-demo-002,sub-demo-003"`
+	Members         []SubscriptionMemberDTO   `json:"members"`
+	OrphanTags      []string                  `json:"orphanTags" example:""`
+	RejectedMembers []SubscriptionRejectedDTO `json:"rejectedMembers"`
+	InfoItems       []SubscriptionInfoItemDTO `json:"infoItems"`
+	ActiveMember    string                    `json:"activeMember" example:"sub-demo-001"`
+	ExcludedTags    []string                  `json:"excludedTags"`
+	ExcludedMembers []SubscriptionMemberDTO   `json:"excludedMembers,omitempty"`
+	Enabled         bool                      `json:"enabled" example:"true"`
+	Mode            string                    `json:"mode" example:"selector"`
+	URLTest         *SubscriptionURLTestDTO   `json:"urlTest,omitempty"`
 }
 
 // SubscriptionHeader is a single custom HTTP header for the fetch request.
@@ -333,29 +333,29 @@ func toSubscriptionDTO(s subscription.Subscription, ndmsProxyEnabled bool) Subsc
 		proxyIdx = -1
 	}
 	return SubscriptionDTO{
-		ID:           s.ID,
-		Label:        s.Label,
-		URL:          s.URL,
-		IsInline:     s.IsInline(),
-		Headers:      hh,
-		RefreshHours: s.RefreshHours,
-		LastFetched:  last,
-		LastError:    s.LastError,
-		SelectorTag:  s.SelectorTag,
-		InboundTag:   s.InboundTag,
-		ListenPort:   int(s.ListenPort),
-		ProxyIndex:   proxyIdx,
-		MemberTags:   memberTags,
-		Members:      memberDTOs,
-		OrphanTags:        orphans,
-		RejectedMembers:   rejected,
-		InfoItems:         info,
-		ActiveMember:      s.ActiveMember,
-		ExcludedTags:      excludedTags,
-		ExcludedMembers:   excludedMemberDTOs,
-		Enabled:      s.Enabled,
-		Mode:         mode,
-		URLTest:      urltest,
+		ID:              s.ID,
+		Label:           s.Label,
+		URL:             s.URL,
+		IsInline:        s.IsInline(),
+		Headers:         hh,
+		RefreshHours:    s.RefreshHours,
+		LastFetched:     last,
+		LastError:       s.LastError,
+		SelectorTag:     s.SelectorTag,
+		InboundTag:      s.InboundTag,
+		ListenPort:      int(s.ListenPort),
+		ProxyIndex:      proxyIdx,
+		MemberTags:      memberTags,
+		Members:         memberDTOs,
+		OrphanTags:      orphans,
+		RejectedMembers: rejected,
+		InfoItems:       info,
+		ActiveMember:    s.ActiveMember,
+		ExcludedTags:    excludedTags,
+		ExcludedMembers: excludedMemberDTOs,
+		Enabled:         s.Enabled,
+		Mode:            mode,
+		URLTest:         urltest,
 	}
 }
 
@@ -364,24 +364,24 @@ func toSubscriptionDTO(s subscription.Subscription, ndmsProxyEnabled bool) Subsc
 // arrive as separate member events). The `total` field tells the UI
 // how many member events to expect for progress.
 type SubscriptionMetaDTO struct {
-	ID           string                  `json:"id"`
-	Label        string                  `json:"label"`
-	URL          string                  `json:"url"`
-	IsInline     bool                    `json:"isInline"`
-	Headers      []SubscriptionHeader    `json:"headers"`
-	RefreshHours int                     `json:"refreshHours"`
-	LastFetched  string                  `json:"lastFetched" example:"2026-05-14T21:30:00Z"`
-	LastError    string                  `json:"lastError,omitempty" example:""`
-	SelectorTag  string                  `json:"selectorTag"`
-	InboundTag   string                  `json:"inboundTag"`
-	ListenPort   int                     `json:"listenPort"`
-	ProxyIndex   int                     `json:"proxyIndex" description:"See SubscriptionDTO.ProxyIndex — gated identically (-1 when NDMS Proxy disabled)."`
-	Enabled      bool                    `json:"enabled"`
-	Mode         string                  `json:"mode"`
-	URLTest           *SubscriptionURLTestDTO     `json:"urlTest,omitempty"`
-	Total             int                         `json:"total"`
-	RejectedMembers   []SubscriptionRejectedDTO   `json:"rejectedMembers"`
-	InfoItems         []SubscriptionInfoItemDTO   `json:"infoItems"`
+	ID              string                    `json:"id"`
+	Label           string                    `json:"label"`
+	URL             string                    `json:"url"`
+	IsInline        bool                      `json:"isInline"`
+	Headers         []SubscriptionHeader      `json:"headers"`
+	RefreshHours    int                       `json:"refreshHours"`
+	LastFetched     string                    `json:"lastFetched" example:"2026-05-14T21:30:00Z"`
+	LastError       string                    `json:"lastError,omitempty" example:""`
+	SelectorTag     string                    `json:"selectorTag"`
+	InboundTag      string                    `json:"inboundTag"`
+	ListenPort      int                       `json:"listenPort"`
+	ProxyIndex      int                       `json:"proxyIndex" description:"See SubscriptionDTO.ProxyIndex — gated identically (-1 when NDMS Proxy disabled)."`
+	Enabled         bool                      `json:"enabled"`
+	Mode            string                    `json:"mode"`
+	URLTest         *SubscriptionURLTestDTO   `json:"urlTest,omitempty"`
+	Total           int                       `json:"total"`
+	RejectedMembers []SubscriptionRejectedDTO `json:"rejectedMembers"`
+	InfoItems       []SubscriptionInfoItemDTO `json:"infoItems"`
 }
 
 // SubscriptionStreamMemberDTO wraps a single member with its index for
