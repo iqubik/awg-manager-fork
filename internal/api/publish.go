@@ -9,6 +9,7 @@ const (
 	ResourceServers                 = "servers"
 	ResourceSingboxStatus           = "singbox.status"
 	ResourceSingboxTunnels          = "singbox.tunnels"
+	ResourceSingboxWatchdog         = "singbox.watchdog"
 	ResourceSysInfo                 = "sysInfo"
 	ResourcePingcheck               = "pingcheck"
 	ResourceSaveStatus              = "saveStatus"

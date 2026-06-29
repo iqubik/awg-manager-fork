@@ -1,4 +1,10 @@
 <script lang="ts" module>
+	import type {
+		SingboxWatchdogLogEntry,
+		SingboxWatchdogStatus,
+		SingboxWatchdogStatusKind,
+	} from '$lib/types';
+
 	export type SingboxWatchdogSource = 'tunnel' | 'subscription';
 
 	export interface SingboxWatchdogCardModel {
@@ -7,30 +13,10 @@
 		routeHref: string;
 		source: SingboxWatchdogSource;
 		sourceLabel?: string;
-		/**
-		 * Display tag: raw outbound tag or active subscription member tag.
-		 */
 		tag: string;
-		/**
-		 * Tag passed to /singbox/tunnels/delay-check.
-		 * For raw tunnel: tunnel.tag.
-		 * For subscription: selectorTag when available, else active member tag.
-		 */
 		delayCheckTag: string;
-		/**
-		 * Preferred tag for reading singboxDelayHistory.
-		 * For subscription this is usually selectorTag.
-		 */
 		primaryHistoryTag: string;
-		/**
-		 * Fallback history tag.
-		 * For subscription this should be activeMember.tag.
-		 */
 		fallbackHistoryTag?: string;
-		/**
-		 * Tag used for traffic history/rates.
-		 * For subscription this should be activeMember.tag.
-		 */
 		trafficTag: string;
 		protocol?: string;
 		security?: string;
@@ -38,12 +24,22 @@
 		proxyInterface?: string;
 		kernelInterface?: string;
 		running: boolean;
+		configured: boolean;
+		enabled: boolean;
+		statusKind: SingboxWatchdogStatusKind;
+		failCount: number;
+		failThreshold: number;
+		restartCount: number;
+		switchCount: number;
+		lastError?: string;
+		lastRecovery?: string;
+		status?: SingboxWatchdogStatus;
+		logs?: SingboxWatchdogLogEntry[];
 	}
 </script>
 
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { untrack } from 'svelte';
 	import { api } from '$lib/api/client';
 	import { Badge, Button, StatusDot } from '$lib/components/ui';
 	import {
@@ -52,25 +48,40 @@
 		TunnelMetaText,
 		TunnelTitleRow,
 	} from '$lib/components/tunnels';
-	import { notifications } from '$lib/stores/notifications';
-	import { singboxDelayHistory } from '$lib/stores/singbox';
 	import { getTrafficRates, loadHistory, subscribeTraffic } from '$lib/stores/traffic';
-	import type { SingboxDelayState } from '$lib/utils/singboxDelay';
+	import { singboxDelayHistory } from '$lib/stores/singbox';
 	import { singboxDelayFromHistory } from '$lib/utils/singboxDelay';
 	import { singboxDelayStatusDot } from '$lib/utils/statusDot';
 	import { getSingboxProtocolLabel } from '$lib/utils/singboxPresentation';
+	import type { StatusDotVariant, BadgeVariant } from '$lib/components/ui';
+	import type { SingboxDelayState } from '$lib/utils/singboxDelay';
 
 	interface Props {
 		card: SingboxWatchdogCardModel;
-		autoDelayCheckNonce?: number;
-		autoDelayCheckDelayMs?: number;
+		onConfigure: () => void;
+		onCheckNow: () => void;
+		onDisable: () => void;
+		onEnable: () => void;
 	}
 
-	let { card, autoDelayCheckNonce = 0, autoDelayCheckDelayMs = 0 }: Props = $props();
+	let { card, onConfigure, onCheckNow, onDisable, onEnable }: Props = $props();
 
 	let checking = $state(false);
+	let delayChecking = $state(false);
 	let rxRates = $state<number[]>([]);
 	let txRates = $state<number[]>([]);
+
+	const STATUS: Record<
+		SingboxWatchdogStatusKind,
+		{ dot: StatusDotVariant; pulse: boolean; label: string; badge: BadgeVariant }
+	> = {
+		alive: { dot: 'success', pulse: false, label: 'активен', badge: 'success' },
+		warming: { dot: 'muted', pulse: true, label: 'ожидание', badge: 'muted' },
+		recovering: { dot: 'warning', pulse: true, label: 'восстановление', badge: 'warning' },
+		dead: { dot: 'error', pulse: true, label: 'сбой', badge: 'error' },
+		disabled: { dot: 'muted', pulse: false, label: 'выключен', badge: 'muted' },
+		stopped: { dot: 'muted', pulse: false, label: 'остановлен', badge: 'muted' },
+	};
 
 	const primaryHistory = $derived(
 		card.primaryHistoryTag ? ($singboxDelayHistory.get(card.primaryHistoryTag) ?? []) : [],
@@ -79,9 +90,7 @@
 		card.fallbackHistoryTag ? ($singboxDelayHistory.get(card.fallbackHistoryTag) ?? []) : [],
 	);
 	const history = $derived(primaryHistory.length > 0 ? primaryHistory : fallbackHistory);
-	const delayPresentation = $derived(
-		singboxDelayFromHistory(history, { running: card.running }),
-	);
+	const delayPresentation = $derived(singboxDelayFromHistory(history, { running: card.running }));
 	const latest = $derived(delayPresentation.latest);
 	const positiveHistory = $derived(history.filter((value) => value > 0));
 	const average = $derived(
@@ -89,15 +98,8 @@
 			? Math.round(positiveHistory.reduce((sum, value) => sum + value, 0) / positiveHistory.length)
 			: 0,
 	);
-	const statusDot = $derived(singboxDelayStatusDot(delayPresentation.state, card.running));
 	const protocolLabel = $derived(getSingboxProtocolLabel(card.protocol));
-	const latestLabel = $derived.by(() => {
-		if (!card.running) return 'stopped';
-		if (latest === undefined) return '—';
-		if (latest <= 0) return 'timeout';
-		return `${latest}ms`;
-	});
-
+	const watchdogStatus = $derived(STATUS[card.statusKind]);
 	const trafficSparkSeries = $derived.by(() => {
 		const n = Math.min(rxRates.length, txRates.length);
 		if (n === 0) return { rx: [] as number[], tx: [] as number[] };
@@ -108,6 +110,14 @@
 			tx: txRates.slice(start, n),
 		};
 	});
+	const recentLogs = $derived((card.logs ?? []).slice(-5).reverse());
+	const lossPct = $derived.by(() => {
+		const logs = card.logs ?? [];
+		if (logs.length === 0) return 0;
+		const failed = logs.filter((entry) => !entry.success).length;
+		return Math.round((failed / logs.length) * 100);
+	});
+	const delayBadgeVariant = $derived(badgeVariantForDelay(delayPresentation.state));
 
 	$effect(() => {
 		const tag = card.trafficTag;
@@ -125,37 +135,32 @@
 		const tag = card.trafficTag;
 		if (!tag || tag === lastLoadedTrafficTag) return;
 		lastLoadedTrafficTag = tag;
-		untrack(() => void loadHistory(tag));
+		void loadHistory(tag);
 	});
-
-	async function runDelayCheck(): Promise<void> {
-		const tag = card.delayCheckTag.trim();
-		if (checking || !tag) return;
-		checking = true;
-		try {
-			await api.singboxDelayCheck(tag);
-		} catch (error) {
-			notifications.error(error instanceof Error ? error.message : 'Не удалось проверить задержку sing-box');
-		} finally {
-			checking = false;
-		}
-	}
 
 	function openEditor(): void {
 		void goto(card.routeHref);
 	}
 
-	let lastAutoDelayCheckNonce = 0;
-	$effect(() => {
-		const nonce = autoDelayCheckNonce;
-		if (nonce <= 0 || nonce === lastAutoDelayCheckNonce || !card.running || !card.delayCheckTag.trim()) return;
-		lastAutoDelayCheckNonce = nonce;
+	async function checkNow(): Promise<void> {
+		if (checking || (!card.running && !card.enabled)) return;
+		checking = true;
+		try {
+			await onCheckNow();
+		} finally {
+			checking = false;
+		}
+	}
 
-		const timer = setTimeout(() => {
-			untrack(() => void runDelayCheck());
-		}, autoDelayCheckDelayMs);
-		return () => clearTimeout(timer);
-	});
+	async function checkDelay(): Promise<void> {
+		if (delayChecking || !card.delayCheckTag) return;
+		delayChecking = true;
+		try {
+			await api.singboxDelayCheck(card.delayCheckTag);
+		} finally {
+			delayChecking = false;
+		}
+	}
 
 	function badgeVariantForDelay(state: SingboxDelayState): 'success' | 'warning' | 'error' | 'muted' {
 		switch (state) {
@@ -169,6 +174,18 @@
 				return 'muted';
 		}
 	}
+
+	const latestLabel = $derived.by(() => {
+		if (card.statusKind === 'dead') return 'timeout';
+		if (!card.running) return 'stopped';
+		if (card.status?.lastLatency && card.status.lastLatency > 0) return `${card.status.lastLatency}ms`;
+		if (latest === undefined) return '—';
+		if (latest <= 0) return 'timeout';
+		return `${latest}ms`;
+	});
+
+	const countLabel = $derived(card.source === 'subscription' ? 'переключения' : 'рестарты');
+	const countValue = $derived(card.source === 'subscription' ? card.switchCount : card.restartCount);
 </script>
 
 <article class="wd-card sbx-wd-card" aria-label={`${card.source === 'subscription' ? 'Subscription' : 'Sing-box'} watchdog ${card.name}`}>
@@ -176,14 +193,20 @@
 		<div class="wd-head-main">
 			<div class="wd-head-top">
 				<div class="wd-head-title">
-					<StatusDot variant={statusDot.variant} pulse={statusDot.pulse} size="sm" ariaLabel={card.name} />
+					<StatusDot
+						variant={watchdogStatus.dot}
+						pulse={watchdogStatus.pulse}
+						size="sm"
+						ariaLabel={card.name}
+					/>
 					<TunnelTitleRow title={card.name} staticTitle showDot={false} />
 				</div>
 				<div class="wd-head-side">
 					{#if card.sourceLabel}
 						<Badge variant="accent" size="xs" compact mono pill>{card.sourceLabel}</Badge>
 					{/if}
-					<Badge variant={badgeVariantForDelay(delayPresentation.state)} size="xs" compact mono pill>{latestLabel}</Badge>
+					<Badge variant={watchdogStatus.badge} size="xs" compact mono pill>{watchdogStatus.label}</Badge>
+					<Badge variant={delayBadgeVariant} size="xs" compact mono pill>{latestLabel}</Badge>
 				</div>
 			</div>
 			<div class="wd-head-subline">
@@ -214,57 +237,108 @@
 		</div>
 	</div>
 
-	<div class="wd-stats">
-		<div class="wd-stat">
-			<span class="v">{latestLabel}</span>
-			<span class="k">latest</span>
+	{#if !card.configured}
+		<div class="wd-note">
+			<div class="wd-note-title">Watchdog не настроен для этой Sing-box цели.</div>
+			<div class="wd-note-text">Сохраните настройки, чтобы включить периодические проверки и recovery.</div>
 		</div>
-		<div class="wd-stat">
-			<span class="v">{average > 0 ? `${average}ms` : '—'}</span>
-			<span class="k">avg</span>
+		<div class="wd-foot">
+			<Button type="button" variant="outline-primary" size="sm" onclick={onConfigure}>Включить</Button>
+			<Button type="button" variant="secondary" size="sm" onclick={openEditor}>Открыть</Button>
 		</div>
-	</div>
+	{:else if !card.enabled}
+		<div class="wd-note">
+			<div class="wd-note-title">Watchdog выключен.</div>
+			<div class="wd-note-text">Настройки сохранены. Можно включить мониторинг без повторной настройки.</div>
+		</div>
+		<div class="wd-foot">
+			<Button type="button" variant="outline-primary" size="sm" onclick={onEnable}>Включить</Button>
+			<Button type="button" variant="outline-primary" size="sm" onclick={onConfigure}>Настроить</Button>
+			<Button type="button" variant="secondary" size="sm" onclick={openEditor}>Открыть</Button>
+		</div>
+	{:else}
+		<div class="wd-stats">
+			<div class="wd-stat">
+				<span class="v">{latestLabel}</span>
+				<span class="k">latest</span>
+			</div>
+			<div class="wd-stat">
+				<span class="v">{average > 0 ? `${average}ms` : '—'}</span>
+				<span class="k">avg</span>
+			</div>
+			<div class="wd-stat">
+				<span class="v">{card.failCount}/{card.failThreshold}</span>
+				<span class="k">fails</span>
+			</div>
+			<div class="wd-stat">
+				<span class="v">{countValue}</span>
+				<span class="k">{countLabel}</span>
+			</div>
+		</div>
 
-	<div class="wd-checks">
-		<div class="wd-checks-head">
-			<span class="wd-checks-title">Задержка</span>
+		<div class="wd-checks">
+			<div class="wd-checks-head">
+				<span class="wd-checks-title">Задержка</span>
+				<span class="wd-minmax">loss {lossPct}%</span>
+			</div>
+			<div class="wd-bars">
+				<TunnelDelaySparkBars
+					history={history}
+					state={delayPresentation.state}
+					maxBars={12}
+					colorPerBar
+					title="Проверить задержку"
+					onclick={() => void checkDelay()}
+				/>
+			</div>
+
+			{#if card.lastError}
+				<div class="wd-error">{card.lastError}</div>
+			{/if}
+
+			{#if recentLogs.length > 0}
+				<div class="wd-log">
+					{#each recentLogs as entry (entry.timestamp + entry.targetId + entry.stateChange)}
+						<div class="wd-log-row">
+							<span class:ok={entry.success} class:bad={!entry.success}>
+								{entry.success ? 'OK' : 'ERR'}
+							</span>
+							<span>{entry.success ? `${entry.latency}ms` : entry.error || 'timeout'}</span>
+							{#if entry.stateChange}
+								<span class="wd-log-state">{entry.stateChange}</span>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
 		</div>
-		<div class="wd-bars">
-			<TunnelDelaySparkBars
-				history={history}
-				state={delayPresentation.state}
-				maxBars={12}
-				colorPerBar
-				title="Проверить задержку"
-				onclick={() => void runDelayCheck()}
+
+		<div class="sbx-wd-traffic">
+			<TunnelListTrafficCell
+				rxRate={rxRates.length > 0 ? rxRates[rxRates.length - 1] : 0}
+				txRate={txRates.length > 0 ? txRates[txRates.length - 1] : 0}
+				rxData={trafficSparkSeries.rx}
+				txData={trafficSparkSeries.tx}
+				title="Live traffic rate"
 			/>
 		</div>
-	</div>
 
-	<div class="sbx-wd-traffic">
-		<TunnelListTrafficCell
-			rxRate={rxRates.length > 0 ? rxRates[rxRates.length - 1] : 0}
-			txRate={txRates.length > 0 ? txRates[txRates.length - 1] : 0}
-			rxData={trafficSparkSeries.rx}
-			txData={trafficSparkSeries.tx}
-			title="Live traffic rate"
-		/>
-	</div>
-
-	<div class="wd-foot">
-		<Button
-			type="button"
-			variant="outline-primary"
-			size="sm"
-			disabled={checking || !card.running}
-			loading={checking}
-			onclick={() => void runDelayCheck()}
-			title={card.running ? 'Проверить задержку' : 'Sing-box не запущен'}
-		>
-			Проверить
-		</Button>
-		<Button type="button" variant="secondary" size="sm" onclick={openEditor}>Открыть</Button>
-	</div>
+		<div class="wd-foot">
+			<Button
+				type="button"
+				variant="outline-primary"
+				size="sm"
+				disabled={checking}
+				loading={checking}
+				onclick={() => void checkNow()}
+			>
+				Проверка watchdog
+			</Button>
+			<Button type="button" variant="outline-danger" size="sm" onclick={onDisable}>Выключить</Button>
+			<Button type="button" variant="outline-primary" size="sm" onclick={onConfigure}>Настроить</Button>
+			<Button type="button" variant="secondary" size="sm" onclick={openEditor}>Открыть</Button>
+		</div>
+	{/if}
 </article>
 
 <style>
@@ -325,8 +399,29 @@
 		min-width: 0;
 	}
 
+	.sbx-wd-badges {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 5px;
+		min-width: 0;
+	}
+
+	.wd-note {
+		padding: 14px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		color: var(--color-text-muted);
+	}
+
+	.wd-note-title {
+		color: var(--color-text-primary);
+		font-weight: 600;
+	}
+
 	.wd-stats {
 		display: grid;
+		grid-template-columns: repeat(4, 1fr);
 		border-bottom: 1px solid var(--color-border);
 	}
 
@@ -347,7 +442,6 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		gap: 3px;
 		font-family: var(--font-mono);
 		font-size: 15px;
 		font-weight: 600;
@@ -381,6 +475,12 @@
 		color: var(--color-text-muted);
 	}
 
+	.wd-minmax {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--color-text-muted);
+	}
+
 	.wd-bars {
 		display: flex;
 		align-items: flex-end;
@@ -397,23 +497,42 @@
 		gap: 2px;
 	}
 
-	.wd-foot {
-		padding: 10px 14px;
-		border-top: 1px solid var(--color-border);
+	.wd-error {
+		margin-bottom: 10px;
+		padding: 8px 10px;
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--color-error) 14%, transparent);
+		color: var(--color-error);
+		font-size: 12px;
+	}
+
+	.wd-log {
 		display: flex;
-		justify-content: flex-end;
+		flex-direction: column;
+		gap: 4px;
+		margin-bottom: 12px;
+		font-family: var(--font-mono);
+		font-size: 11px;
+	}
+
+	.wd-log-row {
+		display: flex;
+		align-items: center;
 		gap: 8px;
+		color: var(--color-text-muted);
 	}
 
-	.sbx-wd-card {
-		gap: 0;
+	.wd-log-row .ok {
+		color: var(--color-success);
 	}
 
-	.sbx-wd-badges {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 5px;
-		min-width: 0;
+	.wd-log-row .bad {
+		color: var(--color-error);
+	}
+
+	.wd-log-state {
+		margin-left: auto;
+		color: var(--color-text-primary);
 	}
 
 	.sbx-wd-traffic {
@@ -425,11 +544,13 @@
 		background: color-mix(in srgb, var(--color-border) 14%, transparent);
 	}
 
-	.sbx-wd-traffic :global(.traffic-rate) {
-		font-family: var(--font-mono);
-	}
-	.wd-stats {
-		grid-template-columns: repeat(2, 1fr);
+	.wd-foot {
+		padding: 10px 14px;
+		border-top: 1px solid var(--color-border);
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		flex-wrap: wrap;
 	}
 
 	@container (max-width: 380px) {
@@ -440,16 +561,11 @@
 
 		.wd-head-side {
 			justify-content: flex-start;
-		}
-	}
-
-	@media (max-width: 640px) {
-		.sbx-wd-card .wd-head {
-			align-items: stretch;
-		}
-
-		.wd-foot {
 			flex-wrap: wrap;
+		}
+
+		.wd-stats {
+			grid-template-columns: repeat(2, 1fr);
 		}
 	}
 </style>
