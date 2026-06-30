@@ -8,14 +8,18 @@
 	interface Props {
 		searchQuery: string;
 		showSearch?: boolean;
+		hideSortWhenTableVisible?: boolean;
 		hideSortOnDesktop?: boolean;
 	}
 
 	let {
 		searchQuery = $bindable(),
 		showSearch = false,
+		hideSortWhenTableVisible = false,
 		hideSortOnDesktop = false,
 	}: Props = $props();
+
+	const hideSortUiWhenTableVisible = $derived(hideSortWhenTableVisible || hideSortOnDesktop);
 
 	const sortOptions: DropdownOption<PeerSortKey>[] = [
 		{ value: 'name', label: 'По имени' },
@@ -47,7 +51,7 @@
 	}
 </script>
 
-<div class="peer-sort-controls" class:hide-sort-on-desktop={hideSortOnDesktop}>
+<div class="peer-sort-controls" class:hide-sort-when-table-visible={hideSortUiWhenTableVisible}>
 	{#if showSearch}
 		<div class="peer-search-wrap">
 			<input
@@ -104,11 +108,11 @@
 		gap: 0.375rem;
 	}
 
-	.peer-sort-controls.hide-sort-on-desktop .peer-sort-ui {
+	.peer-sort-controls.hide-sort-when-table-visible .peer-sort-ui {
 		display: none;
 	}
 
-	.peer-sort-controls.hide-sort-on-desktop {
+	.peer-sort-controls.hide-sort-when-table-visible {
 		flex: 1 1 auto;
 		width: 100%;
 		min-width: 0;
@@ -120,7 +124,7 @@
 		min-width: 0;
 	}
 
-	.peer-sort-controls.hide-sort-on-desktop .peer-search-wrap {
+	.peer-sort-controls.hide-sort-when-table-visible .peer-search-wrap {
 		width: 100%;
 		flex: 1 1 auto;
 	}
@@ -198,12 +202,18 @@
 		cursor: not-allowed;
 	}
 
+	@container peers-section (max-width: 819px) {
+		.peer-sort-controls.hide-sort-when-table-visible .peer-sort-ui {
+			display: inline-flex;
+		}
+	}
+
 	@media (max-width: 640px) {
-		.peer-sort-controls.hide-sort-on-desktop {
+		.peer-sort-controls.hide-sort-when-table-visible {
 			display: contents;
 		}
 
-		.peer-sort-controls:not(.hide-sort-on-desktop) {
+		.peer-sort-controls:not(.hide-sort-when-table-visible) {
 			display: grid;
 			grid-template-columns: minmax(0, 1fr) auto;
 			gap: 0.375rem;
@@ -233,14 +243,14 @@
 			height: 34px;
 		}
 
-		.peer-sort-controls.hide-sort-on-desktop .peer-sort-ui {
+		.peer-sort-controls.hide-sort-when-table-visible .peer-sort-ui {
 			display: inline-flex;
 			grid-column: 1 / -1;
 			grid-row: 2;
 			width: 100%;
 		}
 
-		.peer-sort-controls:not(.hide-sort-on-desktop) .peer-search-wrap {
+		.peer-sort-controls:not(.hide-sort-when-table-visible) .peer-search-wrap {
 			grid-column: 1 / -1;
 		}
 	}

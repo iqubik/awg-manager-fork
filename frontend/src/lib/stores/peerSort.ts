@@ -63,7 +63,7 @@ function createPeerSortStore() {
 				if (s.sortBy === key) return s;
 				const next: PeerSortState = {
 					sortBy: key,
-					sortAsc: true,
+					sortAsc: key ? PEER_SORT_DEFAULTS[key] : true,
 				};
 				persist(next);
 				return next;
