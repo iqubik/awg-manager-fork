@@ -121,7 +121,7 @@
 
 	.body {
 		border-top: 1px solid var(--color-border, var(--border));
-		padding: 0 14px 12px;
+		padding: 8px 14px 12px;
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
