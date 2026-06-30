@@ -16,7 +16,9 @@ export const peerSort = {
 		store.mutate(() => ({ sortBy, sortAsc }));
 	},
 	setSortBy(key: PeerSortKey | null) {
-		store.mutate((s) => (s.sortBy === key ? s : { sortBy: key, sortAsc: true }));
+		store.mutate((s) =>
+			s.sortBy === key ? s : { sortBy: key, sortAsc: key ? PEER_SORT_DEFAULTS[key] : true },
+		);
 	},
 	toggleSort(key: PeerSortKey) {
 		store.mutate((state) => cycleTableSort(state, key));
