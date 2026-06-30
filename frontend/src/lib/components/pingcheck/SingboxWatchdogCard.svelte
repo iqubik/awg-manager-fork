@@ -48,7 +48,7 @@
 		TunnelMetaText,
 		TunnelTitleRow,
 	} from '$lib/components/tunnels';
-	import { getTrafficRates, subscribeTraffic } from '$lib/stores/traffic';
+	import { getTrafficRates, loadHistory, subscribeTraffic } from '$lib/stores/traffic';
 	import { singboxDelayHistory } from '$lib/stores/singbox';
 	import { singboxDelayFromHistory } from '$lib/utils/singboxDelay';
 	import { singboxDelayStatusDot } from '$lib/utils/statusDot';
@@ -129,6 +129,14 @@
 		};
 		update();
 		return subscribeTraffic(update);
+	});
+
+	let lastLoadedTrafficTag = '';
+	$effect(() => {
+		const tag = card.trafficTag;
+		if (!tag || tag === lastLoadedTrafficTag) return;
+		lastLoadedTrafficTag = tag;
+		void loadHistory(tag);
 	});
 
 	function openEditor(): void {
