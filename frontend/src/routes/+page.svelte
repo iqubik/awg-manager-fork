@@ -3129,9 +3129,12 @@
 				: (sb?.proxyInterface ?? ''))}
 	<TrafficChartModal
 		open={true}
-		tunnelId={singboxDetailTag}
-		tunnelName={detailName}
-		ifaceName={detailIface}
+		source={{
+			kind: 'traffic-store',
+			key: singboxDetailTag,
+			title: detailName,
+			ifaceName: detailIface,
+		}}
 		onclose={closeSingboxDetail}
 	/>
 {/if}
