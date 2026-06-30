@@ -53,6 +53,7 @@
 	let confirmDelete = $state(false);
 
 	let searchQuery = $state('');
+	let peerControlsVisible = $derived((server.peers ?? []).length > 1);
 
 	function formatBytesCompact(bytes: number): string {
 		return formatBytes(bytes, 1).replace(/\s+/g, '');
@@ -445,11 +446,13 @@
 		<div class="peers-header">
 			<span class="peers-title">Клиенты {#if stats}({onlineCount}/{(server.peers ?? []).length} онлайн){:else}({(server.peers ?? []).length}){/if}</span>
 			<div class="peers-controls">
-				<PeerSortControls
-					bind:searchQuery
-					showSearch={(server.peers ?? []).length > 0}
-					hideSortOnDesktop
-				/>
+				{#if peerControlsVisible}
+					<PeerSortControls
+						bind:searchQuery
+						showSearch
+						hideSortWhenTableVisible
+					/>
+				{/if}
 				<Button variant="secondary" size="sm" onclick={() => addPeerOpen = true} iconBefore={addPeerIcon}>
 					Добавить клиента
 				</Button>
