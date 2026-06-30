@@ -12,13 +12,12 @@
 	import ConnectionsTab from './ConnectionsTab.svelte';
 	import ChecksTab from './ChecksTab.svelte';
 	import AwgConfigAnalyzerTab from './AwgConfigAnalyzerTab.svelte';
-	import AboutDeviceTab from './AboutDeviceTab.svelte';
-	import DnsInfoTab from './DnsInfoTab.svelte';
+	import InfoTab from './InfoTab.svelte';
 	import { MonitoringTab } from '$lib/components/pingcheck';
 	import { readTunnelMobileLayout, subscribeTunnelMobileLayout } from '$lib/constants/singboxLayout';
 	import { buildDiagnosticsTargets } from '$lib/utils/diagnosticsTargets';
 
-	type ActiveTab = 'logs' | 'monitoring' | 'connections' | 'checks' | 'about' | 'awgConfig' | 'dns';
+	type ActiveTab = 'logs' | 'monitoring' | 'connections' | 'checks' | 'about' | 'awgConfig';
 
 	function initialDiagnosticsTab(): ActiveTab {
 		const tab = $page.url.searchParams.get('tab');
@@ -27,8 +26,8 @@
 		if (tab === 'connections') return 'connections';
 		if (tab === 'checks') return 'checks';
 		if (tab === 'about') return 'about';
+		if (tab === 'dns') return 'about';
 		if (tab === 'awgConfig') return 'awgConfig';
-		if (tab === 'dns') return 'dns';
 
 		// legacy aliases, чтобы первый render тоже сразу попадал в checks
 		if (tab === 'tests' || tab === 'dnscheck') return 'checks';
@@ -46,13 +45,10 @@
 			{ id: 'monitoring', label: 'Мониторинг' },
 			{ id: 'connections', label: 'Соединения' },
 			{ id: 'checks', label: 'Проверки' },
-			{ id: 'about', label: 'Окружение' },
+			{ id: 'about', label: 'Сведения' },
 		];
 		if ($usageLevel === 'expert') {
 			base.push({ id: 'awgConfig', label: 'Конфиг AWG' });
-		}
-		if ($usageLevel === 'expert') {
-			base.push({ id: 'dns', label: 'Сведения о DNS' });
 		}
 		return base;
 	});
@@ -63,11 +59,11 @@
 		// Ждём загрузки settings — Tabs сам восстановит вкладку из URL.
 		if ($settings === null) return;
 		if ($usageLevel === 'expert') return;
-		if (activeTab === 'awgConfig' || activeTab === 'dns') {
+		if (activeTab === 'awgConfig') {
 			activeTab = 'logs';
 		}
 		const tab = $page.url.searchParams.get('tab');
-		if (tab === 'awgConfig' || tab === 'dns') {
+		if (tab === 'awgConfig') {
 			const url = new URL($page.url);
 			url.searchParams.delete('tab');
 			const q = url.searchParams.toString();
@@ -82,8 +78,8 @@
 	{
 		const sp = new URLSearchParams($page.url.search);
 		const t = sp.get('tab');
-		if (t === 'tests' || t === 'dnscheck') {
-			sp.set('tab', 'checks');
+		if (t === 'tests' || t === 'dnscheck' || t === 'dns') {
+			sp.set('tab', t === 'dns' ? 'about' : 'checks');
 			const url = $page.url.pathname + (sp.toString() ? `?${sp}` : '') + $page.url.hash;
 			void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 		}
@@ -120,9 +116,8 @@
 	const pageTitle = $derived(
 		activeTab === 'connections' ? 'Соединения · Инструменты' :
 		activeTab === 'checks' ? 'Проверки · Инструменты' :
-		activeTab === 'about' ? 'Окружение · Инструменты' :
+		activeTab === 'about' ? 'Сведения · Инструменты' :
 		activeTab === 'awgConfig' ? 'Конфиг AWG · Инструменты' :
-		activeTab === 'dns' ? 'Сведения о DNS · Инструменты' :
 		activeTab === 'monitoring' ? 'Мониторинг · Инструменты' :
 		'Журнал · Инструменты',
 	);
@@ -164,10 +159,8 @@
 	{:else if activeTab === 'checks'}
 		<ChecksTab {tunnels} />
 	{:else if activeTab === 'about'}
-		<AboutDeviceTab />
+		<InfoTab />
 	{:else if activeTab === 'awgConfig'}
 		<AwgConfigAnalyzerTab />
-	{:else if activeTab === 'dns'}
-		<DnsInfoTab />
 	{/if}
 </PageContainer>
