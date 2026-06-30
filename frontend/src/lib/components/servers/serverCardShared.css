@@ -269,6 +269,8 @@
 	border-top: 1px solid var(--border);
 	padding-top: var(--peers-divider-gap);
 	margin-top: calc(var(--peers-divider-gap) - var(--managed-section-gap));
+	container-type: inline-size;
+	container-name: peers-section;
 }
 
 .server-detail-card .peers-header {
