@@ -292,6 +292,25 @@
 		gap: 8px;
 	}
 
+	@container (max-width: 460px) {
+		.wd-foot {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			align-items: stretch;
+			justify-content: stretch;
+		}
+
+		.wd-foot > :global(.btn) {
+			width: 100%;
+			min-width: 0;
+			justify-content: center;
+		}
+
+		.wd-foot > :global(.btn):last-child:nth-child(odd) {
+			grid-column: 1 / -1;
+		}
+	}
+
 	/* No-pingcheck note */
 	.wd-note {
 		padding: 16px 14px;
