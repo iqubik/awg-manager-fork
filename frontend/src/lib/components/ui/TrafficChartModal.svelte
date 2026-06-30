@@ -1,15 +1,36 @@
 <script lang="ts">
 	import type { TrafficPeriod } from '$lib/api/client';
 	import { formatBitRate, formatBytes } from '$lib/utils/format';
-	import { fetchTrafficDetail, subscribeTraffic, getTrafficRates } from '$lib/stores/traffic';
+	import {
+		fetchTrafficDetail,
+		getTrafficRates,
+		getTrafficSessionDetail,
+		subscribeTraffic,
+	} from '$lib/stores/traffic';
 	import SideDrawer from './SideDrawer.svelte';
 	import Button from './Button.svelte';
 
+	type TrafficChartSource =
+		| {
+				kind: 'awg';
+				tunnelId: string;
+				title?: string;
+				ifaceName?: string;
+			}
+		| {
+				kind: 'traffic-store';
+				key: string;
+				title: string;
+				ifaceName?: string;
+				sessionLabel?: string;
+			};
+
 	interface Props {
 		open: boolean;
-		tunnelId: string;
+		tunnelId?: string;
 		tunnelName?: string;
 		ifaceName?: string;
+		source?: TrafficChartSource;
 		onclose: () => void;
 	}
 
@@ -24,7 +45,14 @@
 		volumeTx?: number;
 	};
 
-	let { open, tunnelId, tunnelName = '', ifaceName = '', onclose }: Props = $props();
+	let {
+		open,
+		tunnelId = '',
+		tunnelName = '',
+		ifaceName = '',
+		source,
+		onclose,
+	}: Props = $props();
 
 	const PERIOD_OPTIONS: { value: TrafficPeriod; label: string }[] = [
 		{ value: '5m', label: '5 мин' },
@@ -107,6 +135,35 @@
 	/** После автоподбора периода при открытии — не повторять для того же туннеля в этой сессии. */
 	let periodAutoResolvedFor = '';
 
+	const resolvedSource = $derived.by(() => {
+		if (source) return source;
+		if (!tunnelId) return null;
+		return {
+			kind: 'awg',
+			tunnelId,
+			title: tunnelName || tunnelId,
+			ifaceName,
+		} satisfies TrafficChartSource;
+	});
+
+	const sourceKind = $derived(resolvedSource?.kind ?? 'awg');
+	const sourceKey = $derived.by(() => {
+		if (!resolvedSource) return '';
+		return resolvedSource.kind === 'traffic-store' ? resolvedSource.key : resolvedSource.tunnelId;
+	});
+	const drawerTitle = $derived.by(() => {
+		if (!resolvedSource) return tunnelName || tunnelId;
+		return resolvedSource.title || sourceKey;
+	});
+	const drawerIfaceName = $derived.by(() => resolvedSource?.ifaceName ?? ifaceName);
+	const sessionLabel = $derived.by(() =>
+		resolvedSource?.kind === 'traffic-store'
+			? (resolvedSource.sessionLabel ?? 'данные за текущую сессию')
+			: ''
+	);
+	const usesTrafficStore = $derived(sourceKind === 'traffic-store');
+	const showsPeriodSwitch = $derived(!usesTrafficStore);
+
 	function periodLabel(period: TrafficPeriod): string {
 		return PERIOD_LABELS[period];
 	}
@@ -118,6 +175,18 @@
 		stats = d.stats as TrafficModalStats;
 		liveCurrentRx = d.stats.currentRx;
 		liveCurrentTx = d.stats.currentTx;
+	}
+
+	function applySessionTraffic(key: string) {
+		const d = getTrafficSessionDetail(key);
+		timestamps = d.timestamps;
+		rxRates = d.rxRates;
+		txRates = d.txRates;
+		stats = d.stats as TrafficModalStats;
+		liveCurrentRx = d.stats.currentRx;
+		liveCurrentTx = d.stats.currentTx;
+		error = null;
+		loading = false;
 	}
 
 	async function load(id: string, period: TrafficPeriod, resolveBestPeriod = false) {
@@ -150,35 +219,45 @@
 
 	// Автоподбор периода только при открытии / смене туннеля (не при клике по пресетам).
 	$effect(() => {
-		if (!open || !tunnelId) {
+		if (!open || !sourceKey) {
 			periodAutoResolvedFor = '';
 			return;
 		}
-		if (periodAutoResolvedFor === tunnelId) return;
-		periodAutoResolvedFor = tunnelId;
+		if (usesTrafficStore) {
+			periodAutoResolvedFor = '';
+			applySessionTraffic(sourceKey);
+			return;
+		}
+		if (periodAutoResolvedFor === sourceKey) return;
+		periodAutoResolvedFor = sourceKey;
 		timestamps = [];
 		rxRates = [];
 		txRates = [];
-		void load(tunnelId, WIDEST_PERIOD, true);
+		void load(sourceKey, WIDEST_PERIOD, true);
 	});
 
 	function selectPeriod(period: TrafficPeriod) {
-		if (period === selectedPeriod) return;
+		if (usesTrafficStore || period === selectedPeriod) return;
 		selectedPeriod = period;
-		if (!open || !tunnelId) return;
+		if (!open || !sourceKey) return;
 		// Не показываем точки прошлого периода, пока не пришёл ответ API.
 		timestamps = [];
 		rxRates = [];
 		txRates = [];
-		void load(tunnelId, period, false);
+		void load(sourceKey, period, false);
 	}
 
-	// SSE обновляет только «Сейчас» в легенде. Серии графика — только из API
-	// (fetchTrafficDetail), иначе буфер карточки (~1 ч) затирает окно 5m/10m.
+	// AWG-режим получает серии графика из API и через SSE обновляет только
+	// «Сейчас» в легенде. Для traffic-store режима и серии, и текущие значения
+	// живут в frontend session history.
 	$effect(() => {
-		if (!open || !tunnelId) return;
+		if (!open || !sourceKey) return;
 		const unsub = subscribeTraffic(() => {
-			const { rx, tx } = getTrafficRates(tunnelId);
+			if (usesTrafficStore) {
+				applySessionTraffic(sourceKey);
+				return;
+			}
+			const { rx, tx } = getTrafficRates(sourceKey);
 			if (rx.length > 0) liveCurrentRx = rx[rx.length - 1];
 			if (tx.length > 0) liveCurrentTx = tx[tx.length - 1];
 		});
@@ -204,7 +283,7 @@
 	let periodSeconds = $derived(PERIOD_SECONDS[selectedPeriod]);
 
 	let hasSufficientPeriodData = $derived(
-		hasData && dataSpanSec >= periodSeconds * MIN_PERIOD_COVERAGE
+		usesTrafficStore ? hasData : hasData && dataSpanSec >= periodSeconds * MIN_PERIOD_COVERAGE
 	);
 
 	let maxRate = $derived.by(() => {
@@ -337,7 +416,7 @@
 	let tooltipX = $derived(tooltipFlip ? hoverX - TOOLTIP_W - 8 : hoverX + 8);
 	let tooltipY = $derived(Math.min(hoverRxY, hoverTxY) - TOOLTIP_H - 6);
 	let tooltipYClamped = $derived(Math.max(PAD_TOP, tooltipY));
-	let showChart = $derived(hasSufficientPeriodData);
+	let showChart = $derived(usesTrafficStore ? hasData : hasSufficientPeriodData);
 	let showChartOverlay = $derived(loading && len >= 2);
 	let periodRxBytes = $derived.by(() => {
 		if (stats.points >= 2 && stats.volumeRx !== undefined && stats.volumeTx !== undefined) {
@@ -358,6 +437,9 @@
 	let chartStageMessage = $derived.by((): { text: string; error: boolean } | null => {
 		if (loading && !showChart) return { text: 'Загрузка…', error: false };
 		if (error) return { text: error, error: true };
+		if (usesTrafficStore && !loading && !hasData) {
+			return { text: 'Нет данных скорости за текущую сессию', error: false };
+		}
 		if (!loading && !hasSufficientPeriodData) {
 			return { text: 'Недостаточно данных за выбранный период', error: false };
 		}
@@ -365,25 +447,29 @@
 	});
 </script>
 
-<SideDrawer {open} title={tunnelName || tunnelId} width={760} onClose={onclose}>
+<SideDrawer {open} title={drawerTitle} width={760} onClose={onclose}>
 	<div class="meta-row">
 		<div class="meta-pills">
-			{#if ifaceName}<span class="pill">{ifaceName}</span>{/if}
-			<span class="pill-muted">{periodLabel(selectedPeriod)}</span>
+			{#if drawerIfaceName}<span class="pill">{drawerIfaceName}</span>{/if}
+			<span class="pill-muted">
+				{usesTrafficStore ? sessionLabel : periodLabel(selectedPeriod)}
+			</span>
 		</div>
-		<div class="period-switch" role="group" aria-label="Период графика трафика">
-			{#each PERIOD_OPTIONS as option (option.value)}
-				<button
-					type="button"
-					class="period-btn"
-					class:active={selectedPeriod === option.value}
-					aria-pressed={selectedPeriod === option.value}
-					onclick={() => selectPeriod(option.value)}
-				>
-					{option.label}
-				</button>
-			{/each}
-		</div>
+		{#if showsPeriodSwitch}
+			<div class="period-switch" role="group" aria-label="Период графика трафика">
+				{#each PERIOD_OPTIONS as option (option.value)}
+					<button
+						type="button"
+						class="period-btn"
+						class:active={selectedPeriod === option.value}
+						aria-pressed={selectedPeriod === option.value}
+						onclick={() => selectPeriod(option.value)}
+					>
+						{option.label}
+					</button>
+				{/each}
+			</div>
+		{/if}
 	</div>
 
 	<div class="stats-line">
@@ -393,7 +479,7 @@
 				? 'Объём за период на сервере: сумма (скорость×Δt) по сырым точкам истории между опросами.'
 				: 'Оценка: средняя скорость × длительность окна (мало точек или ответ API без полей volume).'}
 		>
-			<span class="label">Трафик:</span>
+			<span class="label">{usesTrafficStore ? 'Сессия:' : 'Трафик:'}</span>
 			{#if !loading && stats.points > 0}
 				<span class="val rx">↓ {formatBytes(periodRxBytes)}</span>
 				<span class="sep">/</span>
@@ -430,7 +516,7 @@
 						viewBox={`0 0 ${CHART_W} ${CHART_H}`}
 						preserveAspectRatio="none"
 						role="img"
-						aria-label={`График трафика за период: ${periodLabel(selectedPeriod)}`}
+						aria-label={`График трафика: ${usesTrafficStore ? sessionLabel : periodLabel(selectedPeriod)}`}
 						onmousemove={handleMouseMove}
 						onmouseleave={handleMouseLeave}
 					>
