@@ -41,14 +41,14 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api/client';
-	import { Badge, Button, StatusDot } from '$lib/components/ui';
+	import { Badge, Button, StatusDot, TrafficChartModal } from '$lib/components/ui';
 	import {
 		TunnelDelaySparkBars,
 		TunnelListTrafficCell,
 		TunnelMetaText,
 		TunnelTitleRow,
 	} from '$lib/components/tunnels';
-	import { getTrafficRates, loadHistory, subscribeTraffic } from '$lib/stores/traffic';
+	import { getTrafficRates, subscribeTraffic } from '$lib/stores/traffic';
 	import { singboxDelayHistory } from '$lib/stores/singbox';
 	import { singboxDelayFromHistory } from '$lib/utils/singboxDelay';
 	import { singboxDelayStatusDot } from '$lib/utils/statusDot';
@@ -68,6 +68,7 @@
 
 	let checking = $state(false);
 	let delayChecking = $state(false);
+	let trafficOpen = $state(false);
 	let rxRates = $state<number[]>([]);
 	let txRates = $state<number[]>([]);
 
@@ -130,14 +131,6 @@
 		return subscribeTraffic(update);
 	});
 
-	let lastLoadedTrafficTag = '';
-	$effect(() => {
-		const tag = card.trafficTag;
-		if (!tag || tag === lastLoadedTrafficTag) return;
-		lastLoadedTrafficTag = tag;
-		void loadHistory(tag);
-	});
-
 	function openEditor(): void {
 		void goto(card.routeHref);
 	}
@@ -186,6 +179,7 @@
 
 	const countLabel = $derived(card.source === 'subscription' ? 'переключения' : 'рестарты');
 	const countValue = $derived(card.source === 'subscription' ? card.switchCount : card.restartCount);
+	const trafficModalTitle = $derived(`Watchdog · ${card.name}`);
 </script>
 
 <article class="wd-card sbx-wd-card" aria-label={`${card.source === 'subscription' ? 'Subscription' : 'Sing-box'} watchdog ${card.name}`}>
@@ -319,7 +313,8 @@
 				txRate={txRates.length > 0 ? txRates[txRates.length - 1] : 0}
 				rxData={trafficSparkSeries.rx}
 				txData={trafficSparkSeries.tx}
-				title="Live traffic rate"
+				onclick={card.trafficTag ? () => (trafficOpen = true) : undefined}
+				title={card.trafficTag ? 'Открыть график скорости' : 'Нет данных скорости'}
 			/>
 		</div>
 
@@ -340,6 +335,19 @@
 		</div>
 	{/if}
 </article>
+
+{#if trafficOpen && card.trafficTag}
+	<TrafficChartModal
+		open={true}
+		source={{
+			kind: 'traffic-store',
+			key: card.trafficTag,
+			title: trafficModalTitle,
+			ifaceName: card.proxyInterface || 'sing-box',
+		}}
+		onclose={() => (trafficOpen = false)}
+	/>
+{/if}
 
 <style>
 	.wd-card {
@@ -551,6 +559,25 @@
 		justify-content: flex-end;
 		gap: 8px;
 		flex-wrap: wrap;
+	}
+
+	@container (max-width: 460px) {
+		.wd-foot {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			align-items: stretch;
+			justify-content: stretch;
+		}
+
+		.wd-foot > :global(.btn) {
+			width: 100%;
+			min-width: 0;
+			justify-content: center;
+		}
+
+		.wd-foot > :global(.btn):last-child:nth-child(odd) {
+			grid-column: 1 / -1;
+		}
 	}
 
 	@container (max-width: 380px) {
