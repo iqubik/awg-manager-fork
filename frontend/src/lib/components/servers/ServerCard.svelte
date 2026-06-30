@@ -60,6 +60,7 @@
 	let ascParams = $state<ASCParams | null>(null);
 	let wanIP = $state('');
 	let searchQuery = $state('');
+	let peerControlsVisible = $derived((server.peers ?? []).length > 1);
 	let togglingEnabled = $state(false);
 	let restartingServer = $state(false);
 	let togglingIngress = $state(false);
@@ -468,11 +469,13 @@
 		<div class="peers-header">
 			<span class="peers-title">Клиенты ({onlineCount}/{totalPeers} онлайн)</span>
 			<div class="peers-controls">
-				<PeerSortControls
-					bind:searchQuery
-					showSearch={(server.peers ?? []).length > 0}
-					hideSortOnDesktop
-				/>
+				{#if peerControlsVisible}
+					<PeerSortControls
+						bind:searchQuery
+						showSearch
+						hideSortWhenTableVisible
+					/>
+				{/if}
 				{#if isBuiltIn || isMarked}
 					<Button variant="secondary" size="sm" onclick={() => (addPeerOpen = true)} iconBefore={addPeerIcon}>
 						Добавить клиента
