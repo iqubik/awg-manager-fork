@@ -607,6 +607,10 @@ func (s *Service) checkOne(ctx context.Context, cfg TargetConfig) {
 		s.recordSuccess(target, cfg, res, now)
 		return
 	}
+	if s.shouldTreatAsStartupWarming(target.ID, res.Error) {
+		s.recordTransientWarming(target, cfg, now)
+		return
+	}
 
 	failCount, shouldRecover := s.recordFailure(target, cfg, res, now)
 	if !shouldRecover || failCount < cfg.FailThreshold {
@@ -619,6 +623,44 @@ func (s *Service) checkOne(ctx context.Context, cfg TargetConfig) {
 	case cfg.Kind == TargetSubscription && cfg.RecoveryMode == RecoverySwitchMember:
 		go s.recoverSubscription(contextOrBackground(s.ctx), target, cfg)
 	}
+}
+
+func isLocalProxyNotReadyError(errMsg string) bool {
+	errMsg = strings.ToLower(strings.TrimSpace(errMsg))
+	return strings.Contains(errMsg, "proxyconnect tcp: dial tcp 127.0.0.1:") &&
+		strings.Contains(errMsg, "connect: connection refused")
+}
+
+func (s *Service) shouldTreatAsStartupWarming(targetID, errMsg string) bool {
+	if !isLocalProxyNotReadyError(errMsg) {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	state := s.state[targetID]
+	return state == nil || state.lastCheck == nil
+}
+
+func (s *Service) recordTransientWarming(target RuntimeTarget, cfg TargetConfig, now time.Time) {
+	s.mu.Lock()
+	state := s.ensureStateLocked(target.ID)
+	state.lastCheck = &now
+	state.lastLatency = 0
+	state.lastError = "local proxy not ready"
+	state.status = StatusWarming
+	s.mu.Unlock()
+
+	s.addLogEntry(LogEntry{
+		Timestamp:  now,
+		TargetID:   target.ID,
+		TargetName: target.Name,
+		Kind:       target.Kind,
+		CheckTag:   target.CheckTag,
+		Success:    false,
+		Error:      "local proxy not ready",
+		FailCount:  0,
+		Threshold:  cfg.FailThreshold,
+	})
 }
 
 func (s *Service) recordMissing(cfg TargetConfig) {
