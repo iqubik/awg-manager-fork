@@ -72,7 +72,10 @@ type Tunnel struct {
 var BaseTargets = []Target{
 	{ID: "cf-1.1.1.1", Host: "1.1.1.1", Name: "Cloudflare DNS", URL: "https://1.1.1.1/"},
 	{ID: "g-8.8.8.8", Host: "8.8.8.8", Name: "Google DNS", URL: "https://8.8.8.8/"},
-	{ID: "q-9.9.9.9", Host: "9.9.9.9", Name: "Quad9 DNS", URL: "https://9.9.9.9/"},
+	// Quad9 HTTPS by bare IP is not a reliable Clash delay target on
+	// real sing-box deployments; HTTP by IP stays stable while AWG rows
+	// still probe Host directly and ignore URL entirely.
+	{ID: "q-9.9.9.9", Host: "9.9.9.9", Name: "Quad9 DNS", URL: "http://9.9.9.9"},
 }
 
 // EffectiveTargets returns BaseTargets ∪ unique pingcheck targets ∪ unique
