@@ -628,3 +628,102 @@ func TestService_CheckFailureWritesWarnProjectLog(t *testing.T) {
 		t.Fatal("expected domain log for failed check")
 	}
 }
+
+func TestService_CheckOne_LocalProxyNotReadyOnFirstCheckStaysWarmingWithoutWarn(t *testing.T) {
+	rec := &recordingAppLogger{}
+	store := NewStore(filepath.Join(t.TempDir(), "store.json"))
+	cfg := TargetConfig{
+		ID:            "tunnel:sb-main",
+		Kind:          TargetTunnel,
+		Ref:           "sb-main",
+		Enabled:       true,
+		Interval:      30,
+		FailThreshold: 3,
+		Timeout:       1,
+		RecoveryMode:  RecoveryRestartSingbox,
+	}
+	if err := store.Upsert(cfg); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	op := newInstalledOp()
+	op.tunnels = []singbox.TunnelInfo{{
+		Tag:        "sb-main",
+		Running:    true,
+		ListenPort: 1,
+	}}
+	svc := NewService(store, op, &fakeSubs{}, rec)
+	svc.clash = nil
+
+	svc.checkOne(context.Background(), cfg)
+
+	if rec.has("check-failed", "tunnel:sb-main") {
+		t.Fatalf("unexpected startup warning log: %+v", rec.logs)
+	}
+	statuses := svc.GetStatus(context.Background())
+	if len(statuses) != 1 {
+		t.Fatalf("expected 1 status, got %d", len(statuses))
+	}
+	if statuses[0].Status != StatusWarming {
+		t.Fatalf("status = %q, want warming", statuses[0].Status)
+	}
+	if statuses[0].FailCount != 0 {
+		t.Fatalf("failCount = %d, want 0", statuses[0].FailCount)
+	}
+	if statuses[0].LastError != "local proxy not ready" {
+		t.Fatalf("lastError = %q, want local proxy not ready", statuses[0].LastError)
+	}
+	if statuses[0].LastCheck == nil {
+		t.Fatal("lastCheck should be set after transient warming")
+	}
+	logs := svc.GetLogs("tunnel:sb-main")
+	if len(logs) == 0 {
+		t.Fatal("expected domain log entry")
+	}
+	if logs[len(logs)-1].FailCount != 0 || logs[len(logs)-1].Error != "local proxy not ready" {
+		t.Fatalf("unexpected startup domain log: %+v", logs[len(logs)-1])
+	}
+}
+
+func TestService_CheckOne_LocalProxyNotReadyAfterSuccessCountsAsRealFailure(t *testing.T) {
+	rec := &recordingAppLogger{}
+	store := NewStore(filepath.Join(t.TempDir(), "store.json"))
+	cfg := TargetConfig{
+		ID:            "tunnel:sb-main",
+		Kind:          TargetTunnel,
+		Ref:           "sb-main",
+		Enabled:       true,
+		Interval:      30,
+		FailThreshold: 3,
+		Timeout:       1,
+		RecoveryMode:  RecoveryRestartSingbox,
+	}
+	if err := store.Upsert(cfg); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	op := newInstalledOp()
+	op.tunnels = []singbox.TunnelInfo{{
+		Tag:        "sb-main",
+		Running:    true,
+		ListenPort: 1,
+	}}
+	svc := NewService(store, op, &fakeSubs{}, rec)
+	svc.clash = &fakeClash{delays: map[string]int{"sb-main": 42}}
+
+	svc.checkOne(context.Background(), cfg)
+	svc.clash = nil
+	svc.checkOne(context.Background(), cfg)
+
+	if !rec.has("check-failed", "tunnel:sb-main") {
+		t.Fatalf("expected real failure warning after a prior success, logs=%+v", rec.logs)
+	}
+	statuses := svc.GetStatus(context.Background())
+	if len(statuses) != 1 {
+		t.Fatalf("expected 1 status, got %d", len(statuses))
+	}
+	if statuses[0].FailCount != 1 {
+		t.Fatalf("failCount = %d, want 1", statuses[0].FailCount)
+	}
+	if statuses[0].LastCheck == nil {
+		t.Fatal("expected lastCheck to be set after real failure")
+	}
+}
