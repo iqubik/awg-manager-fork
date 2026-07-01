@@ -10,6 +10,18 @@ func TestEffectiveTargets_BaseOnly(t *testing.T) {
 	if got[0].Host != "1.1.1.1" || got[1].Host != "8.8.8.8" || got[2].Host != "9.9.9.9" {
 		t.Errorf("unexpected base ordering: %+v", got)
 	}
+	if got[0].URL != "https://1.1.1.1/" {
+		t.Errorf("cloudflare URL = %q, want https://1.1.1.1/", got[0].URL)
+	}
+	if got[1].URL != "https://8.8.8.8/" {
+		t.Errorf("google URL = %q, want https://8.8.8.8/", got[1].URL)
+	}
+	if got[2].ID != "q-9.9.9.9" || got[2].Name != "Quad9 DNS" || got[2].Host != "9.9.9.9" {
+		t.Errorf("unexpected Quad9 base target: %+v", got[2])
+	}
+	if got[2].URL != "http://9.9.9.9" {
+		t.Errorf("quad9 URL = %q, want http://9.9.9.9", got[2].URL)
+	}
 }
 
 func TestEffectiveTargets_OverlappingPingcheckTarget(t *testing.T) {
