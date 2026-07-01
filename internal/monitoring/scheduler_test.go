@@ -325,6 +325,7 @@ type fakeSingboxDelay struct {
 	mu      sync.Mutex
 	lastTag string
 	lastURL string
+	urls    []string
 	delay   int
 	err     error
 }
@@ -334,6 +335,7 @@ func (f *fakeSingboxDelay) TestDelay(outboundTag, testURL string, _ time.Duratio
 	f.mu.Lock()
 	f.lastTag = outboundTag
 	f.lastURL = testURL
+	f.urls = append(f.urls, testURL)
 	f.mu.Unlock()
 	if f.err != nil {
 		return 0, f.err
@@ -392,13 +394,27 @@ func TestScheduler_RunOnce_SingboxRowsUseClashDelay(t *testing.T) {
 	}
 	clashDelay.mu.Lock()
 	gotTag := clashDelay.lastTag
-	gotURL := clashDelay.lastURL
+	gotURLs := append([]string(nil), clashDelay.urls...)
 	clashDelay.mu.Unlock()
 	if gotTag != "veesp" {
 		t.Errorf("SingboxDelay tag = %q, want veesp", gotTag)
 	}
-	if gotURL == "" || gotURL[:5] != "https" {
-		t.Errorf("SingboxDelay URL = %q, want https://...", gotURL)
+	wantURLs := map[string]bool{
+		"https://1.1.1.1/": true,
+		"https://8.8.8.8/": true,
+		"http://9.9.9.9":   true,
+	}
+	seen := make(map[string]bool, len(gotURLs))
+	for _, u := range gotURLs {
+		seen[u] = true
+		if u == "https://9.9.9.9/" {
+			t.Fatalf("SingboxDelay must not use broken Quad9 HTTPS target, got URLs %+v", gotURLs)
+		}
+	}
+	for u := range wantURLs {
+		if !seen[u] {
+			t.Fatalf("SingboxDelay missing target URL %q, got %+v", u, gotURLs)
+		}
 	}
 }
 
