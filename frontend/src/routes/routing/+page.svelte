@@ -34,6 +34,7 @@
     import { isRoutingSubTabVisible, type RoutingSubTab, type UsageLevel } from '$lib/types/usageLevel';
     import { usageLevel } from '$lib/stores/settings';
     import { readTunnelMobileLayout, subscribeTunnelMobileLayout } from '$lib/constants/singboxLayout';
+    import { isFakeIPTabMuted, isTProxyTabMuted, resolveRoutingMode } from '$lib/utils/routingTabMode';
 
     // Per-section polling stores — subscribe here so all 8 fetch while
     // the routing page is open. Unsubscribed on destroy to stop polling.
@@ -49,15 +50,9 @@
             goto(`?${sp.toString()}`, { replaceState: true });
         }
         unsubRouting = subscribeRouting();
-        // Prime sing-box router status so the tab badge count is correct
-        // immediately on page load instead of waiting for the next polling
-        // tick after the user actually clicks into the sing-box sub-tab.
-        void singboxRouterStore.reloadStatus();
-        // Settings must be primed too (issue #420): the TProxy/FakeIP chip
-        // mute-XOR reads `enabled && routingMode`, and routingMode lives in
-        // settings. Without this the dormant mode's chip rendered as active
-        // until the user first visited a sing-box tab (which runs loadAll).
-        void singboxRouterStore.reloadSettings();
+        // Prime the light sing-box mode state on page load so tab badges and
+        // dormant-mode styling are correct before the user opens a sing-box tab.
+        void singboxRouterStore.primeModeState();
     });
     onDestroy(() => {
         unsubRouting?.();
@@ -139,13 +134,15 @@
     // selection from racing ahead of systemInfo arriving.
     const singboxInitializedStore = singboxRouterStore.initialized;
     const singboxSettings = singboxRouterStore.settings;
+    let routerMode = $derived(resolveRoutingMode($singboxSettings?.routingMode));
+    let fakeipModeActive = $derived(routerMode === 'fakeip-tun');
     let fakeipAutoSelected = false;
     $effect(() => {
         if (!browser) return;
         if (!$singboxInitializedStore) return;
         if (!singboxInstalled) return;
         if (fakeipAutoSelected) return;
-        if ($singboxSettings?.routingMode === 'fakeip-tun') {
+        if (fakeipModeActive) {
             fakeipAutoSelected = true;
             const explicitTab = new URL(window.location.href).searchParams.get('tab');
             if (!explicitTab) {
@@ -256,16 +253,16 @@
             // one (XOR), so the dormant mode reads as dormant, not broken.
             singboxInstalled
                 ? { id: 'singbox', label: 'Sing-box: TProxy', badge: singboxRuleCount, separatorBefore: true,
-                    muted: !!$singboxRouterStatus?.enabled && $singboxSettings?.routingMode === 'fakeip-tun' }
+                    muted: !!$singboxRouterStatus?.enabled && isTProxyTabMuted(routerMode) }
                 : null,
             // FakeIP is expert-gated (mirrors the 'singbox' tab's 'expert'
             // level) BUT stays visible whenever the engine is actually in
             // fakeip-tun mode — that's the in-use case the auto-select effect
             // lands on, and hiding the chip there would strand activeTab on a
             // tab with no chip to navigate back from.
-            (singboxInstalled && (tabVisible('singbox') || $singboxSettings?.routingMode === 'fakeip-tun'))
+            (singboxInstalled && (tabVisible('singbox') || fakeipModeActive))
                 ? { id: 'fakeip', label: 'Sing-box: FakeIP', badge: undefined, separatorBefore: false,
-                    muted: !!$singboxRouterStatus?.enabled && $singboxSettings?.routingMode === 'tproxy' }
+                    muted: !!$singboxRouterStatus?.enabled && isFakeIPTabMuted(routerMode) }
                 : null,
             // HR Neo is a separate routing engine (not sing-box) — divider before it.
             hydrarouteInstalled ? { id: 'hrneo', label: 'HR Neo', badge: hrRuleCount, separatorBefore: true } : null,

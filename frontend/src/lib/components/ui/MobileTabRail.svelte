@@ -9,6 +9,7 @@
 		badge?: number | string;
 		badgeTone?: 'default' | 'success' | 'warning' | 'muted';
 		separatorBefore?: boolean;
+		muted?: boolean;
 	}
 
 	interface Props {
@@ -121,6 +122,7 @@
 			role="tab"
 			class="mobile-tab-rail__tab"
 			class:is-active={tab.id === active}
+			class:is-muted={tab.muted}
 			aria-selected={tab.id === active}
 			data-tab-id={tab.id}
 			onclick={() => onchange(tab.id)}
@@ -186,6 +188,10 @@
 	.mobile-tab-rail__tab.is-active {
 		color: var(--text-primary);
 		border-bottom-color: var(--accent);
+	}
+
+	.mobile-tab-rail__tab.is-muted:not(.is-active) {
+		opacity: 0.45;
 	}
 
 	.mobile-tab-rail__label {
