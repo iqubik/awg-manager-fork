@@ -21,9 +21,9 @@ describe('monitoring constants helpers', () => {
 
 		expect(getMonitoringHistoryCapacity({
 			historyHours: 48,
-			sampleIntervalSec: 60,
+			sampleIntervalSec: 120,
 			matrixRefreshIntervalSec: 120,
-		})).toBe(2880);
+		})).toBe(1440);
 	});
 
 	it('reports validation errors for out-of-range values', () => {

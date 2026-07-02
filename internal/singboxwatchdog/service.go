@@ -877,7 +877,7 @@ func (s *Service) recoverSubscription(ctx context.Context, target RuntimeTarget,
 	tested := 0
 	for _, tag := range target.MemberTags {
 		tag = strings.TrimSpace(tag)
-		if tag == "" || tag == current || tag == target.SelectorTag {
+		if !isProbeableSubscriptionMemberTag(tag, current, target.SelectorTag) {
 			continue
 		}
 		if tested >= maxMemberChecks {
@@ -955,6 +955,20 @@ func (s *Service) recoverSubscription(ctx context.Context, target RuntimeTarget,
 		target.SelectorTag, current, best.tag, res.Latency,
 	))
 	s.publishSnapshot("recovery")
+}
+
+func isProbeableSubscriptionMemberTag(tag, current, selectorTag string) bool {
+	tag = strings.TrimSpace(tag)
+	if tag == "" || tag == current || tag == selectorTag {
+		return false
+	}
+
+	switch strings.ToLower(tag) {
+	case "direct", "block", "final":
+		return false
+	default:
+		return true
+	}
 }
 
 func timePtr(t time.Time) *time.Time { return &t }
