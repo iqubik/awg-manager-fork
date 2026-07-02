@@ -558,3 +558,19 @@ func ByteSize(pattern string) int {
 func TotalByteSize(p GeneratedPackets) int {
 	return ByteSize(p.I1) + ByteSize(p.I2) + ByteSize(p.I3) + ByteSize(p.I4) + ByteSize(p.I5)
 }
+
+// CalcCPSByteSize is the public/helper name used by tests and API parity notes.
+// It is an alias of ByteSize for one CPS packet pattern string.
+func CalcCPSByteSize(pattern string) int {
+	return ByteSize(pattern)
+}
+
+// CalcTotalSignatureByteSize sums the true byte sizes of arbitrary CPS packet
+// strings. It mirrors the frontend helper naming used in issue #422.
+func CalcTotalSignatureByteSize(packets ...string) int {
+	total := 0
+	for _, packet := range packets {
+		total += CalcCPSByteSize(packet)
+	}
+	return total
+}
