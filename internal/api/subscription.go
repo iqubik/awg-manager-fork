@@ -184,6 +184,24 @@ type SubscriptionResponse struct {
 	Data    SubscriptionDTO `json:"data"`
 }
 
+type SubscriptionPreviewMemberDTO struct {
+	Key       string `json:"key" example:"aabbccdd"`
+	Label     string `json:"label,omitempty" example:"Demo NL"`
+	Protocol  string `json:"protocol" example:"vless"`
+	Server    string `json:"server,omitempty" example:"nl.example.com"`
+	Port      int    `json:"port,omitempty" example:"443"`
+	SNI       string `json:"sni,omitempty" example:"cdn.example.com"`
+	Transport string `json:"transport,omitempty" example:"ws"`
+	Security  string `json:"security,omitempty" example:"tls"`
+	Supported bool   `json:"supported" example:"true"`
+	Reason    string `json:"reason,omitempty" example:"unsupported outbound protocol"`
+}
+
+type SubscriptionPreviewResponse struct {
+	Success bool                           `json:"success" example:"true"`
+	Data    []SubscriptionPreviewMemberDTO `json:"data"`
+}
+
 // CreateSubscriptionRequest is the body for POST /api/singbox/subscriptions/create.
 // Exactly one of URL or Inline must be provided.
 type CreateSubscriptionRequest struct {
@@ -291,6 +309,29 @@ type RestoreMembersRequest struct {
 type PreviewURLRequest struct {
 	URL     string               `json:"url" example:"https://example.com/subscriptions/demo.txt"`
 	Headers []SubscriptionHeader `json:"headers"`
+}
+
+func previewMemberToDTO(m subscription.PreviewMember) SubscriptionPreviewMemberDTO {
+	return SubscriptionPreviewMemberDTO{
+		Key:       m.Key,
+		Label:     m.Label,
+		Protocol:  m.Protocol,
+		Server:    m.Server,
+		Port:      int(m.Port),
+		SNI:       m.SNI,
+		Transport: m.Transport,
+		Security:  m.Security,
+		Supported: m.Supported,
+		Reason:    m.Reason,
+	}
+}
+
+func previewMembersToDTO(items []subscription.PreviewMember) []SubscriptionPreviewMemberDTO {
+	out := make([]SubscriptionPreviewMemberDTO, len(items))
+	for i, item := range items {
+		out[i] = previewMemberToDTO(item)
+	}
+	return out
 }
 
 // toDTO converts a domain Subscription to its API representation.
@@ -1286,7 +1327,7 @@ func (h *SubscriptionHandler) RestoreMembers(w http.ResponseWriter, r *http.Requ
 //	@Produce		json
 //	@Security		CookieAuth
 //	@Param			body	body		PreviewURLRequest	true	"URL and optional headers"
-//	@Success		200		{object}	APIEnvelope
+//	@Success		200		{object}	SubscriptionPreviewResponse
 //	@Failure		400		{object}	APIErrorEnvelope
 //	@Failure		502		{object}	APIErrorEnvelope	"fetch or parse failed"
 //	@Router			/singbox/subscriptions/preview [post]
@@ -1305,5 +1346,5 @@ func (h *SubscriptionHandler) PreviewURL(w http.ResponseWriter, r *http.Request)
 		response.ErrorWithStatus(w, http.StatusBadGateway, err.Error(), "PREVIEW_FAILED")
 		return
 	}
-	response.Success(w, members)
+	response.Success(w, previewMembersToDTO(members))
 }
