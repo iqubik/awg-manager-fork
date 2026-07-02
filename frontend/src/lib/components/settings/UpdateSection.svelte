@@ -97,9 +97,6 @@
 	);
 	const updateApplyBlockedReason = $derived.by(() => {
 		if (!updateInfo?.available) return '';
-		if (updateInfo.source === 'release' && updateInfo.warning) {
-			return updateInfo.warning;
-		}
 		return '';
 	});
 	const showUpdateDiagnostics = $derived($usageLevel !== 'basic');
