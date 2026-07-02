@@ -276,6 +276,30 @@ func displayStatus(info tunnel.StateInfo, quiescentUntil, now time.Time) string 
 	return overlayPendingStatus(info.State, info.BackendType, quiescentUntil, now)
 }
 
+// replaceNeedsStop returns true when replacing the config must first clean up
+// existing runtime state. Kernel tunnels can surface as needs_stop while the
+// iface/process still exist, so checking StateRunning alone is not enough.
+func replaceNeedsStop(info tunnel.StateInfo) bool {
+	switch info.State {
+	case tunnel.StateRunning, tunnel.StateStarting, tunnel.StateNeedsStop:
+		return true
+	}
+
+	return info.BackendType == "kernel" && (info.ProcessRunning || info.OpkgTunExists)
+}
+
+// replaceNeedsRestart returns true only for states that were actively up or
+// coming up before replace. Dirty needs_stop runtimes must be cleaned first,
+// but they should not be auto-started unless the tunnel was really running.
+func replaceNeedsRestart(info tunnel.StateInfo) bool {
+	switch info.State {
+	case tunnel.StateRunning, tunnel.StateStarting:
+		return true
+	default:
+		return false
+	}
+}
+
 // quiescentFor returns the orchestrator bring-up window for a tunnel, or zero
 // when the orchestrator is not wired (tests/edge).
 func (h *TunnelsHandler) quiescentFor(id string) time.Time {
@@ -1385,11 +1409,14 @@ func (h *TunnelsHandler) ReplaceConf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if running — need to stop before replacing config
+	// Clean up live runtime before replacing config. Kernel tunnels may sit in
+	// needs_stop with lingering iface/process artifacts, which still require a
+	// Stop before we overwrite the conf.
 	stateInfo := h.svc.GetState(r.Context(), id)
-	wasRunning := stateInfo.State == tunnel.StateRunning
+	needsStop := replaceNeedsStop(stateInfo)
+	needsRestart := replaceNeedsRestart(stateInfo)
 
-	if wasRunning {
+	if needsStop {
 		if err := h.svc.Stop(r.Context(), id); err != nil {
 			response.InternalError(w, "failed to stop tunnel before config replace: "+err.Error())
 			return
@@ -1411,8 +1438,8 @@ func (h *TunnelsHandler) ReplaceConf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Restart if was running
-	if wasRunning {
+	// Restart only when the tunnel was actively running/starting before replace.
+	if needsRestart {
 		if err := h.svc.Start(r.Context(), id); err != nil {
 			warnings = append(warnings, "tunnel config replaced but failed to restart: "+err.Error())
 		}
