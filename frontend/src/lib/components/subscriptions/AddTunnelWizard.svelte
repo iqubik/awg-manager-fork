@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { tick } from 'svelte';
 	import { SideDrawer, Button, Dropdown } from '$lib/components/ui';
 	import { api } from '$lib/api/client';
 	import { singboxStatus, singboxTunnels } from '$lib/stores/singbox';
@@ -62,6 +63,13 @@
 	let previewMembers = $state<SubscriptionPreviewMember[]>([]);
 	let excludedKeys = $state<Set<string>>(new Set());
 	let previewing = $state(false);
+	let mountingPreview = $state(false);
+	const selectablePreviewCount = $derived.by(() =>
+		previewMembers.filter((member) => member.supported !== false).length
+	);
+	const excludedSelectableCount = $derived.by(() =>
+		previewMembers.filter((member) => member.supported !== false && excludedKeys.has(member.key)).length
+	);
 
 	$effect(() => {
 		refreshHours = parseInt(refreshHoursStr, 10) || 0;
@@ -124,6 +132,7 @@
 		previewMembers = [];
 		excludedKeys = new Set();
 		previewing = false;
+		mountingPreview = false;
 		error = '';
 	}
 
@@ -196,7 +205,14 @@
 	}
 
 	async function fetchPreview(): Promise<void> {
-		if (previewing || !url.trim()) {
+		if (previewing || mountingPreview) {
+			return;
+		}
+		if (!label.trim()) {
+			error = 'Укажите название подписки';
+			return;
+		}
+		if (!url.trim()) {
 			error = 'Укажите URL подписки';
 			return;
 		}
@@ -212,21 +228,42 @@
 			// модалка замирает на «Загрузка...» (issue #428). Бэкенд уже
 			// дедуплицирует, это страховка от старых бэкендов и иных источников.
 			const seen = new Set<string>();
-			previewMembers = (members ?? []).filter((m) => {
+			const dedupedMembers = (members ?? []).filter((m) => {
 				if (seen.has(m.key)) return false;
 				seen.add(m.key);
 				return true;
 			});
+			if (dedupedMembers.length === 0) {
+				error = 'В подписке не найдено серверов для предпросмотра';
+				return;
+			}
+			mountingPreview = true;
+			previewing = false;
+			await tick();
+			await new Promise<void>((resolve) => {
+				if (typeof requestAnimationFrame === 'function') {
+					requestAnimationFrame(() => resolve());
+					return;
+				}
+				resolve();
+			});
+			previewMembers = dedupedMembers;
 			excludedKeys = new Set();
 			urlStep = 'preview';
+			mountingPreview = false;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Не удалось получить список серверов';
 		} finally {
 			previewing = false;
+			mountingPreview = false;
 		}
 	}
 
 	function toggleExcluded(key: string): void {
+		const member = previewMembers.find((item) => item.key === key);
+		if (member?.supported === false) {
+			return;
+		}
 		const next = new Set(excludedKeys);
 		if (next.has(key)) next.delete(key);
 		else next.add(key);
@@ -238,7 +275,11 @@
 	}
 
 	function selectNoneMembers(): void {
-		excludedKeys = new Set(previewMembers.map((m) => m.key));
+		excludedKeys = new Set(
+			previewMembers
+				.filter((member) => member.supported !== false)
+				.map((member) => member.key)
+		);
 	}
 
 	async function submitSubscription(): Promise<void> {
@@ -372,6 +413,11 @@
 			onselectAll={selectAllMembers}
 			onselectNone={selectNoneMembers}
 		/>
+		{#if selectablePreviewCount === 0 && previewMembers.length > 0}
+			<div class="warn">
+				В подписке нет поддерживаемых серверов для добавления.
+			</div>
+		{/if}
 		{#if error}<div class="err">{error}</div>{/if}
 	{:else}
 		<form
@@ -529,7 +575,7 @@
 			<Button
 				variant="primary"
 				onclick={fetchPreview}
-				disabled={previewing || !url.trim()}
+				disabled={previewing || mountingPreview || !url.trim() || !label.trim()}
 				loading={previewing}
 			>
 				{previewing ? 'Загрузка...' : 'Далее'}
@@ -538,12 +584,12 @@
 			<Button
 				variant="primary"
 				onclick={submitSubscription}
-				disabled={submitting || previewMembers.length === excludedKeys.size}
+				disabled={submitting || selectablePreviewCount === excludedSelectableCount}
 				loading={submitting}
 			>
 				{submitting
 					? 'Создаём...'
-					: `Создать — оставить ${previewMembers.length - excludedKeys.size}`}
+					: `Создать — оставить ${selectablePreviewCount - excludedSelectableCount}`}
 			</Button>
 		{:else if kind !== 'choose'}
 			<Button
