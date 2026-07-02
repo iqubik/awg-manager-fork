@@ -1,6 +1,7 @@
 package signature
 
 import (
+	"encoding/hex"
 	mrand "math/rand"
 	"regexp"
 	"strconv"
@@ -13,6 +14,7 @@ func testRand() *mrand.Rand { return mrand.New(mrand.NewSource(42)) }
 
 var bTagRe = regexp.MustCompile(`<b 0x([0-9a-fA-F]*)>`)
 var padTagRe = regexp.MustCompile(`<(r|rc|rd) (\d+)>`)
+var tlsRecordLenRe = regexp.MustCompile(`<b 0x160301([0-9a-fA-F]{4})`)
 
 func allPackets(p GeneratedPackets) []string {
 	return []string{p.I1, p.I2, p.I3, p.I4, p.I5}
@@ -180,6 +182,33 @@ func TestByteSize(t *testing.T) {
 	for _, c := range cases {
 		if got := ByteSize(c.pattern); got != c.want {
 			t.Errorf("ByteSize(%q)=%d want %d", c.pattern, got, c.want)
+		}
+	}
+}
+
+func TestCalcCPSByteSize(t *testing.T) {
+	if got := CalcCPSByteSize("<b 0x0102><t><r 10><rc 3><rd 4>"); got != 23 {
+		t.Fatalf("CalcCPSByteSize() = %d, want 23", got)
+	}
+}
+
+func TestGenerate_TLSDefaultsDoNotUseBrowserFPOrChromiumAlign(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		p, _, err := Generate("tls", 1280)
+		if err != nil {
+			t.Fatalf("Generate(tls): %v", err)
+		}
+		m := tlsRecordLenRe.FindStringSubmatch(p.I1)
+		if len(m) != 2 {
+			t.Fatalf("I1 = %q, want TLS record length prefix", p.I1)
+		}
+		raw, err := hex.DecodeString(m[1])
+		if err != nil || len(raw) != 2 {
+			t.Fatalf("decode record length %q: %v", m[1], err)
+		}
+		recLen := int(raw[0])<<8 | int(raw[1])
+		if recLen < 300 || recLen > 550 {
+			t.Fatalf("record length = %d, want default non-BFP range 300..550", recLen)
 		}
 	}
 }
