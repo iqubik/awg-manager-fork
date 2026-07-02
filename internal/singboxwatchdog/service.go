@@ -358,17 +358,18 @@ func (s *Service) Disable(id string) error {
 	return nil
 }
 
-func (s *Service) CheckNow(_ context.Context, targetID string) {
+func (s *Service) CheckNow(_ context.Context, targetID string) error {
 	if targetID == "" {
 		s.CheckAllNow(nil)
-		return
+		return nil
 	}
 	cfg, ok := s.store.Get(targetID)
 	if !ok {
-		return
+		return ErrTargetNotFound
 	}
 	runCtx := contextOrBackground(s.ctx)
 	go s.checkOne(runCtx, normalizeConfig(cfg))
+	return nil
 }
 
 func (s *Service) CheckAllNow(_ context.Context) {
