@@ -365,6 +365,7 @@ func TestCheck_StableWithoutReleaseBaseURLUsesPackagesIndex(t *testing.T) {
 
 	releaseRepoURL = ""
 	releaseBaseURL = ""
+	entwareRepoURL = "http://repo.example"
 
 	arch := archSuffix()
 	archDir := archSuffixToRepoDir(arch)
@@ -1283,5 +1284,88 @@ func TestCheck_StableIgnoresLowerDevelopRevisionFromReleaseChannel(t *testing.T)
 	}
 	if info.LatestVersion != "" {
 		t.Fatalf("LatestVersion = %q, want empty", info.LatestVersion)
+	}
+}
+
+func TestCheck_StableDirectLatestReleaseWarnsWhenChecksumUnavailable(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	oldEntwareRepoURL := entwareRepoURL
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	releaseBaseURL = ""
+	entwareRepoURL = "http://repo.example"
+	t.Cleanup(func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+		entwareRepoURL = oldEntwareRepoURL
+	})
+
+	arch := archSuffix()
+	info := checkWithDownloader(context.Background(), "2.12.10", channelStable, &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			switch req.URL {
+			case "https://github.com/example/repo/releases/latest/download/VERSION":
+				return []byte("2.12.11\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			case "https://github.com/example/repo/releases/latest/download/awg-manager_2.12.11_" + arch + "-kn.ipk":
+				return nil, downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			default:
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
+			}
+		},
+	})
+
+	if !info.Available {
+		t.Fatalf("expected Available=true, got %+v", info)
+	}
+	if info.Warning != releaseChecksumWarning {
+		t.Fatalf("Warning = %q, want %q", info.Warning, releaseChecksumWarning)
+	}
+}
+
+func TestCheck_StableManualLatestReleaseWarnsWhenChecksumUnavailable(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	oldEntwareRepoURL := entwareRepoURL
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	releaseBaseURL = ""
+	entwareRepoURL = "http://repo.example"
+	stableReleaseResolver.Clear()
+	t.Cleanup(func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+		entwareRepoURL = oldEntwareRepoURL
+		stableReleaseResolver.Clear()
+	})
+
+	arch := archSuffix()
+	releaseJSON := fmt.Sprintf(`{
+		"tag_name":"v2.12.11",
+		"html_url":"https://github.com/example/repo/releases/tag/v2.12.11",
+		"body":"notes",
+		"published_at":"2026-06-12T10:00:00Z",
+		"assets":[
+			{"name":"awg-manager_2.12.11_%s-kn.ipk","browser_download_url":"https://github.com/example/repo/releases/download/v2.12.11/awg-manager_2.12.11_%s-kn.ipk"}
+		]
+	}`, arch, arch)
+	info := checkWithDownloader(context.Background(), "2.12.10", channelStable, &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			switch req.URL {
+			case "https://github.com/example/repo/releases/latest/download/VERSION":
+				return nil, downloader.ResponseMeta{}, fmt.Errorf("download via direct: status 404: <!DOCTYPE html><html><body>Not Found</body></html>")
+			case "https://api.github.com/repos/example/repo/releases/latest":
+				return []byte(releaseJSON), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			default:
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
+			}
+		},
+	})
+
+	if !info.Available {
+		t.Fatalf("expected Available=true, got %+v", info)
+	}
+	if info.Warning != releaseChecksumWarning {
+		t.Fatalf("Warning = %q, want %q", info.Warning, releaseChecksumWarning)
 	}
 }
