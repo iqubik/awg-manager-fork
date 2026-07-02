@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	defaultEntwareRepoURL  = "http://repo.hoaxisr.ru"
+	defaultEntwareRepoURL  = ""
 	repoTimeout            = 30 * time.Second
 	downloadTimeout        = 5 * time.Minute
 	downloadDir            = "/opt/tmp"
@@ -33,17 +33,20 @@ const (
 	channelDevelop = "develop"
 )
 
+const releaseChecksumWarning = "Для GitHub Release сейчас недоступна проверка SHA256, поэтому автоматическое применение обновления отключено. Скачайте пакет вручную или используйте Entware-канал."
+
 var (
 	releaseVersionPattern   = regexp.MustCompile(`^\d+\.\d+\.\d+(?:\.\d+)*(?:\+r\d+)?$`)
 	releaseStableTagPattern = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:\.\d+)*$`)
 
-	// entwareRepoURL is a variable so tests can override it with httptest server URL.
+	// entwareRepoURL is optional in this fork. We do not fall back to the
+	// upstream author's Entware mirror for fork updates unless a mirror is
+	// explicitly configured for the current build or test.
 	entwareRepoURL = defaultEntwareRepoURL
 
-	// releaseRepoURL is optionally injected at build time for fork-specific
-	// GitHub releases repository, for example:
-	// https://github.com/iqubik/awg-manager-fork/releases
-	releaseRepoURL = ""
+	// releaseRepoURL defaults to this fork's GitHub releases and may still be
+	// overridden at build time for custom release channels.
+	releaseRepoURL = "https://github.com/iqubik/awg-manager-fork/releases"
 
 	// releaseBaseURL is a legacy exact asset base override kept for backward
 	// compatibility with localized/dev builds that explicitly pin iq-latest.
@@ -125,6 +128,10 @@ func checkWithDownloader(ctx context.Context, currentVersion, channel string, dl
 	}
 
 	base := channelBaseURL(channel)
+	if strings.TrimSpace(base) == "" {
+		info.Error = "update source is not configured for this build"
+		return info
+	}
 	archDir := archSuffixToRepoDir(archSuffix())
 	pkgsURL := fmt.Sprintf("%s/%s/Packages.gz", base, archDir)
 	info.Source = "entware"
@@ -205,6 +212,7 @@ func checkStableLatestReleaseWithDownloader(
 	info.Available = true
 	info.LatestVersion = latest
 	info.DownloadURL = ipkURL
+	info.Warning = releaseChecksumWarning
 	return info
 }
 
@@ -239,6 +247,7 @@ func checkStableManualLatestReleaseWithDownloader(
 	info.Available = true
 	info.LatestVersion = releaseInfo.Version
 	info.DownloadURL = downloadURL
+	info.Warning = releaseChecksumWarning
 	return info
 }
 
@@ -320,6 +329,7 @@ func checkReleaseWithDownloader(
 		latest,
 		archSuffix(),
 	))
+	info.Warning = releaseChecksumWarning
 	return info
 }
 
