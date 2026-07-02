@@ -222,7 +222,9 @@ func (s *Service) CheckNow(ctx context.Context) *UpdateInfo {
 	return info
 }
 
-// ApplyUpgrade downloads and installs the update from the entware repo.
+// ApplyUpgrade downloads and installs the cached update package.
+// Release-source updates are intentionally blocked until the checker can
+// provide a trusted SHA256 for the downloaded IPK.
 // Returns error if upgrade is already in progress or no download URL cached.
 func (s *Service) ApplyUpgrade(ctx context.Context) error {
 	s.mu.Lock()
@@ -231,14 +233,19 @@ func (s *Service) ApplyUpgrade(ctx context.Context) error {
 		return ErrUpgradeInProgress
 	}
 
-	var downloadURL, wantSHA256 string
+	var downloadURL, wantSHA256, source string
 	if s.cached != nil {
 		downloadURL = s.cached.DownloadURL
 		wantSHA256 = s.cached.SHA256
+		source = s.cached.Source
 	}
 	if downloadURL == "" {
 		s.mu.Unlock()
 		return fmt.Errorf("no download URL available, run check first")
+	}
+	if source == "release" && wantSHA256 == "" {
+		s.mu.Unlock()
+		return ErrReleaseChecksumUnavailable
 	}
 	s.upgrading = true
 	s.mu.Unlock()
@@ -288,6 +295,7 @@ func (s *Service) GetChangelogSingle(ctx context.Context, version string) (*Entr
 	}
 	return Single(entries, version), nil
 }
+
 // GetChangelogMinor returns all CHANGELOG entries for the same major.minor
 // as version up to and including that release (e.g. 2.11.0–2.11.2 on 2.11.2+r70).
 func (s *Service) GetChangelogMinor(ctx context.Context, version string) ([]Entry, error) {
