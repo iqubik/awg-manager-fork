@@ -5752,9 +5752,8 @@ definitions:
         example: https://github.com/iqubik/awg-manager-fork/releases/latest/download/VERSION
         type: string
       warning:
-        example: Для GitHub Release сейчас недоступна проверка SHA256, поэтому автоматическое
-          применение обновления отключено. Скачайте пакет вручную со страницы релиза
-          этого форка.
+        example: Пакет будет загружен из GitHub Release этого форка. SHA256 не опубликован,
+          поэтому дополнительная проверка контрольной суммы пропущена.
         type: string
     type: object
   api.UpdatePeerRequestDTO:
