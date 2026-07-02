@@ -1,6 +1,9 @@
 <script lang="ts">
 	import type { SubscriptionPreviewMember } from '$lib/types';
 
+	const ROW_HEIGHT = 72;
+	const OVERSCAN = 8;
+
 	interface Props {
 		members: SubscriptionPreviewMember[];
 		excludedKeys: Set<string>;
@@ -12,6 +15,9 @@
 
 	let filter = $state('');
 	let activeProtocol = $state<string>('');
+	let listEl = $state<HTMLDivElement | null>(null);
+	let scrollTop = $state(0);
+	let viewportHeight = $state(420);
 
 	function protocolLabel(p: string): string {
 		switch (p) {
@@ -39,12 +45,50 @@
 			if (activeProtocol && m.protocol !== activeProtocol) return false;
 			if (!q) return true;
 			const label = (m.label ?? '').toLowerCase();
-			return label.includes(q) || m.server.toLowerCase().includes(q);
+			const server = String(m.server ?? '').toLowerCase();
+			return label.includes(q) || server.includes(q);
 		});
 	});
 
-	const keptCount = $derived(members.length - excludedKeys.size);
-	const excludedCount = $derived(excludedKeys.size);
+	const selectableCount = $derived.by(() => members.filter(canSelect).length);
+	const excludedCount = $derived.by(() => members.filter((member) => canSelect(member) && excludedKeys.has(member.key)).length);
+	const keptCount = $derived(selectableCount - excludedCount);
+	const startIndex = $derived.by(() => Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN));
+	const endIndex = $derived.by(() =>
+		Math.min(filtered.length, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN)
+	);
+	const visibleRows = $derived.by(() => filtered.slice(startIndex, endIndex));
+	const topSpacer = $derived(startIndex * ROW_HEIGHT);
+	const bottomSpacer = $derived((filtered.length - endIndex) * ROW_HEIGHT);
+
+	function canSelect(member: SubscriptionPreviewMember): boolean {
+		return member.supported !== false;
+	}
+
+	function memberDisplayName(member: SubscriptionPreviewMember): string {
+		const host = member.server || 'unknown-host';
+		return member.label || `${host}${member.port ? `:${member.port}` : ''}`;
+	}
+
+	function memberAddress(member: SubscriptionPreviewMember): string {
+		return `${member.server || 'unknown-host'}${member.port ? `:${member.port}` : ''}`;
+	}
+
+	$effect(() => {
+		filter;
+		activeProtocol;
+		scrollTop = 0;
+		if (listEl) {
+			listEl.scrollTop = 0;
+		}
+	});
+
+	$effect(() => {
+		listEl;
+		if (listEl) {
+			viewportHeight = listEl.clientHeight || 420;
+		}
+	});
 </script>
 
 <div class="preview">
@@ -92,37 +136,55 @@
 		<span class="excluded">{excludedCount} исключить</span>
 	</div>
 
-	<!-- ponytail: no virtualization; add if 500+ janks -->
-	<div class="list">
-		{#each filtered as member (member.key)}
-			{@const checked = !excludedKeys.has(member.key)}
-			<label class="row" class:dropped={!checked}>
-				<input
-					type="checkbox"
-					{checked}
-					onchange={() => ontoggle(member.key)}
-				/>
-				<div class="main">
-					<div class="name" class:empty={!member.label}>
-						{member.label || `${member.server}:${member.port}`}
+	<div
+		class="list"
+		bind:this={listEl}
+		onscroll={(e) => {
+			const el = e.currentTarget as HTMLDivElement;
+			scrollTop = el.scrollTop;
+			viewportHeight = el.clientHeight;
+		}}
+	>
+		{#if filtered.length > 0}
+			<div class="spacer" style={`height:${topSpacer}px`}></div>
+			{#each visibleRows as member (member.key)}
+				{@const checked = canSelect(member) && !excludedKeys.has(member.key)}
+				<label class="row" class:dropped={canSelect(member) && !checked} class:unsupported={!canSelect(member)}>
+					<input
+						type="checkbox"
+						{checked}
+						disabled={!canSelect(member)}
+						onchange={() => canSelect(member) && ontoggle(member.key)}
+					/>
+					<div class="main">
+						<div class="name" class:empty={!member.label}>
+							{memberDisplayName(member)}
+						</div>
+						<div class="addr mono">{memberAddress(member)}</div>
+						{#if member.reason}
+							<div class="reason" title={member.reason}>{member.reason}</div>
+						{/if}
 					</div>
-					<div class="addr mono">{member.server}:{member.port}</div>
-				</div>
-				<div class="badges">
-					<span class="badge proto">{protocolLabel(member.protocol)}</span>
-					{#if member.transport && member.transport !== 'tcp'}
-						<span class="badge transport">{member.transport.toUpperCase()}</span>
-					{/if}
-					{#if member.security === 'reality'}
-						<span class="badge reality">Reality</span>
-					{:else if member.security === 'tls'}
-						<span class="badge tls">TLS</span>
-					{/if}
-				</div>
-			</label>
+					<div class="badges">
+						<span class="badge proto">{protocolLabel(member.protocol)}</span>
+						{#if member.transport && member.transport !== 'tcp'}
+							<span class="badge transport">{member.transport.toUpperCase()}</span>
+						{/if}
+						{#if member.security === 'reality'}
+							<span class="badge reality">Reality</span>
+						{:else if member.security === 'tls'}
+							<span class="badge tls">TLS</span>
+						{/if}
+						{#if member.supported === false}
+							<span class="badge rejected">Не поддерживается</span>
+						{/if}
+					</div>
+				</label>
+			{/each}
+			<div class="spacer" style={`height:${bottomSpacer}px`}></div>
 		{:else}
 			<div class="empty-list">Нет серверов по фильтру.</div>
-		{/each}
+		{/if}
 	</div>
 </div>
 
@@ -209,18 +271,27 @@
 	.list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.4rem;
 		max-height: 50vh;
 		overflow-y: auto;
+	}
+	.spacer {
+		flex: 0 0 auto;
 	}
 	.row {
 		display: flex;
 		align-items: center;
 		gap: 0.6rem;
 		padding: 0.5rem 0.7rem;
+		height: 72px;
+		box-sizing: border-box;
+		overflow: hidden;
 		border: 1px solid var(--color-border);
 		border-radius: 8px;
 		cursor: pointer;
+	}
+	.row.unsupported {
+		cursor: default;
+		opacity: 0.82;
 	}
 	.row.dropped {
 		opacity: 0.5;
@@ -251,11 +322,21 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	.reason {
+		font-size: 0.72rem;
+		color: #f59e0b;
+		margin-top: 0.15rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	.badges {
 		display: flex;
 		align-items: center;
 		gap: 0.3rem;
 		flex-shrink: 0;
+		flex-wrap: wrap;
+		justify-content: flex-end;
 	}
 	.badge {
 		font-size: 0.68rem;
@@ -268,6 +349,7 @@
 	.badge.transport { background: var(--color-bg-tertiary); color: var(--color-text-muted); }
 	.badge.tls { background: rgba(63, 185, 80, 0.15); color: #3fb950; }
 	.badge.reality { background: rgba(210, 153, 34, 0.15); color: #d29922; }
+	.badge.rejected { background: rgba(245, 158, 11, 0.16); color: #f59e0b; }
 
 	.mono {
 		font-family: var(--font-mono, ui-monospace, monospace);
