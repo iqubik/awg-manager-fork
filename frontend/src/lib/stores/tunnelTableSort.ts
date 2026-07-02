@@ -24,22 +24,14 @@ function createTunnelTableSortStore<T extends string>(
 			store.mutate((state) => cycleTableSort(state, key));
 		},
 		setSort(key: T | null) {
-			update((state) => {
-				const next =
-					key === null
-						? defaultState()
-						: { sortBy: key, sortAsc: defaults[key] };
-				persist(next);
-				return next;
-			});
+			store.mutate(() =>
+				key === null ? { sortBy: null, sortAsc: true } : { sortBy: key, sortAsc: defaults[key] },
+			);
 		},
 		toggleDirection() {
-			update((state) => {
-				if (state.sortBy === null) return state;
-				const next = { ...state, sortAsc: !state.sortAsc };
-				persist(next);
-				return next;
-			});
+			store.mutate((state) =>
+				state.sortBy === null ? state : { ...state, sortAsc: !state.sortAsc },
+			);
 		},
 	};
 }
