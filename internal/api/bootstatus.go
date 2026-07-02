@@ -6,7 +6,6 @@ import (
 )
 
 // ── Response DTOs ────────────────────────────────────────────────
-
 // BootStatusResponse is the raw (non-enveloped) payload for GET /boot-status.
 type BootStatusResponse struct {
 	Initializing     bool   `json:"initializing" example:"false"`
