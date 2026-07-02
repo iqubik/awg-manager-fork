@@ -28,7 +28,6 @@ export async function loadPresetCatalog(force = false): Promise<void> {
 			loaded = true;
 			presetCatalogLoaded.set(true);
 		} catch (e) {
-			console.error('failed to load preset catalog', e);
 			if (!loaded) {
 				presetCatalogLoaded.set(false);
 			}
