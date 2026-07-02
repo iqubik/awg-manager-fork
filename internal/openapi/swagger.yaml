@@ -5531,6 +5531,9 @@ definitions:
       available:
         example: false
         type: boolean
+      channel:
+        example: stable
+        type: string
       checkedAt:
         example: "2024-01-15T10:00:00Z"
         type: string
@@ -5538,10 +5541,27 @@ definitions:
         example: false
         type: boolean
       currentVersion:
-        example: 2.5.0
+        example: 2.15.1
+        type: string
+      downloadUrl:
+        example: https://github.com/iqubik/awg-manager-fork/releases/latest/download/awg-manager_2.15.1+r1_aarch64-3.10-kn.ipk
+        type: string
+      error:
+        example: update source is not configured for this build
         type: string
       latestVersion:
-        example: 2.5.0
+        example: 2.15.1+r1
+        type: string
+      source:
+        example: release
+        type: string
+      sourceUrl:
+        example: https://github.com/iqubik/awg-manager-fork/releases/latest/download/VERSION
+        type: string
+      warning:
+        example: Для GitHub Release сейчас недоступна проверка SHA256, поэтому автоматическое
+          применение обновления отключено. Скачайте пакет вручную или используйте
+          Entware-канал.
         type: string
     type: object
   api.UpdatePeerRequestDTO:
