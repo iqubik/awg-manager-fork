@@ -103,6 +103,11 @@ type AWGInterfaceDTO struct {
 	H2         string `json:"h2" example:"2"`
 	H3         string `json:"h3" example:"3"`
 	H4         string `json:"h4" example:"4"`
+	I1         string `json:"i1,omitempty" example:"<b 0x1603010200><rc 32><r 64><t>"`
+	I2         string `json:"i2,omitempty" example:"<b 0xabcdef01><r 24><t><rd 6>"`
+	I3         string `json:"i3,omitempty" example:"<r 40><rc 7><b 0x01020304><t>"`
+	I4         string `json:"i4,omitempty" example:"<t><r 18><rc 6><b 0xaabbccdd><rd 5>"`
+	I5         string `json:"i5,omitempty" example:"<b 0x11223344><r 28><t><rd 4>"`
 }
 
 // AWGPeerDTO mirrors frontend AWGPeer.
