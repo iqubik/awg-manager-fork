@@ -67,7 +67,7 @@
 	});
 </script>
 
-<SideDrawer {open} title="Что нового" width={640} onClose={onclose}>
+<SideDrawer {open} title="Что нового" width={640} bodyClass="drawer-body-fill" onClose={onclose}>
 	<div class="modal-body">
 		{#if loading}
 			<LoadingSpinner />
@@ -86,7 +86,10 @@
 
 <style>
 	.modal-body {
-		max-height: 70vh;
+		flex: 1;
+		min-height: 0;
+		height: 100%;
+		padding: 1rem;
 		overflow-y: auto;
 		overflow-x: hidden;
 	}
