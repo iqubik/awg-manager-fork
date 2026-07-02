@@ -95,6 +95,13 @@
 	const manualCheckLabel = $derived(
 		checking ? 'Проверка...' : updateInfo?.available ? 'Проверить ещё' : 'Проверить'
 	);
+	const updateApplyBlockedReason = $derived.by(() => {
+		if (!updateInfo?.available) return '';
+		if (updateInfo.source === 'release' && updateInfo.warning) {
+			return updateInfo.warning;
+		}
+		return '';
+	});
 	const showUpdateDiagnostics = $derived($usageLevel !== 'basic');
 	const updateDiagnostics = $derived.by(() => {
 		if (!updateInfo || !showUpdateDiagnostics) return '';
@@ -290,7 +297,8 @@
 					variant="primary"
 					size="sm"
 					onclick={confirmUpgrade}
-					disabled={checking}
+					disabled={checking || Boolean(updateApplyBlockedReason)}
+					title={updateApplyBlockedReason || undefined}
 				>
 					Обновить
 				</Button>
