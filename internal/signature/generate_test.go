@@ -31,11 +31,18 @@ func TestGenerate_ValidProtocol(t *testing.T) {
 	assertPacketFormat(t, result.Packets.I3)
 	assertPacketFormat(t, result.Packets.I4)
 	assertPacketFormat(t, result.Packets.I5)
-	if result.ByteSize != len(result.Packets.I1)+len(result.Packets.I2)+len(result.Packets.I3)+len(result.Packets.I4)+len(result.Packets.I5) {
-		t.Fatalf("ByteSize = %d, want exact CPS string sum", result.ByteSize)
+	if result.ByteSize != CalcTotalSignatureByteSize(result.Packets.I1, result.Packets.I2, result.Packets.I3, result.Packets.I4, result.Packets.I5) {
+		t.Fatalf("ByteSize = %d, want exact CPS byte size", result.ByteSize)
 	}
 	if result.ByteSize > maxSignatureSize {
 		t.Fatalf("ByteSize = %d, exceeds max", result.ByteSize)
+	}
+}
+
+func TestCalcCPSByteSize(t *testing.T) {
+	got := CalcCPSByteSize("<b 0x0102><t><r 10><rc 3><rd 4>")
+	if got != 23 {
+		t.Fatalf("CalcCPSByteSize() = %d, want 23", got)
 	}
 }
 
@@ -67,6 +74,16 @@ func TestGenerate_DefaultMTUWhenMissingOrZero(t *testing.T) {
 	}
 	if result.Packets.I1 == "" {
 		t.Fatal("I1 is empty")
+	}
+}
+
+func TestGenerate_DefaultsDoNotUseBrowserFPRanges(t *testing.T) {
+	result, err := Generate("quic_initial", 1280)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if got := CalcCPSByteSize(result.Packets.I1); got >= 900 {
+		t.Fatalf("I1 byte size = %d, expected non-BFP default packet under 900 bytes", got)
 	}
 }
 
