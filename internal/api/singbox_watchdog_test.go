@@ -15,6 +15,7 @@ type fakeSingboxWatchdogService struct {
 	configureErr error
 	enableErr    error
 	disableErr   error
+	checkErr     error
 	checkID      string
 	checkAll     bool
 }
@@ -29,8 +30,9 @@ func (f *fakeSingboxWatchdogService) Configure(cfg singboxwatchdog.TargetConfig)
 }
 func (f *fakeSingboxWatchdogService) Enable(id string) error  { return f.enableErr }
 func (f *fakeSingboxWatchdogService) Disable(id string) error { return f.disableErr }
-func (f *fakeSingboxWatchdogService) CheckNow(ctx context.Context, targetID string) {
+func (f *fakeSingboxWatchdogService) CheckNow(ctx context.Context, targetID string) error {
 	f.checkID = targetID
+	return f.checkErr
 }
 func (f *fakeSingboxWatchdogService) CheckAllNow(ctx context.Context) { f.checkAll = true }
 
@@ -97,5 +99,64 @@ func TestSingboxWatchdogHandler_Configure_UnexpectedErrorIsInternal(t *testing.T
 	h.Configure(w, req)
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSingboxWatchdogHandler_Configure_RejectsInvalidRecoveryMode(t *testing.T) {
+	h := NewSingboxWatchdogHandler(&fakeSingboxWatchdogService{}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/singbox/watchdog/configure", strings.NewReader(`{
+		"id":"tunnel:sb-main","kind":"tunnel","ref":"sb-main","enabled":true,"interval":30,"failThreshold":3,"timeout":5,"recoveryMode":"bogus"
+	}`))
+	w := httptest.NewRecorder()
+	h.Configure(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSingboxWatchdogHandler_Configure_RejectsSwitchMemberForTunnel(t *testing.T) {
+	h := NewSingboxWatchdogHandler(&fakeSingboxWatchdogService{}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/singbox/watchdog/configure", strings.NewReader(`{
+		"id":"tunnel:sb-main","kind":"tunnel","ref":"sb-main","enabled":true,"interval":30,"failThreshold":3,"timeout":5,"recoveryMode":"switch-member"
+	}`))
+	w := httptest.NewRecorder()
+	h.Configure(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSingboxWatchdogHandler_Configure_RejectsRestartForSubscription(t *testing.T) {
+	h := NewSingboxWatchdogHandler(&fakeSingboxWatchdogService{}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/singbox/watchdog/configure", strings.NewReader(`{
+		"id":"subscription:sub-demo","kind":"subscription","ref":"sub-demo","enabled":true,"interval":30,"failThreshold":3,"timeout":5,"recoveryMode":"restart-singbox"
+	}`))
+	w := httptest.NewRecorder()
+	h.Configure(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSingboxWatchdogHandler_Configure_RejectsPersistSwitchUntilImplemented(t *testing.T) {
+	h := NewSingboxWatchdogHandler(&fakeSingboxWatchdogService{}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/singbox/watchdog/configure", strings.NewReader(`{
+		"id":"subscription:sub-demo","kind":"subscription","ref":"sub-demo","enabled":true,"interval":30,"failThreshold":3,"timeout":5,"recoveryMode":"switch-member","persistSwitch":true
+	}`))
+	w := httptest.NewRecorder()
+	h.Configure(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSingboxWatchdogHandler_CheckNow_UnknownIDReturnsBadRequest(t *testing.T) {
+	svc := &fakeSingboxWatchdogService{checkErr: singboxwatchdog.ErrTargetNotFound}
+	h := NewSingboxWatchdogHandler(svc, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/singbox/watchdog/check-now", strings.NewReader(`{"id":"subscription:missing"}`))
+	w := httptest.NewRecorder()
+	h.CheckNow(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
 	}
 }
