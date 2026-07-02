@@ -1,8 +1,9 @@
 import { createPersistedStore } from './persisted';
 
-export type SettingsSectionIconMode = 'strict' | 'harmonious' | 'vivid';
+export type SettingsSectionIconMode = 'none' | 'strict' | 'harmonious' | 'vivid';
 
 export const SETTINGS_SECTION_ICON_MODE_LABELS: Record<SettingsSectionIconMode, string> = {
+	none: 'Без иконок',
 	strict: 'Строгая',
 	harmonious: 'Гармоничная',
 	vivid: 'Красочная',
@@ -11,7 +12,7 @@ export const SETTINGS_SECTION_ICON_MODE_LABELS: Record<SettingsSectionIconMode, 
 const DEFAULT_MODE: SettingsSectionIconMode = 'harmonious';
 
 function isValidMode(value: string): value is SettingsSectionIconMode {
-	return value === 'strict' || value === 'harmonious' || value === 'vivid';
+	return value === 'none' || value === 'strict' || value === 'harmonious' || value === 'vivid';
 }
 
 const store = createPersistedStore<SettingsSectionIconMode>('awg-manager-settings-section-icon-mode', {

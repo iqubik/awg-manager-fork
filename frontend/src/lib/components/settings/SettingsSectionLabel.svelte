@@ -62,28 +62,32 @@
 	const iconMode = $derived($settingsSectionIconMode);
 	const toneColor = $derived(SETTINGS_SECTION_TONE_COLORS[tone]);
 	const vividToneCycle = $derived(cycleInVivid && iconMode === 'vivid');
+	const showIcon = $derived(iconMode !== 'none');
 </script>
 
 <div
 	class="settings-section-label"
 	class:header
 	class:inline
+	class:mode-none={iconMode === 'none'}
 	class:vivid-tone-cycle={vividToneCycle}
 	style:--tone-color={toneColor}
 >
-	<span
-		class="icon-badge"
-		class:mode-strict={iconMode === 'strict'}
-		class:mode-harmonious={iconMode === 'harmonious'}
-		class:mode-vivid={iconMode === 'vivid'}
-		class:vivid-tone-cycle={vividToneCycle}
-		data-tone={tone}
-		aria-hidden="true"
-	>
-		{#key iconMode}
-			<Icon size={18} strokeWidth={2.25} color="currentColor" />
-		{/key}
-	</span>
+	{#if showIcon}
+		<span
+			class="icon-badge"
+			class:mode-strict={iconMode === 'strict'}
+			class:mode-harmonious={iconMode === 'harmonious'}
+			class:mode-vivid={iconMode === 'vivid'}
+			class:vivid-tone-cycle={vividToneCycle}
+			data-tone={tone}
+			aria-hidden="true"
+		>
+			{#key iconMode}
+				<Icon size={18} strokeWidth={2.25} color="currentColor" />
+			{/key}
+		</span>
+	{/if}
 	<span class="label-wrap">
 		<span class="label-row">
 			<span class="label-text">{label}</span>
@@ -91,7 +95,7 @@
 				<span class="label-action">{@render action()}</span>
 			{/if}
 		</span>
-		<span class="label-divider" class:hidden={iconMode === 'strict'} aria-hidden="true"></span>
+		<span class="label-divider" class:hidden={iconMode === 'strict' || iconMode === 'none'} aria-hidden="true"></span>
 	</span>
 </div>
 
@@ -110,6 +114,16 @@
 
 	.settings-section-label.header .label-divider {
 		display: inline-block;
+	}
+
+	.settings-section-label.header.mode-none {
+		margin-bottom: 0.75rem;
+		padding-bottom: 0.625rem;
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.settings-section-label.header.mode-none .label-divider {
+		display: none;
 	}
 
 	.icon-badge {
