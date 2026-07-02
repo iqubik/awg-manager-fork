@@ -569,6 +569,711 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	s.wireCrossHandlers(mux, h)
 	s.registerSingboxRoutes(mux, h)
 	s.registerStaticRoutes(mux, h)
+		Backend:              s.activeBackend,
+		KmodLoader:           s.kmodLoader,
+		TunnelStore:          s.tunnels,
+		LogService:           &diagLogAdapter{svc: s.loggingService},
+		AppVersion:           s.config.Version,
+		PingCheckFacade:      s.pingCheckService,
+		Singbox:              s.singboxOp,
+		SingboxSubMembers:    s.singboxSubMembersFn,
+		SingboxConfigPreview: s.singboxConfigPreviewFn,
+		AppLogger:            s.loggingService,
+	})
+	diagHandler := api.NewDiagnosticsHandler(diagRunner)
+
+	// Connections viewer
+	connectionsService := connections.NewService(s.catalog, s.ndmsTransport, s.dnsRouteService, s.loggingService)
+	connectionsHandler := api.NewConnectionsHandler(connectionsService)
+
+	signatureHandler := api.NewSignatureHandler()
+	terminalHandler := api.NewTerminalHandler(s.terminalManager, s.loggingService)
+
+	eventsHandler := api.NewEventsHandler(s.bus, s.instanceID)
+
+	// Auth middleware helper
+	guarded := s.authMiddleware.RequireAuthFunc
+
+	// Auth endpoints (public)
+	mux.HandleFunc("/api/auth/login", authHandler.Login)
+	mux.HandleFunc("/api/auth/logout", authHandler.Logout)
+	mux.HandleFunc("/api/auth/status", authHandler.Status)
+
+	// Health liveness endpoint (public - used by frontend 5s poller to
+	// detect backend offline independently of SSE connection state).
+	mux.Handle("/api/health", api.NewHealthHandler(s.config.Version, s.instanceID))
+
+	// OpenAPI spec (protected). Embedded in the binary at build time so
+	// the spec served here always matches the running awg-manager —
+	// independent of any frontend static-asset sync. Both /api/openapi.yaml
+	// and /openapi.yaml are registered for tooling that expects either path.
+	openAPIHandler := guarded(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(openapi.RawSpec)
+	})
+	mux.HandleFunc("/api/openapi.yaml", openAPIHandler)
+	mux.HandleFunc("/openapi.yaml", openAPIHandler)
+
+	// SSE event stream (protected)
+	mux.HandleFunc("/api/events", guarded(eventsHandler.Stream))
+
+	// NDM hooks (public - called from shell scripts). Also carries the
+	// former /api/wan/event traffic via iflayerchanged layer=ipv4.
+	hookHandler := api.NewHookHandler(s.tunnelService, s.orch, appLog)
+	if s.ndmsDispatcher != nil {
+		hookHandler.SetDispatcher(s.ndmsDispatcher)
+	}
+	if s.tunnelService != nil {
+		hookHandler.SetWANModel(s.tunnelService.WANModel())
+		// Wire the self-create gate so importNativeWG can suppress the
+		// ifcreated-driven snapshot republish while its store.Save is
+		// still pending.
+		s.tunnelService.SetSelfCreateGate(hookHandler)
+	}
+	mux.HandleFunc("/api/hook/ndms", hookHandler.HandleNDMS)
+
+	// WAN status (protected) — event ingress is now /api/hook/ndms.
+	mux.HandleFunc("/api/wan/status", guarded(wanHandler.GetStatus))
+
+	// Tunnels CRUD (protected + boot guarded)
+	mux.HandleFunc("/api/tunnels/list", guarded(tunnelsHandler.List))
+	mux.HandleFunc("/api/tunnels/all", guarded(tunnelsHandler.GetAll))
+	mux.HandleFunc("/api/tunnels/get", guarded(tunnelsHandler.Get))
+	mux.HandleFunc("/api/tunnels/create", guarded(tunnelsHandler.Create))
+	mux.HandleFunc("/api/tunnels/update", guarded(tunnelsHandler.Update))
+	mux.HandleFunc("/api/tunnels/delete", guarded(tunnelsHandler.Delete))
+	mux.HandleFunc("/api/tunnels/export", guarded(tunnelsHandler.Export))
+	mux.HandleFunc("/api/tunnels/export-all", guarded(tunnelsHandler.ExportAll))
+	mux.HandleFunc("/api/tunnels/replace", guarded(tunnelsHandler.ReplaceConf))
+	mux.HandleFunc("/api/tunnels/traffic", guarded(tunnelsHandler.Traffic))
+
+	// Control operations (protected + boot guarded)
+	mux.HandleFunc("/api/control/start", guarded(controlHandler.Start))
+	mux.HandleFunc("/api/control/stop", guarded(controlHandler.Stop))
+	mux.HandleFunc("/api/control/restart", guarded(controlHandler.Restart))
+	mux.HandleFunc("/api/control/restart-all", guarded(controlHandler.RestartAll))
+	mux.HandleFunc("/api/control/toggle-enabled", guarded(controlHandler.ToggleEnabled))
+	mux.HandleFunc("/api/control/toggle-default-route", guarded(controlHandler.ToggleDefaultRoute))
+
+	// Testing (protected + boot guarded)
+	mux.HandleFunc("/api/test/ip", guarded(testingHandler.CheckIP))
+	mux.HandleFunc("/api/test/ip/services", guarded(testingHandler.IPCheckServices))
+	mux.HandleFunc("/api/test/connectivity", guarded(testingHandler.CheckConnectivity))
+	mux.HandleFunc("/api/test/speed/servers", guarded(testingHandler.SpeedTestServers))
+	mux.HandleFunc("/api/test/speed/stream", guarded(testingHandler.SpeedTestStream))
+	mux.HandleFunc("/api/test/speed", guarded(testingHandler.SpeedTest))
+
+	// System (protected + boot guarded)
+	mux.HandleFunc("/api/system/info", guarded(systemHandler.Info))
+	mux.HandleFunc("/api/system/restart", guarded(systemHandler.RestartDaemon))
+	mux.HandleFunc("/api/system/wan-interfaces", guarded(systemHandler.WANInterfaces))
+	mux.HandleFunc("/api/system/all-interfaces", guarded(systemHandler.AllInterfaces))
+	mux.HandleFunc("/api/system/hydraroute-status", guarded(systemHandler.HydraRouteStatus))
+	mux.HandleFunc("/api/system/hydraroute-control", guarded(systemHandler.HydraRouteControl))
+	downloadHandler := api.NewDownloadHandler(s.downloadSvc)
+	mux.HandleFunc("/api/download/outbounds", guarded(downloadHandler.ListOutbounds))
+
+	// HydraRoute settings (protected + boot guarded)
+	if s.hydraService != nil {
+		hrHandler := api.NewHydraRouteHandler(s.hydraService, s.downloadSvc, s.settings)
+		hrHandler.SetEventBus(s.bus)
+		mux.HandleFunc("/api/hydraroute/config", guarded(hrHandler.GetConfig))
+		mux.HandleFunc("/api/hydraroute/config/update", guarded(hrHandler.UpdateConfig))
+		mux.HandleFunc("/api/hydraroute/install", guarded(hrHandler.Install))
+		mux.HandleFunc("/api/hydraroute/update", guarded(hrHandler.Update))
+		mux.HandleFunc("/api/hydraroute/geo-files", guarded(hrHandler.ListGeoFiles))
+		mux.HandleFunc("/api/hydraroute/geo-files/schedule", guarded(
+			func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					hrHandler.GetGeoUpdateSchedule(w, r)
+					return
+				}
+				if r.Method == http.MethodPut {
+					hrHandler.SetGeoUpdateSchedule(w, r)
+					return
+				}
+				response.MethodNotAllowed(w)
+			},
+		))
+		mux.HandleFunc("/api/hydraroute/geo-files/add", guarded(hrHandler.AddGeoFile))
+		mux.HandleFunc("/api/hydraroute/geo-files/delete", guarded(hrHandler.DeleteGeoFile))
+		mux.HandleFunc("/api/hydraroute/geo-files/update", guarded(hrHandler.UpdateGeoFile))
+		mux.HandleFunc("/api/hydraroute/geo-files/take-control", guarded(hrHandler.TakeGeoFileControl))
+		mux.HandleFunc("/api/hydraroute/geo-files/rescan", guarded(hrHandler.RescanGeoFiles))
+		mux.HandleFunc("/api/hydraroute/geo-tags", guarded(hrHandler.GetGeoTags))
+		mux.HandleFunc("/api/hydraroute/geo-expand", guarded(hrHandler.ExpandGeoTag))
+		mux.HandleFunc("/api/hydraroute/ipset-usage", guarded(hrHandler.GetIpsetUsage))
+		mux.HandleFunc("/api/hydraroute/oversized-tags", guarded(hrHandler.GetOversizedTags))
+		mux.HandleFunc("/api/hydraroute/policy-order", guarded(hrHandler.SetPolicyOrder))
+	}
+
+	// Update endpoints (protected + boot guarded)
+	mux.HandleFunc("/api/system/update/check", guarded(updateHandler.Check))
+	mux.HandleFunc("/api/system/update/apply", guarded(updateHandler.Apply))
+	mux.HandleFunc("/api/system/update/changelog", guarded(updateHandler.Changelog))
+
+	// DNS routes (NDMS backend on OS5, HydraRoute on any OS)
+	mux.HandleFunc("/api/dns-routes/list", guarded(dnsRouteHandler.List))
+	mux.HandleFunc("/api/dns-routes/get", guarded(dnsRouteHandler.Get))
+	mux.HandleFunc("/api/dns-routes/create", guarded(dnsRouteHandler.Create))
+	mux.HandleFunc("/api/dns-routes/update", guarded(dnsRouteHandler.Update))
+	mux.HandleFunc("/api/dns-routes/delete", guarded(dnsRouteHandler.Delete))
+	mux.HandleFunc("/api/dns-routes/delete-batch", guarded(dnsRouteHandler.DeleteBatch))
+	mux.HandleFunc("/api/dns-routes/create-batch", guarded(dnsRouteHandler.CreateBatch))
+	mux.HandleFunc("/api/dns-routes/set-enabled", guarded(dnsRouteHandler.SetEnabled))
+	mux.HandleFunc("/api/dns-routes/refresh", guarded(dnsRouteHandler.Refresh))
+	mux.HandleFunc("/api/dns-routes/bulk-backend", guarded(dnsRouteHandler.BulkBackend))
+
+	// Static IP routes (protected + boot guarded)
+	staticRouteHandler := api.NewStaticRouteHandler(s.staticRouteService, appLog)
+	mux.HandleFunc("/api/static-routes/list", guarded(staticRouteHandler.List))
+	mux.HandleFunc("/api/static-routes/create", guarded(staticRouteHandler.Create))
+	mux.HandleFunc("/api/static-routes/update", guarded(staticRouteHandler.Update))
+	mux.HandleFunc("/api/static-routes/delete", guarded(staticRouteHandler.Delete))
+	mux.HandleFunc("/api/static-routes/set-enabled", guarded(staticRouteHandler.SetEnabled))
+	mux.HandleFunc("/api/static-routes/import", guarded(staticRouteHandler.Import))
+
+	// Routing: unified tunnel listing for all routing subsystems
+	routingHandler := api.NewRoutingHandler(s.catalog, s.ndmsQueries)
+	routingHandler.SetEventBus(s.bus)
+	mux.HandleFunc("/api/routing/tunnels", guarded(routingHandler.Tunnels))
+	mux.HandleFunc("/api/routing/refresh", guarded(routingHandler.Refresh))
+
+	// Routing: per-section GET endpoints (Task 11 — polling stores).
+	// Reuse the dedicated service handlers so there is a single source of
+	// truth per section. These URLs mirror the frontend store paths
+	// (frontend/src/lib/stores/routing.ts).
+	mux.HandleFunc("/api/routing/dns-routes", guarded(dnsRouteHandler.List))
+	mux.HandleFunc("/api/routing/static-routes", guarded(staticRouteHandler.List))
+	// Access policies + client routes + policy interfaces are registered
+	// further below once their handlers exist (see "Routing polling GET
+	// aliases" below).
+
+	// DNS resolve for routing search
+	resolveHandler := api.NewResolveHandler()
+	mux.HandleFunc("/api/routing/resolve", guarded(resolveHandler.Resolve))
+
+	// Settings (protected + boot guarded)
+	mux.HandleFunc("/api/settings/get", guarded(settingsHandler.Get))
+	mux.HandleFunc("/api/settings/update", guarded(settingsHandler.Update))
+	mux.HandleFunc("/api/settings/regenerate-api-key", guarded(settingsHandler.RegenerateApiKey))
+
+	// Ping check (protected + boot guarded)
+	mux.HandleFunc("/api/pingcheck/status", guarded(pingCheckHandler.GetStatus))
+	mux.HandleFunc("/api/pingcheck/logs", guarded(pingCheckHandler.GetLogs))
+	mux.HandleFunc("/api/pingcheck/check-now", guarded(pingCheckHandler.CheckNow))
+	mux.HandleFunc("/api/pingcheck/logs/clear", guarded(pingCheckHandler.ClearLogs))
+
+	// Monitoring matrix (protected)
+	monitoringHandler := api.NewMonitoringHandler(s.monitoringService)
+	mux.HandleFunc("/api/monitoring/matrix", guarded(monitoringHandler.GetMatrix))
+	mux.HandleFunc("/api/monitoring/history", guarded(monitoringHandler.GetHistory))
+
+	// Per-tunnel NDMS ping-check (nativewg)
+	mux.HandleFunc("/api/tunnels/pingcheck", guarded(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			pingCheckHandler.GetTunnelPingCheckStatus(w, r)
+		case http.MethodPost:
+			pingCheckHandler.ConfigureTunnelPingCheck(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	mux.HandleFunc("/api/tunnels/pingcheck/remove", guarded(pingCheckHandler.RemoveTunnelPingCheck))
+
+	// Device proxy (protected + boot guarded)
+	deviceProxyHandler := api.NewDeviceProxyHandler(s.deviceProxySvc, appLog)
+	mux.HandleFunc("/api/proxy/config", guarded(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			deviceProxyHandler.GetConfig(w, r)
+		case http.MethodPut:
+			deviceProxyHandler.SaveConfig(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	mux.HandleFunc("/api/proxy/runtime", guarded(deviceProxyHandler.GetRuntime))
+	mux.HandleFunc("/api/proxy/runtime/select", guarded(deviceProxyHandler.SelectRuntime))
+	mux.HandleFunc("/api/proxy/apply", guarded(deviceProxyHandler.ForceApply))
+	mux.HandleFunc("/api/proxy/outbounds", guarded(deviceProxyHandler.ListOutbounds))
+	mux.HandleFunc("/api/proxy/listen-choices", guarded(deviceProxyHandler.ListenChoices))
+
+	// Multi-instance device proxy endpoints
+	mux.HandleFunc("/api/proxy/instances", guarded(deviceProxyHandler.ListInstances))
+	mux.HandleFunc("/api/proxy/instance", guarded(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			deviceProxyHandler.GetInstance(w, r)
+		case http.MethodPut:
+			deviceProxyHandler.SaveInstance(w, r)
+		case http.MethodDelete:
+			deviceProxyHandler.DeleteInstance(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	mux.HandleFunc("/api/proxy/instances/apply", guarded(deviceProxyHandler.ApplyInstances))
+	mux.HandleFunc("/api/proxy/instance/runtime", guarded(deviceProxyHandler.GetInstanceRuntime))
+	mux.HandleFunc("/api/proxy/instance/runtime/select", guarded(deviceProxyHandler.SelectInstanceRuntime))
+	mux.HandleFunc("/api/proxy/instance/check-ip", guarded(deviceProxyHandler.CheckInstanceExternalIP))
+
+	// Logging (protected + boot guarded)
+	mux.HandleFunc("/api/logs", guarded(loggingHandler.GetLogs))
+	mux.HandleFunc("/api/logs/clear", guarded(loggingHandler.ClearLogs))
+	mux.HandleFunc("/api/logs/subgroups", guarded(loggingHandler.GetSubgroups))
+
+	// Import (protected + boot guarded)
+	mux.HandleFunc("/api/import/conf", guarded(importHandler.ImportConf))
+
+	amneziaCPHandler := api.NewAmneziaCPHandler(appLog)
+	amneziaCPHandler.SetDownloader(s.downloadSvc)
+	mux.HandleFunc("/api/amnezia-premium/login", guarded(amneziaCPHandler.Login))
+	mux.HandleFunc("/api/amnezia-premium/account-info", guarded(amneziaCPHandler.AccountInfo))
+	mux.HandleFunc("/api/amnezia-premium/download-config", guarded(amneziaCPHandler.DownloadConfig))
+
+	// External tunnels (protected + boot guarded)
+	mux.HandleFunc("/api/external-tunnels", guarded(externalHandler.List))
+	mux.HandleFunc("/api/external-tunnels/adopt", guarded(externalHandler.Adopt))
+
+	// System WireGuard tunnels (protected + boot guarded)
+	systemTunnelHandler := api.NewSystemTunnelsHandler(s.systemTunnelService, s.settings, s.tunnels, s.loggingService)
+	mux.HandleFunc("/api/system-tunnels", guarded(systemTunnelHandler.List))
+	mux.HandleFunc("/api/system-tunnels/get", guarded(systemTunnelHandler.Get))
+	mux.HandleFunc("/api/system-tunnels/asc", guarded(systemTunnelHandler.ASC))
+	mux.HandleFunc("/api/system-tunnels/test-connectivity", guarded(systemTunnelHandler.CheckConnectivity))
+	mux.HandleFunc("/api/system-tunnels/test-ip", guarded(systemTunnelHandler.CheckIP))
+	mux.HandleFunc("/api/system-tunnels/test-speed", guarded(systemTunnelHandler.SpeedTestStream))
+
+	// System tunnel traffic is now gathered by ndmsMetricsPoller via the
+	// runningInterfacesAdapter (wired in main.go).
+
+	// VPN Servers (protected + boot guarded)
+	serverHandler := api.NewServersHandler(s.ndmsQueries, s.settings, s.tunnels, appLog)
+	serverHandler.SetCommands(s.ndmsCommands)
+	serverHandler.SetEventBus(s.bus)
+	if s.singboxConnsHandler != nil {
+		// System WG-server peer names for the connections monitor (issue
+		// #435). Backed by the WGServers list cache (5m TTL + hook
+		// invalidation), so per-request cost is an in-memory read.
+		s.singboxConnsHandler.SetWGServers(serverHandler)
+	}
+	mux.HandleFunc("/api/servers", guarded(serverHandler.List))
+	mux.HandleFunc("/api/servers/all", guarded(serverHandler.GetAll))
+	mux.HandleFunc("/api/servers/get", guarded(serverHandler.Get))
+	mux.HandleFunc("/api/servers/config", guarded(serverHandler.Config))
+	mux.HandleFunc("/api/servers/mark", guarded(serverHandler.Mark))
+	mux.HandleFunc("/api/servers/marked", guarded(serverHandler.Marked))
+	mux.HandleFunc("/api/servers/enabled", guarded(serverHandler.SetEnabled))
+	mux.HandleFunc("/api/servers/restart", guarded(serverHandler.Restart))
+	mux.HandleFunc("/api/servers/wan-ip", guarded(serverHandler.WANIP))
+	mux.HandleFunc("/api/servers/", guarded(serverHandler.Subtree))
+
+	// Managed WireGuard Servers (protected + boot guarded). The new
+	// route table is id-keyed: see ManagedServerHandler.Subtree for the
+	// full sub-path dispatch (peers, conf, asc, etc).
+	managedHandler := api.NewManagedServerHandler(s.managedService)
+	managedHandler.SetServersHandler(serverHandler)
+	serverHandler.SetManagedHandler(managedHandler)
+	if s.managedServiceImpl != nil {
+		serverHandler.SetManagedService(s.managedServiceImpl)
+	}
+	mux.HandleFunc("/api/managed-servers", guarded(managedHandler.Collection))
+	mux.HandleFunc("/api/managed-servers/", guarded(managedHandler.Subtree))
+
+	if s.managedServiceImpl != nil {
+		managedBackupHandler := api.NewManagedServerBackupHandler(s.managedServiceImpl)
+		managedBackupHandler.SetEventBus(s.bus)
+		mux.HandleFunc("/api/managed/export", guarded(managedBackupHandler.Export))
+		mux.HandleFunc("/api/managed/import", guarded(managedBackupHandler.Import))
+		mux.HandleFunc("/api/managed/drift", guarded(managedBackupHandler.Drift))
+		mux.HandleFunc("/api/managed/restore-drift", guarded(managedBackupHandler.RestoreDrift))
+	}
+
+	// Signature capture (protected + boot guarded)
+	mux.HandleFunc("/api/signature/capture", guarded(signatureHandler.Capture))
+	mux.HandleFunc("/api/signature/generate", guarded(signatureHandler.Generate))
+
+	// Terminal
+	mux.HandleFunc("/api/terminal/status", guarded(terminalHandler.Status))
+	mux.HandleFunc("/api/terminal/install", guarded(terminalHandler.Install))
+	mux.HandleFunc("/api/terminal/start", guarded(terminalHandler.Start))
+	mux.HandleFunc("/api/terminal/stop", guarded(terminalHandler.Stop))
+	mux.HandleFunc("/api/terminal/ws", guarded(terminalHandler.WebSocket))
+
+	// Access policies — handler created outside block for shared endpoints
+	accessPolicyHandler := api.NewAccessPolicyHandler(s.accessPolicyService)
+
+	// Devices endpoint uses hotspot RCI — works on both OS4 and OS5
+	mux.HandleFunc("/api/access-policies/devices", guarded(accessPolicyHandler.ListDevices))
+
+	// Access policies (protected + boot guarded) — OS5 only
+	if osdetect.Is5() {
+		mux.HandleFunc("/api/access-policies", guarded(accessPolicyHandler.List))
+		mux.HandleFunc("/api/access-policies/create", guarded(accessPolicyHandler.Create))
+		mux.HandleFunc("/api/access-policies/delete", guarded(accessPolicyHandler.Delete))
+		mux.HandleFunc("/api/access-policies/description", guarded(accessPolicyHandler.SetDescription))
+		mux.HandleFunc("/api/access-policies/standalone", guarded(accessPolicyHandler.SetStandalone))
+		mux.HandleFunc("/api/access-policies/permit", guarded(accessPolicyHandler.PermitInterface))
+		mux.HandleFunc("/api/access-policies/assign", guarded(accessPolicyHandler.AssignDevice))
+		mux.HandleFunc("/api/access-policies/interfaces", guarded(accessPolicyHandler.ListGlobalInterfaces))
+		mux.HandleFunc("/api/access-policies/interface-up", guarded(accessPolicyHandler.SetInterfaceUp))
+	}
+
+	// Client routes (per-device VPN routing) — works on both OS4 and OS5
+	crHandler := api.NewClientRouteHandler(s.clientRouteService)
+	mux.HandleFunc("/api/client-routes", guarded(crHandler.HandleList))
+	mux.HandleFunc("/api/client-routes/create", guarded(crHandler.HandleCreate))
+	mux.HandleFunc("/api/client-routes/update", guarded(crHandler.HandleUpdate))
+	mux.HandleFunc("/api/client-routes/delete", guarded(crHandler.HandleDelete))
+	mux.HandleFunc("/api/client-routes/toggle", guarded(crHandler.HandleToggle))
+
+	// Routing polling GET aliases for sections whose handlers live later
+	// in this function (accesspolicy + clientroute). See Task 11.
+	mux.HandleFunc("/api/routing/client-routes", guarded(crHandler.HandleList))
+	// Policy devices endpoint is unconditional (hotspot RCI works on both OSes).
+	mux.HandleFunc("/api/routing/policy-devices", guarded(accessPolicyHandler.ListDevices))
+	if osdetect.Is5() {
+		mux.HandleFunc("/api/routing/access-policies", guarded(accessPolicyHandler.List))
+		mux.HandleFunc("/api/routing/policy-interfaces", guarded(accessPolicyHandler.ListGlobalInterfaces))
+	} else {
+		mux.HandleFunc("/api/routing/access-policies", guarded(api.ServeOS4EmptyAccessPolicies))
+		mux.HandleFunc("/api/routing/policy-interfaces", guarded(api.ServeOS4EmptyPolicyInterfaces))
+	}
+
+	// Diagnostics (protected + boot guarded)
+	mux.HandleFunc("/api/diagnostics/run", guarded(diagHandler.Run))
+	mux.HandleFunc("/api/diagnostics/status", guarded(diagHandler.Status))
+	mux.HandleFunc("/api/diagnostics/result", guarded(diagHandler.Result))
+	mux.HandleFunc("/api/diagnostics/stream", guarded(diagHandler.Stream))
+
+	// DNS proxy info (read-only ndnproxy state). ndmsQueries may be nil on
+	// platforms without NDMS wiring — guard the construction.
+	if s.ndmsQueries != nil && s.ndmsQueries.DNSProxyStatus != nil {
+		dnsProxyInfoHandler := api.NewDnsProxyInfoHandler(s.ndmsQueries.DNSProxyStatus, s.accessPolicyService)
+		mux.HandleFunc("/api/diagnostics/dns-proxy", guarded(dnsProxyInfoHandler.Get))
+	}
+
+	// Connections viewer (protected)
+	mux.HandleFunc("/api/connections", guarded(connectionsHandler.List))
+
+	// NDMS save-coordinator status (protected) — polled by the header
+	// save indicator. SaveCoordinator emits a resource:invalidated hint
+	// on every state transition so clients refetch this endpoint.
+	ndmsHandler := api.NewNDMSHandler(s.ndmsSaveCoord)
+	mux.HandleFunc("/api/ndms/save-status", guarded(ndmsHandler.GetSaveStatus))
+
+	// Boot status (public - frontend uses instanceId for restart detection).
+	// Dedicated api.BootStatusHandler so the endpoint keeps its swagger
+	// annotations (@Router /boot-status) — an inline closure here is
+	// invisible to `swag init` and silently drops the path from the spec.
+	mux.HandleFunc("/api/boot-status", api.NewBootStatusHandler(s.instanceID).Get)
+
+	// Wire event bus to CRUD handlers for SSE publishing
+	tunnelsHandler.SetEventBus(s.bus)
+	tunnelsHandler.SetCatalog(s.catalog)
+	dnsRouteHandler.SetEventBus(s.bus)
+	staticRouteHandler.SetEventBus(s.bus)
+	accessPolicyHandler.SetEventBus(s.bus)
+	crHandler.SetEventBus(s.bus)
+	serverHandler.SetEventBus(s.bus)
+
+	// Cross-wire servers <-> managed for unified server:updated event
+	serverHandler.SetManagedHandler(managedHandler)
+	managedHandler.SetServersHandler(serverHandler)
+	if s.managedServiceImpl != nil {
+		serverHandler.SetManagedService(s.managedServiceImpl)
+	}
+
+	// Plug MetricsPoller into the handler now that ServersHandler is fully
+	// wired (bus + managed). The poller re-broadcasts the full server snapshot
+	// via serverHandler whenever any server's peer metrics change.
+	if s.metricsPoller != nil {
+		s.metricsPoller.SetServerSnapshotPublisher(serverHandler)
+		s.metricsPoller.Start()
+	}
+
+	// Composite tunnels snapshot builder — used by GET /api/tunnels/all
+	// and by the hook-driven resource:invalidated refresher to assemble
+	// the {tunnels, external, system} payload the polling store reads.
+	tsb := api.NewTunnelsSnapshotBuilder()
+	tsb.SetTunnelsHandler(tunnelsHandler)
+	tsb.SetExternalHandler(externalHandler)
+	tsb.SetSystemTunnelsHandler(systemTunnelHandler)
+
+	// Wire hook-driven tunnel invalidation so the UI drops destroyed
+	// tunnel cards (including system tunnels) without a browser refresh.
+	// The closure invalidates the in-memory NDMS caches so the next
+	// poll reads fresh data, then publishes resource:invalidated; the
+	// frontend tunnels store responds by refetching /api/tunnels/all.
+	invalidateTunnelsOnHook := func(ctx context.Context) {
+		_ = ctx
+		// NDMS cache invalidation stays — hook events signal that the
+		// system view has changed, so our in-memory caches must drop
+		// their entries before the next poll.
+		if s.ndmsQueries != nil {
+			if s.ndmsQueries.WGServers != nil {
+				s.ndmsQueries.WGServers.InvalidateAll()
+			}
+			if s.ndmsQueries.Interfaces != nil {
+				s.ndmsQueries.Interfaces.InvalidateAll()
+			}
+		}
+		if s.bus != nil {
+			s.bus.Publish("resource:invalidated", events.ResourceInvalidatedEvent{
+				Resource: api.ResourceTunnels,
+				Reason:   "ndms-hook",
+			})
+		}
+	}
+	hookHandler.SetTunnelRefresher(invalidateTunnelsOnHook)
+	// Injects the composite {tunnels, external, system} builder used by
+	// GetAll so /api/tunnels/all returns the exact shape the polling
+	// store expects.
+	tunnelsHandler.SetTunnelsSnapshotBuilder(func(ctx context.Context) map[string]interface{} {
+		return tsb.Build(ctx)
+	})
+	tunnelsHandler.SetSelfCreateGate(hookHandler)
+
+	// DNS routing diagnostics
+	if s.dnsCheckService != nil {
+		dnsCheckHandler := api.NewDnsCheckHandler(s.dnsCheckService)
+		mux.HandleFunc("/api/dns-check/start", guarded(dnsCheckHandler.Start))
+		mux.HandleFunc("/api/dns-check/client", guarded(dnsCheckHandler.Client))
+		mux.HandleFunc("/api/dns-check/probe", dnsCheckHandler.Probe) // NO auth — cross-origin
+	}
+
+	// Sing-box integration (protected + boot guarded)
+	if s.singboxHandler != nil {
+		s.singboxHandler.SetSettingsStore(s.settings)
+		mux.HandleFunc("/api/singbox/status", guarded(s.singboxHandler.Status))
+		mux.HandleFunc("/api/singbox/install", guarded(s.singboxHandler.Install))
+		mux.HandleFunc("/api/singbox/update", guarded(s.singboxHandler.Update))
+		mux.HandleFunc("/api/singbox/control", guarded(s.singboxHandler.Control))
+		mux.HandleFunc("/api/singbox/ndms-proxy", guarded(s.singboxHandler.ToggleNDMSProxy))
+		mux.HandleFunc("/api/singbox/tunnels/delay-check", guarded(s.singboxHandler.DelayCheck))
+		mux.HandleFunc("/api/singbox/tunnels/test/connectivity", guarded(s.singboxHandler.CheckConnectivity))
+		mux.HandleFunc("/api/singbox/tunnels/test/ip", guarded(s.singboxHandler.CheckIP))
+		mux.HandleFunc("/api/singbox/tunnels/test/speed/stream", guarded(s.singboxHandler.SpeedTestStream))
+		mux.HandleFunc("/api/singbox/tunnels/rename", guarded(s.singboxHandler.RenameTunnel))
+		mux.HandleFunc("/api/singbox/tunnels/share-link", guarded(s.singboxHandler.ExportShareLink))
+		mux.HandleFunc("/api/singbox/tunnels", guarded(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				s.singboxHandler.ServeGETTunnels(w, r)
+			case http.MethodPost:
+				s.singboxHandler.AddTunnels(w, r)
+			case http.MethodPut:
+				s.singboxHandler.UpdateTunnel(w, r)
+			case http.MethodDelete:
+				s.singboxHandler.DeleteTunnel(w, r)
+			default:
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		}))
+	}
+	if s.singboxWatchdogHandler != nil {
+		wh := s.singboxWatchdogHandler
+		mux.HandleFunc("/api/singbox/watchdog/status", guarded(wh.GetStatus))
+		mux.HandleFunc("/api/singbox/watchdog/logs", guarded(wh.GetLogs))
+		mux.HandleFunc("/api/singbox/watchdog/logs/clear", guarded(wh.ClearLogs))
+		mux.HandleFunc("/api/singbox/watchdog/configure", guarded(wh.Configure))
+		mux.HandleFunc("/api/singbox/watchdog/enable", guarded(wh.Enable))
+		mux.HandleFunc("/api/singbox/watchdog/disable", guarded(wh.Disable))
+		mux.HandleFunc("/api/singbox/watchdog/check-now", guarded(wh.CheckNow))
+	}
+	if s.singboxConfigHandler != nil {
+		mux.HandleFunc("/api/singbox/config-preview", guarded(s.singboxConfigHandler.Preview))
+	}
+	if s.singboxConfigEditorHandler != nil {
+		ce := s.singboxConfigEditorHandler
+		mux.HandleFunc("/api/singbox/config/slots", guarded(ce.ListSlots))
+		mux.HandleFunc("/api/singbox/config/slot", guarded(ce.GetSlot))
+		mux.HandleFunc("/api/singbox/config/user", guarded(ce.PutUserConfig))
+		mux.HandleFunc("/api/singbox/config/user/check", guarded(ce.CheckUserConfig))
+		mux.HandleFunc("/api/singbox/config/user/apply", guarded(ce.ApplyUserConfig))
+		mux.HandleFunc("/api/singbox/config/user/discard", guarded(ce.DiscardUserConfig))
+		mux.HandleFunc("/api/singbox/config/user/enable", guarded(ce.EnableUserConfig))
+	}
+	if s.singboxInboundsHandler != nil {
+		mux.HandleFunc("/api/singbox/inbounds", guarded(s.singboxInboundsHandler.List))
+	}
+	if s.clashProxy != nil {
+		mux.HandleFunc("/api/singbox/clash/", guarded(s.clashProxy.ServeHTTP))
+		mux.HandleFunc("/api/singbox/clash", guarded(s.clashProxy.ServeHTTP))
+	}
+	if s.singboxConnsHandler != nil {
+		mux.HandleFunc("/api/singbox/connections/clients", guarded(s.singboxConnsHandler.Clients))
+	}
+
+	if s.singboxRouterHandler != nil {
+		rh := s.singboxRouterHandler
+		mux.HandleFunc("/api/singbox/router/status", guarded(rh.GetStatus))
+		mux.HandleFunc("/api/singbox/router/enable", guarded(rh.Enable))
+		mux.HandleFunc("/api/singbox/router/disable", guarded(rh.Disable))
+		mux.HandleFunc("/api/singbox/router/mode", guarded(rh.SwitchMode))
+		mux.HandleFunc("/api/singbox/router/settings", guarded(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				rh.GetSettings(w, r)
+			} else {
+				rh.PutSettings(w, r)
+			}
+		}))
+		mux.HandleFunc("/api/singbox/router/rules/list", guarded(rh.ListRules))
+		mux.HandleFunc("/api/singbox/router/rules/add", guarded(rh.AddRule))
+		mux.HandleFunc("/api/singbox/router/rules/update", guarded(rh.UpdateRule))
+		mux.HandleFunc("/api/singbox/router/rules/delete", guarded(rh.DeleteRule))
+		mux.HandleFunc("/api/singbox/router/rules/move", guarded(rh.MoveRule))
+		mux.HandleFunc("/api/singbox/router/rulesets/list", guarded(rh.ListRuleSets))
+		mux.HandleFunc("/api/singbox/router/rulesets/add", guarded(rh.AddRuleSet))
+		mux.HandleFunc("/api/singbox/router/rulesets/update", guarded(rh.UpdateRuleSet))
+		mux.HandleFunc("/api/singbox/router/rulesets/delete", guarded(rh.DeleteRuleSet))
+		mux.HandleFunc("/api/singbox/router/rulesets/dat-url", guarded(rh.DatRuleSetURL))
+		mux.HandleFunc("/api/singbox/router/rulesets/dat-srs", rh.DatRuleSetSRS)
+		mux.HandleFunc("/api/singbox/router/outbounds/list", guarded(rh.ListOutbounds))
+		mux.HandleFunc("/api/singbox/router/outbounds/add", guarded(rh.AddOutbound))
+		mux.HandleFunc("/api/singbox/router/outbounds/update", guarded(rh.UpdateOutbound))
+		mux.HandleFunc("/api/singbox/router/outbounds/delete", guarded(rh.DeleteOutbound))
+		mux.HandleFunc("/api/singbox/router/presets/list", guarded(rh.ListPresets))
+		mux.HandleFunc("/api/singbox/router/presets/apply", guarded(rh.ApplyPreset))
+		mux.HandleFunc("/api/singbox/router/policies", guarded(rh.PoliciesCollection))
+		mux.HandleFunc("/api/singbox/router/wan-interfaces", guarded(rh.ListWANInterfaces))
+		mux.HandleFunc("/api/singbox/router/bindable-interfaces", guarded(rh.ListBindableInterfaces))
+		mux.HandleFunc("/api/singbox/router/ingress-eligible-interfaces", guarded(rh.ListIngressEligibleInterfaces))
+		mux.HandleFunc("/api/singbox/router/policy-devices", guarded(rh.ListPolicyDevices))
+		mux.HandleFunc("/api/singbox/router/policy-devices/bind", guarded(rh.BindDevice))
+		mux.HandleFunc("/api/singbox/router/policy-devices/unbind", guarded(rh.UnbindDevice))
+		mux.HandleFunc("/api/singbox/router/dns/servers/list", guarded(rh.ListDNSServers))
+		mux.HandleFunc("/api/singbox/router/dns/servers/add", guarded(rh.AddDNSServer))
+		mux.HandleFunc("/api/singbox/router/dns/servers/update", guarded(rh.UpdateDNSServer))
+		mux.HandleFunc("/api/singbox/router/dns/servers/delete", guarded(rh.DeleteDNSServer))
+		mux.HandleFunc("/api/singbox/router/dns/servers/move", guarded(rh.MoveDNSServer))
+		mux.HandleFunc("/api/singbox/router/dns/rules/list", guarded(rh.ListDNSRules))
+		mux.HandleFunc("/api/singbox/router/dns/rules/add", guarded(rh.AddDNSRule))
+		mux.HandleFunc("/api/singbox/router/dns/rules/update", guarded(rh.UpdateDNSRule))
+		mux.HandleFunc("/api/singbox/router/dns/rules/delete", guarded(rh.DeleteDNSRule))
+		mux.HandleFunc("/api/singbox/router/dns/rules/move", guarded(rh.MoveDNSRule))
+		mux.HandleFunc("/api/singbox/router/dns/globals", guarded(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				rh.GetDNSGlobals(w, r)
+			} else {
+				rh.PutDNSGlobals(w, r)
+			}
+		}))
+		mux.HandleFunc("/api/singbox/router/route/final", guarded(rh.SetRouteFinal))
+		mux.HandleFunc("/api/singbox/router/inspect", guarded(rh.Inspect))
+		mux.HandleFunc("/api/singbox/router/inspect-dns", guarded(rh.InspectDNS))
+		mux.HandleFunc("/api/singbox/router/inspect/stream", guarded(rh.InspectStream))
+		mux.HandleFunc("/api/singbox/router/staging", guarded(rh.GetStaging))
+		mux.HandleFunc("/api/singbox/router/staging/apply", guarded(rh.PostStagingApply))
+		mux.HandleFunc("/api/singbox/router/staging/discard", guarded(rh.PostStagingDiscard))
+	}
+
+	if s.selectiveHandler != nil {
+		sh := s.selectiveHandler
+		mux.HandleFunc("/api/singbox/router/selective/status", guarded(sh.GetStatus))
+		mux.HandleFunc("/api/singbox/router/selective/snapshot/matchers", guarded(sh.GetSnapshotMatchers))
+		mux.HandleFunc("/api/singbox/router/selective/install-deps", guarded(sh.InstallDeps))
+		mux.HandleFunc("/api/singbox/router/selective/install-conntrack", guarded(sh.InstallConntrack))
+		mux.HandleFunc("/api/singbox/router/selective/rebuild", guarded(sh.Rebuild))
+		mux.HandleFunc("/api/singbox/router/selective/rebuild/cancel", guarded(sh.CancelRebuild))
+	}
+
+	if s.singboxFakeIPConfigHandler != nil {
+		fh := s.singboxFakeIPConfigHandler
+		mux.HandleFunc("/api/singbox/fakeip/config/dns/servers/list", guarded(fh.ListDNSServers))
+		mux.HandleFunc("/api/singbox/fakeip/config/dns/servers/add", guarded(fh.AddDNSServer))
+		mux.HandleFunc("/api/singbox/fakeip/config/dns/servers/update", guarded(fh.UpdateDNSServer))
+		mux.HandleFunc("/api/singbox/fakeip/config/dns/servers/delete", guarded(fh.DeleteDNSServer))
+		mux.HandleFunc("/api/singbox/fakeip/config/dns/servers/move", guarded(fh.MoveDNSServer))
+		mux.HandleFunc("/api/singbox/fakeip/config/dns/rules/list", guarded(fh.ListDNSRules))
+		mux.HandleFunc("/api/singbox/fakeip/config/dns/rules/add", guarded(fh.AddDNSRule))
+		mux.HandleFunc("/api/singbox/fakeip/config/dns/rules/update", guarded(fh.UpdateDNSRule))
+		mux.HandleFunc("/api/singbox/fakeip/config/dns/rules/delete", guarded(fh.DeleteDNSRule))
+		mux.HandleFunc("/api/singbox/fakeip/config/dns/rules/move", guarded(fh.MoveDNSRule))
+		mux.HandleFunc("/api/singbox/fakeip/config/dns/globals", guarded(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				fh.GetDNSGlobals(w, r)
+			} else {
+				fh.PutDNSGlobals(w, r)
+			}
+		}))
+		mux.HandleFunc("/api/singbox/fakeip/config/rules/list", guarded(fh.ListRules))
+		mux.HandleFunc("/api/singbox/fakeip/config/rules/add", guarded(fh.AddRule))
+		mux.HandleFunc("/api/singbox/fakeip/config/rules/update", guarded(fh.UpdateRule))
+		mux.HandleFunc("/api/singbox/fakeip/config/rules/delete", guarded(fh.DeleteRule))
+		mux.HandleFunc("/api/singbox/fakeip/config/rules/move", guarded(fh.MoveRule))
+		mux.HandleFunc("/api/singbox/fakeip/config/route/final", guarded(fh.SetRouteFinal))
+		mux.HandleFunc("/api/singbox/fakeip/config/rulesets/list", guarded(fh.ListRuleSets))
+		mux.HandleFunc("/api/singbox/fakeip/config/rulesets/add", guarded(fh.AddRuleSet))
+		mux.HandleFunc("/api/singbox/fakeip/config/rulesets/update", guarded(fh.UpdateRuleSet))
+		mux.HandleFunc("/api/singbox/fakeip/config/rulesets/delete", guarded(fh.DeleteRuleSet))
+		mux.HandleFunc("/api/singbox/fakeip/config/outbounds/list", guarded(fh.ListOutbounds))
+		mux.HandleFunc("/api/singbox/fakeip/config/outbounds/add", guarded(fh.AddOutbound))
+		mux.HandleFunc("/api/singbox/fakeip/config/outbounds/update", guarded(fh.UpdateOutbound))
+		mux.HandleFunc("/api/singbox/fakeip/config/outbounds/delete", guarded(fh.DeleteOutbound))
+	}
+
+	if s.singboxProxiesHandler != nil {
+		mux.HandleFunc("/api/singbox/router/proxies/list", guarded(s.singboxProxiesHandler.List))
+		mux.HandleFunc("/api/singbox/router/proxies/select", guarded(s.singboxProxiesHandler.Select))
+		mux.HandleFunc("/api/singbox/router/proxies/test", guarded(s.singboxProxiesHandler.Test))
+	}
+
+	if s.awgOutboundsHandler != nil {
+		mux.HandleFunc("/api/singbox/awg-outbounds/tags", guarded(s.awgOutboundsHandler.ServeHTTP))
+	}
+
+	if s.subscriptionHandler != nil {
+		sh := s.subscriptionHandler
+		mux.HandleFunc("/api/singbox/subscriptions", guarded(sh.List))
+		mux.HandleFunc("/api/singbox/subscriptions/create", guarded(sh.Create))
+		mux.HandleFunc("/api/singbox/subscriptions/get", guarded(sh.Get))
+		mux.HandleFunc("/api/singbox/subscriptions/update", guarded(sh.Update))
+		mux.HandleFunc("/api/singbox/subscriptions/delete", guarded(sh.Delete))
+		mux.HandleFunc("/api/singbox/subscriptions/refresh", guarded(sh.Refresh))
+		mux.HandleFunc("/api/singbox/subscriptions/active-member", guarded(sh.ActiveMember))
+		mux.HandleFunc("/api/singbox/subscriptions/active-now", guarded(sh.ActiveNow))
+		mux.HandleFunc("/api/singbox/subscriptions/get-stream", guarded(sh.GetStream))
+		mux.HandleFunc("/api/singbox/subscriptions/orphans/delete", guarded(sh.OrphansDelete))
+		mux.HandleFunc("/api/singbox/subscriptions/rejected/to-info", guarded(sh.RejectedToInfo))
+		mux.HandleFunc("/api/singbox/subscriptions/info/remove", guarded(sh.InfoRemove))
+		mux.HandleFunc("/api/singbox/subscriptions/members/add", guarded(sh.AddMember))
+		mux.HandleFunc("/api/singbox/subscriptions/members/remove", guarded(sh.RemoveMember))
+		mux.HandleFunc("/api/singbox/subscriptions/members/exclude", guarded(sh.ExcludeMembers))
+		mux.HandleFunc("/api/singbox/subscriptions/members/restore", guarded(sh.RestoreMembers))
+		mux.HandleFunc("/api/singbox/subscriptions/preview", guarded(sh.PreviewURL))
+		mux.HandleFunc("/api/singbox/subscriptions/groups", guarded(sh.ListGroups))
+		mux.HandleFunc("/api/singbox/subscriptions/groups/create", guarded(sh.CreateGroup))
+		mux.HandleFunc("/api/singbox/subscriptions/groups/update", guarded(sh.UpdateGroup))
+		mux.HandleFunc("/api/singbox/subscriptions/groups/delete", guarded(sh.DeleteGroup))
+	}
+
+	if s.dnsRewritesHandler != nil {
+		rw := s.dnsRewritesHandler
+		mux.HandleFunc("/api/singbox/router/dns/rewrites/list", guarded(rw.List))
+		mux.HandleFunc("/api/singbox/router/dns/rewrites/add", guarded(rw.Add))
+		mux.HandleFunc("/api/singbox/router/dns/rewrites/update", guarded(rw.Update))
+		mux.HandleFunc("/api/singbox/router/dns/rewrites/delete", guarded(rw.Delete))
+		mux.HandleFunc("/api/singbox/router/dns/rewrites/move", guarded(rw.Move))
+	}
+
+	// Unified preset catalog (protected, read-only in U0)
+	if s.presetCatalog != nil {
+		presetsHandler := api.NewPresetsHandler(s.presetCatalog)
+		mux.HandleFunc("/api/presets", guarded(presetsHandler.List))
+	}
+
+	// Static files (SPA) - must be last.
+	if s.config.FrontendFS != nil {
+		mux.Handle("/", spaHandler(s.config.FrontendFS))
+	}
 }
 
 // spaHandler serves static files with SPA fallback to index.html.
