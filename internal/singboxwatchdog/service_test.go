@@ -491,6 +491,43 @@ func TestService_RecoverSubscription_DoesNotTestSelectorTagAsMember(t *testing.T
 	}
 }
 
+func TestService_RecoverSubscription_SkipsReservedServiceTags(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "store.json"))
+	cfg := TargetConfig{
+		ID:            "subscription:sub-1",
+		Kind:          TargetSubscription,
+		Ref:           "sub-1",
+		Enabled:       true,
+		Interval:      30,
+		FailThreshold: 1,
+		Timeout:       1,
+		RecoveryMode:  RecoverySwitchMember,
+	}
+	_ = store.Upsert(cfg)
+	clash := &fakeClash{delays: map[string]int{
+		"member-b": 45,
+	}}
+	op := newInstalledOp()
+	op.activeBySel = map[string]string{"iq0": "member-a"}
+	svc := NewService(store, op, &fakeSubs{list: []subscription.Subscription{{
+		ID:           "sub-1",
+		SelectorTag:  "iq0",
+		ActiveMember: "member-a",
+		Enabled:      true,
+		ListenPort:   1080,
+		MemberTags:   []string{"direct", "block", "final", "member-a", "member-b"},
+	}}}, nil)
+	svc.clash = clash
+	target, _ := svc.resolveTargetByConfig(context.Background(), cfg)
+	svc.recoverSubscription(context.Background(), target, cfg)
+	for _, name := range clash.testedNames[:len(clash.testedNames)-1] {
+		switch name {
+		case "direct", "block", "final":
+			t.Fatalf("reserved service tag was tested as member: %+v", clash.testedNames)
+		}
+	}
+}
+
 func TestService_RecoverSubscription_LimitsMemberChecks(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "store.json"))
 	cfg := TargetConfig{

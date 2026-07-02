@@ -537,7 +537,7 @@ func TestUpdate_MonitoringSettingsValidPersisted(t *testing.T) {
 	refreshSvc := &testMonitoringRefreshService{done: make(chan struct{})}
 	h.SetMonitoringService(refreshSvc)
 
-	body := []byte(`{"monitoring":{"historyHours":48,"sampleIntervalSec":60,"matrixRefreshIntervalSec":120}}`)
+	body := []byte(`{"monitoring":{"historyHours":48,"sampleIntervalSec":120,"matrixRefreshIntervalSec":120}}`)
 	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	h.Update(rec, req)
@@ -551,7 +551,7 @@ func TestUpdate_MonitoringSettingsValidPersisted(t *testing.T) {
 		<-refreshSvc.done
 	}
 	got, _ := store.Get()
-	if got.Monitoring.HistoryHours != 48 || got.Monitoring.SampleIntervalSec != 60 || got.Monitoring.MatrixRefreshIntervalSec != 120 {
+	if got.Monitoring.HistoryHours != 48 || got.Monitoring.SampleIntervalSec != 120 || got.Monitoring.MatrixRefreshIntervalSec != 120 {
 		t.Fatalf("monitoring = %+v", got.Monitoring)
 	}
 	if refreshSvc.calls != 1 {
@@ -639,7 +639,7 @@ func TestUpdate_MonitoringPatchPreservesGeoFileSettings(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	body := []byte(`{"monitoring":{"historyHours":48,"sampleIntervalSec":60,"matrixRefreshIntervalSec":120}}`)
+	body := []byte(`{"monitoring":{"historyHours":48,"sampleIntervalSec":120,"matrixRefreshIntervalSec":120}}`)
 	req := httptest.NewRequest(http.MethodPost, "/settings/update", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	h.Update(rec, req)
@@ -661,7 +661,7 @@ func TestUpdate_GeoFilePatchPreservesMonitoringSettings(t *testing.T) {
 	seed := *cur
 	seed.Monitoring = storage.MonitoringSettings{
 		HistoryHours:             48,
-		SampleIntervalSec:        60,
+		SampleIntervalSec:        120,
 		MatrixRefreshIntervalSec: 120,
 	}
 	if err := store.Save(&seed); err != nil {

@@ -12,7 +12,7 @@ const (
 	MaxMonitoringSampleIntervalSec        = 3600
 	MinMonitoringMatrixRefreshIntervalSec = 10
 	MaxMonitoringMatrixRefreshIntervalSec = 3600
-	MaxMonitoringHistoryCapacity          = 10080
+	MaxMonitoringHistoryCapacity          = 1440
 )
 
 type MonitoringSettings struct {
