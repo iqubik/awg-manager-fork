@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/hoaxisr/awg-manager/internal/response"
 	"github.com/hoaxisr/awg-manager/internal/signature"
@@ -31,6 +32,25 @@ type SignatureCaptureData struct {
 type SignatureCaptureResponse struct {
 	Success bool                 `json:"success" example:"true"`
 	Data    SignatureCaptureData `json:"data"`
+}
+
+type SignatureGenerateRequest struct {
+	Protocol string `json:"protocol" example:"quic_initial"`
+	MTU      *int   `json:"mtu,omitempty" example:"1280"`
+}
+
+type SignatureGenerateData struct {
+	OK       bool                `json:"ok" example:"true"`
+	Source   string              `json:"source" example:"generated"`
+	Protocol string              `json:"protocol" example:"quic_initial"`
+	ByteSize int                 `json:"byteSize" example:"344"`
+	Packets  SignaturePacketsDTO `json:"packets"`
+	Warning  string              `json:"warning,omitempty" example:""`
+}
+
+type SignatureGenerateResponse struct {
+	Success bool                  `json:"success" example:"true"`
+	Data    SignatureGenerateData `json:"data"`
 }
 
 var validDomain = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$`)
@@ -75,6 +95,52 @@ func (h *SignatureHandler) Capture(w http.ResponseWriter, r *http.Request) {
 
 	if result.Source == "error" {
 		response.ErrorWithStatus(w, http.StatusBadGateway, result.Warning, "CAPTURE_FAILED")
+		return
+	}
+
+	response.Success(w, result)
+}
+
+// Generate builds synthetic signature packets for a mimicry protocol.
+//
+//	@Summary		Signature generate
+//	@Tags			signature
+//	@Accept			json
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Param			request	body		SignatureGenerateRequest	true	"Generation parameters"
+//	@Success		200		{object}	SignatureGenerateResponse
+//	@Failure		400		{object}	APIErrorEnvelope
+//	@Failure		500		{object}	APIErrorEnvelope
+//	@Router			/signature/generate [post]
+func (h *SignatureHandler) Generate(w http.ResponseWriter, r *http.Request) {
+	req, ok := parseJSON[SignatureGenerateRequest](w, r, http.MethodPost)
+	if !ok {
+		return
+	}
+	if req.Protocol == "" {
+		response.Error(w, "Укажите protocol", "MISSING_PROTOCOL")
+		return
+	}
+	mtu := 1280
+	if req.MTU != nil {
+		if *req.MTU <= 0 {
+			response.Error(w, "Некорректный mtu", "INVALID_MTU")
+			return
+		}
+		mtu = *req.MTU
+	}
+
+	result, err := signature.Generate(req.Protocol, mtu)
+	if err != nil {
+		switch {
+		case strings.HasPrefix(err.Error(), "invalid protocol:"):
+			response.Error(w, "Неподдерживаемый protocol", "INVALID_PROTOCOL")
+		case strings.HasPrefix(err.Error(), "signature too large:"):
+			response.Error(w, "Подпись слишком большая", "SIGNATURE_TOO_LARGE")
+		default:
+			response.InternalError(w, err.Error())
+		}
 		return
 	}
 
