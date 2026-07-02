@@ -219,6 +219,56 @@ class ApiClient {
 		return data.data as T;
 	}
 
+	private normalizePreviewMembers(raw: unknown): SubscriptionPreviewMember[] {
+		const list = Array.isArray(raw)
+			? raw
+			: Array.isArray((raw as { members?: unknown[] } | null | undefined)?.members)
+				? ((raw as { members: unknown[] }).members)
+				: [];
+
+		const seen = new Set<string>();
+
+		return list.map((item, index) => {
+			const entry = item && typeof item === 'object'
+				? item as Record<string, unknown>
+				: {};
+			const protocol =
+				typeof entry.protocol === 'string' && entry.protocol.trim()
+					? entry.protocol.trim()
+					: 'unknown';
+			const server = typeof entry.server === 'string' ? entry.server.trim() : '';
+			const rawPort = entry.port;
+			const port =
+				typeof rawPort === 'number'
+					? rawPort
+					: Number.isFinite(Number(rawPort))
+						? Number(rawPort)
+						: 0;
+			let key =
+				typeof entry.key === 'string' && entry.key.trim()
+					? entry.key.trim()
+					: `${protocol}-${server || 'unknown'}-${port}-${index}`;
+
+			if (seen.has(key)) {
+				key = `${key}-${index}`;
+			}
+			seen.add(key);
+
+			return {
+				key,
+				label: typeof entry.label === 'string' ? entry.label : '',
+				protocol,
+				server,
+				port,
+				sni: typeof entry.sni === 'string' ? entry.sni : undefined,
+				transport: typeof entry.transport === 'string' ? entry.transport : undefined,
+				security: typeof entry.security === 'string' ? entry.security : undefined,
+				supported: entry.supported === false ? false : true,
+				reason: typeof entry.reason === 'string' && entry.reason.trim() ? entry.reason : undefined,
+			};
+		});
+	}
+
 	// ─────────────────────────────────────────────
 	// #region Tunnels — CRUD, export, traffic
 	// ─────────────────────────────────────────────
@@ -2617,10 +2667,11 @@ class ApiClient {
 		url: string;
 		headers: SubscriptionHeader[];
 	}): Promise<SubscriptionPreviewMember[]> {
-		return this.request<SubscriptionPreviewMember[]>('/singbox/subscriptions/preview', {
+		const raw = await this.request<unknown>('/singbox/subscriptions/preview', {
 			method: 'POST',
 			body: JSON.stringify(input),
 		});
+		return this.normalizePreviewMembers(raw);
 	}
 
 	// #endregion

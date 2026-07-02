@@ -1170,11 +1170,13 @@ type PreviewMember struct {
 	Key       string `json:"key"`
 	Label     string `json:"label,omitempty"`
 	Protocol  string `json:"protocol"`
-	Server    string `json:"server"`
-	Port      uint16 `json:"port"`
+	Server    string `json:"server,omitempty"`
+	Port      uint16 `json:"port,omitempty"`
 	SNI       string `json:"sni,omitempty"`
 	Transport string `json:"transport,omitempty"`
 	Security  string `json:"security,omitempty"`
+	Supported bool   `json:"supported"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 // PreviewURL качает и парсит URL-подписку БЕЗ создания/записи — для шага превью
@@ -1199,7 +1201,7 @@ func (s *Service) PreviewURL(ctx context.Context, url string, headers []Header) 
 		parseRes = vlink.ParseBatch(NormalizeBody(body, ct))
 	}
 	parts := partitionParsedOutbounds("preview", parseRes.Outbounds)
-	out := make([]PreviewMember, 0, len(parts.Valid))
+	out := make([]PreviewMember, 0, len(parts.Valid)+len(parts.Rejected))
 	keys := chooseKeys(parts.Valid)
 	// Dedupe by exclusion key, mirroring ApplyDiff's SkippedDuplicate: a
 	// byte-identical duplicate in the feed becomes ONE member on refresh, so
@@ -1217,7 +1219,18 @@ func (s *Service) PreviewURL(ctx context.Context, url string, headers []Header) 
 		out = append(out, PreviewMember{
 			Key: key, Label: mi.Label, Protocol: mi.Protocol,
 			Server: mi.Server, Port: mi.Port, SNI: mi.SNI,
-			Transport: mi.Transport, Security: mi.Security,
+			Transport: mi.Transport, Security: mi.Security, Supported: true,
+		})
+	}
+	for i, rejected := range parts.Rejected {
+		out = append(out, PreviewMember{
+			Key:       suffixOf(fmt.Sprintf("rejected|%s|%s|%s|%d|%s|%d", rejected.Protocol, rejected.Server, rejected.Label, rejected.Port, rejected.Reason, i)),
+			Label:     rejected.Label,
+			Protocol:  rejected.Protocol,
+			Server:    rejected.Server,
+			Port:      rejected.Port,
+			Supported: false,
+			Reason:    rejected.Reason,
 		})
 	}
 	return out, nil
