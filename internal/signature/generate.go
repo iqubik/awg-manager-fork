@@ -268,6 +268,15 @@ func alignTo128(n int) int {
 	return int(math.Ceil(float64(n)/128.0) * 128.0)
 }
 
+func isChromiumProfile(profile string) bool {
+	switch profile {
+	case "chrome", "edge", "yandex_desktop", "yandex_mobile":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *generatorState) mkQUICi(input generatorInput, iv int) string {
 	host := getHost(input, "quic_initial", s)
 	dcid := s.rndInt(8, 20)
@@ -332,8 +341,17 @@ func (s *generatorState) mkTLS(input generatorInput, iv int) string {
 	host := getHost(input, "tls_client_hello", s)
 	sniExt := 2 + 2 + 2 + 1 + 2 + hostLen(host)
 	sniRC := min(sniExt, 64)
-	baseLen := s.rndInt(512, 800)
-	recLen := alignTo128(baseLen)
+	fpRange := getFpRange(input, "tls")
+	baseLen := 0
+	if fpRange != nil {
+		baseLen = s.rndInt(fpRange.min, fpRange.max)
+	} else {
+		baseLen = s.rndInt(300, 550)
+	}
+	recLen := baseLen
+	if isChromiumProfile(input.browserProfile) {
+		recLen = alignTo128(recLen)
+	}
 	hsLen := recLen - s.rndInt(4, 9)
 	rLen := min(min(s.rndInt(20, 60)*iv, 300), max(0, input.mtu-44-sniRC-tagOverhead(input.useTagC, input.useTagT)))
 	hexPart := evenHex("160301" + hexPad(recLen, 2) + "01" + hexPad(hsLen, 3) + "0303" + s.randHex(32))
