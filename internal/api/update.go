@@ -21,7 +21,7 @@ type UpdateInfoData struct {
 	CheckedAt      string `json:"checkedAt" example:"2024-01-15T10:00:00Z"`
 	Checking       bool   `json:"checking" example:"false"`
 	Error          string `json:"error,omitempty" example:"update source is not configured for this build"`
-	Warning        string `json:"warning,omitempty" example:"Для GitHub Release сейчас недоступна проверка SHA256, поэтому автоматическое применение обновления отключено. Скачайте пакет вручную со страницы релиза этого форка."`
+	Warning        string `json:"warning,omitempty" example:"Пакет будет загружен из GitHub Release этого форка. SHA256 не опубликован, поэтому дополнительная проверка контрольной суммы пропущена."`
 	Channel        string `json:"channel,omitempty" example:"stable"`
 	Source         string `json:"source,omitempty" example:"release"`
 	SourceURL      string `json:"sourceUrl,omitempty" example:"https://github.com/iqubik/awg-manager-fork/releases/latest/download/VERSION"`
@@ -134,15 +134,6 @@ func (h *UpdateHandler) Apply(w http.ResponseWriter, r *http.Request) {
 	if err := h.updater.ApplyUpgrade(r.Context()); err != nil {
 		if err == updater.ErrUpgradeInProgress {
 			response.ErrorWithStatus(w, http.StatusConflict, "Upgrade already in progress", "UPGRADE_IN_PROGRESS")
-			return
-		}
-		if err == updater.ErrReleaseChecksumUnavailable {
-			response.ErrorWithStatus(
-				w,
-				http.StatusPreconditionFailed,
-				"Автоматическое обновление из GitHub Release временно недоступно: отсутствует проверяемая SHA256-сумма пакета.",
-				"UPDATE_CHECKSUM_REQUIRED",
-			)
 			return
 		}
 		response.InternalError(w, "Failed to start upgrade: "+err.Error())
