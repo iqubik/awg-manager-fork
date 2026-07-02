@@ -51,6 +51,21 @@ definitions:
       h4:
         example: "4"
         type: string
+      i1:
+        example: <b 0x1603010200><rc 32><r 64><t>
+        type: string
+      i2:
+        example: <b 0xabcdef01><r 24><t><rd 6>
+        type: string
+      i3:
+        example: <r 40><rc 7><b 0x01020304><t>
+        type: string
+      i4:
+        example: <t><r 18><rc 6><b 0xaabbccdd><rd 5>
+        type: string
+      i5:
+        example: <b 0x11223344><r 28><t><rd 4>
+        type: string
       jc:
         example: 4
         type: integer
@@ -2986,6 +3001,43 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/api.SignatureCaptureData'
+      success:
+        example: true
+        type: boolean
+    type: object
+  api.SignatureGenerateData:
+    properties:
+      byteSize:
+        example: 344
+        type: integer
+      ok:
+        example: true
+        type: boolean
+      packets:
+        $ref: '#/definitions/api.SignaturePacketsDTO'
+      protocol:
+        example: quic_initial
+        type: string
+      source:
+        example: generated
+        type: string
+      warning:
+        example: ""
+        type: string
+    type: object
+  api.SignatureGenerateRequest:
+    properties:
+      mtu:
+        example: 1280
+        type: integer
+      protocol:
+        example: quic_initial
+        type: string
+    type: object
+  api.SignatureGenerateResponse:
+    properties:
+      data:
+        $ref: '#/definitions/api.SignatureGenerateData'
       success:
         example: true
         type: boolean
@@ -10165,6 +10217,37 @@ paths:
       security:
       - CookieAuth: []
       summary: Signature capture
+      tags:
+      - signature
+  /signature/generate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Generation parameters
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.SignatureGenerateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SignatureGenerateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Signature generate
       tags:
       - signature
   /singbox/awg-outbounds/tags:
