@@ -2,6 +2,7 @@ package signature
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -87,6 +88,20 @@ func TestGenerate_DefaultsDoNotUseBrowserFPRanges(t *testing.T) {
 	}
 }
 
+func TestGenerate_TLSDefaultsDoNotUseBrowserFPOrChromiumAlign(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		result, err := Generate("tls", 1280)
+		if err != nil {
+			t.Fatalf("Generate() error = %v", err)
+		}
+
+		recordLen := extractTLSRecordLength(t, result.Packets.I1)
+		if recordLen < 300 || recordLen > 550 {
+			t.Fatalf("TLS record length = %d, want 300..550 for default non-BFP mode", recordLen)
+		}
+	}
+}
+
 func assertPacketFormat(t *testing.T, packet string) {
 	t.Helper()
 	if packet == "" {
@@ -101,4 +116,22 @@ func assertPacketFormat(t *testing.T, packet string) {
 			t.Fatalf("hex payload %q has odd length", m[1])
 		}
 	}
+}
+
+func extractTLSRecordLength(t *testing.T, packet string) int {
+	t.Helper()
+
+	const prefix = "<b 0x160301"
+	if !strings.HasPrefix(packet, prefix) {
+		t.Fatalf("packet %q does not start with TLS record prefix", packet)
+	}
+	if len(packet) < len(prefix)+4 {
+		t.Fatalf("packet %q is too short to contain TLS record length", packet)
+	}
+
+	value, err := strconv.ParseInt(packet[len(prefix):len(prefix)+4], 16, 32)
+	if err != nil {
+		t.Fatalf("parse TLS record length from %q: %v", packet, err)
+	}
+	return int(value)
 }
