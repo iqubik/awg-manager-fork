@@ -165,6 +165,20 @@ function createSingboxRouterStore() {
 		}
 	}
 
+	async function primeModeState(): Promise<void> {
+		const [statusResult, settingsResult] = await Promise.allSettled([
+			api.singboxRouterStatus(),
+			api.singboxRouterGetSettings(),
+		]);
+
+		if (statusResult.status === 'fulfilled') {
+			status.set(statusResult.value);
+		}
+		if (settingsResult.status === 'fulfilled') {
+			settings.set(settingsResult.value);
+		}
+	}
+
 	function applyStatus(data: SingboxRouterStatus): void {
 		status.set(data);
 	}
@@ -218,6 +232,7 @@ function createSingboxRouterStore() {
 		loadAll,
 		reloadStatus,
 		reloadSettings,
+		primeModeState,
 		loadStaging,
 		loadRulesSnapshot,
 		applyStatus,
