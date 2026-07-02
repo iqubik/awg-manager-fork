@@ -257,11 +257,12 @@
                             <button
                                 class="dropdown-item"
                                 class:active={tab.id === active}
+                                class:muted={tab.muted}
                                 onclick={() => selectTab(tab.id)}
                             >
                                 {tab.label}
                                 {#if tab.badge !== undefined}
-                                    <span class="tab-badge">{tab.badge}</span>
+                                    <span class="tab-badge" class:success={tab.badgeTone === 'success'} class:warning={tab.badgeTone === 'warning'} class:muted={tab.badgeTone === 'muted'}>{tab.badge}</span>
                                 {/if}
                             </button>
                         {/each}
@@ -464,5 +465,9 @@
     .dropdown-item.active {
         color: var(--accent);
         font-weight: 600;
+    }
+
+    .dropdown-item.muted:not(.active) {
+        opacity: 0.45;
     }
 </style>
