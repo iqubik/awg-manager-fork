@@ -36,7 +36,6 @@
 		{ value: 'strict', label: SETTINGS_SECTION_ICON_MODE_LABELS.strict },
 		{ value: 'harmonious', label: SETTINGS_SECTION_ICON_MODE_LABELS.harmonious },
 		{ value: 'vivid', label: SETTINGS_SECTION_ICON_MODE_LABELS.vivid },
-		{ value: 'none', label: SETTINGS_SECTION_ICON_MODE_LABELS.none },
 	];
 
 	let appearanceExpanded = $state(true);
