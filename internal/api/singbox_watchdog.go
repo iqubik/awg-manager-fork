@@ -19,7 +19,7 @@ type SingboxWatchdogService interface {
 	Configure(cfg singboxwatchdog.TargetConfig) error
 	Enable(id string) error
 	Disable(id string) error
-	CheckNow(ctx context.Context, targetID string)
+	CheckNow(ctx context.Context, targetID string) error
 	CheckAllNow(ctx context.Context)
 }
 
@@ -149,6 +149,20 @@ func validateTargetConfig(c singboxwatchdog.TargetConfig) error {
 	}
 	if c.Timeout < 1 || c.Timeout > 30 {
 		return errors.New("timeout out of range")
+	}
+	switch c.RecoveryMode {
+	case singboxwatchdog.RecoveryOff, singboxwatchdog.RecoveryRestartSingbox, singboxwatchdog.RecoverySwitchMember:
+	default:
+		return errors.New("invalid recoveryMode")
+	}
+	if c.Kind == singboxwatchdog.TargetTunnel && c.RecoveryMode == singboxwatchdog.RecoverySwitchMember {
+		return errors.New("switch-member is only available for subscriptions")
+	}
+	if c.Kind == singboxwatchdog.TargetSubscription && c.RecoveryMode == singboxwatchdog.RecoveryRestartSingbox {
+		return errors.New("restart-singbox is only available for raw tunnels")
+	}
+	if c.PersistSwitch {
+		return errors.New("persistSwitch is not implemented yet")
 	}
 	return nil
 }
@@ -357,7 +371,14 @@ func (h *SingboxWatchdogHandler) CheckNow(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if req.ID != "" {
-		h.service.CheckNow(r.Context(), req.ID)
+		if err := h.service.CheckNow(r.Context(), req.ID); err != nil {
+			if errors.Is(err, singboxwatchdog.ErrTargetNotFound) {
+				response.BadRequest(w, err.Error())
+				return
+			}
+			response.InternalError(w, err.Error())
+			return
+		}
 	} else {
 		h.service.CheckAllNow(r.Context())
 	}
