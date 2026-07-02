@@ -1912,6 +1912,8 @@ export interface SubscriptionPreviewMember {
 	sni?: string;
 	transport?: string;
 	security?: string;
+	supported?: boolean;
+	reason?: string;
 }
 
 export type SubscriptionMode = 'selector' | 'urltest';
