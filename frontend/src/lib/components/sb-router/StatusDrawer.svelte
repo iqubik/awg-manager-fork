@@ -183,6 +183,12 @@
   // Сбрасывается по SSE selective-status с rebuilding: false.
   let rebuildInFlight = $derived(rebuilding || (selectiveStatus?.rebuilding ?? false));
   let selectiveIpsetOk = $derived(selectiveStatus?.available ?? false);
+  let selectiveXtSetOk = $derived(selectiveStatus?.xtSetAvailable ?? false);
+  let selectiveConntrackOk = $derived(selectiveStatus?.conntrackAvailable ?? false);
+  let selectiveCanEnable = $derived(
+    selectiveStatusLoaded && selectiveFinalOk && selectiveIpsetOk && selectiveXtSetOk,
+  );
+  let selectiveToggleDisabled = $derived(!(cfg?.selectiveBypass ?? false) && !selectiveCanEnable);
   let selectiveSnapshot = $derived(selectiveStatus?.snapshot ?? null);
   let hasSnapshot = $derived(
     !!selectiveSnapshot
@@ -244,9 +250,25 @@
     }
   }
 
+  async function installSelectiveConntrack() {
+    selectiveInstalling = true;
+    try {
+      const status = await api.singboxRouterSelectiveInstallConntrack();
+      selectiveBypass.applyStatus(status);
+    } catch (e) {
+      notifications.error('Не удалось установить conntrack-tools: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      selectiveInstalling = false;
+    }
+  }
+
   function toggleSelectiveBypass(checked: boolean) {
     if (checked && !selectiveFinalOk) {
       notifications.error('Селективный перехват требует route.final = direct');
+      return;
+    }
+    if (checked && !selectiveCanEnable) {
+      notifications.error('Сначала дождитесь успешной проверки selective-bypass зависимостей');
       return;
     }
     void applyPatch({ selectiveBypass: checked });
@@ -410,7 +432,7 @@
           <span>Только трафик из правил</span>
           <Toggle
             checked={cfg.selectiveBypass ?? false}
-            disabled={!selectiveFinalOk || (selectiveStatusLoaded && !selectiveIpsetOk)}
+            disabled={selectiveToggleDisabled}
             onchange={toggleSelectiveBypass}
           />
         </div>
@@ -421,14 +443,16 @@
             селективный ipset не имеет смысла. Установите final в «direct» в разделе маршрутизации.
           </p>
         {:else if !selectiveStatusLoaded}
-          <!-- Статус ещё грузится — показываем описание, toggle активен -->
+          <p class="hint selective-warn">
+            Проверяем состояние selective-bypass и доступность зависимостей на роутере.
+            Включение станет доступно только после успешной проверки.
+          </p>
           <p class="hint">
             При включении в sing-box попадает только трафик к целевым IP из правил маршрутизации (proxy).
             Весь остальной трафик полностью обходит sing-box — не только VPN, а сам движок — и идёт напрямую в WAN.
             Так соединения стабильнее и предсказуемее: игры, стриминг и локальный трафик не проходят через прокси-цепочку.
           </p>
         {:else if !selectiveIpsetOk}
-          <!-- ipset не установлен -->
           <p class="hint selective-warn">
             Требуется пакет <code class="mono">ipset</code> — он не установлен на роутере.
           </p>
@@ -441,6 +465,14 @@
           >
             {selectiveInstalling ? 'Установка…' : 'Установить ipset'}
           </Button>
+        {:else if !selectiveXtSetOk}
+          <p class="hint selective-warn">
+            Kernel-модуль <code class="mono">xt_set</code> недоступен. Пока он не появится, selective-bypass нельзя включить:
+            iptables не сможет матчить трафик по ipset.
+          </p>
+          <p class="hint">
+            Обычно помогает установка/загрузка соответствующего модуля ядра для вашей платформы и повторное открытие drawer.
+          </p>
         {:else if cfg.selectiveBypass}
           <!-- Включено и доступно — показываем статистику всегда -->
           <p class="hint">
@@ -476,6 +508,22 @@
             группа «Маршрутизация», подгруппа «Селективный ipset».
           </p>
 
+          {#if !selectiveConntrackOk}
+            <p class="hint selective-warn">
+              <code class="mono">conntrack</code> не установлен: после изменений маршрутизации старые соединения не будут
+              сбрасываться автоматически и могут ещё некоторое время идти по старому пути.
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              fullWidth
+              loading={selectiveInstalling}
+              onclick={installSelectiveConntrack}
+            >
+              {selectiveInstalling ? 'Установка…' : 'Установить conntrack-tools'}
+            </Button>
+          {/if}
+
           {#if hasSnapshot}
             <Button variant="ghost" size="sm" fullWidth onclick={() => (snapshotOpen = true)}>
               Содержимое ipset (домены → IP)
@@ -492,6 +540,20 @@
             Весь остальной трафик полностью обходит sing-box — не только VPN, а сам движок — и идёт напрямую в WAN.
             Так соединения стабильнее и предсказуемее: игры, стриминг и локальный трафик не проходят через прокси-цепочку.
           </p>
+          {#if !selectiveConntrackOk}
+            <p class="hint selective-warn">
+              Для чистого переключения уже открытых соединений желательно установить <code class="mono">conntrack-tools</code>.
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              fullWidth
+              loading={selectiveInstalling}
+              onclick={installSelectiveConntrack}
+            >
+              {selectiveInstalling ? 'Установка…' : 'Установить conntrack-tools'}
+            </Button>
+          {/if}
         {/if}
       </section>
 
