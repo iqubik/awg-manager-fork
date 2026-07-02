@@ -33,6 +33,7 @@
 	];
 
 	const ICON_MODE_OPTIONS: Array<{ value: SettingsSectionIconMode; label: string }> = [
+		{ value: 'none', label: SETTINGS_SECTION_ICON_MODE_LABELS.none },
 		{ value: 'strict', label: SETTINGS_SECTION_ICON_MODE_LABELS.strict },
 		{ value: 'harmonious', label: SETTINGS_SECTION_ICON_MODE_LABELS.harmonious },
 		{ value: 'vivid', label: SETTINGS_SECTION_ICON_MODE_LABELS.vivid },

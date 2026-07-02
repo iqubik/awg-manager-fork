@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -988,19 +987,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/api/routing/access-policies", guarded(accessPolicyHandler.List))
 		mux.HandleFunc("/api/routing/policy-interfaces", guarded(accessPolicyHandler.ListGlobalInterfaces))
 	} else {
-		// OS4: access policies + global-interfaces are NOT available.
-		// Return empty arrays so the polling stores stay in the 'fresh'
-		// state instead of erroring and showing a badge.
-		emptyArr := func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet {
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[]}`))
-		}
-		mux.HandleFunc("/api/routing/access-policies", guarded(emptyArr))
-		mux.HandleFunc("/api/routing/policy-interfaces", guarded(emptyArr))
+		mux.HandleFunc("/api/routing/access-policies", guarded(api.ServeOS4EmptyAccessPolicies))
+		mux.HandleFunc("/api/routing/policy-interfaces", guarded(api.ServeOS4EmptyPolicyInterfaces))
 	}
 
 	// Diagnostics (protected + boot guarded)
@@ -1026,15 +1014,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/ndms/save-status", guarded(ndmsHandler.GetSaveStatus))
 
 	// Boot status (public - frontend uses instanceId for restart detection)
-	mux.HandleFunc("/api/boot-status", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"initializing":     false,
-			"remainingSeconds": 0,
-			"phase":            "ready",
-			"instanceId":       s.instanceID,
-		})
-	})
+	bootStatusHandler := api.NewBootStatusHandler(s.instanceID)
+	mux.HandleFunc("/api/boot-status", bootStatusHandler.Get)
 
 	// Wire event bus to CRUD handlers for SSE publishing
 	tunnelsHandler.SetEventBus(s.bus)
@@ -1127,11 +1108,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/api/singbox/tunnels", guarded(func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case http.MethodGet:
-				if r.URL.Query().Has("tag") {
-					s.singboxHandler.GetTunnel(w, r)
-				} else {
-					s.singboxHandler.ListTunnels(w, r)
-				}
+				s.singboxHandler.ServeGETTunnels(w, r)
 			case http.MethodPost:
 				s.singboxHandler.AddTunnels(w, r)
 			case http.MethodPut:

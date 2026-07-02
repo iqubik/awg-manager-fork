@@ -400,6 +400,29 @@ func (h *SingboxHandler) ListTunnels(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, out)
 }
 
+// ServeGETTunnels handles GET /api/singbox/tunnels: list all tunnels, or single tunnel when query tag is set.
+//
+//	@Summary		List or get sing-box tunnel(s)
+//	@Tags			singbox
+//	@Produce		json
+//	@Security		CookieAuth
+//	@Param			tag	query	string	false	"When set, returns single tunnel"
+//	@Success		200	{object}	SingboxTunnelsResponse
+//	@Failure		400	{object}	APIErrorEnvelope
+//	@Failure		500	{object}	APIErrorEnvelope
+//	@Router			/singbox/tunnels [get]
+func (h *SingboxHandler) ServeGETTunnels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.MethodNotAllowed(w)
+		return
+	}
+	if r.URL.Query().Has("tag") {
+		h.GetTunnel(w, r)
+		return
+	}
+	h.ListTunnels(w, r)
+}
+
 type singboxConnectivity struct {
 	Connected bool `json:"connected"`
 	Latency   *int `json:"latency"`
