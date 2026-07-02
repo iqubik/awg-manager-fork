@@ -227,3 +227,69 @@ func TestReplaceConf_RestartsRunningTunnelAfterReplace(t *testing.T) {
 		t.Fatalf("startCalls = %d, want 1 for running tunnel", svc.startCalls)
 	}
 }
+
+func TestReplaceConf_StopsStoppedKernelWithDirtyRuntime(t *testing.T) {
+	store := newReplaceHandlerTestStore(t)
+	svc := &replaceTunnelServiceStub{
+		state: tunnel.StateInfo{
+			State:          tunnel.StateStopped,
+			BackendType:    "kernel",
+			ProcessRunning: true,
+			OpkgTunExists:  true,
+		},
+		tunnel: &servicesvc.TunnelWithStatus{
+			ID:            "awg12",
+			Name:          "Test tunnel",
+			Enabled:       true,
+			DefaultRoute:  true,
+			InterfaceName: "opkgtun12",
+			StateInfo: tunnel.StateInfo{
+				State:       tunnel.StateStopped,
+				BackendType: "kernel",
+			},
+		},
+	}
+
+	handler := NewTunnelsHandler(svc, store, nil)
+	rr := httptest.NewRecorder()
+	handler.ReplaceConf(rr, newReplaceRequest(t))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if svc.stopCalls != 1 || svc.startCalls != 0 {
+		t.Fatalf("stop/start = %d/%d, want 1/0", svc.stopCalls, svc.startCalls)
+	}
+}
+
+func TestReplaceConf_DoesNotStopCleanStoppedKernel(t *testing.T) {
+	store := newReplaceHandlerTestStore(t)
+	svc := &replaceTunnelServiceStub{
+		state: tunnel.StateInfo{
+			State:       tunnel.StateStopped,
+			BackendType: "kernel",
+		},
+		tunnel: &servicesvc.TunnelWithStatus{
+			ID:            "awg12",
+			Name:          "Test tunnel",
+			Enabled:       true,
+			DefaultRoute:  true,
+			InterfaceName: "opkgtun12",
+			StateInfo: tunnel.StateInfo{
+				State:       tunnel.StateStopped,
+				BackendType: "kernel",
+			},
+		},
+	}
+
+	handler := NewTunnelsHandler(svc, store, nil)
+	rr := httptest.NewRecorder()
+	handler.ReplaceConf(rr, newReplaceRequest(t))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if svc.stopCalls != 0 || svc.startCalls != 0 {
+		t.Fatalf("stop/start = %d/%d, want 0/0", svc.stopCalls, svc.startCalls)
+	}
+}
