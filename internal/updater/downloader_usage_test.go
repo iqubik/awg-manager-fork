@@ -68,13 +68,18 @@ func (f *fakeDownloader) DownloadFile(ctx context.Context, req downloader.FileRe
 }
 
 func TestCheckWithDownloader_UsesDownloaderRequest(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	oldEntwareRepoURL := entwareRepoURL
 	defer func() {
+		releaseRepoURL = oldReleaseRepoURL
 		releaseBaseURL = oldReleaseBaseURL
 		entwareRepoURL = oldEntwareRepoURL
 	}()
 
+	releaseRepoURL = ""
+	releaseBaseURL = ""
+	entwareRepoURL = "http://repo.example"
 	arch := archSuffix()
 	ipkName := "awg-manager_9.9.9_" + arch + "-kn.ipk"
 	packages := "Package: awg-manager\nVersion: 9.9.9\nFilename: " + ipkName + "\n"
