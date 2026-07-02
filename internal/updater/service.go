@@ -223,8 +223,7 @@ func (s *Service) CheckNow(ctx context.Context) *UpdateInfo {
 }
 
 // ApplyUpgrade downloads and installs the cached update package.
-// Release-source updates are intentionally blocked until the checker can
-// provide a trusted SHA256 for the downloaded IPK.
+// If a SHA256 is available for the source, it is verified before install.
 // Returns error if upgrade is already in progress or no download URL cached.
 func (s *Service) ApplyUpgrade(ctx context.Context) error {
 	s.mu.Lock()
@@ -233,19 +232,14 @@ func (s *Service) ApplyUpgrade(ctx context.Context) error {
 		return ErrUpgradeInProgress
 	}
 
-	var downloadURL, wantSHA256, source string
+	var downloadURL, wantSHA256 string
 	if s.cached != nil {
 		downloadURL = s.cached.DownloadURL
 		wantSHA256 = s.cached.SHA256
-		source = s.cached.Source
 	}
 	if downloadURL == "" {
 		s.mu.Unlock()
 		return fmt.Errorf("no download URL available, run check first")
-	}
-	if source == "release" && wantSHA256 == "" {
-		s.mu.Unlock()
-		return ErrReleaseChecksumUnavailable
 	}
 	s.upgrading = true
 	s.mu.Unlock()
