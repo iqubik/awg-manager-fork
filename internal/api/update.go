@@ -15,10 +15,16 @@ const changelogFetchUnavailableMessage = "Список изменений вре
 // UpdateInfoData mirrors frontend UpdateInfo.
 type UpdateInfoData struct {
 	Available      bool   `json:"available" example:"false"`
-	CurrentVersion string `json:"currentVersion" example:"2.5.0"`
-	LatestVersion  string `json:"latestVersion,omitempty" example:"2.5.0"`
+	CurrentVersion string `json:"currentVersion" example:"2.15.1"`
+	LatestVersion  string `json:"latestVersion,omitempty" example:"2.15.1+r1"`
+	DownloadURL    string `json:"downloadUrl,omitempty" example:"https://github.com/iqubik/awg-manager-fork/releases/latest/download/awg-manager_2.15.1+r1_aarch64-3.10-kn.ipk"`
 	CheckedAt      string `json:"checkedAt" example:"2024-01-15T10:00:00Z"`
 	Checking       bool   `json:"checking" example:"false"`
+	Error          string `json:"error,omitempty" example:"update source is not configured for this build"`
+	Warning        string `json:"warning,omitempty" example:"Для GitHub Release сейчас недоступна проверка SHA256, поэтому автоматическое применение обновления отключено. Скачайте пакет вручную или используйте Entware-канал."`
+	Channel        string `json:"channel,omitempty" example:"stable"`
+	Source         string `json:"source,omitempty" example:"release"`
+	SourceURL      string `json:"sourceUrl,omitempty" example:"https://github.com/iqubik/awg-manager-fork/releases/latest/download/VERSION"`
 }
 
 // UpdateCheckResponse is the envelope for GET /system/update/check.
@@ -123,11 +129,20 @@ func (h *UpdateHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.log.Info("update", "", "Starting update from GitHub release")
+	h.log.Info("update", "", "Starting update")
 
 	if err := h.updater.ApplyUpgrade(r.Context()); err != nil {
 		if err == updater.ErrUpgradeInProgress {
 			response.ErrorWithStatus(w, http.StatusConflict, "Upgrade already in progress", "UPGRADE_IN_PROGRESS")
+			return
+		}
+		if err == updater.ErrReleaseChecksumUnavailable {
+			response.ErrorWithStatus(
+				w,
+				http.StatusPreconditionFailed,
+				"Автоматическое обновление из GitHub Release временно недоступно: отсутствует проверяемая SHA256-сумма пакета.",
+				"UPDATE_CHECKSUM_REQUIRED",
+			)
 			return
 		}
 		response.InternalError(w, "Failed to start upgrade: "+err.Error())
