@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -29,19 +31,21 @@ type GenerateResult struct {
 }
 
 type generatorInput struct {
-	profile       string
-	mtu           int
-	useTagC       bool
-	useTagT       bool
-	useTagR       bool
-	useTagRC      bool
-	useTagRD      bool
-	mimicAll      bool
-	junkLevel     int
-	iterCount     int
-	routerMode    bool
-	useExtremeMax bool
-	intensity     string
+	profile        string
+	mtu            int
+	useTagC        bool
+	useTagT        bool
+	useTagR        bool
+	useTagRC       bool
+	useTagRD       bool
+	mimicAll       bool
+	junkLevel      int
+	iterCount      int
+	routerMode     bool
+	useExtremeMax  bool
+	intensity      string
+	useBrowserFp   bool
+	browserProfile string
 }
 
 type generatorState struct {
@@ -76,6 +80,11 @@ var hostPools = map[string][]string{
 	"dns_query":        {"77.88.8.8", "8.8.8.8", "1.1.1.1", "9.9.9.9"},
 }
 
+var (
+	cpsHexTagRe   = regexp.MustCompile(`<b 0x([0-9a-f]+)>`)
+	cpsCountTagRe = regexp.MustCompile(`<(r|rc|rd) (\d+)>`)
+)
+
 func Generate(protocol string, mtu int) (GenerateResult, error) {
 	resolved, ok := protocolAliases[strings.TrimSpace(protocol)]
 	if !ok {
@@ -86,19 +95,21 @@ func Generate(protocol string, mtu int) (GenerateResult, error) {
 	}
 
 	input := generatorInput{
-		profile:       resolved,
-		mtu:           mtu,
-		useTagC:       false,
-		useTagT:       true,
-		useTagR:       true,
-		useTagRC:      true,
-		useTagRD:      true,
-		mimicAll:      false,
-		junkLevel:     5,
-		iterCount:     0,
-		routerMode:    false,
-		useExtremeMax: false,
-		intensity:     "medium",
+		profile:        resolved,
+		mtu:            mtu,
+		useTagC:        false,
+		useTagT:        true,
+		useTagR:        true,
+		useTagRC:       true,
+		useTagRD:       true,
+		mimicAll:       false,
+		junkLevel:      5,
+		iterCount:      0,
+		routerMode:     false,
+		useExtremeMax:  false,
+		intensity:      "medium",
+		useBrowserFp:   false,
+		browserProfile: "",
 	}
 	state := &generatorState{rnd: rand.New(rand.NewSource(rand.Int63()))}
 
@@ -118,7 +129,7 @@ func Generate(protocol string, mtu int) (GenerateResult, error) {
 		i2, i3, i4, i5 = "", "", "", ""
 	}
 
-	byteSize := len(i1) + len(i2) + len(i3) + len(i4) + len(i5)
+	byteSize := CalcTotalSignatureByteSize(i1, i2, i3, i4, i5)
 	if byteSize > maxSignatureSize {
 		return GenerateResult{}, fmt.Errorf("signature too large: %d", byteSize)
 	}
@@ -148,6 +159,32 @@ func SupportedGenerateProtocols() []string {
 		"sip",
 		"dns_query",
 	}
+}
+
+func CalcCPSByteSize(pattern string) int {
+	size := 0
+
+	for _, match := range cpsHexTagRe.FindAllStringSubmatch(pattern, -1) {
+		size += len(match[1]) / 2
+	}
+	for _, match := range cpsCountTagRe.FindAllStringSubmatch(pattern, -1) {
+		n, err := strconv.Atoi(match[2])
+		if err == nil && n > 0 {
+			size += n
+		}
+	}
+	size += strings.Count(pattern, "<c>") * 4
+	size += strings.Count(pattern, "<t>") * 4
+
+	return size
+}
+
+func CalcTotalSignatureByteSize(packets ...string) int {
+	total := 0
+	for _, packet := range packets {
+		total += CalcCPSByteSize(packet)
+	}
+	return total
 }
 
 func splitPad(n int, tag string) string {
@@ -204,7 +241,11 @@ func getHost(input generatorInput, poolKey string, s *generatorState) string {
 	return pool[s.rndInt(0, len(pool)-1)]
 }
 
-func getFpRange(slot string) *fpRange {
+func getFpRange(input generatorInput, slot string) *fpRange {
+	if !input.useBrowserFp || input.browserProfile == "" {
+		return nil
+	}
+
 	switch slot {
 	case "qi":
 		return &fpRange{min: 1200, max: 1252}
@@ -252,7 +293,7 @@ func (s *generatorState) mkQUICi(input generatorInput, iv int) string {
 	if input.useTagRC {
 		extraB += sniRC
 	}
-	pad := calcPadding(headerB, extraB, getFpRange("qi"), iv, input.mtu, s)
+	pad := calcPadding(headerB, extraB, getFpRange(input, "qi"), iv, input.mtu, s)
 	return "<b 0x" + hexPart + ">" +
 		maybeRC(input.useTagRC, sniRC) +
 		maybeTag(input.useTagC, "<c>") +
@@ -279,7 +320,7 @@ func (s *generatorState) mkQUIC0(input generatorInput, iv int) string {
 	if input.useTagRC {
 		extraB += ticketHint
 	}
-	pad := calcPadding(headerB, extraB, getFpRange("q0"), iv, input.mtu, s)
+	pad := calcPadding(headerB, extraB, getFpRange(input, "q0"), iv, input.mtu, s)
 	return "<b 0x" + hexPart + ">" +
 		maybeTag(input.useTagT, "<t>") +
 		maybePad(input.useTagR, pad, "r") +
@@ -310,7 +351,7 @@ func (s *generatorState) mkNoise(input generatorInput, iv int) string {
 	if input.useTagRC {
 		extraB += rcLen
 	}
-	pad := calcPadding(headerB, extraB, getFpRange("nx"), iv, input.mtu, s)
+	pad := calcPadding(headerB, extraB, getFpRange(input, "nx"), iv, input.mtu, s)
 	return "<b 0x01000000" + s.randHex(4) + ">" +
 		"<b 0x" + s.randHex(32) + ">" +
 		"<b 0x" + s.randHex(48) + ">" +
@@ -334,7 +375,7 @@ func (s *generatorState) mkDTLS(input generatorInput, iv int) string {
 	if input.useTagRC {
 		extraB += sniRC
 	}
-	pad := calcPadding(headerB, extraB, getFpRange("dtls"), iv, input.mtu, s)
+	pad := calcPadding(headerB, extraB, getFpRange(input, "dtls"), iv, input.mtu, s)
 	return "<b 0x" + hexPart + ">" +
 		maybeRC(input.useTagRC, sniRC) +
 		maybeTag(input.useTagC, "<c>") +
@@ -354,7 +395,7 @@ func (s *generatorState) mkHTTP3(input generatorInput, iv int) string {
 	if input.useTagRC {
 		extraB += sniLen
 	}
-	pad := calcPadding(headerB, extraB, getFpRange("h3"), iv, input.mtu, s)
+	pad := calcPadding(headerB, extraB, getFpRange(input, "h3"), iv, input.mtu, s)
 	return "<b 0x" + hexPart + ">" +
 		maybeRC(input.useTagRC, sniLen) +
 		maybePad(input.useTagR, pad, "r") +
