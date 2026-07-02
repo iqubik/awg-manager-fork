@@ -25,5 +25,3 @@ type UpdateInfo struct {
 }
 
 var ErrUpgradeInProgress = errors.New("upgrade already in progress")
-
-var ErrReleaseChecksumUnavailable = errors.New("release update checksum unavailable")
