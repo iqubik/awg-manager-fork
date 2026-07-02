@@ -21,7 +21,7 @@ type UpdateInfoData struct {
 	CheckedAt      string `json:"checkedAt" example:"2024-01-15T10:00:00Z"`
 	Checking       bool   `json:"checking" example:"false"`
 	Error          string `json:"error,omitempty" example:"update source is not configured for this build"`
-	Warning        string `json:"warning,omitempty" example:"Для GitHub Release сейчас недоступна проверка SHA256, поэтому автоматическое применение обновления отключено. Скачайте пакет вручную или используйте Entware-канал."`
+	Warning        string `json:"warning,omitempty" example:"Для GitHub Release сейчас недоступна проверка SHA256, поэтому автоматическое применение обновления отключено. Скачайте пакет вручную со страницы релиза этого форка."`
 	Channel        string `json:"channel,omitempty" example:"stable"`
 	Source         string `json:"source,omitempty" example:"release"`
 	SourceURL      string `json:"sourceUrl,omitempty" example:"https://github.com/iqubik/awg-manager-fork/releases/latest/download/VERSION"`

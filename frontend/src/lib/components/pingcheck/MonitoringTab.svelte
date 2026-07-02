@@ -965,16 +965,21 @@
 		height: 24px;
 		padding: 0 0.55rem;
 		border-radius: 999px;
-		border: 1px solid color-mix(in srgb, var(--color-error) 35%, var(--color-border));
-		background: color-mix(in srgb, var(--color-error) 10%, transparent);
+		border: 1px solid color-mix(in srgb, var(--color-border) 82%, var(--color-accent) 18%);
+		background: color-mix(in srgb, var(--color-bg-tertiary) 82%, transparent);
 		color: var(--color-text-primary);
 		font-size: 11px;
 		cursor: pointer;
-		transition: background var(--t-fast) ease;
+		transition:
+			background var(--t-fast) ease,
+			border-color var(--t-fast) ease,
+			color var(--t-fast) ease;
 	}
 
 	.excluded-chip:hover {
-		background: color-mix(in srgb, var(--color-success) 14%, transparent);
+		border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+		background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+		color: var(--color-accent);
 	}
 
 	.loading {
