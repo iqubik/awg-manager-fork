@@ -32,14 +32,6 @@ func actionName(typ ActionType) string {
 		return "ActionResumeKernel"
 	case ActionReconcileNativeWG:
 		return "ActionReconcileNativeWG"
-	case ActionApplyConfig:
-		return "ActionApplyConfig"
-	case ActionSetMTU:
-		return "ActionSetMTU"
-	case ActionSetDefaultRoute:
-		return "ActionSetDefaultRoute"
-	case ActionRemoveDefaultRoute:
-		return "ActionRemoveDefaultRoute"
 	case ActionStartMonitoring:
 		return "ActionStartMonitoring"
 	case ActionStopMonitoring:
@@ -58,10 +50,6 @@ func actionName(typ ActionType) string {
 		return "ActionApplyClientRoutes"
 	case ActionRemoveClientRoutes:
 		return "ActionRemoveClientRoutes"
-	case ActionApplySystemClientRoutes:
-		return "ActionApplySystemClientRoutes"
-	case ActionRemoveSystemClientRoutes:
-		return "ActionRemoveSystemClientRoutes"
 	case ActionReconcileStaticRoutes:
 		return "ActionReconcileStaticRoutes"
 	case ActionReconcileDNSRoutes:
@@ -78,12 +66,6 @@ func actionName(typ ActionType) string {
 		return "ActionPersistRunning"
 	case ActionPersistStopped:
 		return "ActionPersistStopped"
-	case ActionPersistEnabled:
-		return "ActionPersistEnabled"
-	case ActionCreateKernel:
-		return "ActionCreateKernel"
-	case ActionCreateNativeWG:
-		return "ActionCreateNativeWG"
 	case ActionDeleteKernel:
 		return "ActionDeleteKernel"
 	case ActionDeleteNativeWG:
