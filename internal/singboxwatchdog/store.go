@@ -38,20 +38,43 @@ func normalizeConfig(c TargetConfig) TargetConfig {
 	if c.Interval < 5 {
 		c.Interval = 5
 	}
+	if c.Interval > 3600 {
+		c.Interval = 3600
+	}
 	if c.FailThreshold <= 0 {
 		c.FailThreshold = 3
+	}
+	if c.FailThreshold > 20 {
+		c.FailThreshold = 20
 	}
 	if c.Timeout <= 0 {
 		c.Timeout = 5
 	}
+	if c.Timeout > 30 {
+		c.Timeout = 30
+	}
+	switch c.RecoveryMode {
+	case RecoveryOff, RecoveryRestartSingbox, RecoverySwitchMember:
+	default:
+		c.RecoveryMode = ""
+	}
+	if c.Kind == TargetTunnel && c.RecoveryMode == RecoverySwitchMember {
+		c.RecoveryMode = ""
+	}
+	if c.Kind == TargetSubscription && c.RecoveryMode == RecoveryRestartSingbox {
+		c.RecoveryMode = ""
+	}
 	if c.RecoveryMode == "" {
-		if c.Kind == TargetSubscription {
-			c.RecoveryMode = RecoverySwitchMember
-		} else {
-			c.RecoveryMode = RecoveryOff
-		}
+		c.RecoveryMode = defaultRecoveryMode(c.Kind)
 	}
 	return c
+}
+
+func defaultRecoveryMode(kind TargetKind) RecoveryMode {
+	if kind == TargetSubscription {
+		return RecoverySwitchMember
+	}
+	return RecoveryOff
 }
 
 func (s *Store) Load() error {
