@@ -2,7 +2,9 @@ package singboxwatchdog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -181,6 +183,73 @@ func TestStore_LoadSaveUpsertAndEnable(t *testing.T) {
 	}
 }
 
+func TestStore_Load_NormalizesInvalidManualValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "singbox_watchdog.json")
+	raw := StoreData{
+		SchemaVersion: 1,
+		Targets: []TargetConfig{
+			{
+				ID:            "tunnel:sb-main",
+				Kind:          TargetTunnel,
+				Ref:           "sb-main",
+				Enabled:       true,
+				Interval:      99999,
+				FailThreshold: 999,
+				Timeout:       999,
+				RecoveryMode:  RecoverySwitchMember,
+				PersistSwitch: true,
+			},
+			{
+				ID:            "subscription:sub-1",
+				Kind:          TargetSubscription,
+				Ref:           "sub-1",
+				Enabled:       true,
+				Interval:      1,
+				FailThreshold: -2,
+				Timeout:       0,
+				RecoveryMode:  RecoveryRestartSingbox,
+			},
+		},
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	store := NewStore(path)
+	if err := store.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	tunnelCfg, ok := store.Get("tunnel:sb-main")
+	if !ok {
+		t.Fatal("expected tunnel config")
+	}
+	if tunnelCfg.Interval != 3600 || tunnelCfg.FailThreshold != 20 || tunnelCfg.Timeout != 30 {
+		t.Fatalf("unexpected tunnel clamp: %+v", tunnelCfg)
+	}
+	if tunnelCfg.RecoveryMode != RecoveryOff {
+		t.Fatalf("tunnel recoveryMode = %q, want %q", tunnelCfg.RecoveryMode, RecoveryOff)
+	}
+	if !tunnelCfg.PersistSwitch {
+		t.Fatalf("persistSwitch should be preserved until explicit API validation: %+v", tunnelCfg)
+	}
+
+	subCfg, ok := store.Get("subscription:sub-1")
+	if !ok {
+		t.Fatal("expected subscription config")
+	}
+	if subCfg.Interval != 5 || subCfg.FailThreshold != 3 || subCfg.Timeout != 5 {
+		t.Fatalf("unexpected subscription clamp: %+v", subCfg)
+	}
+	if subCfg.RecoveryMode != RecoverySwitchMember {
+		t.Fatalf("subscription recoveryMode = %q, want %q", subCfg.RecoveryMode, RecoverySwitchMember)
+	}
+}
+
 func TestCheckTarget_Stopped(t *testing.T) {
 	res := CheckTarget(context.Background(), &fakeClash{}, RuntimeTarget{Running: false}, 2*time.Second)
 	if res.Success || res.Error != "target stopped" {
@@ -230,6 +299,14 @@ func TestService_Configure_RejectsUnknownTarget(t *testing.T) {
 	})
 	if !errors.Is(err, ErrTargetNotFound) {
 		t.Fatalf("Configure error = %v, want ErrTargetNotFound", err)
+	}
+}
+
+func TestService_CheckNow_RejectsUnknownTarget(t *testing.T) {
+	svc := NewService(NewStore(filepath.Join(t.TempDir(), "store.json")), newInstalledOp(), &fakeSubs{}, nil)
+	err := svc.CheckNow(context.Background(), "subscription:missing")
+	if !errors.Is(err, ErrTargetNotFound) {
+		t.Fatalf("CheckNow error = %v, want ErrTargetNotFound", err)
 	}
 }
 
