@@ -936,6 +936,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// Signature capture (protected + boot guarded)
 	mux.HandleFunc("/api/signature/capture", guarded(signatureHandler.Capture))
+	mux.HandleFunc("/api/signature/generate", guarded(signatureHandler.Generate))
 
 	// Terminal
 	mux.HandleFunc("/api/terminal/status", guarded(terminalHandler.Status))
