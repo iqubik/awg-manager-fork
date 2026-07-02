@@ -1816,6 +1816,9 @@ func TestPreviewURL_NoStoreWrite(t *testing.T) {
 	if members[0].Label != "A" {
 		t.Fatalf("label=%q", members[0].Label)
 	}
+	if !members[0].Supported {
+		t.Fatal("previewed valid member must be marked supported")
+	}
 	if after := len(svc.store.List()); after != before {
 		t.Fatal("preview must not create subscriptions")
 	}
@@ -1863,6 +1866,54 @@ func TestPreviewURL_CollisionDistinctKeys(t *testing.T) {
 	}
 	if members[0].Key == members[1].Key {
 		t.Errorf("colliding endpoints must get distinct preview Key, both = %s", members[0].Key)
+	}
+}
+
+func TestPreviewURL_IncludesUnsupportedRowsWithReason(t *testing.T) {
+	svc, _ := newTestService(t)
+	body := "vless://3a3b1c2e-9999-4321-aaaa-1234567890ab@h.example:443?security=tls&sni=a.sni#A\n" +
+		"vless://bad-uuid@broken.example:443?security=tls#Broken\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+
+	before := len(svc.store.List())
+	members, err := svc.PreviewURL(context.Background(), srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("members=%d want 2", len(members))
+	}
+
+	var supported *PreviewMember
+	var unsupported *PreviewMember
+	for i := range members {
+		member := &members[i]
+		if member.Supported {
+			supported = member
+		} else {
+			unsupported = member
+		}
+	}
+	if supported == nil {
+		t.Fatal("expected one supported preview row")
+	}
+	if unsupported == nil {
+		t.Fatal("expected one unsupported preview row")
+	}
+	if unsupported.Key == "" {
+		t.Fatal("unsupported preview row must still have a stable key")
+	}
+	if unsupported.Reason == "" {
+		t.Fatal("unsupported preview row must include a reason")
+	}
+	if unsupported.Server != "broken.example" {
+		t.Fatalf("unsupported server=%q want broken.example", unsupported.Server)
+	}
+	if after := len(svc.store.List()); after != before {
+		t.Fatal("preview must not create subscriptions")
 	}
 }
 
