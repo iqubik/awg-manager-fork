@@ -161,7 +161,7 @@
 			autoPressActive = false;
 			autoPressResetTimer = null;
 		}, 220);
-		triggerRefresh(true);
+		triggerRefresh(false);
 	}
 
 	async function refresh(force = false) {
