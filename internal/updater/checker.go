@@ -33,7 +33,7 @@ const (
 	channelDevelop = "develop"
 )
 
-const releaseChecksumWarning = "Для GitHub Release сейчас недоступна проверка SHA256, поэтому автоматическое применение обновления отключено. Скачайте пакет вручную или используйте Entware-канал."
+const releaseChecksumWarning = "Для GitHub Release сейчас недоступна проверка SHA256, поэтому автоматическое применение обновления отключено. Скачайте пакет вручную со страницы релиза этого форка."
 
 var (
 	releaseVersionPattern   = regexp.MustCompile(`^\d+\.\d+\.\d+(?:\.\d+)*(?:\+r\d+)?$`)
