@@ -1245,39 +1245,6 @@ $effect(() => {
 		}
 	}
 
-	.ping-target-setting {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 0.65rem;
-		align-items: start;
-	}
-
-	.ping-target-controls {
-		display: grid;
-		grid-template-columns: minmax(8rem, 0.78fr) minmax(16rem, 1.22fr) 7.5rem;
-		gap: 0.5rem 0.625rem;
-		width: 100%;
-		min-width: 0;
-		align-items: end;
-	}
-
-	.ping-target-field {
-		display: grid;
-		gap: 0.25rem;
-		min-width: 0;
-	}
-
-	.ping-target-field > span {
-		color: var(--color-text-secondary);
-		font-size: 0.75rem;
-		font-weight: 600;
-	}
-
-	.ping-target-field input {
-		min-width: 0;
-	}
-
-	.settings-text-input,
 	.api-key-input {
 		width: 100%;
 		max-width: none;
@@ -1299,6 +1266,40 @@ $effect(() => {
 		max-height: 32px;
 		box-sizing: border-box;
 		padding-block: 0;
+	}
+
+	.api-key-visibility-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.5rem;
+		height: 2.5rem;
+		flex: 0 0 2.5rem;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg-secondary);
+		color: var(--color-text-secondary);
+		cursor: pointer;
+		transition:
+			color var(--t-fast) ease,
+			border-color var(--t-fast) ease,
+			background var(--t-fast) ease;
+	}
+
+	.api-key-visibility-button:hover:not(:disabled) {
+		color: var(--color-text-primary);
+		border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+		background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-secondary));
+	}
+
+	.api-key-visibility-button:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+
+	.api-key-input {
+		width: 100%;
+		max-width: none;
 	}
 
 	.api-key-input {

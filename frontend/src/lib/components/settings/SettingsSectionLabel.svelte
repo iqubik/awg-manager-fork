@@ -1,6 +1,4 @@
 <script lang="ts" module>
-	import { Router as LucideIconRef } from 'lucide-svelte';
-
 	export type SettingsSectionTone =
 		| 'blue'
 		| 'green'
@@ -14,7 +12,7 @@
 		| 'red'
 		| 'slate';
 
-	export type SettingsSectionIcon = typeof LucideIconRef;
+	export type SettingsSectionIcon = any;
 
 	/** Palette for tone prop — used in vivid icon mode. */
 	export const SETTINGS_SECTION_TONE_COLORS: Record<SettingsSectionTone, string> = {
