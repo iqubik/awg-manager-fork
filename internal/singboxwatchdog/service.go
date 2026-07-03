@@ -40,6 +40,10 @@ type SubscriptionProvider interface {
 	List() []subscription.Subscription
 }
 
+type SubscriptionSwitcher interface {
+	SetActiveMember(ctx context.Context, id, memberTag string) error
+}
+
 type ManualStopReader interface {
 	IsSingboxManuallyStopped() bool
 }
@@ -72,6 +76,7 @@ type Service struct {
 	store      *Store
 	op         SingboxOperator
 	subs       SubscriptionProvider
+	subSwitch  SubscriptionSwitcher
 	clash      Clash
 	bus        *events.Bus
 	log        *logging.ScopedLogger
@@ -99,10 +104,17 @@ func NewService(store *Store, op SingboxOperator, subs SubscriptionProvider, app
 			clash = rawClash
 		}
 	}
+	var subSwitch SubscriptionSwitcher
+	if subs != nil {
+		if switcher, ok := subs.(SubscriptionSwitcher); ok {
+			subSwitch = switcher
+		}
+	}
 	return &Service{
 		store:               store,
 		op:                  op,
 		subs:                subs,
+		subSwitch:           subSwitch,
 		clash:               clash,
 		log:                 logging.NewScopedLogger(appLogger, logging.GroupSingbox, logging.SubSBWatchdog),
 		monitors:            make(map[string]*monitor),
@@ -925,6 +937,16 @@ func (s *Service) recoverSubscription(ctx context.Context, target RuntimeTarget,
 	if !res.Success {
 		s.markRecoveryFailed(verifyTarget, cfg, res.Error)
 		return
+	}
+	if cfg.PersistSwitch {
+		if s.subSwitch == nil {
+			s.markRecoveryFailed(verifyTarget, cfg, "subscription persistence unavailable")
+			return
+		}
+		if err := s.subSwitch.SetActiveMember(ctx, target.Ref, best.tag); err != nil {
+			s.markRecoveryFailed(verifyTarget, cfg, "persist selector switch: "+err.Error())
+			return
+		}
 	}
 	s.mu.Lock()
 	state := s.ensureStateLocked(target.ID)
