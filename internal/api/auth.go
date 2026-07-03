@@ -111,11 +111,22 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	clientIP := requestClientIP(r)
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, "invalid request body")
+		return
+	}
+
+	if req.Login == "" || req.Password == "" {
+		response.BadRequest(w, "login and password are required")
+		return
+	}
+
 	// Begin atomically checks the block AND reserves an in-flight slot so
-	// concurrent requests from one IP cannot each slip past the failure limit
-	// before any of them records a Fail (check-then-increment race). The slot
-	// is always released via Done, including on the pre-verification 400 paths
-	// below.
+	// concurrent credential checks from one IP cannot each slip past the
+	// failure limit before any of them records a Fail (check-then-increment
+	// race). Requests rejected earlier for malformed / incomplete payloads do
+	// not reserve a slot and must not affect the throttle budget.
 	if retryAfter, blocked := h.throttle.Begin(clientIP); blocked {
 		seconds := int(retryAfter.Seconds() + 0.999) // round up, min 1
 		if seconds < 1 {
@@ -127,17 +138,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer h.throttle.Done(clientIP)
-
-	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.BadRequest(w, "invalid request body")
-		return
-	}
-
-	if req.Login == "" || req.Password == "" {
-		response.BadRequest(w, "login and password are required")
-		return
-	}
 
 	// Try Entware system credentials first when enabled — a local match
 	// avoids the NDMS /auth call entirely (the whole point: no router

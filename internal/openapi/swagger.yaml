@@ -6060,7 +6060,8 @@ info:
 paths:
   /access-policies:
     get:
-      description: KeeneticOS 5 only when route is registered.
+      description: Lists access policies for KeeneticOS 5. On OS4 the same routing
+        alias returns an empty list because the NDMS policies API is unavailable there.
       parameters:
       - description: Pass 'true' to bypass NDMS cache
         in: query
@@ -6292,6 +6293,9 @@ paths:
       - access-policy
   /access-policies/interfaces:
     get:
+      description: Lists global policy interfaces for KeeneticOS 5. On OS4 the same
+        routing alias returns an empty list because the NDMS policies API is unavailable
+        there.
       produces:
       - application/json
       responses:
@@ -9505,7 +9509,8 @@ paths:
       - device-proxy
   /routing/access-policies:
     get:
-      description: KeeneticOS 5 only when route is registered.
+      description: Lists access policies for KeeneticOS 5. On OS4 the same routing
+        alias returns an empty list because the NDMS policies API is unavailable there.
       parameters:
       - description: Pass 'true' to bypass NDMS cache
         in: query
@@ -9596,6 +9601,9 @@ paths:
       - access-policy
   /routing/policy-interfaces:
     get:
+      description: Lists global policy interfaces for KeeneticOS 5. On OS4 the same
+        routing alias returns an empty list because the NDMS policies API is unavailable
+        there.
       produces:
       - application/json
       responses:
