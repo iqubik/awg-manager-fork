@@ -6,6 +6,7 @@ import {
   normalizeQosClasses,
   nextFreeDscp,
   addQosClass,
+  pickDefaultQosOutbound,
   isDscpTaken,
   updateQosClass,
   removeQosClass,
@@ -86,6 +87,23 @@ describe('nextFreeDscp / addQosClass', () => {
   it('addQosClass returns null at the 8-class cap', () => {
     const full = Array.from({ length: QOS_MAX_CLASSES }, (_, i) => cls(i));
     expect(addQosClass(full, 'direct')).toBeNull();
+  });
+});
+
+describe('pickDefaultQosOutbound', () => {
+  it('skips direct and returns the first real tunnel outbound', () => {
+    expect(
+      pickDefaultQosOutbound([
+        { value: 'direct', label: 'Direct' },
+        { value: 'awg-vpn0', label: 'VPN 0' },
+        { value: 'sub-demo', label: 'Demo sub' },
+      ]),
+    ).toBe('awg-vpn0');
+  });
+
+  it('returns null when only direct is available', () => {
+    expect(pickDefaultQosOutbound([{ value: 'direct', label: 'Direct' }])).toBeNull();
+    expect(pickDefaultQosOutbound([])).toBeNull();
   });
 });
 
