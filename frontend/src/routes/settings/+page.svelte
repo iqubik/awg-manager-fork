@@ -54,6 +54,7 @@
 		CloudDownload,
 		Eye,
 		EyeOff,
+		Lock,
 		ScrollText,
 		Wrench,
 		Power,
