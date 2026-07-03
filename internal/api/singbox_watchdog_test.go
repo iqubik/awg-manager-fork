@@ -138,10 +138,22 @@ func TestSingboxWatchdogHandler_Configure_RejectsRestartForSubscription(t *testi
 	}
 }
 
-func TestSingboxWatchdogHandler_Configure_RejectsPersistSwitchUntilImplemented(t *testing.T) {
+func TestSingboxWatchdogHandler_Configure_AllowsPersistSwitchForSubscription(t *testing.T) {
 	h := NewSingboxWatchdogHandler(&fakeSingboxWatchdogService{}, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/singbox/watchdog/configure", strings.NewReader(`{
 		"id":"subscription:sub-demo","kind":"subscription","ref":"sub-demo","enabled":true,"interval":30,"failThreshold":3,"timeout":5,"recoveryMode":"switch-member","persistSwitch":true
+	}`))
+	w := httptest.NewRecorder()
+	h.Configure(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSingboxWatchdogHandler_Configure_RejectsPersistSwitchForTunnel(t *testing.T) {
+	h := NewSingboxWatchdogHandler(&fakeSingboxWatchdogService{}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/singbox/watchdog/configure", strings.NewReader(`{
+		"id":"tunnel:sb-main","kind":"tunnel","ref":"sb-main","enabled":true,"interval":30,"failThreshold":3,"timeout":5,"recoveryMode":"off","persistSwitch":true
 	}`))
 	w := httptest.NewRecorder()
 	h.Configure(w, req)

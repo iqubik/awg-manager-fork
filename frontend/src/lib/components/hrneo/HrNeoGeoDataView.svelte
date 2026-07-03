@@ -90,6 +90,7 @@
 
 	let activeDownload = $state<DownloadOperation | null>(null);
 	let lastDownload = $state<LastDownload | null>(null);
+	type ScheduleDraftValue = SchedulePreset | 'interval:custom' | 'daily:custom';
 
 	function currentGeoSettings(): GeoFileSettings {
 		return settings?.geoFile ?? {
@@ -102,13 +103,45 @@
 
 	let savedSchedulePreset = $derived(presetFromGeoSettings(currentGeoSettings()));
 	// svelte-ignore state_referenced_locally
-	let scheduleDraft = $state<SchedulePreset>(savedSchedulePreset);
-	let scheduleOptions = $derived(buildGeoScheduleOptions(currentGeoSettings()));
-	let scheduleChanged = $derived(scheduleDraft !== savedSchedulePreset);
+	let scheduleDraft = $state<ScheduleDraftValue>(savedSchedulePreset);
+	let customIntervalHours = $state<number>(8);
+	let customDailyTime = $state('04:30');
+	let scheduleOptions = $derived([
+		...buildGeoScheduleOptions(currentGeoSettings()),
+		{ value: 'interval:custom', label: 'Каждые N часов…' },
+		{ value: 'daily:custom', label: 'Ежедневно в HH:mm…' },
+	]);
+	const showCustomInterval = $derived(
+		scheduleDraft === 'interval:custom' || scheduleDraft.startsWith('interval:'),
+	);
+	const showCustomDaily = $derived(
+		scheduleDraft === 'daily:custom' || (scheduleDraft.startsWith('daily:') && scheduleDraft !== 'daily:03:00'),
+	);
+	const effectiveScheduleDraft = $derived.by((): SchedulePreset => {
+		if (scheduleDraft === 'interval:custom') {
+			const hours = Number.isFinite(customIntervalHours)
+				? Math.min(48, Math.max(1, Math.trunc(customIntervalHours)))
+				: 8;
+			return `interval:${hours}`;
+		}
+		if (scheduleDraft === 'daily:custom') {
+			const normalized = /^\d{2}:\d{2}$/.test(customDailyTime) ? customDailyTime : '04:30';
+			return `daily:${normalized}`;
+		}
+		return scheduleDraft;
+	});
+	let scheduleChanged = $derived(effectiveScheduleDraft !== savedSchedulePreset);
 	let scheduleSummary = $derived(schedulePresetLabel(savedSchedulePreset));
 
 	$effect(() => {
 		scheduleDraft = savedSchedulePreset;
+		const current = currentGeoSettings();
+		if ((current.refreshMode || 'interval') === 'daily') {
+			customDailyTime = current.refreshDailyTime || '03:00';
+		} else {
+			const hours = Number(current.refreshIntervalHours || 8);
+			customIntervalHours = Math.min(48, Math.max(1, Math.trunc(hours)));
+		}
 	});
 
 	function currentRoute(): { tag: string; kind?: 'direct' | 'awg' | 'singbox' | 'subscription' } {
@@ -144,7 +177,7 @@
 	});
 
 	function applySchedule() {
-		onSaveGeoSettings(geoSettingsFromPreset(scheduleDraft, currentGeoSettings()));
+		onSaveGeoSettings(geoSettingsFromPreset(effectiveScheduleDraft, currentGeoSettings()));
 	}
 
 	function progressFor(url: string) {
@@ -447,6 +480,30 @@
 				<div class="schedule-select">
 					<Dropdown bind:value={scheduleDraft} options={scheduleOptions} disabled={saving} fullWidth />
 				</div>
+				{#if showCustomInterval}
+					<label class="schedule-inline-field">
+						<span>Часов</span>
+						<input
+							type="number"
+							class="schedule-input"
+							min="1"
+							max="48"
+							step="1"
+							bind:value={customIntervalHours}
+							disabled={saving}
+						/>
+					</label>
+				{:else if showCustomDaily}
+					<label class="schedule-inline-field">
+						<span>Время</span>
+						<input
+							type="time"
+							class="schedule-input"
+							bind:value={customDailyTime}
+							disabled={saving}
+						/>
+					</label>
+				{/if}
 				<Button
 					variant="secondary"
 					size="sm"
@@ -765,6 +822,25 @@
 
 	.schedule-select {
 		min-width: 240px;
+	}
+
+	.schedule-inline-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		min-width: 120px;
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
+
+	.schedule-input {
+		min-width: 0;
+		padding: 0.5rem 0.65rem;
+		border-radius: 6px;
+		border: 1px solid var(--border);
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		font: inherit;
 	}
 
 	.pane-header h2 {

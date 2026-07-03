@@ -161,8 +161,8 @@ func validateTargetConfig(c singboxwatchdog.TargetConfig) error {
 	if c.Kind == singboxwatchdog.TargetSubscription && c.RecoveryMode == singboxwatchdog.RecoveryRestartSingbox {
 		return errors.New("restart-singbox is only available for raw tunnels")
 	}
-	if c.PersistSwitch {
-		return errors.New("persistSwitch is not implemented yet")
+	if c.PersistSwitch && c.Kind != singboxwatchdog.TargetSubscription {
+		return errors.New("persistSwitch is only available for subscriptions")
 	}
 	return nil
 }
