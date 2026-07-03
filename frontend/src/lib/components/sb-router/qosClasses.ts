@@ -70,8 +70,8 @@ export function nextFreeDscp(list: SingboxQosClass[]): number | null {
  * is at the 8-class cap (or, theoretically, when all 64 marks are taken).
  */
 export function addQosClass(
-  list: SingboxQosClass[],
-  defaultOutbound: string,
+	list: SingboxQosClass[],
+	defaultOutbound: string,
 ): SingboxQosClass[] | null {
   if (list.length >= QOS_MAX_CLASSES) return null;
   const dscp = nextFreeDscp(list);
@@ -84,12 +84,20 @@ export function addQosClass(
       outbound: defaultOutbound,
       enabled: true,
     },
-  ];
+	];
+}
+
+/** First usable QoS outbound. `direct` is intentionally skipped here. */
+export function pickDefaultQosOutbound<O extends { value: string }>(options: O[]): string | null {
+	for (const option of options) {
+		if (option.value !== 'direct') return option.value;
+	}
+	return null;
 }
 
 /** True when `dscp` is already used by a class other than list[index]. */
 export function isDscpTaken(list: SingboxQosClass[], index: number, dscp: number): boolean {
-  return list.some((c, i) => i !== index && c.dscp === dscp);
+	return list.some((c, i) => i !== index && c.dscp === dscp);
 }
 
 /** Immutable single-entry patch; dscp is clamped, name truncated. */
