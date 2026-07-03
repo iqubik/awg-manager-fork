@@ -66,6 +66,7 @@
 
 	let mobileMenuOpen = $state(false);
 	let booting = $state(false);
+	const showDonateButton = import.meta.env.DEV || import.meta.env.VITE_AWGM_SHOW_DONATE === '1';
 
 	let backendOffline = $derived(!$serverOnline);
 
@@ -449,6 +450,7 @@
 		{hasUpdate}
 		{isPreRelease}
 		bind:mobileMenuOpen
+		{showDonateButton}
 		onToggleThemeMode={() => theme.toggleMode()}
 		onLogout={() => auth.logout()}
 		onOpenDonate={openDonateModal}
