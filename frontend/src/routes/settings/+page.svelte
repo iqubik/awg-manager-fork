@@ -56,6 +56,8 @@
 	import { pluralize, AVAILABLE_WORDS, TUNNEL_WORDS } from "$lib/utils/pluralize";
 	import {
 		CircleArrowDown,
+		Eye,
+		EyeOff,
 		Lock,
 		Network,
 		CloudDownload,
