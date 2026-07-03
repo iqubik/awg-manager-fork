@@ -29,13 +29,6 @@ on:
         default: false
         type: boolean
 
-  schedule:
-    - cron: "17 */6 * * *"
-
-  repository_dispatch:
-    types:
-      - upstream-release
-
 concurrency:
   group: iq-author-rebase-release
   cancel-in-progress: false
