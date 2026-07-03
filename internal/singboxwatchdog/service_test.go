@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -81,6 +82,22 @@ func (f *fakeClash) SelectorActive(selectorTag string) (string, error) { return 
 type fakeSubs struct{ list []subscription.Subscription }
 
 func (f *fakeSubs) List() []subscription.Subscription { return f.list }
+
+type fakeSubscriptionSwitcher struct {
+	list     []subscription.Subscription
+	setCalls [][2]string
+	setErr   error
+}
+
+func (f *fakeSubscriptionSwitcher) List() []subscription.Subscription { return f.list }
+
+func (f *fakeSubscriptionSwitcher) SetActiveMember(ctx context.Context, id, memberTag string) error {
+	if f.setErr != nil {
+		return f.setErr
+	}
+	f.setCalls = append(f.setCalls, [2]string{id, memberTag})
+	return nil
+}
 
 type recordedLog struct {
 	level    logging.Level
@@ -682,6 +699,89 @@ func TestService_RecoverSubscription_SetSelectorErrorDoesNotRestart(t *testing.T
 	svc.recoverSubscription(context.Background(), target, cfg)
 	if op.restarts != 0 {
 		t.Fatalf("restart count = %d, want 0", op.restarts)
+	}
+}
+
+func TestService_RecoverSubscription_PersistsActiveMemberWhenRequested(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "store.json"))
+	cfg := TargetConfig{
+		ID:            "subscription:sub-1",
+		Kind:          TargetSubscription,
+		Ref:           "sub-1",
+		Enabled:       true,
+		Interval:      30,
+		FailThreshold: 1,
+		Timeout:       1,
+		RecoveryMode:  RecoverySwitchMember,
+		PersistSwitch: true,
+	}
+	_ = store.Upsert(cfg)
+	clash := &fakeClash{delays: map[string]int{
+		"member-b": 45,
+		"iq0":      52,
+	}}
+	op := newInstalledOp()
+	op.activeBySel = map[string]string{"iq0": "member-a"}
+	subs := &fakeSubscriptionSwitcher{list: []subscription.Subscription{{
+		ID:           "sub-1",
+		SelectorTag:  "iq0",
+		ActiveMember: "member-a",
+		Enabled:      true,
+		ListenPort:   1080,
+		MemberTags:   []string{"member-a", "member-b"},
+	}}}
+	svc := NewService(store, op, subs, nil)
+	svc.clash = clash
+	target, _ := svc.resolveTargetByConfig(context.Background(), cfg)
+	svc.recoverSubscription(context.Background(), target, cfg)
+	if len(subs.setCalls) != 1 || subs.setCalls[0] != [2]string{"sub-1", "member-b"} {
+		t.Fatalf("unexpected persist calls: %+v", subs.setCalls)
+	}
+}
+
+func TestService_RecoverSubscription_PersistFailureMarksRecoveryFailed(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "store.json"))
+	cfg := TargetConfig{
+		ID:            "subscription:sub-1",
+		Kind:          TargetSubscription,
+		Ref:           "sub-1",
+		Enabled:       true,
+		Interval:      30,
+		FailThreshold: 1,
+		Timeout:       1,
+		RecoveryMode:  RecoverySwitchMember,
+		PersistSwitch: true,
+	}
+	_ = store.Upsert(cfg)
+	clash := &fakeClash{delays: map[string]int{
+		"member-b": 45,
+		"iq0":      52,
+	}}
+	op := newInstalledOp()
+	op.activeBySel = map[string]string{"iq0": "member-a"}
+	subs := &fakeSubscriptionSwitcher{
+		list: []subscription.Subscription{{
+			ID:           "sub-1",
+			SelectorTag:  "iq0",
+			ActiveMember: "member-a",
+			Enabled:      true,
+			ListenPort:   1080,
+			MemberTags:   []string{"member-a", "member-b"},
+		}},
+		setErr: errors.New("store unavailable"),
+	}
+	svc := NewService(store, op, subs, nil)
+	svc.clash = clash
+	target, _ := svc.resolveTargetByConfig(context.Background(), cfg)
+	svc.recoverSubscription(context.Background(), target, cfg)
+
+	logs := svc.GetLogs("subscription:sub-1")
+	if len(logs) == 0 || !strings.Contains(logs[len(logs)-1].Error, "persist selector switch: store unavailable") {
+		t.Fatalf("expected persist failure log, got %+v", logs)
+	}
+	statuses := svc.GetStatus(context.Background())
+	if len(statuses) == 0 || statuses[0].Status != StatusDead {
+		t.Fatalf("expected failed status after persist error, got %+v", statuses)
 	}
 }
 
