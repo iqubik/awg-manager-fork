@@ -33,7 +33,7 @@
 		recoveryMode =
 			target.recoveryMode ||
 			(target.kind === 'subscription' ? 'switch-member' : 'off');
-		persistSwitch = target.persistSwitch === true;
+		persistSwitch = target.kind === 'subscription' && target.persistSwitch === true;
 		confirmDangerousRestart = false;
 	});
 
@@ -52,7 +52,7 @@
 			failThreshold: Math.min(20, Math.max(1, Number(failThreshold) || 3)),
 			timeout: Math.min(30, Math.max(1, Number(timeout) || 5)),
 			recoveryMode,
-			persistSwitch,
+			persistSwitch: target.kind === 'subscription' ? persistSwitch : false,
 		};
 		saving = true;
 		try {
@@ -115,9 +115,10 @@
 
 		{#if target?.kind === 'subscription'}
 			<label class="check">
-				<input type="checkbox" bind:checked={persistSwitch} disabled />
-				<span>Сохранять переключение (пока недоступно)</span>
+				<input type="checkbox" bind:checked={persistSwitch} />
+				<span>Сохранять выбранного участника в конфиге подписки после успешного переключения.</span>
 			</label>
+			<div class="hint">Если опция включена, удачный recovery закрепит нового участника и после перезапуска sing-box.</div>
 		{/if}
 	</div>
 
