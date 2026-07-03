@@ -62,7 +62,6 @@
 	import { nativewgUnavailableHint } from '$lib/utils/backendAvailability';
 	import {
 		SINGBOX_LAYOUT_STORAGE_KEY,
-		isTunnelListRenderMode,
 		parseSingboxLayoutMode,
 		readTunnelMobileLayout,
 		subscribeTunnelMobileLayout,
