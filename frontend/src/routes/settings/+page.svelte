@@ -1241,39 +1241,6 @@ $effect(() => {
 		}
 	}
 
-	.ping-target-setting {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 0.65rem;
-		align-items: start;
-	}
-
-	.ping-target-controls {
-		display: grid;
-		grid-template-columns: minmax(8rem, 0.78fr) minmax(16rem, 1.22fr) 7.5rem;
-		gap: 0.5rem 0.625rem;
-		width: 100%;
-		min-width: 0;
-		align-items: end;
-	}
-
-	.ping-target-field {
-		display: grid;
-		gap: 0.25rem;
-		min-width: 0;
-	}
-
-	.ping-target-field > span {
-		color: var(--color-text-secondary);
-		font-size: 0.75rem;
-		font-weight: 600;
-	}
-
-	.ping-target-field input {
-		min-width: 0;
-	}
-
-	.settings-text-input,
 	.api-key-input {
 		width: 100%;
 		max-width: none;
