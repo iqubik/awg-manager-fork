@@ -20,7 +20,6 @@
 		ThemeSchemeCard,
 		SettingsFooter,
 		UsageLevelCard,
-		DevelopChannelGateModal,
 		SettingsSectionLabel,
 	} from "$lib/components/settings";
 	import { setSettings as setGlobalSettings } from "$lib/stores/settings";
@@ -47,7 +46,6 @@
 	} from "$lib/types/usageLevel";
 	import { usageLevel } from "$lib/stores/settings";
 	import { waitForBackendRestart } from "$lib/restartRecovery";
-	import { hasDevelopChannelQuizPassed } from "$lib/utils/developChannelGate";
 	import { developFeedbackFabVisible } from "$lib/stores/developFeedbackFab";
 	import { settingsUpdateHighlight } from "$lib/stores/settingsUpdateHighlight";
 	import { pluralize, AVAILABLE_WORDS, TUNNEL_WORDS } from "$lib/utils/pluralize";
@@ -116,7 +114,6 @@
 	let systemInfoRefreshing = $state(false);
 	let systemInfoUpdatedAt = $state<string | null>(null);
 	let systemInfoInFlight: Promise<void> | null = null;
-	let developGateOpen = $state(false);
 	let apiKeyVisible = $state(false);
 
 	const singboxStatusValue = $derived($singboxStatus.data ?? null);
@@ -640,10 +637,6 @@ $effect(() => {
 
 	function requestChannel(channel: 'stable' | 'develop') {
 		if (!settings || settings.updates.channel === channel) return;
-		if (channel === 'develop' && !hasDevelopChannelQuizPassed()) {
-			developGateOpen = true;
-			return;
-		}
 		void selectChannel(channel);
 	}
 
@@ -668,11 +661,6 @@ $effect(() => {
 		} finally {
 			saving = false;
 		}
-	}
-
-	async function confirmDevelopChannel() {
-		developGateOpen = false;
-		await selectChannel('develop');
 	}
 
 	async function selectUsageLevel(level: UsageLevel) {
@@ -1319,13 +1307,6 @@ $effect(() => {
 		</div>
 		</div>
 	{/if}
-
-	<DevelopChannelGateModal
-		open={developGateOpen}
-		busy={saving}
-		onclose={() => (developGateOpen = false)}
-		onpassed={confirmDevelopChannel}
-	/>
 
 	<ConfirmModal
 		open={ndmsProxyConfirmOpen}
