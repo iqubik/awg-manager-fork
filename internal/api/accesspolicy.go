@@ -138,7 +138,7 @@ func NewAccessPolicyHandler(svc accesspolicy.Service) *AccessPolicyHandler {
 // GET /api/access-policies
 //
 //	@Summary		List access policies
-//	@Description	KeeneticOS 5 only when route is registered.
+//	@Description	Lists access policies for KeeneticOS 5. On OS4 the same routing alias returns an empty list because the NDMS policies API is unavailable there.
 //	@Tags			access-policy
 //	@Produce		json
 //	@Security		CookieAuth
@@ -475,6 +475,7 @@ func (h *AccessPolicyHandler) ListDevices(w http.ResponseWriter, r *http.Request
 // GET /api/access-policies/interfaces
 //
 //	@Summary		List global policy interfaces
+//	@Description	Lists global policy interfaces for KeeneticOS 5. On OS4 the same routing alias returns an empty list because the NDMS policies API is unavailable there.
 //	@Tags			access-policy
 //	@Produce		json
 //	@Security		CookieAuth
