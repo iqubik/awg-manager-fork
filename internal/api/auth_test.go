@@ -413,6 +413,25 @@ func TestAuthLogin_MalformedBodyNotCounted(t *testing.T) {
 	}
 }
 
+// Empty required fields are rejected before any credential check and must
+// not consume throttle attempts either.
+func TestAuthLogin_EmptyCredentialsNotCounted(t *testing.T) {
+	ke := &fakeKeenetic{err: auth.ErrInvalidCredentials}
+	h, _ := newLoginHandlerForTest(t, false, ke, &fakeEntware{})
+
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(`{"login":"","password":""}`))
+		rr := httptest.NewRecorder()
+		h.Login(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("empty attempt %d: status = %d, want 400", i+1, rr.Code)
+		}
+	}
+	if rr := doLogin(t, h); rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 (empty credentials must not count), body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestAuthLogin_Throttle429AfterFiveFailures(t *testing.T) {
 	ke := &fakeKeenetic{err: auth.ErrInvalidCredentials}
 	h, _ := newLoginHandlerForTest(t, false, ke, &fakeEntware{})

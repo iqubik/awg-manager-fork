@@ -23,6 +23,7 @@
     clampDscp,
     normalizeQosClasses,
     addQosClass,
+    pickDefaultQosOutbound,
     isDscpTaken,
     updateQosClass,
     removeQosClass,
@@ -62,13 +63,10 @@
       g.items.map((i) => ({ value: i.value, label: i.label, group: g.group })),
     ),
   );
-  // Новый класс по умолчанию направляем в первый туннель (не direct):
-  // класс с outbound=direct не имеет смысла для «направить в туннель».
-  const defaultOutbound = $derived(
-    outboundDropdownOptions.find((o) => o.value !== 'direct')?.value
-      ?? outboundDropdownOptions[0]?.value
-      ?? 'direct',
-  );
+  // Новый класс по умолчанию направляем в первый туннель (не direct).
+  // Если usable-outbound нет, создание класса блокируем явной подсказкой.
+  const defaultOutbound = $derived(pickDefaultQosOutbound(outboundDropdownOptions));
+  const missingQosOutbound = $derived(!defaultOutbound);
 
   let helpOpen = $state(false);
 
@@ -88,6 +86,7 @@
   }
 
   function handleAdd() {
+    if (!defaultOutbound) return;
     const next = addQosClass(classes, defaultOutbound);
     if (!next) return;
     commit(next);
@@ -224,7 +223,7 @@
       </p>
     {/if}
 
-    <Button variant="ghost" size="sm" fullWidth disabled={atCap} onclick={handleAdd}>
+    <Button variant="ghost" size="sm" fullWidth disabled={atCap || missingQosOutbound} onclick={handleAdd}>
       {#snippet iconBefore()}
         <Plus size={14} aria-hidden="true" />
       {/snippet}
@@ -232,6 +231,8 @@
     </Button>
     {#if atCap}
       <p class="hint">Достигнут максимум — {QOS_MAX_CLASSES} классов.</p>
+    {:else if missingQosOutbound}
+      <p class="hint">Сначала добавьте хотя бы один outbound, отличный от direct.</p>
     {/if}
 
     <p class="hint">
