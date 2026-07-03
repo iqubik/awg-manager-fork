@@ -123,16 +123,6 @@ func (h *RoutingHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // ServeOS4EmptyAccessPolicies returns an empty access-policies list on OS4 (no NDMS policies API).
-//
-//	@Summary		OS4 access policies stub
-//	@Description	Always {"data":[]}. Real data on KeeneticOS 5 only.
-//	@Tags			routing
-//	@Produce		json
-//	@Security		CookieAuth
-//	@Success		200	{object}	AccessPoliciesListResponse
-//	@Failure		400	{object}	APIErrorEnvelope
-//	@Failure		500	{object}	APIErrorEnvelope
-//	@Router			/routing/access-policies [get]
 func ServeOS4EmptyAccessPolicies(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -143,16 +133,6 @@ func ServeOS4EmptyAccessPolicies(w http.ResponseWriter, r *http.Request) {
 }
 
 // ServeOS4EmptyPolicyInterfaces returns an empty policy-interfaces list on OS4.
-//
-//	@Summary		OS4 policy interfaces stub
-//	@Description	Always {"data":[]}. Real data on KeeneticOS 5 only.
-//	@Tags			routing
-//	@Produce		json
-//	@Security		CookieAuth
-//	@Success		200	{object}	PolicyInterfacesListResponse
-//	@Failure		400	{object}	APIErrorEnvelope
-//	@Failure		500	{object}	APIErrorEnvelope
-//	@Router			/routing/policy-interfaces [get]
 func ServeOS4EmptyPolicyInterfaces(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
