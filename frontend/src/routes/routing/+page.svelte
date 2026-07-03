@@ -243,16 +243,16 @@
             // tab on isOS5 so OS4 routers don't see an unusable NDMS tab
             // (hydraroute users on OS4 use the HR Neo tab instead).
             isOS5 ? { id: 'dns', label: 'NDMS', badge: dnsActiveCount } : null,
-            { id: 'ip', label: 'IP-адреса', badge: ipActiveCount },
-            { id: 'clientvpn', label: 'VPN для устройств', badge: clientActiveCount },
-            isOS5 ? { id: 'policy', label: 'Политики доступа', badge: policyCount } : null,
+            { id: 'ip', label: 'IP', badge: ipActiveCount },
+            { id: 'clientvpn', label: 'VPN', badge: clientActiveCount },
+            isOS5 ? { id: 'policy', label: 'Политики', badge: policyCount } : null,
             // Visual gap separates the NDMS-stack tabs above from the
             // sing-box / hydraroute stack below. TProxy + FakeIP are the two
             // mutually-exclusive sing-box routing modes — kept adjacent (no
             // separator between them) and muted when the OTHER mode is the active
             // one (XOR), so the dormant mode reads as dormant, not broken.
             singboxInstalled
-                ? { id: 'singbox', label: 'Sing-box: TProxy', badge: singboxRuleCount, separatorBefore: true,
+                ? { id: 'singbox', label: 'Sing:TPproxy', badge: singboxRuleCount, separatorBefore: true,
                     muted: !!$singboxRouterStatus?.enabled && isTProxyTabMuted(routerMode) }
                 : null,
             // FakeIP is expert-gated (mirrors the 'singbox' tab's 'expert'
@@ -261,13 +261,13 @@
             // lands on, and hiding the chip there would strand activeTab on a
             // tab with no chip to navigate back from.
             (singboxInstalled && (tabVisible('singbox') || fakeipModeActive))
-                ? { id: 'fakeip', label: 'Sing-box: FakeIP', badge: undefined, separatorBefore: false,
+                ? { id: 'fakeip', label: 'Sing:FakeIP', badge: undefined, separatorBefore: false,
                     muted: !!$singboxRouterStatus?.enabled && isFakeIPTabMuted(routerMode) }
                 : null,
             // HR Neo is a separate routing engine (not sing-box) — divider before it.
-            hydrarouteInstalled ? { id: 'hrneo', label: 'HR Neo', badge: hrRuleCount, separatorBefore: true } : null,
+            hydrarouteInstalled ? { id: 'hrneo', label: 'HR', badge: hrRuleCount, separatorBefore: true } : null,
             (hydrarouteInstalled || singboxInstalled)
-                ? { id: 'geodata', label: 'Гео-данные', badge: geoFileCount, separatorBefore: true }
+                ? { id: 'geodata', label: 'GEO', badge: geoFileCount, separatorBefore: true }
                 : null,
         ] as (TabItem | null)[])
             .filter((t): t is TabItem => t !== null)
