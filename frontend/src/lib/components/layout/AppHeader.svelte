@@ -91,7 +91,7 @@
 		hasUpdate = false,
 		isPreRelease = false,
 		mobileMenuOpen = $bindable(false),
-		showDonateButton = true,
+		showDonateButton = false,
 		onToggleThemeMode,
 		onLogout,
 		onOpenDonate,
