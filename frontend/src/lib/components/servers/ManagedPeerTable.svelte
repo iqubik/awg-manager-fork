@@ -240,28 +240,12 @@
 		text-align: center;
 	}
 
-	.peer-views {
-		container-type: inline-size;
-	}
-
 	.desktop-peer-table {
 		display: block;
 	}
 
 	.mobile-peer-list {
 		display: none;
-	}
-
-	@container (max-width: 819px) {
-		.desktop-peer-table {
-			display: none;
-		}
-
-		.mobile-peer-list {
-			display: flex;
-			flex-direction: column;
-			gap: 0.5rem;
-		}
 	}
 
 	@media (max-width: 760px) {

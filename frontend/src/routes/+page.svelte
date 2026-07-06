@@ -2024,8 +2024,8 @@
 									<TunnelMetaText>
 										{tunnel.address || '—'}
 										<span class="meta-dot" aria-hidden="true">·</span>
-										<span title={isEndpointShown ? (tunnel.interfaceName || tunnel.id) : ''}>
-											{isEndpointShown ? (tunnel.interfaceName || tunnel.id) : '••••'}
+										<span title={tunnel.interfaceName || tunnel.id}>
+											{tunnel.interfaceName || tunnel.id}
 										</span>
 										<span class="meta-dot" aria-hidden="true">·</span>
 										MTU {tunnel.mtu ?? '—'}
