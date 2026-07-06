@@ -1,3 +1,5 @@
+/// <reference types="vitest/config" />
+
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
@@ -121,6 +123,10 @@ export default defineConfig(({ mode }) => {
 							'src/lib/constants/**/*.test.ts',
 							'src/lib/restartRecovery.test.ts',
 						],
+						exclude: [
+							'src/lib/stores/theme.test.ts',
+							'src/lib/utils/clashWebSocket.test.ts',
+						],
 					},
 				},
 				{
@@ -131,6 +137,8 @@ export default defineConfig(({ mode }) => {
 						include: [
 							'src/lib/components/**/*.test.ts',
 							'src/routes/**/*.test.ts',
+							'src/lib/stores/theme.test.ts',
+							'src/lib/utils/clashWebSocket.test.ts',
 						],
 					},
 				},

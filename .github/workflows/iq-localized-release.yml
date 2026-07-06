@@ -563,7 +563,7 @@ jobs:
             cmd+=(--experimental.importDurations.print)
           fi
 
-          "${cmd[@]}" 2>&1 | tee /tmp/vitest.log
+          NO_COLOR=1 FORCE_COLOR=0 "${cmd[@]}" 2>&1 | tee /tmp/vitest.log
           status=${PIPESTATUS[0]}
           end_ts=$(date +%s)
           duration=$((end_ts - start_ts))
@@ -573,6 +573,8 @@ jobs:
           from pathlib import Path
 
           log = Path("/tmp/vitest.log").read_text(encoding="utf-8", errors="replace")
+          ansi_rx = re.compile(r'\x1B\[[0-9;?]*[ -/]*[@-~]')
+          log = ansi_rx.sub('', log)
           lines = log.splitlines()
 
           def last_match(pattern: str):
