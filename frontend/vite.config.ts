@@ -113,19 +113,30 @@ export default defineConfig(({ mode }) => {
 				{
 					extends: true,
 					test: {
-						name: 'node',
+						name: 'node-fast',
 						environment: 'node',
 						isolate: false,
 						include: [
 							'src/lib/utils/**/*.test.ts',
+							'src/lib/constants/**/*.test.ts',
+						],
+						exclude: [
+							'src/lib/utils/clashWebSocket.test.ts',
+						],
+					},
+				},
+				{
+					extends: true,
+					test: {
+						name: 'node-isolated',
+						environment: 'node',
+						include: [
 							'src/lib/api/**/*.test.ts',
 							'src/lib/stores/**/*.test.ts',
-							'src/lib/constants/**/*.test.ts',
 							'src/lib/restartRecovery.test.ts',
 						],
 						exclude: [
 							'src/lib/stores/theme.test.ts',
-							'src/lib/utils/clashWebSocket.test.ts',
 						],
 					},
 				},
