@@ -264,7 +264,7 @@
 										ok={cell.ok}
 										activeForRestart={cell.activeForRestart}
 										onClick={() => onCellClick(target, tunnel)}
-										ariaLabel="{target.name} × {tunnel.name}"
+										ariaLabel={`${target.name} × ${tunnel.name}`}
 									/>
 								{:else}
 									<MatrixCell latencyMs={null} ok={false} activeForRestart={false} ariaLabel="нет данных" />
@@ -382,7 +382,7 @@
 			<span class="legend-item"><span class="swatch tone-bad"></span>&gt;250ms</span>
 			<span class="legend-item"><span class="swatch tone-failed"></span>failed</span>
 			<span class="legend-item">★ — активный pingcheck target</span>
-			<span class="legend-item">Клик на имя туннеля — настройки pingcheck</span>
+			<span class="legend-item">Клик на имя AWG-туннеля — настройки pingcheck</span>
 		</div>
 	</div>
 {/if}
