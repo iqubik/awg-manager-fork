@@ -107,8 +107,34 @@ export default defineConfig(({ mode }) => {
 			svelteTesting(),
 		],
 		test: {
-			environment: 'jsdom',
-			include: ['src/**/*.test.ts'],
+			projects: [
+				{
+					extends: true,
+					test: {
+						name: 'node',
+						environment: 'node',
+						isolate: false,
+						include: [
+							'src/lib/utils/**/*.test.ts',
+							'src/lib/api/**/*.test.ts',
+							'src/lib/stores/**/*.test.ts',
+							'src/lib/constants/**/*.test.ts',
+							'src/lib/restartRecovery.test.ts',
+						],
+					},
+				},
+				{
+					extends: true,
+					test: {
+						name: 'dom',
+						environment: 'jsdom',
+						include: [
+							'src/lib/components/**/*.test.ts',
+							'src/routes/**/*.test.ts',
+						],
+					},
+				},
+			],
 		},
 		resolve: {
 			alias: {
