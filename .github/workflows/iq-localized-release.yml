@@ -534,6 +534,8 @@ jobs:
   frontend-test:
     name: Frontend vitest
     runs-on: ubuntu-latest
+    env:
+      VITEST_PROFILE_IMPORTS: ${{ vars.VITEST_PROFILE_IMPORTS || '0' }}
 
     steps:
       - name: Checkout
@@ -555,8 +557,64 @@ jobs:
         shell: bash
         run: |
           set +e
-          npx vitest run 2>&1 | tee /tmp/vitest.log
+          start_ts=$(date +%s)
+          cmd=(npx vitest run)
+          if [[ "${VITEST_PROFILE_IMPORTS:-0}" == "1" ]]; then
+            cmd+=(--experimental.importDurations.print)
+          fi
+
+          "${cmd[@]}" 2>&1 | tee /tmp/vitest.log
           status=${PIPESTATUS[0]}
+          end_ts=$(date +%s)
+          duration=$((end_ts - start_ts))
+
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import re
+          from pathlib import Path
+
+          log = Path("/tmp/vitest.log").read_text(encoding="utf-8", errors="replace")
+          lines = log.splitlines()
+
+          def last_match(pattern: str):
+              rx = re.compile(pattern)
+              for line in reversed(lines):
+                  m = rx.search(line)
+                  if m:
+                      return m.group(0)
+              return ""
+
+          file_entries = []
+          file_rx = re.compile(r'^[\s✓❯×]+\s+(.+?\.test\.ts.*?)\s+\((?:\d+\s+tests?|\d+\s+test.*?)\)\s+(\d+(?:\.\d+)?)(ms|s)\s*$')
+          for line in lines:
+              m = file_rx.match(line.strip())
+              if not m:
+                  continue
+              name, value, unit = m.groups()
+              ms = float(value) * (1000 if unit == 's' else 1)
+              file_entries.append((ms, name.strip(), f"{value}{unit}"))
+
+          file_entries.sort(reverse=True)
+          top_files = file_entries[:10]
+
+          print("### Frontend vitest")
+          print()
+          print("Command: `npx vitest run`" + (" + import profiling" if "experimental.importDurations.print" in log else ""))
+          print()
+          for label in ("Test Files", "Tests", "Duration"):
+              matched = last_match(rf'^\s*{re.escape(label)}\s+.+$')
+              if matched:
+                  print(matched)
+
+          if top_files:
+              print()
+              print("Top slow test files:")
+              for _, name, pretty in top_files:
+                  print(f"- `{name}` — {pretty}")
+
+          if "Import Duration Breakdown" in log:
+              print()
+              print("Import profiling was enabled for this run.")
+          PY
 
           if [[ "$status" -ne 0 ]]; then
             {
@@ -564,6 +622,7 @@ jobs:
               echo
               echo "Command: \`npx vitest run\`"
               echo "Status: FAIL"
+              echo "Duration: ${duration}s"
               echo
               echo "<details><summary>Last 120 log lines</summary>"
               echo
@@ -572,6 +631,10 @@ jobs:
               echo '```'
               echo "</details>"
             } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo "Status: PASS" >> "$GITHUB_STEP_SUMMARY"
+            echo "Duration: ${duration}s" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           exit "$status"
