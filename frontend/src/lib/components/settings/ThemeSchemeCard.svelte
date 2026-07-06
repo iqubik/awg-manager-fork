@@ -22,6 +22,18 @@
 	} from '$lib/stores/theme';
 	import { Palette, Check } from 'lucide-svelte';
 
+	interface Props {
+		showFeedbackToggle?: boolean;
+		feedbackEnabled?: boolean;
+		onToggleFeedback?: (enabled: boolean) => void;
+	}
+
+	let {
+		showFeedbackToggle = false,
+		feedbackEnabled = false,
+		onToggleFeedback = () => {},
+	}: Props = $props();
+
 	const PRESET_ORDER: ThemePreset[] = ['legacy', 'neo', 'mint', 'custom'];
 	const APPEARANCE_EXPANDED_KEY = 'awgm_settings_appearance_expanded_v1';
 	const LEGACY_MODE_OPTIONS: Array<{ value: ThemeModePreference; label: string }> = [
@@ -316,6 +328,22 @@
 						onchange={(enabled) => serviceLetterIcons.setEnabled(enabled)}
 					/>
 				</div>
+
+				{#if showFeedbackToggle}
+					<div class="setting-row feedback-fab-row">
+						<div class="flex flex-col gap-1">
+							<span class="font-medium">Кнопка обратной связи</span>
+							<span class="setting-description">
+								Плавающая кнопка «!» в правом нижнем углу на канале разработки.
+								Помогает быстро сообщить об ошибке или предложить улучшение.
+							</span>
+						</div>
+						<Toggle
+							checked={feedbackEnabled}
+							onchange={onToggleFeedback}
+						/>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -324,7 +352,8 @@
 <style>
 	.compact-layout-row,
 	.dashboard-mode-row,
-	.letter-icons-row {
+	.letter-icons-row,
+	.feedback-fab-row {
 		align-items: center;
 	}
 
@@ -414,7 +443,8 @@
 
 		.compact-layout-row,
 		.dashboard-mode-row,
-		.letter-icons-row {
+		.letter-icons-row,
+		.feedback-fab-row {
 			flex-direction: row;
 			align-items: center;
 			flex-wrap: nowrap;
@@ -423,7 +453,8 @@
 
 		.compact-layout-row > *:first-child,
 		.dashboard-mode-row > *:first-child,
-		.letter-icons-row > *:first-child {
+		.letter-icons-row > *:first-child,
+		.feedback-fab-row > *:first-child {
 			flex: 1 1 auto;
 			min-width: 0;
 		}

@@ -54,7 +54,6 @@
 		CloudDownload,
 		Eye,
 		EyeOff,
-		Lock,
 		ScrollText,
 		Wrench,
 		Power,
@@ -888,64 +887,12 @@ $effect(() => {
 			/>
 
 			{#if isAppearanceSettingsVisible(settings.usageLevel)}
-				<ThemeSchemeCard />
+				<ThemeSchemeCard
+					showFeedbackToggle={settings.updates.channel === 'develop'}
+					feedbackEnabled={$developFeedbackFabVisible}
+					onToggleFeedback={(v) => developFeedbackFabVisible.set(v)}
+				/>
 			{/if}
-
-				<div class="settings-block">
-					<div class="card">
-						<SettingsSectionLabel label="Доступ" icon={Lock} tone="blue" header />
-						<div class="setting-row toggle-inline-row">
-							<div class="flex flex-col gap-1">
-								<span class="font-medium">Авторизация</span>
-								<span class="setting-description">
-									Требовать вход через учётную запись роутера для доступа к панели управления.
-								</span>
-							</div>
-							<Toggle checked={settings.authEnabled} onchange={toggleAuth} disabled={saving} />
-						</div>
-						{#if settings.authEnabled}
-							<div class="setting-row session-ttl-row">
-								<div class="flex flex-col gap-1">
-									<span class="font-medium">Время жизни сессии</span>
-									<span class="setting-description">
-										Бездействие дольше этого срока завершает сессию. Активность продлевает её.
-									</span>
-								</div>
-								<div class="session-ttl-form">
-									<div class="input-with-suffix">
-										<input
-											type="number"
-											id="sessionTtlHours"
-											bind:value={sessionTtlLocal}
-											min={SESSION_TTL_MIN_HOURS}
-											max={SESSION_TTL_MAX_HOURS}
-											disabled={saving}
-										/>
-										<span class="input-suffix">ч.</span>
-									</div>
-									{#if sessionTtlChanged}
-										<Button variant="primary" size="sm" onclick={saveSessionTtl} loading={saving}>
-											{saving ? "Сохранение..." : "Сохранить"}
-										</Button>
-									{/if}
-								</div>
-							</div>
-							<div class="setting-row toggle-inline-row">
-								<div class="flex flex-col gap-1">
-									<span class="font-medium">Вход по учётным данным Entware</span>
-									<span class="setting-description">
-										Проверять логин и пароль по /opt/etc/shadow. Вход без обращения к роутеру — не создаёт уведомлений в журнале Keenetic.
-									</span>
-								</div>
-								<Toggle
-									checked={settings.entwareAuthEnabled ?? false}
-									onchange={toggleEntwareAuth}
-									disabled={saving}
-								/>
-							</div>
-						{/if}
-					</div>
-				</div>
 
 				<div class="settings-block">
 					<div class="card">
@@ -1107,6 +1054,47 @@ $effect(() => {
 						</button>
 						{#if advancedExpanded}
 							<div id="advanced-card-body" class="settings-card-body">
+								{#if settings.authEnabled}
+									<div class="setting-row session-ttl-row">
+										<div class="flex flex-col gap-1">
+											<span class="font-medium">Время жизни сессии</span>
+											<span class="setting-description">
+												Бездействие дольше этого срока завершает сессию. Активность продлевает её.
+											</span>
+										</div>
+										<div class="session-ttl-form">
+											<div class="input-with-suffix">
+												<input
+													type="number"
+													id="sessionTtlHours"
+													bind:value={sessionTtlLocal}
+													min={SESSION_TTL_MIN_HOURS}
+													max={SESSION_TTL_MAX_HOURS}
+													disabled={saving}
+												/>
+												<span class="input-suffix">ч.</span>
+											</div>
+											{#if sessionTtlChanged}
+												<Button variant="primary" size="sm" onclick={saveSessionTtl} loading={saving}>
+													{saving ? "Сохранение..." : "Сохранить"}
+												</Button>
+											{/if}
+										</div>
+									</div>
+									<div class="setting-row toggle-inline-row">
+										<div class="flex flex-col gap-1">
+											<span class="font-medium">Вход по учётным данным Entware</span>
+											<span class="setting-description">
+												Проверять логин и пароль по /opt/etc/shadow. Вход без обращения к роутеру — не создаёт уведомлений в журнале Keenetic.
+											</span>
+										</div>
+										<Toggle
+											checked={settings.entwareAuthEnabled ?? false}
+											onchange={toggleEntwareAuth}
+											disabled={saving}
+										/>
+									</div>
+								{/if}
 								<div class="setting-row api-key-setting">
 									<div class="flex flex-col gap-1">
 										<span class="font-medium">API Key</span>
@@ -1158,21 +1146,6 @@ $effect(() => {
 										</div>
 									{/if}
 								</div>
-								{#if settings.updates.channel === 'develop'}
-									<div class="setting-row toggle-inline-row">
-										<div class="flex flex-col gap-1">
-											<span class="font-medium">Кнопка обратной связи</span>
-											<span class="setting-description">
-												Плавающая кнопка «!» в правом нижнем углу на канале разработки.
-												Помогает быстро сообщить об ошибке или предложить улучшение.
-											</span>
-										</div>
-										<Toggle
-											checked={$developFeedbackFabVisible}
-											onchange={(v) => developFeedbackFabVisible.set(v)}
-										/>
-									</div>
-								{/if}
 								{#if singboxInstalled && showSingboxIntegration}
 									<div class="setting-row toggle-inline-row">
 										<div class="flex flex-col gap-1">
