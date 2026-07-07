@@ -22,17 +22,8 @@
 		mergePastedShareList,
 		normalizeSpaceSeparatedShareLinks,
 	} from '$lib/utils/shareLinkListInput';
-	import {
-		buildExcludedSelectableKeys,
-		canCreateSubscriptionFromPreview,
-		canRequestSubscriptionPreview,
-		countExcludedSelectableMembers,
-		countSelectablePreviewMembers,
-		dedupePreviewMembers,
-		isAddTunnelWizardDirty,
-		parseRefreshHours,
-		type WizardKind,
-	} from './addTunnelWizardLogic';
+
+	type WizardKind = 'single' | 'inline' | 'url';
 
 	interface Props {
 		open: boolean;
@@ -75,11 +66,15 @@
 	let excludedKeys = $state<Set<string>>(new Set());
 	let previewing = $state(false);
 	let mountingPreview = $state(false);
-	const selectablePreviewCount = $derived(countSelectablePreviewMembers(previewMembers));
-	const excludedSelectableCount = $derived(countExcludedSelectableMembers(previewMembers, excludedKeys));
+	const selectablePreviewCount = $derived.by(() =>
+		previewMembers.filter((member) => member.supported !== false).length
+	);
+	const excludedSelectableCount = $derived.by(() =>
+		previewMembers.filter((member) => member.supported !== false && excludedKeys.has(member.key)).length
+	);
 
 	$effect(() => {
-		refreshHours = parseRefreshHours(refreshHoursStr);
+		refreshHours = parseInt(refreshHoursStr, 10) || 0;
 	});
 
 	const refreshOptions = [
@@ -96,26 +91,23 @@
 	// `kind !== 'choose'` heuristic mis-fired the moment the user picked
 	// a step (or arrived with a preselect), claiming dirty without any
 	// input. Now dirty reflects actual edits.
-	const isDirty = $derived(
-		isAddTunnelWizardDirty(
-			{
-				kind,
-				singleLinks,
-				label,
-				url,
-				inlineText,
-				headersText,
-				refreshHoursStr,
-				enabled,
-				mode,
-				utUrl,
-				utIntervalSec,
-				utToleranceMs,
-			},
-			DEFAULT_PRESET,
-			DEFAULT_SUBSCRIPTION_URLTEST,
-		),
-	);
+	const isDirty = $derived.by(() => {
+		if (kind === 'choose') return false;
+		if (kind === 'single') return singleLinks.trim() !== '';
+		// 'inline' and 'url' share the subscription form below.
+		return (
+			label.trim() !== '' ||
+			url.trim() !== '' ||
+			inlineText.trim() !== '' ||
+			headersText !== DEFAULT_PRESET ||
+			refreshHoursStr !== '24' ||
+			enabled !== true ||
+			mode !== 'selector' ||
+			utUrl !== DEFAULT_SUBSCRIPTION_URLTEST.url ||
+			utIntervalSec !== DEFAULT_SUBSCRIPTION_URLTEST.intervalSec ||
+			utToleranceMs !== DEFAULT_SUBSCRIPTION_URLTEST.toleranceMs
+		);
+	});
 
 	$effect(() => {
 		if (open) {
@@ -268,7 +260,16 @@
 				url,
 				headers: parseHeadersText(headersText),
 			});
-			const dedupedMembers = dedupePreviewMembers(members);
+			// Дедуп по key обязателен: список рендерится keyed each'ем по
+			// member.key, и дубликат ключа роняет рендер (each_key_duplicate) —
+			// модалка замирает на «Загрузка...» (issue #428). Бэкенд уже
+			// дедуплицирует, это страховка от старых бэкендов и иных источников.
+			const seen = new Set<string>();
+			const dedupedMembers = (members ?? []).filter((m) => {
+				if (seen.has(m.key)) return false;
+				seen.add(m.key);
+				return true;
+			});
 			if (dedupedMembers.length === 0) {
 				error = 'В подписке не найдено серверов для предпросмотра';
 				return;
@@ -311,7 +312,11 @@
 	}
 
 	function selectNoneMembers(): void {
-		excludedKeys = buildExcludedSelectableKeys(previewMembers);
+		excludedKeys = new Set(
+			previewMembers
+				.filter((member) => member.supported !== false)
+				.map((member) => member.key)
+		);
 	}
 
 	async function submitSubscription(): Promise<void> {
@@ -620,7 +625,7 @@
 			<Button
 				variant="primary"
 				onclick={fetchPreview}
-				disabled={!canRequestSubscriptionPreview({ previewing, mountingPreview, label, url })}
+				disabled={previewing || mountingPreview || !url.trim() || !label.trim()}
 				loading={previewing}
 			>
 				{previewing ? 'Загрузка...' : 'Далее'}
@@ -629,7 +634,7 @@
 			<Button
 				variant="primary"
 				onclick={submitSubscription}
-				disabled={submitting || !canCreateSubscriptionFromPreview(previewMembers, excludedKeys)}
+				disabled={submitting || selectablePreviewCount === excludedSelectableCount}
 				loading={submitting}
 			>
 				{submitting

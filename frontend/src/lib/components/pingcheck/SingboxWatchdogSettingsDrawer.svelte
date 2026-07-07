@@ -7,12 +7,6 @@
 		SingboxWatchdogStatus,
 	} from '$lib/types';
 	import { Button, SideDrawer } from '$lib/components/ui';
-	import {
-		buildSingboxWatchdogPayload,
-		canSaveSingboxWatchdog,
-		createSingboxWatchdogDrawerState,
-		isDangerousSingboxRecovery,
-	} from './singboxWatchdogLogic';
 
 	interface Props {
 		open: boolean;
@@ -33,29 +27,33 @@
 
 	$effect(() => {
 		if (!target) return;
-		const next = createSingboxWatchdogDrawerState(target);
-		interval = next.interval;
-		failThreshold = next.failThreshold;
-		timeout = next.timeout;
-		recoveryMode = next.recoveryMode;
-		persistSwitch = next.persistSwitch;
-		confirmDangerousRestart = next.confirmDangerousRestart;
+		interval = Math.min(3600, Math.max(5, target.interval || 30));
+		failThreshold = Math.min(20, Math.max(1, target.failThreshold || 3));
+		timeout = Math.min(30, Math.max(1, target.timeout || 5));
+		recoveryMode =
+			target.recoveryMode ||
+			(target.kind === 'subscription' ? 'switch-member' : 'off');
+		persistSwitch = target.kind === 'subscription' && target.persistSwitch === true;
+		confirmDangerousRestart = false;
 	});
 
 	const title = $derived(target ? `Watchdog: ${target.name}` : 'Настройки watchdog');
-	const restartIsDangerous = $derived(isDangerousSingboxRecovery(target, recoveryMode));
-	const canSave = $derived(canSaveSingboxWatchdog({ saving, restartIsDangerous, confirmDangerousRestart }));
+	const restartIsDangerous = $derived(target?.kind === 'tunnel' && recoveryMode === 'restart-singbox');
+	const canSave = $derived(!saving && (!restartIsDangerous || confirmDangerousRestart));
 
 	async function save(): Promise<void> {
 		if (!target) return;
-		const payload: SingboxWatchdogConfig = buildSingboxWatchdogPayload({
-			target,
-			interval,
-			failThreshold,
-			timeout,
+		const payload: SingboxWatchdogConfig = {
+			id: target.id,
+			kind: target.kind,
+			ref: target.ref,
+			enabled: true,
+			interval: Math.min(3600, Math.max(5, Number(interval) || 30)),
+			failThreshold: Math.min(20, Math.max(1, Number(failThreshold) || 3)),
+			timeout: Math.min(30, Math.max(1, Number(timeout) || 5)),
 			recoveryMode,
-			persistSwitch,
-		});
+			persistSwitch: target.kind === 'subscription' ? persistSwitch : false,
+		};
 		saving = true;
 		try {
 			await api.singboxWatchdogConfigure(payload);
