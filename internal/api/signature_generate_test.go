@@ -52,6 +52,25 @@ func TestSignatureGenerate_TLSAlias(t *testing.T) {
 	}
 }
 
+func TestSignatureGenerate_MissingMTUFallsBackToDefault(t *testing.T) {
+	body := []byte(`{"protocol":"dns_query"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/signature/generate", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+
+	NewSignatureHandler().Generate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	var resp SignatureGenerateResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !resp.Success || !resp.Data.OK || resp.Data.Packets.I1 == "" {
+		t.Fatalf("response = %+v, want success=true and non-empty packets", resp)
+	}
+}
+
 func TestSignatureGenerate_InvalidProtocol(t *testing.T) {
 	body := []byte(`{"protocol":"unknown"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/signature/generate", bytes.NewReader(body))

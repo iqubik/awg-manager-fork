@@ -305,6 +305,41 @@ func TestApplyInstances_Degraded_StoreUntouched(t *testing.T) {
 	}
 }
 
+func TestForceApply_Degraded_UsesFallbackSelectorAndKeepsStoredOutbound(t *testing.T) {
+	sb, awg, cat := degradationFixture()
+	store := NewStore(filepath.Join(t.TempDir(), "deviceproxy.json"))
+	if err := store.Save(Config{
+		Enabled:          true,
+		ListenAll:        true,
+		Port:             1099,
+		SelectedOutbound: "vpn",
+	}); err != nil {
+		t.Fatalf("store.Save: %v", err)
+	}
+	s := NewService(Deps{Store: store, Singbox: sb, AWGOutbounds: awg})
+	s.SetRouterOutbounds(cat)
+
+	if err := s.ForceApply(context.Background()); err != nil {
+		t.Fatalf("ForceApply: %v", err)
+	}
+
+	if sb.lastSpec == nil {
+		t.Fatal("ForceApply did not apply a spec")
+	}
+	if sb.lastSpec.SelectedTag != "awg-awg10" {
+		t.Fatalf("applied SelectedTag = %q, want degraded fallback awg-awg10", sb.lastSpec.SelectedTag)
+	}
+	if got := store.Get().SelectedOutbound; got != "vpn" {
+		t.Fatalf("stored SelectedOutbound = %q, want vpn untouched", got)
+	}
+	if sb.lastSelector != "device-proxy-selector" || sb.lastMember != "awg-awg10" {
+		t.Fatalf("selector sync mismatch: selector=%q member=%q", sb.lastSelector, sb.lastMember)
+	}
+	if sb.lastMember == "vpn" {
+		t.Fatalf("selector default must not be set to unavailable composite tag %q", sb.lastMember)
+	}
+}
+
 // Включение движка обратно: та же генерация возвращает композит.
 func TestApplyInstances_ReenabledRouter_RestoresComposite(t *testing.T) {
 	sb, awg, cat := degradationFixture()
