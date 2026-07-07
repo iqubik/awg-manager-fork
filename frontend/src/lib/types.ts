@@ -827,7 +827,6 @@ export interface UpdateInfo {
 	checkedAt: string;
 	checking: boolean;
 	error?: string;
-	warning?: string;
 	channel?: 'stable' | 'develop';
 	source?: 'release' | 'entware';
 	sourceUrl?: string;

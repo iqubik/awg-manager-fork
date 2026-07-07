@@ -109,10 +109,10 @@ type SingboxRouterSettingsData struct {
 	FakeIPPool6 string `json:"fakeipPool6,omitempty" example:"fc00::/18"`
 	// FakeIPMTU is the tun MTU (default 1500; valid range 576-9000).
 	FakeIPMTU int `json:"fakeipMtu,omitempty" example:"1500"`
-	// UDPTimeout sets the UDP session timeout for the tproxy-in / fakeip tun-in
-	// inbound (Go duration string, e.g. "5m0s", "10m0s"). Empty = use default
-	// (5m0s). Increase to prevent long-quiet UDP applications (games, etc.) from
-	// having their sessions silently dropped mid-game.
+	// UDPTimeout задаёт таймаут UDP-сессий для inbound'ов tproxy-in / fakeip tun-in
+	// (Go duration string, например "5m0s", "10m0s"). Пустое значение = таймаут
+	// по умолчанию (5m0s). Увеличение помогает играм и другим «тихим» UDP-приложениям
+	// не терять сессию во время длинных пауз без трафика.
 	UDPTimeout string `json:"udpTimeout,omitempty" example:"10m0s"`
 	// QoSClasses lists DSCP-based QoS traffic classes routed to dedicated
 	// outbounds. At most 8 classes; DSCP must be 0-63 and unique across

@@ -4244,10 +4244,10 @@ definitions:
         type: boolean
       udpTimeout:
         description: |-
-          UDPTimeout sets the UDP session timeout for the tproxy-in inbound
-          (Go duration string, e.g. "3m0s", "10m0s"). Empty = use default (3m0s).
-          Increase to prevent long-quiet UDP applications (games, etc.) from
-          having their sessions silently dropped mid-game.
+          UDPTimeout задаёт таймаут UDP-сессий для inbound'ов tproxy-in / fakeip tun-in
+          (Go duration string, например "5m0s", "10m0s"). Пустое значение = таймаут
+          по умолчанию (5m0s). Увеличение помогает играм и другим «тихим» UDP-приложениям
+          не терять сессию во время длинных пауз без трафика.
         example: 10m0s
         type: string
       wanAutoDetect:
@@ -5813,8 +5813,7 @@ definitions:
         example: https://github.com/iqubik/awg-manager-fork/releases/latest/download/VERSION
         type: string
       warning:
-        example: Пакет будет загружен из GitHub Release этого форка. SHA256 не опубликован,
-          поэтому дополнительная проверка контрольной суммы пропущена.
+        example: ""
         type: string
     type: object
   api.UpdatePeerRequestDTO:
