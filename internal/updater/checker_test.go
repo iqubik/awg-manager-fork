@@ -438,6 +438,9 @@ func TestCheck_StableUsesLatestReleaseDownloadWithoutGitHubAPI(t *testing.T) {
 	if info.DownloadURL != wantURL {
 		t.Fatalf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
 	}
+	if info.Warning != "" {
+		t.Fatalf("Warning = %q, want empty", info.Warning)
+	}
 	if len(seen) != 2 {
 		t.Fatalf("seen = %v, want 2 direct latest calls", seen)
 	}
@@ -628,6 +631,9 @@ func TestCheck_DevelopWithReleaseBaseURLUsesVersionAsset(t *testing.T) {
 	if info.DownloadURL != wantURL {
 		t.Fatalf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
 	}
+	if info.Warning != "" {
+		t.Fatalf("Warning = %q, want empty", info.Warning)
+	}
 }
 
 func TestCheck_DevelopUsesIqLatestVersionAsset(t *testing.T) {
@@ -655,6 +661,47 @@ func TestCheck_DevelopUsesIqLatestVersionAsset(t *testing.T) {
 	}
 	if info.Available {
 		t.Fatalf("expected no update, got %+v", info)
+	}
+}
+
+func TestCheck_DevelopReleaseRepoUsesIqLatestVersionAssetWithoutWarning(t *testing.T) {
+	oldReleaseRepoURL := releaseRepoURL
+	oldReleaseBaseURL := releaseBaseURL
+	defer func() {
+		releaseRepoURL = oldReleaseRepoURL
+		releaseBaseURL = oldReleaseBaseURL
+	}()
+
+	releaseRepoURL = "https://github.com/example/repo/releases"
+	releaseBaseURL = ""
+	arch := archSuffix()
+
+	dl := &fakeDownloader{
+		readAllFn: func(_ context.Context, req downloader.Request) ([]byte, downloader.ResponseMeta, error) {
+			switch req.URL {
+			case "https://github.com/example/repo/releases/download/iq-latest/VERSION":
+				return []byte("2.12.3.14+r1\n"), downloader.ResponseMeta{StatusCode: http.StatusOK}, nil
+			default:
+				t.Fatalf("unexpected URL %q", req.URL)
+				return nil, downloader.ResponseMeta{}, nil
+			}
+		},
+	}
+
+	info := checkWithDownloader(context.Background(), "2.12.3.14+r0", channelDevelop, dl)
+
+	if !info.Available {
+		t.Fatalf("expected update available, got %+v", info)
+	}
+	if info.LatestVersion != "2.12.3.14+r1" {
+		t.Fatalf("LatestVersion = %q, want 2.12.3.14+r1", info.LatestVersion)
+	}
+	wantURL := "https://github.com/example/repo/releases/download/iq-latest/awg-manager_2.12.3.14+r1_" + arch + "-kn.ipk"
+	if info.DownloadURL != wantURL {
+		t.Fatalf("DownloadURL = %q, want %q", info.DownloadURL, wantURL)
+	}
+	if info.Warning != "" {
+		t.Fatalf("Warning = %q, want empty", info.Warning)
 	}
 }
 
@@ -688,6 +735,9 @@ func TestCheck_StableMissingChangelogAssetStillOffersUpdate(t *testing.T) {
 	}
 	if info.Error != "" {
 		t.Fatalf("error = %q, want empty", info.Error)
+	}
+	if info.Warning != "" {
+		t.Fatalf("Warning = %q, want empty", info.Warning)
 	}
 }
 
@@ -1287,7 +1337,7 @@ func TestCheck_StableIgnoresLowerDevelopRevisionFromReleaseChannel(t *testing.T)
 	}
 }
 
-func TestCheck_StableDirectLatestReleaseWarnsWhenChecksumUnavailable(t *testing.T) {
+func TestCheck_StableDirectLatestReleaseDoesNotExposeChecksumWarning(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	oldEntwareRepoURL := entwareRepoURL
@@ -1318,12 +1368,12 @@ func TestCheck_StableDirectLatestReleaseWarnsWhenChecksumUnavailable(t *testing.
 	if !info.Available {
 		t.Fatalf("expected Available=true, got %+v", info)
 	}
-	if info.Warning != releaseChecksumWarning {
-		t.Fatalf("Warning = %q, want %q", info.Warning, releaseChecksumWarning)
+	if info.Warning != "" {
+		t.Fatalf("Warning = %q, want empty", info.Warning)
 	}
 }
 
-func TestCheck_StableManualLatestReleaseWarnsWhenChecksumUnavailable(t *testing.T) {
+func TestCheck_StableManualLatestReleaseDoesNotExposeChecksumWarning(t *testing.T) {
 	oldReleaseRepoURL := releaseRepoURL
 	oldReleaseBaseURL := releaseBaseURL
 	oldEntwareRepoURL := entwareRepoURL
@@ -1365,7 +1415,7 @@ func TestCheck_StableManualLatestReleaseWarnsWhenChecksumUnavailable(t *testing.
 	if !info.Available {
 		t.Fatalf("expected Available=true, got %+v", info)
 	}
-	if info.Warning != releaseChecksumWarning {
-		t.Fatalf("Warning = %q, want %q", info.Warning, releaseChecksumWarning)
+	if info.Warning != "" {
+		t.Fatalf("Warning = %q, want empty", info.Warning)
 	}
 }

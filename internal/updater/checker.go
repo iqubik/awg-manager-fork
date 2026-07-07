@@ -33,8 +33,6 @@ const (
 	channelDevelop = "develop"
 )
 
-const releaseChecksumWarning = "Пакет будет загружен из GitHub Release этого форка. SHA256 не опубликован, поэтому дополнительная проверка контрольной суммы пропущена."
-
 var (
 	releaseVersionPattern   = regexp.MustCompile(`^\d+\.\d+\.\d+(?:\.\d+)*(?:\+r\d+)?$`)
 	releaseStableTagPattern = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:\.\d+)*$`)
@@ -212,7 +210,6 @@ func checkStableLatestReleaseWithDownloader(
 	info.Available = true
 	info.LatestVersion = latest
 	info.DownloadURL = ipkURL
-	info.Warning = releaseChecksumWarning
 	return info
 }
 
@@ -247,7 +244,6 @@ func checkStableManualLatestReleaseWithDownloader(
 	info.Available = true
 	info.LatestVersion = releaseInfo.Version
 	info.DownloadURL = downloadURL
-	info.Warning = releaseChecksumWarning
 	return info
 }
 
@@ -329,7 +325,6 @@ func checkReleaseWithDownloader(
 		latest,
 		archSuffix(),
 	))
-	info.Warning = releaseChecksumWarning
 	return info
 }
 
