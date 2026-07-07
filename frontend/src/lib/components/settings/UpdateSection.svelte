@@ -126,9 +126,6 @@
 			} else {
 				notifications.info('Обновлений нет');
 			}
-			if (updateInfo.warning) {
-				notifications.info(updateInfo.warning);
-			}
 		} catch (e) {
 			notifications.error(`Проверка обновлений: ${downloadErrorToText(e)}`);
 		} finally {
@@ -241,11 +238,6 @@
 		{:else}
 			<span class="setting-description">
 				Установлена последняя версия
-			</span>
-		{/if}
-		{#if updateInfo?.warning}
-			<span class="setting-description update-warning">
-				{updateInfo.warning}
 			</span>
 		{/if}
 	</div>
@@ -427,10 +419,6 @@
 
 	.update-error-notice {
 		min-width: 0;
-	}
-
-	.update-warning {
-		color: var(--warning, #eab308) !important;
 	}
 
 	.update-status {
