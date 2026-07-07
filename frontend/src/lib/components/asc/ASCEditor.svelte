@@ -91,6 +91,9 @@
 
 		generating = true;
 		try {
+			// Primary path stays frontend-local to preserve GUI parity and avoid
+			// turning routine ASC editing into an API dependency. The backend
+			// /signature/generate endpoint is kept for API/diagnostic use.
 			const packets = getSignaturePackets(selectedProtocol, mtu);
 			const size =
 				calcByteSize(packets.i1) +

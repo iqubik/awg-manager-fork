@@ -182,7 +182,7 @@
         <Badge variant={outboundVariantFor(outboundState.label)} size="sm" mono>{outboundState.label}</Badge>
       </span>
       {#if in_.enabled && outboundState.degradedText}
-        <Badge variant="warning" size="sm" mono>не применено</Badge>
+        <Badge variant="warning" size="sm" mono>fallback</Badge>
       {:else if in_.enabled && outboundState.nowTag}
         <span class="now mono">сейчас: {outboundState.nowTag}</span>
       {/if}
