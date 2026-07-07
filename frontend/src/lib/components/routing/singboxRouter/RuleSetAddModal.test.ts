@@ -74,6 +74,24 @@ describe('RuleSetAddModal', () => {
 		}));
 	});
 
+	it('keeps geosite tag picker open without legacy choose/edit buttons', async () => {
+		render(RuleSetAddModal, {
+			props: {
+				outboundOptions: [],
+				onClose: vi.fn(),
+				onSave: vi.fn(),
+			},
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Geosite' }));
+		await screen.findByRole('button', { name: /GOOGLE/ });
+
+		expect(screen.queryByRole('button', { name: 'Выбрать' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Изменить' })).toBeNull();
+		expect(screen.getByRole('button', { name: /GOOGLE/ })).toBeTruthy();
+		expect(screen.getByRole('button', { name: /YOUTUBE/ })).toBeTruthy();
+	});
+
 	it('opens existing dat-srs remote rule_set in geosite edit mode', async () => {
 		render(RuleSetAddModal, {
 			props: {
@@ -96,92 +114,5 @@ describe('RuleSetAddModal', () => {
 		expect(screen.getByLabelText('Тип rule set (нельзя изменить)').textContent).toBe('Geosite');
 		expect(screen.getByText('geosite:GOOGLE')).toBeTruthy();
 		expect(screen.queryByText('URL к файлу')).toBeNull();
-	});
-
-	it('keeps geosite tag list open and creates one rule_set from multiple selected tags', async () => {
-		const onSave = vi.fn().mockResolvedValue(undefined);
-		render(RuleSetAddModal, {
-			props: {
-				outboundOptions: [],
-				onClose: vi.fn(),
-				onSave,
-			},
-		});
-
-		await fireEvent.click(screen.getByRole('button', { name: 'Geosite' }));
-
-		expect(screen.queryByRole('button', { name: 'Выбрать' })).toBeNull();
-		expect(screen.queryByRole('button', { name: 'Изменить' })).toBeNull();
-
-		await fireEvent.click(await screen.findByRole('button', { name: /GOOGLE/ }));
-		await fireEvent.click(await screen.findByRole('button', { name: /YOUTUBE/ }));
-		await fireEvent.click(screen.getByRole('button', { name: /сохранить/i }));
-
-		expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
-			tag: 'geosite-google-youtube',
-			type: 'remote',
-			format: 'binary',
-			update_interval: '24h',
-			url: expect.stringContaining('tag=GOOGLE'),
-		}));
-		expect(onSave.mock.calls[0][0].url).toContain('tag=YOUTUBE');
-	});
-
-	it('keeps a custom existing dat rule_set tag after picking another dat tag', async () => {
-		const onSave = vi.fn().mockResolvedValue(undefined);
-		render(RuleSetAddModal, {
-			props: {
-				ruleSet: {
-					tag: 'custom-name',
-					type: 'remote',
-					format: 'binary',
-					url: 'http://127.0.0.1:2222/api/singbox/router/rulesets/dat-srs?kind=geosite&tag=OLD&token=test',
-					update_interval: '24h',
-				},
-				outboundOptions: [],
-				onClose: vi.fn(),
-				onSave,
-			},
-		});
-
-		await fireEvent.click(await screen.findByRole('button', { name: /GOOGLE/ }));
-		await fireEvent.click(screen.getByRole('button', { name: /сохранить/i }));
-
-		expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
-			tag: 'custom-name',
-			type: 'remote',
-			format: 'binary',
-			update_interval: '24h',
-			url: expect.stringContaining('/api/singbox/router/rulesets/dat-srs?'),
-		}));
-	});
-
-	it('updates an auto-generated dat rule_set tag to standard lowercase multi-tag name after picking another dat tag', async () => {
-		const onSave = vi.fn().mockResolvedValue(undefined);
-		render(RuleSetAddModal, {
-			props: {
-				ruleSet: {
-					tag: 'geosite-old',
-					type: 'remote',
-					format: 'binary',
-					url: 'http://127.0.0.1:2222/api/singbox/router/rulesets/dat-srs?kind=geosite&tag=OLD&token=test',
-					update_interval: '24h',
-				},
-				outboundOptions: [],
-				onClose: vi.fn(),
-				onSave,
-			},
-		});
-
-		await fireEvent.click(await screen.findByRole('button', { name: /GOOGLE/ }));
-		await fireEvent.click(screen.getByRole('button', { name: /сохранить/i }));
-
-		expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
-			tag: 'geosite-old-google',
-			type: 'remote',
-			format: 'binary',
-			update_interval: '24h',
-			url: expect.stringContaining('/api/singbox/router/rulesets/dat-srs?'),
-		}));
 	});
 });

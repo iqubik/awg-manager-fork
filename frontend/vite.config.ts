@@ -119,6 +119,8 @@ export default defineConfig(({ mode }) => {
 						include: [
 							'src/lib/utils/**/*.test.ts',
 							'src/lib/constants/**/*.test.ts',
+							'src/lib/components/sb-router/addWizardStoreLogic.test.ts',
+							'src/lib/components/sb-router/traceStoreLogic.test.ts',
 						],
 						exclude: [
 							'src/lib/utils/clashWebSocket.test.ts',
@@ -134,6 +136,12 @@ export default defineConfig(({ mode }) => {
 							'src/lib/api/**/*.test.ts',
 							'src/lib/stores/**/*.test.ts',
 							'src/lib/restartRecovery.test.ts',
+							'src/lib/components/monitoring/matrixDrillDownLogic.test.ts',
+							'src/lib/components/pingcheck/singboxWatchdogLogic.test.ts',
+							'src/lib/components/pingcheck/watchdogMonitoringLogic.test.ts',
+							'src/lib/components/routing/singboxRouter/ruleSetAddModalLogic.test.ts',
+							'src/lib/components/settings/integrationsCardLogic.test.ts',
+							'src/lib/components/subscriptions/addTunnelWizardLogic.test.ts',
 						],
 						exclude: [
 							'src/lib/stores/theme.test.ts',
@@ -150,6 +158,16 @@ export default defineConfig(({ mode }) => {
 							'src/routes/**/*.test.ts',
 							'src/lib/stores/theme.test.ts',
 							'src/lib/utils/clashWebSocket.test.ts',
+						],
+						exclude: [
+							'src/lib/components/sb-router/addWizardStoreLogic.test.ts',
+							'src/lib/components/sb-router/traceStoreLogic.test.ts',
+							'src/lib/components/monitoring/matrixDrillDownLogic.test.ts',
+							'src/lib/components/pingcheck/singboxWatchdogLogic.test.ts',
+							'src/lib/components/pingcheck/watchdogMonitoringLogic.test.ts',
+							'src/lib/components/routing/singboxRouter/ruleSetAddModalLogic.test.ts',
+							'src/lib/components/settings/integrationsCardLogic.test.ts',
+							'src/lib/components/subscriptions/addTunnelWizardLogic.test.ts',
 						],
 					},
 				},
