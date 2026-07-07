@@ -14,7 +14,6 @@ import type {
   SingboxRouterInspectResult,
   SingboxRouterInspectDNSResult,
 } from '$lib/types';
-import { buildTraceUrl, readTraceUrlState } from './traceStoreLogic';
 
 export interface TraceInput {
   domain: string;
@@ -28,13 +27,29 @@ export interface TraceInput {
 
 function readURL(): { open: boolean; domain: string } {
   if (typeof window === 'undefined') return { open: false, domain: '' };
-  return readTraceUrlState(window.location.href);
+  const sp = new URL(window.location.href).searchParams;
+  return {
+    open: sp.get('trace') === '1',
+    domain: sp.get('q') ?? '',
+  };
 }
 
 function updateURL(open: boolean, domain: string): void {
   if (typeof window === 'undefined') return;
   try {
-    window.history.replaceState({}, '', buildTraceUrl(window.location.href, open, domain));
+    const url = new URL(window.location.href);
+    if (open) {
+      url.searchParams.set('trace', '1');
+      if (domain) {
+        url.searchParams.set('q', domain);
+      } else {
+        url.searchParams.delete('q');
+      }
+    } else {
+      url.searchParams.delete('trace');
+      url.searchParams.delete('q');
+    }
+    window.history.replaceState({}, '', url.toString());
   } catch {
     /* non-browser env or restricted history — ignore */
   }
