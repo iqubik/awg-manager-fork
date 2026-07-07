@@ -15,16 +15,6 @@
 	import NativeWGPingCheckModal from '$lib/components/pingcheck/NativeWGPingCheckModal.svelte';
 	import EmptyState from '$lib/components/layout/EmptyState.svelte';
 	import { notifications } from '$lib/stores/notifications';
-	import {
-		buildSingboxWatchdogCards,
-		deriveSingboxBlockState,
-		groupSingboxWatchdogLogs,
-		isWatchdogSectionAvailable,
-		isWatchdogSectionOpen,
-		normalizeWatchdogOpenSections,
-		resolveSingboxTrafficTag,
-		type WatchdogSectionId,
-	} from './watchdogMonitoringLogic';
 	import type {
 		AWGTunnel,
 		NativePingCheckConfig,
@@ -45,6 +35,7 @@
 	let unsubSingboxStatus: (() => void) | undefined;
 	let unsubSingboxTunnels: (() => void) | undefined;
 	let unsubSingboxWatchdog: (() => void) | undefined;
+	type WatchdogSectionId = 'awg' | 'singbox';
 	const WATCHDOG_SECTIONS_OPEN_STORAGE_KEY = 'watchdog_monitoring_sections_open_v1';
 	let watchdogSectionsHydrated = $state(false);
 	let openSections = $state<Record<WatchdogSectionId, boolean>>({
@@ -61,17 +52,9 @@
 	const logsByTunnel = $derived(groupLogsByTunnel($pingCheckLogs));
 	const singboxSectionVisible = $derived(isSectionVisible($usageLevel, 'singboxTunnels'));
 	const singboxState = $derived($singboxStatus);
-	const singboxTunnelsState = $derived($singboxTunnels);
 	const singboxWatchdogState = $derived($singboxWatchdogStatus);
-	const singboxBlockState = $derived(
-		deriveSingboxBlockState({
-			singboxSectionVisible,
-			singboxState,
-			singboxWatchdogState,
-		}),
-	);
-	const singboxInstalled = $derived(singboxBlockState.installed);
-	const singboxWatchdogList = $derived(singboxBlockState.watchdogList);
+	const singboxInstalled = $derived(singboxState.data?.installed === true);
+	const singboxWatchdogList = $derived(Array.isArray(singboxWatchdogState.data) ? singboxWatchdogState.data : []);
 
 	async function loadConfigs(ids: string[]) {
 		const next: Record<string, AWGTunnel['pingCheck']> = {};
@@ -176,31 +159,59 @@
 	});
 
 	const singboxCards = $derived.by(() => {
-		return buildSingboxWatchdogCards({
-			statuses: singboxWatchdogList.map((status) => ({
-				...status,
-				trafficTag: resolveSingboxTrafficTag(status, singboxTunnelsState.data),
-			})),
-			logsByTargetId: singboxWatchdogLogs,
-		}) satisfies SingboxWatchdogCardModel[];
+		return singboxWatchdogList.map((status) => ({
+			id: status.id,
+			name: status.name,
+			routeHref:
+				status.kind === 'subscription'
+					? `/subscriptions/${encodeURIComponent(status.ref)}`
+					: `/singbox/${encodeURIComponent(status.ref)}`,
+			source: status.kind,
+			sourceLabel: status.kind === 'subscription' ? 'Подписка' : 'Sing-box',
+			tag: status.activeMemberTag || status.checkTag,
+			delayCheckTag: status.checkTag,
+			primaryHistoryTag: status.checkTag,
+			fallbackHistoryTag: status.activeMemberTag || undefined,
+			trafficTag: status.trafficTag,
+			protocol: status.protocol,
+			security: status.security,
+			transport: status.transport,
+			proxyInterface: status.proxyInterface,
+			kernelInterface: status.kernelInterface,
+			running: status.running,
+			configured: status.configured,
+			enabled: status.enabled,
+			statusKind: status.status,
+			failCount: status.failCount,
+			failThreshold: status.failThreshold,
+			restartCount: status.restartCount,
+			switchCount: status.switchCount,
+			lastError: status.lastError,
+			lastRecovery: status.lastRecovery,
+			status,
+			logs: singboxWatchdogLogs[status.id] ?? [],
+		} satisfies SingboxWatchdogCardModel));
 	});
 
-	function sectionAvailability(id: WatchdogSectionId): boolean {
-		return isWatchdogSectionAvailable(id, {
-			awgCardCount: awgCards.length,
-			singboxSectionVisible,
-		});
+	function isWatchdogSectionAvailable(id: WatchdogSectionId): boolean {
+		return id === 'awg' ? awgCards.length > 0 : singboxSectionVisible;
 	}
 
-	function sectionOpen(id: WatchdogSectionId): boolean {
-		return isWatchdogSectionOpen(id, openSections, {
-			awgCardCount: awgCards.length,
-			singboxSectionVisible,
-		});
+	function normalizeWatchdogOpenSections(
+		value: Partial<Record<WatchdogSectionId, boolean>> | null | undefined,
+	): Record<WatchdogSectionId, boolean> {
+		return {
+			awg: value?.awg ?? true,
+			singbox: value?.singbox ?? true,
+		};
+	}
+
+	function isWatchdogSectionOpen(id: WatchdogSectionId): boolean {
+		return isWatchdogSectionAvailable(id) && openSections[id];
 	}
 
 	function setWatchdogSectionOpen(id: WatchdogSectionId, open: boolean): void {
-		if (!sectionAvailability(id)) return;
+		if (!isWatchdogSectionAvailable(id)) return;
 		if (openSections[id] === open) return;
 
 		openSections = {
@@ -210,7 +221,7 @@
 	}
 
 	function toggleWatchdogSection(id: WatchdogSectionId): void {
-		setWatchdogSectionOpen(id, !sectionOpen(id));
+		setWatchdogSectionOpen(id, !isWatchdogSectionOpen(id));
 	}
 
 	const awgWatchdogTotal = $derived(awgCards.length);
@@ -222,8 +233,33 @@
 		singboxCards.filter((card) => card.enabled).length,
 	);
 
-	const singboxLoading = $derived(singboxBlockState.loading);
-	const singboxErrorMessage = $derived(singboxBlockState.errorMessage);
+	const singboxLoading = $derived.by(() => {
+		if (!singboxSectionVisible) return false;
+		if (!singboxState.data && (singboxState.status === 'idle' || singboxState.status === 'loading')) return true;
+		if (!singboxInstalled) return false;
+		return (
+			!singboxWatchdogState.data &&
+			(singboxWatchdogState.status === 'idle' || singboxWatchdogState.status === 'loading')
+		);
+	});
+
+	const singboxErrorMessage = $derived.by(() => {
+		if (!singboxSectionVisible) return '';
+		if (!singboxState.data && singboxState.status === 'error') return 'Не удалось загрузить Sing-box.';
+		if (singboxInstalled && !singboxWatchdogState.data && singboxWatchdogState.status === 'error') {
+			return 'Не удалось загрузить Sing-box Watchdog.';
+		}
+		return '';
+	});
+
+	function groupSingboxWatchdogLogs(logs: SingboxWatchdogLogEntry[]): Record<string, SingboxWatchdogLogEntry[]> {
+		const grouped: Record<string, SingboxWatchdogLogEntry[]> = {};
+		for (const entry of logs) {
+			if (!entry?.targetId) continue;
+			(grouped[entry.targetId] ??= []).push(entry);
+		}
+		return grouped;
+	}
 
 	async function loadSingboxWatchdogLogs(): Promise<void> {
 		try {
@@ -399,7 +435,7 @@
 						<button
 							type="button"
 							class="wd-spoiler__summary"
-							aria-expanded={sectionOpen('awg')}
+							aria-expanded={isWatchdogSectionOpen('awg')}
 							aria-controls="watchdog-section-awg"
 							onclick={() => toggleWatchdogSection('awg')}
 						>
@@ -412,7 +448,7 @@
 						</button>
 					</div>
 
-					{#if sectionOpen('awg')}
+					{#if isWatchdogSectionOpen('awg')}
 						<div id="watchdog-section-awg" class="wd-spoiler__body">
 							<div class="wd-grid">
 								{#each awgCards as card (card.id)}
@@ -460,7 +496,7 @@
 						<button
 							type="button"
 							class="wd-spoiler__summary"
-							aria-expanded={sectionOpen('singbox')}
+							aria-expanded={isWatchdogSectionOpen('singbox')}
 							aria-controls="watchdog-section-singbox"
 							onclick={() => toggleWatchdogSection('singbox')}
 						>
@@ -485,7 +521,7 @@
 						</button>
 					</div>
 
-					{#if sectionOpen('singbox')}
+					{#if isWatchdogSectionOpen('singbox')}
 						<div id="watchdog-section-singbox" class="wd-spoiler__body">
 							{#if singboxLoading}
 								<div class="wd-notice">Загрузка данных Sing-box…</div>
