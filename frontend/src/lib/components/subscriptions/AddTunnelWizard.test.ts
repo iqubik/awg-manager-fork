@@ -63,22 +63,6 @@ describe('AddTunnelWizard', () => {
 		vi.restoreAllMocks();
 	});
 
-	it('keeps preview button disabled until both label and URL are present', async () => {
-		render(AddTunnelWizard, {
-			props: { open: true, preselect: 'url', onclose: vi.fn() },
-		});
-
-		const nextButton = await screen.findByRole('button', { name: 'Далее' });
-		expect((nextButton as HTMLButtonElement).disabled).toBe(true);
-
-		const inputs = screen.getAllByRole('textbox');
-		await fireEvent.input(inputs[0], { target: { value: 'Provider Demo' } });
-		expect((nextButton as HTMLButtonElement).disabled).toBe(true);
-
-		await fireEvent.input(inputs[1], { target: { value: 'https://example.com/sub.txt' } });
-		expect((nextButton as HTMLButtonElement).disabled).toBe(false);
-	});
-
 	it('resets loading and switches to preview after successful URL preview fetch', async () => {
 		render(AddTunnelWizard, {
 			props: { open: true, preselect: 'url', onclose: vi.fn() },

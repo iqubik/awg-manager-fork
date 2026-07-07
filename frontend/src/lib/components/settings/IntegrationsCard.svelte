@@ -8,8 +8,15 @@
 	import { hydraRouteInstallProgress } from '$lib/stores/hydrarouteInstall';
 	import { singboxInstallProgress } from '$lib/stores/singboxInstall';
 	import { formatBytes } from '$lib/utils/format';
-	import { stripAnsi } from '$lib/utils/ansi';
 	import { Blocks } from 'lucide-svelte';
+	import {
+		extractSingboxFatalLines,
+		getHydraAction,
+		getHydraNoSpaceMessage,
+		getIntegrationsErrorModalTitle,
+		getIntegrationsHeaderMeta,
+		getSingboxAction,
+	} from './integrationsCardLogic';
 
 	interface Props {
 		expanded?: boolean;
@@ -76,20 +83,7 @@
 	const hydraProcessState = $derived(
 		hydraStatus?.processState ?? (hydraStatus?.running ? 'running' : hydraStatus?.installed ? 'stopped' : 'not_installed')
 	);
-	const singboxFatalLines = $derived.by(() => {
-		const raw = stripAnsi(singboxStatus?.lastError ?? '').trim();
-		if (!raw) return '';
-		// Match backend stderrLineIndicatesSingBoxFatal: real sing-box text
-		// fatals start with "+TZO YYYY-MM-DD …" or contain "FATAL[" — avoid
-		// JSON keys like "type":"fatal" polluting the settings card.
-		const fatal = raw.split('\n').filter((l) => {
-			const u = l.toUpperCase();
-			if (!u.includes('FATAL')) return false;
-			if (u.includes('FATAL[')) return true;
-			return /^\s*\+[0-9]{1,4}\s+\d{4}-\d{2}-\d{2}\b/.test(l);
-		});
-		return fatal.join('\n');
-	});
+	const singboxFatalLines = $derived(extractSingboxFatalLines(singboxStatus?.lastError));
 
 	const installProgress = $derived($singboxInstallProgress);
 	const hydraInstallProgress = $derived($hydraRouteInstallProgress);
@@ -155,12 +149,38 @@
 	const activeErrorDetails = $derived(
 		hydraUpdateError ?? hydraInstallError ?? singboxUpdateError ?? singboxInstallError ?? ''
 	);
-	const errorModalTitle = $derived.by(() => {
-		if (hydraUpdateError) return 'Не удалось обновить HydraRoute';
-		if (hydraInstallError) return 'Не удалось установить HydraRoute';
-		if (singboxUpdateError) return 'Не удалось обновить sing-box';
-		return 'Не удалось установить sing-box';
-	});
+	const errorModalTitle = $derived(
+		getIntegrationsErrorModalTitle({
+			hydraUpdateError,
+			hydraInstallError,
+			singboxUpdateError,
+			singboxInstallError,
+		}),
+	);
+	const headerMeta = $derived(getIntegrationsHeaderMeta({ singboxInstalled, hydraInstalled }));
+	const singboxAction = $derived(
+		getSingboxAction({
+			statusLoading: singboxStatusLoading,
+			installed: singboxInstalled,
+			needsUpdate: singboxNeedsUpdate,
+			hasUpdateHandler: Boolean(onupdateSingbox),
+		}),
+	);
+	const hydraAction = $derived(
+		getHydraAction({
+			statusLoading: hydraStatusLoading,
+			installed: hydraInstalled,
+			managed: hydraManaged,
+			legacy: hydraLegacy,
+			installSupported: hydraInstallSupported,
+			needsUpdate: hydraNeedsUpdate,
+			noSpace: hydraNoSpace,
+			hydraInstalling,
+			hydraUpdating,
+			hasInstallHandler: Boolean(oninstallHydra),
+			hasUpdateHandler: Boolean(onupdateHydra),
+		}),
+	);
 
 	let errorModalOpen = $state(false);
 
@@ -202,15 +222,7 @@
 			</span>
 			<span class="settings-card-toggle-meta">
 				<span class="settings-card-meta-text">
-					{#if singboxInstalled && hydraInstalled}
-						Sing-box · HydraRoute
-					{:else if singboxInstalled}
-						Sing-box
-					{:else if hydraInstalled}
-						HydraRoute
-					{:else}
-						Не установлены
-					{/if}
+					{headerMeta}
 				</span>
 				<svg
 					class="settings-card-chevron"
@@ -295,13 +307,13 @@
 							></div>
 						</div>
 					</div>
-				{:else if singboxInstalled && singboxNeedsUpdate && onupdateSingbox}
+				{:else if singboxAction === 'update'}
 					<Button variant="primary" size="sm" onclick={onupdateSingbox} loading={singboxUpdating}>
 						{singboxUpdating ? 'Обновление...' : 'Обновить'}
 					</Button>
-				{:else if singboxInstalled}
+				{:else if singboxAction === 'open'}
 					<Button variant="secondary" size="sm" href="/?tab=singbox">Открыть</Button>
-				{:else if singboxStatusLoading}
+				{:else if singboxAction === 'wait'}
 					<Button variant="secondary" size="sm" disabled>Ожидание…</Button>
 				{:else}
 					<Button variant="primary" size="sm" onclick={oninstallSingbox} loading={singboxInstalling}>
@@ -369,11 +381,7 @@
 							</span>
 						{/if}
 						{#if hydraNoSpace}
-							<span class="setting-description warning">
-								Недостаточно места:
-								нужно {formatBytes(hydraStatus?.requiredBytes ?? 0)},
-								доступно {formatBytes(hydraStatus?.freeBytes ?? 0)}
-							</span>
+							<span class="setting-description warning">{getHydraNoSpaceMessage(hydraStatus)}</span>
 						{/if}
 						{#if !hydraRunning && hydraStatus?.lastError}
 							<span class="setting-description warning" title={hydraStatus.lastError}>{hydraStatus.lastError}</span>
@@ -405,19 +413,19 @@
 						<div class="progress-fill" style:width={hydraInstallProgressPct !== null ? `${hydraInstallProgressPct}%` : '100%'}></div>
 					</div>
 				</div>
-			{:else if hydraInstalled && hydraManaged && hydraInstallSupported && hydraNeedsUpdate && !hydraInstalling && onupdateHydra}
+			{:else if hydraAction === 'update'}
 				<Button variant="primary" size="sm" onclick={onupdateHydra} loading={hydraUpdating}>
 					{hydraUpdating ? 'Обновление...' : 'Обновить'}
 				</Button>
-			{:else if hydraInstalled && hydraLegacy && hydraInstallSupported && !hydraInstalling && oninstallHydra}
+			{:else if hydraAction === 'official-install'}
 				<Button variant="primary" size="sm" onclick={oninstallHydra} loading={hydraInstalling}>
 					{hydraInstalling ? 'Установка...' : 'Установить официально'}
 				</Button>
-			{:else if hydraInstalled && !hydraUpdating}
+			{:else if hydraAction === 'open'}
 				<Button variant="secondary" size="sm" href="/routing?tab=hrneo">Открыть</Button>
-			{:else if hydraStatusLoading}
+			{:else if hydraAction === 'wait'}
 				<Button variant="secondary" size="sm" disabled>Ожидание…</Button>
-			{:else if hydraInstallSupported && !hydraNoSpace && oninstallHydra}
+			{:else if hydraAction === 'install'}
 				<Button variant="primary" size="sm" onclick={oninstallHydra} loading={hydraInstalling}>
 					{hydraInstalling ? 'Установка...' : 'Установить'}
 				</Button>
