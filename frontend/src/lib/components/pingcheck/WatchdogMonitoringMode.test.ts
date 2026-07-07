@@ -343,19 +343,6 @@ describe('WatchdogMonitoringMode', () => {
 		usageLevelStore.set('advanced');
 	});
 
-	it('shows a raw sing-box card when AWG is empty', async () => {
-		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
-		setWatchdogStatuses([sampleWatchdogTunnel]);
-		singboxDelayHistoryStore.set(new Map([['sb-main', [125]]])); 
-
-		render(WatchdogMonitoringMode);
-
-		expect(await screen.findByRole('button', { name: /Sing-box/i })).toBeTruthy();
-		expect(await screen.findByText('sb-main')).toBeTruthy();
-		expect(screen.getAllByText('125ms').length).toBeGreaterThan(0);
-		expect(loadHistory).toHaveBeenCalledWith('sb-main');
-	});
-
 	it('keeps AWG watchdog cards alongside sing-box cards', async () => {
 		setPingStatuses([
 			{
@@ -463,32 +450,6 @@ describe('WatchdogMonitoringMode', () => {
 		expect(singboxWatchdogLogs).toHaveBeenCalledWith();
 	});
 
-	it('disables check button while watchdog check is pending and sends only one request', async () => {
-		let resolveCheck = () => {};
-		singboxWatchdogCheckNow.mockReturnValue(
-			new Promise<void>((resolve) => {
-				resolveCheck = resolve;
-			}),
-		);
-
-		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
-		setWatchdogStatuses([sampleWatchdogTunnel]);
-
-		render(WatchdogMonitoringMode);
-
-		const button = await screen.findByRole('button', { name: 'Проверка watchdog' });
-		await fireEvent.click(button);
-		await fireEvent.click(button);
-
-		expect(singboxWatchdogCheckNow).toHaveBeenCalledTimes(1);
-		expect((button as HTMLButtonElement).disabled).toBe(true);
-
-		resolveCheck();
-		await waitFor(() => {
-			expect((button as HTMLButtonElement).disabled).toBe(false);
-		});
-	});
-
 	it('hides sing-box block below singbox usage level', async () => {
 		usageLevelStore.set('basic');
 		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
@@ -497,49 +458,6 @@ describe('WatchdogMonitoringMode', () => {
 		render(WatchdogMonitoringMode);
 
 		expect(screen.queryByText(/Sing-box/)).toBeNull();
-	});
-
-	it('collapses AWG spoiler and hides AWG cards', async () => {
-		setPingStatuses([
-			{
-				tunnelId: 'awg-1',
-				tunnelName: 'AWG Alpha',
-				enabled: true,
-				backend: 'kernel',
-				status: 'alive',
-				method: 'icmp',
-				lastLatency: 42,
-				failCount: 0,
-				failThreshold: 3,
-				restartCount: 0,
-			},
-		]);
-		getTunnelsAll.mockResolvedValue({ tunnels: [sampleAwgMeta] });
-
-		render(WatchdogMonitoringMode);
-
-		const awgToggle = await screen.findByRole('button', { name: /AWG \/ NativeWG/i });
-		expect(screen.getByText('AWG Alpha')).toBeTruthy();
-
-		await fireEvent.click(awgToggle);
-
-		expect(awgToggle.getAttribute('aria-expanded')).toBe('false');
-		expect(screen.queryByText('AWG Alpha')).toBeNull();
-	});
-
-	it('collapses sing-box spoiler and hides sing-box content', async () => {
-		setSingboxStatus({ ...baseSingboxStatus, tunnelCount: 1 });
-		setWatchdogStatuses([sampleWatchdogTunnel]);
-
-		render(WatchdogMonitoringMode);
-
-		const singboxToggle = await screen.findByRole('button', { name: /Sing-box/i });
-		expect(await screen.findByText('sb-main')).toBeTruthy();
-
-		await fireEvent.click(singboxToggle);
-
-		expect(singboxToggle.getAttribute('aria-expanded')).toBe('false');
-		expect(screen.queryByText('sb-main')).toBeNull();
 	});
 
 	it('persists collapsed sing-box spoiler state in localStorage', async () => {

@@ -31,7 +31,7 @@ describe('addWizardStore', () => {
     expect(c.rulesList).toBe('');
   });
 
-  it('openAddWizard sets URL ?add=1&tab=singbox + open=true (push)', async () => {
+  it('openAddWizard opens overlay and syncs URL', async () => {
     resetEnv('/routing?tab=ip');
     const m = await import('./addWizardStore');
     m.openAddWizard();
@@ -40,22 +40,6 @@ describe('addWizardStore', () => {
     expect(sp.get('add')).toBe('1');
     expect(sp.get('tab')).toBe('singbox');
     expect(window.history.length).toBeGreaterThan(1);
-  });
-
-  it('closeAddWizard removes add from URL + clears all state', async () => {
-    resetEnv('/routing?tab=singbox');
-    const m = await import('./addWizardStore');
-    m.openAddWizard();
-    m.setOutboundCategory('tunnel');
-    m.toggleTunnelTag('warp');
-    m.updateCustomField('rulesList', 'a.com');
-    m.closeAddWizard();
-    expect(get(m.addWizardOpen)).toBe(false);
-    expect(get(m.wizardOutboundCategory)).toBe(null);
-    expect(get(m.wizardTunnelTags)).toEqual([]);
-    expect(get(m.wizardCustom).rulesList).toBe('');
-    expect(new URL(window.location.href).searchParams.get('add')).toBeNull();
-    expect(new URL(window.location.href).searchParams.get('tab')).toBe('singbox');
   });
 
   it('popstate without ?add= closes wizard overlay', async () => {
@@ -177,6 +161,24 @@ describe('addWizardStore', () => {
     expect(get(m.wizardEditRuleIndex)).toBe(null);
     expect(get(m.wizardEditMode)).toBe(null);
     expect(get(m.wizardWasInlineText)).toBe(false);
+    expect(new URL(window.location.href).searchParams.get('add')).toBeNull();
+    expect(new URL(window.location.href).searchParams.get('tab')).toBe('singbox');
+  });
+
+  it('closeAddWizard clears wizard state along with URL', async () => {
+    resetEnv('/routing?tab=singbox');
+    const m = await import('./addWizardStore');
+    m.openAddWizard();
+    m.setOutboundCategory('tunnel');
+    m.toggleTunnelTag('warp');
+    m.updateCustomField('rulesList', 'a.com');
+    m.closeAddWizard();
+    expect(get(m.addWizardOpen)).toBe(false);
+    expect(get(m.wizardOutboundCategory)).toBe(null);
+    expect(get(m.wizardTunnelTags)).toEqual([]);
+    expect(get(m.wizardCustom).rulesList).toBe('');
+    expect(new URL(window.location.href).searchParams.get('add')).toBeNull();
+    expect(new URL(window.location.href).searchParams.get('tab')).toBe('singbox');
   });
 
   it('openAddWizard clears prior edit state', async () => {
