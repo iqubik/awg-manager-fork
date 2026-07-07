@@ -8,12 +8,12 @@
 	import { usageLevel } from '$lib/stores/settings';
 	import { isSectionVisible } from '$lib/types/usageLevel';
 	import { groupLogsByTunnel, computeCardStats } from '$lib/utils/pingStats';
-	import { WatchdogCard } from '$lib/components/pingcheck';
+	import WatchdogCard from './WatchdogCard.svelte';
 	import SingboxWatchdogCard, { type SingboxWatchdogCardModel } from './SingboxWatchdogCard.svelte';
 	import SingboxWatchdogSettingsDrawer from './SingboxWatchdogSettingsDrawer.svelte';
 	import KernelPingCheckModal from '$lib/components/pingcheck/KernelPingCheckModal.svelte';
 	import NativeWGPingCheckModal from '$lib/components/pingcheck/NativeWGPingCheckModal.svelte';
-	import { EmptyState } from '$lib/components/layout';
+	import EmptyState from '$lib/components/layout/EmptyState.svelte';
 	import { notifications } from '$lib/stores/notifications';
 	import type {
 		AWGTunnel,

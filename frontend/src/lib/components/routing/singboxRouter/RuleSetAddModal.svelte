@@ -1,13 +1,11 @@
 <script lang="ts">
 	import SingboxSettingsModal from './SingboxSettingsModal.svelte';
-	import {
-		Button,
-		Dropdown,
-		SegmentedControl,
-		SyntaxHighlightedTextarea,
-		type DropdownOption,
-		type SegmentedOption,
-	} from '$lib/components/ui';
+	import Button from '$lib/components/ui/Button.svelte';
+	import Dropdown from '$lib/components/ui/Dropdown.svelte';
+	import type { DropdownOption } from '$lib/components/ui/Dropdown.svelte';
+	import SegmentedControl from '$lib/components/ui/SegmentedControl.svelte';
+	import SyntaxHighlightedTextarea from '$lib/components/ui/SyntaxHighlightedTextarea.svelte';
+	import type { SegmentedOption } from '$lib/components/ui/segmentedControl';
 	import { highlightJson } from '$lib/utils/shareEditorHighlight';
 	import { api } from '$lib/api/client';
 	import type { GeoFileEntry, SingboxRouterRuleSet } from '$lib/types';
