@@ -77,3 +77,35 @@ describe('outboundDegradedText', () => {
 		expect(outboundDegradedText({ selectedOutbound: 'vpn' })).toBeNull();
 	});
 });
+
+describe('degradation vs drift semantics', () => {
+	it('в degraded-сценарии основным остаётся configured label, fallback идёт отдельным текстом', () => {
+		const input = {
+			selectedOutbound: 'vpn',
+			runtime: rt({
+				alive: true,
+				activeTag: 'awg-awg10',
+				defaultTag: 'awg-awg10',
+				degradedOutbound: 'vpn',
+				fallbackTag: 'awg-awg10',
+			}),
+		};
+		expect(outboundName(input)).toBe('vpn');
+		expect(outboundDegradedText(input)).toBe('выход недоступен — через awg-awg10');
+		expect(outboundNowTag(input)).toBe('awg-awg10');
+	});
+
+	it('при обычном drift label остаётся configured/default, active показывается отдельно', () => {
+		const input = {
+			selectedOutbound: 'vpn',
+			runtime: rt({
+				alive: true,
+				defaultTag: 'vpn',
+				activeTag: 'proxy-a',
+			}),
+		};
+		expect(outboundName(input)).toBe('vpn');
+		expect(outboundNowTag(input)).toBe('proxy-a');
+		expect(outboundDegradedText(input)).toBeNull();
+	});
+});

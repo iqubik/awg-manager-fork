@@ -8,12 +8,12 @@ chcp 65001 >nul
 :: - "mipsel": Build only mipsel-3.4
 :: - "mips": Build only mips-3.4
 :: - "arm" or "aarch64": Build only ARM64
-set "BUILD_MODE=arm"
+set "BUILD_MODE=all"
 
 :: Set UPLOAD_MODE to: "on" or "off"
 :: - "on": Upload and install the built IPK on rax1 (default if ARM64 built)
 :: - "off": Skip upload and installation
-set "UPLOAD_MODE=on"
+set "UPLOAD_MODE=off"
 set "AWG_RELEASE_BASE_URL=https://github.com/iqubik/awg-manager-fork/releases/download/iq-latest"
 :: ===========================
 
