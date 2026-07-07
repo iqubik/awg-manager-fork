@@ -21,14 +21,6 @@
 	import { datInfo } from '$lib/utils/ruleSetType';
 	import InlineRuleListEditor from './InlineRuleListEditor.svelte';
 	import GeoTagPicker from './GeoTagPicker.svelte';
-	import {
-		applyGeoTagToggle,
-		buildRuleSetPayload,
-		createRuleSetDraftState,
-		DEFAULT_RULES_JSON,
-		standardDatRuleSetTag,
-		type RuleSetFormType,
-	} from './ruleSetAddModalLogic';
 
 	interface Props {
 		ruleSet?: SingboxRouterRuleSet;
@@ -37,6 +29,8 @@
 		onSave: (rs: SingboxRouterRuleSet) => Promise<void> | void;
 	}
 	let { ruleSet, outboundOptions, onClose, onSave }: Props = $props();
+
+	type RuleSetFormType = 'remote' | 'local' | 'inline' | 'geosite' | 'geoip';
 
 	// ── constants ───────────────────────────────────────────────
 	const UPDATE_INTERVAL_OPTIONS: DropdownOption[] = [
@@ -215,6 +209,15 @@
 		return analyzeInlineRuleListLossy(ruleSet.rules);
 	});
 
+	// Default rulesJson template for new rule sets (must match $state initializer above)
+	const DEFAULT_RULES_JSON = `[
+  {
+    "domain_suffix": [
+      "example.com"
+    ]
+  }
+]`;
+
 	// Snapshot initial state for isDirty detection
 	let initialInlineMode: 'list' | 'json' = $state('list');
 	let initialType: RuleSetFormType = $state('remote');
@@ -233,31 +236,53 @@
 	$effect(() => {
 		void formResetKey;
 
-		const draft = createRuleSetDraftState(ruleSet);
+		const dat = ruleSet ? datInfo(ruleSet) : null;
+		const nextType: RuleSetFormType = dat?.kind ?? ruleSet?.type ?? 'remote';
+		const nextFormat: 'binary' | 'source' = ruleSet?.format ?? 'binary';
+		const nextTag = ruleSet?.tag ?? '';
+		const nextUrl = ruleSet?.url ?? '';
+		const nextUpdateInterval = ruleSet?.update_interval ?? '24h';
+		const nextDownloadDetour = ruleSet?.download_detour ?? '';
+		const nextPath = ruleSet?.path ?? '';
+		const nextRulesJson = ruleSet?.rules?.length
+			? JSON.stringify(ruleSet.rules, null, 2)
+			: DEFAULT_RULES_JSON;
+		const nextLossyAnalysis =
+			ruleSet?.type === 'inline'
+				? analyzeInlineRuleListLossy(ruleSet.rules)
+				: { lossy: false, issues: [] as string[] };
+		const nextInlineMode: 'list' | 'json' =
+			ruleSet?.type === 'inline' && ruleSet?.rules?.length && nextLossyAnalysis.lossy
+				? 'json'
+				: 'list';
+		const nextRulesList =
+			nextType === 'inline' && ruleSet?.rules?.length
+				? stringifyInlineRuleList(ruleSet.rules)
+				: '';
 
-		type = draft.type;
-		format = draft.format;
-		tag = draft.tag;
-		url = draft.url;
-		updateInterval = draft.updateInterval;
-		downloadDetour = draft.downloadDetour;
-		path = draft.path;
-		rulesJson = draft.rulesJson;
-		inlineMode = draft.inlineMode;
-		rulesList = draft.rulesList;
-		selectedGeoTags = draft.selectedGeoTags;
+		type = nextType;
+		format = nextFormat;
+		tag = nextTag;
+		url = nextUrl;
+		updateInterval = nextUpdateInterval;
+		downloadDetour = nextDownloadDetour;
+		path = nextPath;
+		rulesJson = nextRulesJson;
+		inlineMode = nextInlineMode;
+		rulesList = nextRulesList;
+		selectedGeoTags = dat?.tags ?? [];
 
-		initialType = draft.type;
-		initialFormat = draft.format;
-		initialTag = draft.tag;
-		initialUrl = draft.url;
-		initialUpdateInterval = draft.updateInterval;
-		initialDownloadDetour = draft.downloadDetour;
-		initialPath = draft.path;
-		initialRulesJson = draft.rulesJson;
-		initialInlineMode = draft.inlineMode;
-		initialRulesList = draft.rulesList;
-		initialSelectedGeoTags = draft.selectedGeoTags;
+		initialType = nextType;
+		initialFormat = nextFormat;
+		initialTag = nextTag;
+		initialUrl = nextUrl;
+		initialUpdateInterval = nextUpdateInterval;
+		initialDownloadDetour = nextDownloadDetour;
+		initialPath = nextPath;
+		initialRulesJson = nextRulesJson;
+		initialInlineMode = nextInlineMode;
+		initialRulesList = nextRulesList;
+		initialSelectedGeoTags = dat?.tags ?? [];
 
 		error = '';
 		busy = false;
@@ -281,14 +306,16 @@
 	});
 
 	function toggleGeoTag(pickedTag: string): void {
-		const next = applyGeoTagToggle({
-			type,
-			tag,
-			selectedGeoTags,
-			pickedTag,
-		});
-		selectedGeoTags = next.selectedGeoTags;
-		tag = next.tag;
+		if ((type !== 'geosite' && type !== 'geoip') || !pickedTag.trim()) return;
+		const shouldUpdateRuleSetTag =
+			tag.trim() === '' ||
+			((type === 'geosite' || type === 'geoip') &&
+				selectedGeoTags.length > 0 &&
+				tag.trim() === standardDatRuleSetTag(type, selectedGeoTags));
+		selectedGeoTags = selectedGeoTags.includes(pickedTag)
+			? selectedGeoTags.filter((t) => t !== pickedTag)
+			: [...selectedGeoTags, pickedTag];
+		if (shouldUpdateRuleSetTag) tag = selectedGeoTags.length > 0 ? standardDatRuleSetTag(type, selectedGeoTags) : '';
 	}
 
 	function setType(next: RuleSetFormType): void {
@@ -298,6 +325,14 @@
 			if (tag.trim() === standardDatRuleSetTag(wasDatKind, selectedGeoTags)) tag = '';
 			selectedGeoTags = [];
 		}
+	}
+
+	function standardDatRuleSetTag(kind: 'geosite' | 'geoip', pickedTags: string[]): string {
+		return `${kind}-${pickedTags.join('-')}`.toLowerCase().replace(/[^a-z0-9._-]+/g, '-');
+	}
+
+	function savedRuleSetType(t: RuleSetFormType): SingboxRouterRuleSet['type'] {
+		return t === 'geosite' || t === 'geoip' ? 'remote' : t;
 	}
 
 	async function save(): Promise<void> {
@@ -373,21 +408,23 @@
 				}
 			}
 
-			const built = await buildRuleSetPayload({
-				type,
-				format,
+			let builtUrl = url.trim();
+			if (isDatType) {
+				const res = await api.singboxRouterDatRuleSetURL(datKind, selectedGeoTags);
+				builtUrl = res.url;
+			}
+
+			const savedType = savedRuleSetType(type);
+			const built: SingboxRouterRuleSet = {
 				tag: cleanTag,
-				url,
-				updateInterval,
-				downloadDetour,
-				path,
-				parsedRules,
-				selectedGeoTags,
-				resolveDatRuleSetURL: async (kind, tags) => {
-					const res = await api.singboxRouterDatRuleSetURL(kind, tags);
-					return res.url;
-				},
-			});
+				type: savedType,
+				format: savedType === 'inline' ? undefined : isDatType ? 'binary' : format,
+				url: savedType === 'remote' ? builtUrl : undefined,
+				update_interval: savedType === 'remote' ? (isDatType ? '24h' : updateInterval) : undefined,
+				download_detour: type === 'remote' && downloadDetour ? downloadDetour : undefined,
+				path: savedType === 'local' ? path.trim() : undefined,
+				rules: savedType === 'inline' ? parsedRules : undefined,
+			};
 			await onSave(built);
 		} catch (e) {
 			error = (e as Error).message;
