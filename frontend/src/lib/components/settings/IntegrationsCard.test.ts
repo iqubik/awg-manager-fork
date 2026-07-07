@@ -29,7 +29,7 @@ function renderHydra(status: HydraRouteStatus) {
 }
 
 describe('IntegrationsCard', () => {
-	it('renders official install action for legacy HydraRoute when package install is supported', () => {
+	it('shows official install action for legacy HydraRoute when package install is supported', () => {
 		const { getByRole, getByText, queryByRole } = renderHydra({
 			installed: true,
 			running: false,
@@ -48,7 +48,22 @@ describe('IntegrationsCard', () => {
 		expect(queryByRole('button', { name: /обновить/i })).toBeNull();
 	});
 
-	it('renders update action and required version text for managed HydraRoute update', () => {
+	it('does not show update button when updateAvailable is false for managed opkg install', () => {
+		const { queryByRole, getByRole } = renderHydra({
+			installed: true,
+			running: false,
+			legacy: false,
+			managed: true,
+			installSupported: true,
+			updateAvailable: false,
+			processState: 'stopped',
+		});
+
+		expect(queryByRole('button', { name: /обновить/i })).toBeNull();
+		expect(getByRole('button', { name: /открыть/i })).toBeTruthy();
+	});
+
+	it('shows update button and required version text when updateAvailable is true', () => {
 		const { getByRole, getByText, queryByRole } = renderHydra({
 			installed: true,
 			running: false,
