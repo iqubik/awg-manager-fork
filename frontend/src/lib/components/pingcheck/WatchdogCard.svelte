@@ -1,7 +1,12 @@
 <!-- frontend/src/lib/components/pingcheck/WatchdogCard.svelte -->
 <script lang="ts">
-	import { StatusDot, VersionBadge, Badge, Button, type StatusDotVariant, type BadgeVariant } from '$lib/components/ui';
-	import { TunnelDelaySparkBars } from '$lib/components/tunnels';
+	import Badge from '$lib/components/ui/Badge.svelte';
+	import type { BadgeVariant } from '$lib/components/ui/Badge.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
+	import StatusDot from '$lib/components/ui/StatusDot.svelte';
+	import type { StatusDotVariant } from '$lib/components/ui/StatusDot.svelte';
+	import VersionBadge from '$lib/components/ui/VersionBadge.svelte';
+	import TunnelDelaySparkBars from '$lib/components/tunnels/TunnelDelaySparkBars.svelte';
 	import { Settings, Power, PowerOff, Info, Check, X, RotateCcw } from 'lucide-svelte';
 	import { formatTime } from '$lib/utils/format';
 	import type { CardStats } from '$lib/utils/pingStats';
