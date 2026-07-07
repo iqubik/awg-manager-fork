@@ -570,19 +570,6 @@ func (s *Service) ForceApply(ctx context.Context) error {
 
 	cfg := s.d.Store.Get()
 
-	if cfg.Enabled && s.d.Singbox != nil {
-		active, err := s.d.Singbox.GetSelectorActive(ctx, "device-proxy-selector")
-		if err != nil {
-			return fmt.Errorf("force apply read active selector: %w", err)
-		}
-		if active != "" && active != cfg.SelectedOutbound {
-			cfg.SelectedOutbound = active
-			if err := s.d.Store.Save(cfg); err != nil {
-				return fmt.Errorf("force apply persist active selector: %w", err)
-			}
-		}
-	}
-
 	spec, err := s.buildSpec(ctx, "default", cfg)
 	if err != nil {
 		return err
