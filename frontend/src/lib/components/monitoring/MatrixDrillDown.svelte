@@ -9,6 +9,11 @@
 	} from '$lib/constants/monitoring';
 	import type { MonitoringTarget, MonitoringTunnel, MonitoringSample } from '$lib/types';
 	import Sparkline from './Sparkline.svelte';
+	import {
+		computeMonitoringStats,
+		downsampleMonitoringPoints,
+		getMonitoringRecentPage,
+	} from './matrixDrillDownLogic';
 
 	interface Props {
 		target: MonitoringTarget;
@@ -25,17 +30,6 @@
 	let loading = $state(true);
 	let recentPage = $state(0);
 	const historyLimit = $derived(historyCapacity);
-
-	function downsamplePoints(points: MonitoringSample[], maxPoints: number): MonitoringSample[] {
-		if (points.length <= maxPoints) return points;
-		const step = points.length / maxPoints;
-		const sampled: MonitoringSample[] = [];
-		for (let i = 0; i < maxPoints; i++) {
-			const idx = Math.min(points.length - 1, Math.floor(i * step));
-			sampled.push(points[idx]);
-		}
-		return sampled;
-	}
 
 	onMount(async () => {
 		const cached = getCachedHistory(target.id, tunnel.id, historyLimit);
@@ -58,37 +52,20 @@
 		}
 	});
 
-	const stats = $derived.by(() => {
-		const ok = samples.filter((s) => s.ok && s.latencyMs !== null);
-		if (ok.length === 0) {
-			return {
-				avg: null as number | null,
-				min: null as number | null,
-				max: null as number | null,
-				lossPct: 100,
-			};
-		}
-		const lats = ok.map((s) => s.latencyMs as number);
-		const sum = lats.reduce((a, b) => a + b, 0);
-		const lossPct = Math.round(((samples.length - ok.length) / samples.length) * 100);
-		return {
-			avg: Math.round(sum / lats.length),
-			min: Math.min(...lats),
-			max: Math.max(...lats),
-			lossPct,
-		};
-	});
-
-	const sparklinePoints = $derived(downsamplePoints(samples, MONITORING_SPARKLINE_POINTS));
-	const newestFirstSamples = $derived([...samples].reverse());
-	const recentPageCount = $derived(Math.max(1, Math.ceil(samples.length / MONITORING_RECENT_ROWS)));
-	const recentPageStart = $derived(recentPage * MONITORING_RECENT_ROWS);
-	const recentPageEnd = $derived(Math.min(samples.length, recentPageStart + MONITORING_RECENT_ROWS));
-	const recent = $derived(newestFirstSamples.slice(recentPageStart, recentPageEnd));
-	const recentRangeLabel = $derived.by(() => {
-		if (samples.length === 0) return '0-0';
-		return `${recentPageStart + 1}-${recentPageEnd}`;
-	});
+	const stats = $derived(computeMonitoringStats(samples));
+	const sparklinePoints = $derived(downsampleMonitoringPoints(samples, MONITORING_SPARKLINE_POINTS));
+	const recentPageState = $derived(
+		getMonitoringRecentPage({
+			samples,
+			recentPage,
+			rowsPerPage: MONITORING_RECENT_ROWS,
+		}),
+	);
+	const recentPageCount = $derived(recentPageState.recentPageCount);
+	const recentPageStart = $derived(recentPageState.recentPageStart);
+	const recentPageEnd = $derived(recentPageState.recentPageEnd);
+	const recent = $derived(recentPageState.recent);
+	const recentRangeLabel = $derived(recentPageState.recentRangeLabel);
 
 	$effect(() => {
 		if (recentPage >= recentPageCount) {

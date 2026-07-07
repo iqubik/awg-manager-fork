@@ -32,39 +32,23 @@ describe('traceStore', () => {
     expect(get(dnsResult)).toBeNull();
   });
 
-  it('init: URL ?trace=1 → traceOpen=true', async () => {
-    resetEnv('/?tab=singbox&trace=1');
-    const { traceOpen } = await import('./traceStore');
-    expect(get(traceOpen)).toBe(true);
-  });
-
-  it('init: URL ?q=netflix.com → traceInput.domain', async () => {
-    resetEnv('/?trace=1&q=netflix.com');
-    const { traceOpen, traceInput } = await import('./traceStore');
-    expect(get(traceOpen)).toBe(true);
-    expect(get(traceInput).domain).toBe('netflix.com');
-  });
-
-  it('openTrace() → URL trace=1', async () => {
-    const { openTrace, traceOpen } = await import('./traceStore');
-    openTrace();
-    expect(get(traceOpen)).toBe(true);
-    expect(new URL(window.location.href).searchParams.get('trace')).toBe('1');
-  });
-
-  it('openTrace(domain) → URL trace=1 + q=domain', async () => {
-    const { openTrace, traceInput } = await import('./traceStore');
+  it('openTrace(domain) updates both store state and URL', async () => {
+    resetEnv('/routing?tab=singbox');
+    const { openTrace, traceOpen, traceInput } = await import('./traceStore');
     openTrace('youtube.com');
+    expect(get(traceOpen)).toBe(true);
     expect(get(traceInput).domain).toBe('youtube.com');
     const sp = new URL(window.location.href).searchParams;
     expect(sp.get('trace')).toBe('1');
     expect(sp.get('q')).toBe('youtube.com');
   });
 
-  it('closeTrace() удаляет trace+q из URL', async () => {
+  it('closeTrace() closes overlay and removes trace params from URL', async () => {
     resetEnv('/?tab=singbox&trace=1&q=netflix.com&other=keep');
     const { closeTrace, traceOpen } = await import('./traceStore');
+
     closeTrace();
+
     expect(get(traceOpen)).toBe(false);
     const sp = new URL(window.location.href).searchParams;
     expect(sp.get('trace')).toBeNull();
@@ -199,5 +183,8 @@ describe('traceStore', () => {
     expect(get(traceInput).domain).toBe('');
     expect(get(traceResult)).toBeNull();
     expect(get(traceError)).toBeNull();
+    const sp = new URL(window.location.href).searchParams;
+    expect(sp.get('trace')).toBeNull();
+    expect(sp.get('q')).toBeNull();
   });
 });
