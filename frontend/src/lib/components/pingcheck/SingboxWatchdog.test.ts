@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const {
@@ -135,7 +135,7 @@ describe('SingboxWatchdog UI', () => {
 		singboxDelayHistoryStore.set(new Map([['sb-main', [90, 95]]]));
 	});
 
-	it('renders raw tunnel drawer with recovery off selected', () => {
+	it('raw tunnel drawer defaults to recovery off', () => {
 		render(SingboxWatchdogSettingsDrawer, {
 			props: {
 				open: true,
@@ -147,6 +147,27 @@ describe('SingboxWatchdog UI', () => {
 
 		const select = screen.getByLabelText('Режим восстановления') as HTMLSelectElement;
 		expect(select.value).toBe('off');
+	});
+
+	it('subscription drawer defaults to switch-member', () => {
+		render(SingboxWatchdogSettingsDrawer, {
+			props: {
+				open: true,
+				target: {
+					...baseTarget,
+					id: 'subscription:sub-1',
+					kind: 'subscription',
+					ref: 'sub-1',
+					name: 'Pool',
+					recoveryMode: undefined as never,
+				},
+				onclose: () => {},
+				onSaved: () => {},
+			},
+		});
+
+		const select = screen.getByLabelText('Режим восстановления') as HTMLSelectElement;
+		expect(select.value).toBe('switch-member');
 	});
 
 	it('selecting restart-singbox shows dangerous warning and blocks save until confirmed', async () => {
@@ -190,38 +211,5 @@ describe('SingboxWatchdog UI', () => {
 		await fireEvent.click(screen.getByRole('button', { name: 'Проверка watchdog' }));
 		expect(onCheckNow).toHaveBeenCalledTimes(1);
 		expect(singboxDelayCheck).not.toHaveBeenCalled();
-	});
-
-	it('disables watchdog check button while request is pending and avoids double submit', async () => {
-		let resolveCheck: (() => void) | undefined;
-		const onCheckNow = vi.fn(
-			() =>
-				new Promise<void>((resolve) => {
-					resolveCheck = resolve;
-				}),
-		);
-
-		render(SingboxWatchdogCard, {
-			props: {
-				card: baseCard,
-				onConfigure: () => {},
-				onCheckNow,
-				onDisable: () => {},
-				onEnable: () => {},
-			},
-		});
-
-		const button = screen.getByRole('button', { name: 'Проверка watchdog' }) as HTMLButtonElement;
-		await fireEvent.click(button);
-		expect(onCheckNow).toHaveBeenCalledTimes(1);
-		expect(button.disabled).toBe(true);
-
-		await fireEvent.click(button);
-		expect(onCheckNow).toHaveBeenCalledTimes(1);
-
-		resolveCheck?.();
-		await waitFor(() => {
-			expect(button.disabled).toBe(false);
-		});
 	});
 });

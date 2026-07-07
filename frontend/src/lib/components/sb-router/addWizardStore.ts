@@ -3,7 +3,6 @@ import { goto } from '$app/navigation';
 import { closeTrace } from './traceStore';
 import { clearSelection } from './templatesStore';
 import type { WizardEditMode } from './ruleWizardPrefill';
-import { buildAddWizardUrl } from './addWizardStoreLogic';
 
 export type OutboundCategory = 'tunnel' | 'direct' | 'block';
 
@@ -36,7 +35,17 @@ export const wizardExistingInlineRuleSetTag: Readable<string | null> = {
 export const wizardWasInlineText: Readable<boolean> = { subscribe: wasInlineTextW.subscribe };
 
 function wizardUrl(open: boolean): string {
-  return buildAddWizardUrl(window.location.href, open);
+  const url = new URL(window.location.href);
+  url.searchParams.set('tab', 'singbox');
+  if (open) {
+    url.searchParams.set('add', '1');
+    url.searchParams.delete('trace');
+    url.searchParams.delete('q');
+  } else {
+    url.searchParams.delete('add');
+    url.searchParams.delete('edit');
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function pushWizardUrl(): void {
@@ -139,3 +148,4 @@ export function resetWizardState(): void {
   tunnelW.set([]);
   customW.set(emptyCustom());
 }
+
