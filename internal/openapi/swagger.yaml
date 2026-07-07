@@ -51,6 +51,21 @@ definitions:
       h4:
         example: "4"
         type: string
+      i1:
+        example: <b 0x1603010200><rc 32><r 64><t>
+        type: string
+      i2:
+        example: <b 0xabcdef01><r 24><t><rd 6>
+        type: string
+      i3:
+        example: <r 40><rc 7><b 0x01020304><t>
+        type: string
+      i4:
+        example: <t><r 18><rc 6><b 0xaabbccdd><rd 5>
+        type: string
+      i5:
+        example: <b 0x11223344><r 28><t><rd 4>
+        type: string
       jc:
         example: 4
         type: integer
