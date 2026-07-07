@@ -581,12 +581,11 @@ func (s *Service) ForceApply(ctx context.Context) error {
 		}
 
 		if cfg.Enabled {
-			selected := strings.TrimSpace(cfg.SelectedOutbound)
-			if selected == "" {
-				selected = "direct"
-			}
-			if err := s.d.Singbox.SetSelectorDefault(ctx, "device-proxy-selector", selected); err != nil {
-				return fmt.Errorf("force apply selector: %w", err)
+			selected := strings.TrimSpace(spec.SelectedTag)
+			if selected != "" {
+				if err := s.d.Singbox.SetSelectorDefault(ctx, "device-proxy-selector", selected); err != nil {
+					return fmt.Errorf("force apply selector: %w", err)
+				}
 			}
 		}
 	}
