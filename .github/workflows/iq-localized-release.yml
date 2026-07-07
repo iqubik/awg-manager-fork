@@ -613,9 +613,16 @@ jobs:
               for _, name, pretty in top_files:
                   print(f"- `{name}` — {pretty}")
 
-          if "Import Duration Breakdown" in log:
+          breakdown_index = next((i for i, line in enumerate(lines) if "Import Duration Breakdown" in line), -1)
+          if breakdown_index != -1:
               print()
-              print("Import profiling was enabled for this run.")
+              print("<details><summary>Import Duration Breakdown</summary>")
+              print()
+              print("```")
+              for line in lines[breakdown_index:breakdown_index + 80]:
+                  print(line)
+              print("```")
+              print("</details>")
           PY
 
           if [[ "$status" -ne 0 ]]; then
