@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { SingboxStatus, HydraRouteStatus } from '$lib/types';
-	import { Button, SideDrawer, StatusDot } from '$lib/components/ui';
+	import Button from '$lib/components/ui/Button.svelte';
+	import SideDrawer from '$lib/components/ui/SideDrawer.svelte';
+	import StatusDot from '$lib/components/ui/StatusDot.svelte';
 	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
 	import { copyToClipboard } from '$lib/utils/clipboard';
 	import { hydraRouteInstallProgress } from '$lib/stores/hydrarouteInstall';
