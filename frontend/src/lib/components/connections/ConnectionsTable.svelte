@@ -10,6 +10,15 @@
 		tooltip: string;
 	}
 
+	const mobileSortOptions = [
+		{ value: 'proto', label: 'Протокол' },
+		{ value: 'src', label: 'Источник' },
+		{ value: 'dst', label: 'Назначение' },
+		{ value: 'iface', label: 'Интерфейс' },
+		{ value: 'state', label: 'Состояние' },
+		{ value: 'bytes', label: 'Трафик' },
+	] as const;
+
 	interface Props {
 		connections: ConntrackConnection[];
 		pagination: ConnectionsPagination;
@@ -105,7 +114,89 @@
 	</th>
 {/snippet}
 
-<div class="table-wrapper">
+<div class="mobile-sortbar" aria-label="Сортировка соединений">
+	<span class="mobile-sort-label">Сортировать:</span>
+	<div class="mobile-sort-chips">
+		{#each mobileSortOptions as option}
+			<button
+				type="button"
+				class="chip mobile-sort-chip"
+				class:chip-active={sortBy === option.value}
+				onclick={() => onSortChange(option.value)}
+			>
+				{option.label}
+				{#if sortBy === option.value}
+					<span class="sort-arrow">{sortDir === 'asc' ? '▲' : '▼'}</span>
+				{/if}
+			</button>
+		{/each}
+	</div>
+</div>
+
+<div class="mobile-connections">
+	{#each connections as conn, i (conn.src + conn.srcPort + conn.dst + conn.dstPort + conn.protocol + i)}
+		<article class="conn-card" class:row-tunneled={conn.tunnelId !== ''}>
+			<div class="conn-card-head">
+				<span class="proto-badge proto-{conn.protocol}">{conn.protocol.toUpperCase()}</span>
+
+				{#if conn.state}
+					{@const stateVariant = conn.state === 'ESTABLISHED' ? 'success' : conn.state.startsWith('SYN') ? 'warning' : 'muted'}
+					<Badge variant={stateVariant} size="sm">{conn.state}</Badge>
+				{:else}
+					<Badge variant="muted" size="sm">—</Badge>
+				{/if}
+			</div>
+
+			<div class="conn-card-row">
+				<span class="conn-card-label">Источник</span>
+				<span class="conn-card-value mono">
+					{conn.src}{#if conn.srcPort > 0}:{conn.srcPort}{/if}
+					{#if conn.clientName}
+						<span class="client-name">{conn.clientName}</span>
+					{/if}
+				</span>
+			</div>
+
+			<div class="conn-card-row">
+				<span class="conn-card-label">Назначение</span>
+				<span class="conn-card-value mono">
+					{conn.dst}{#if conn.dstPort > 0}:{conn.dstPort}{/if}
+					{#if conn.rules && conn.rules.length > 0}
+						<div class="rule-badges">
+							{#each groupRules(conn.rules) as group (group.key)}
+								<span title={group.tooltip}>
+									<Badge variant="accent" size="sm">
+										{group.label}{group.count > 1 ? ` ×${group.count}` : ''}
+									</Badge>
+								</span>
+							{/each}
+						</div>
+					{/if}
+				</span>
+			</div>
+
+			<div class="conn-card-meta">
+				<div class="conn-card-row compact-row">
+					<span class="conn-card-label">Интерфейс</span>
+					<span class="conn-card-value">
+						{#if conn.tunnelId}
+							<Badge variant="accent" size="sm">{conn.tunnelName}</Badge>
+						{:else}
+							<Badge variant="muted" size="sm">{conn.interface || '—'}</Badge>
+						{/if}
+					</span>
+				</div>
+
+				<div class="conn-card-row compact-row">
+					<span class="conn-card-label">Трафик</span>
+					<span class="conn-card-value mono">{formatBytes(conn.bytes)}</span>
+				</div>
+			</div>
+		</article>
+	{/each}
+</div>
+
+<div class="table-wrapper desktop-table">
 	<table class="conn-table">
 		<thead>
 			<tr>
@@ -189,6 +280,11 @@
 <style>
 	.table-wrapper {
 		overflow-x: auto;
+	}
+
+	.mobile-sortbar,
+	.mobile-connections {
+		display: none;
 	}
 
 	.conn-table {
@@ -299,5 +395,96 @@
 		font-size: 0.6rem;
 		margin-left: 0.25rem;
 		vertical-align: middle;
+	}
+
+	@media (max-width: 767px) {
+		.desktop-table {
+			display: none;
+		}
+
+		.mobile-sortbar {
+			display: flex;
+			flex-direction: column;
+			gap: 0.375rem;
+			margin-bottom: 0.625rem;
+		}
+
+		.mobile-sort-label {
+			font-size: 0.6875rem;
+			color: var(--color-text-muted);
+		}
+
+		.mobile-sort-chips {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.25rem;
+		}
+
+		.mobile-sort-chip {
+			font-size: 0.6875rem;
+		}
+
+		.mobile-connections {
+			display: grid;
+			gap: 0.5rem;
+		}
+
+		.conn-card {
+			border: 1px solid var(--color-border);
+			border-radius: 8px;
+			background: var(--color-bg-secondary);
+			padding: 0.625rem;
+		}
+
+		.conn-card.row-tunneled {
+			background: var(--color-tunneled-row);
+		}
+
+		.conn-card-head {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 0.5rem;
+			margin-bottom: 0.5rem;
+		}
+
+		.conn-card-row {
+			display: grid;
+			grid-template-columns: 5.25rem minmax(0, 1fr);
+			gap: 0.5rem;
+			align-items: start;
+			margin-top: 0.375rem;
+		}
+
+		.conn-card-label {
+			font-size: 0.625rem;
+			color: var(--color-text-muted);
+		}
+
+		.conn-card-value {
+			min-width: 0;
+			overflow-wrap: anywhere;
+		}
+
+		.conn-card-meta {
+			margin-top: 0.5rem;
+			padding-top: 0.5rem;
+			border-top: 1px solid var(--color-border);
+			display: grid;
+			gap: 0.375rem;
+		}
+
+		.compact-row {
+			margin-top: 0;
+			align-items: center;
+		}
+
+		.rule-badges {
+			white-space: normal;
+		}
+
+		.pagination {
+			gap: 0.5rem;
+		}
 	}
 </style>
