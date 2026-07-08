@@ -37,7 +37,8 @@ describe('computeCardStats', () => {
 		expect(s.restarts).toBe(2);
 		// bars chronological (oldest→newest): reverse of newest-first slice
 		expect(s.history).toEqual([100, 0, 50]);
-		expect(s.recent.length).toBe(3); // newest-first, untouched
+		expect(s.logs.length).toBe(3); // newest-first window, untouched
+		expect(s.logs[0].latency).toBe(50);
 	});
 
 	it('empty window: nulls + 0 loss + empty bars', () => {
@@ -47,6 +48,7 @@ describe('computeCardStats', () => {
 		expect(s.maxMs).toBeNull();
 		expect(s.lossPct).toBe(0);
 		expect(s.history).toEqual([]);
+		expect(s.logs).toEqual([]);
 	});
 
 	it('all-fail: nulls for latency, 100% loss, zero-bars', () => {
@@ -55,5 +57,15 @@ describe('computeCardStats', () => {
 		expect(s.avgMs).toBeNull();
 		expect(s.lossPct).toBe(100);
 		expect(s.history).toEqual([0, 0]);
+		expect(s.logs).toHaveLength(2);
+	});
+
+	it('keeps full log list for navigator while stats window stays limited', () => {
+		const entries = Array.from({ length: 40 }, (_, index) =>
+			log('a', true, index + 1, `14:00:${String(index).padStart(2, '0')}`),
+		);
+		const s = computeCardStats(entries, status());
+		expect(s.logs).toHaveLength(40);
+		expect(s.history).toHaveLength(12);
 	});
 });
