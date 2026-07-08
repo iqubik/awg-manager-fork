@@ -73,7 +73,7 @@ type Installer struct {
 	shaSize int64
 	shaMod  time.Time
 
-	psMu        sync.Mutex
+	psMu         sync.Mutex
 	packageState PackageState
 }
 
