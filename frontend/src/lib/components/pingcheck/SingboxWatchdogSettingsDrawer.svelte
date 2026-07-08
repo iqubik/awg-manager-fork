@@ -123,7 +123,7 @@
 	</div>
 
 	<div class="drawer-actions">
-		<Button variant="ghost" onclick={onclose} disabled={saving}>Отмена</Button>
+		<Button variant="secondary" onclick={onclose} disabled={saving}>Отмена</Button>
 		<Button variant="primary" onclick={() => void save()} loading={saving} disabled={!canSave}>Сохранить</Button>
 	</div>
 </SideDrawer>
@@ -185,5 +185,18 @@
 		gap: 8px;
 		padding-top: 12px;
 		border-top: 1px solid var(--color-border);
+	}
+
+	@media (max-width: 768px) {
+		.drawer-actions {
+			align-items: stretch;
+		}
+
+		.drawer-actions :global(.btn) {
+			flex: 1 1 0;
+			width: 100%;
+			min-width: 0;
+			justify-content: center;
+		}
 	}
 </style>
