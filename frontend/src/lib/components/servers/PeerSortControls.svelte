@@ -202,12 +202,6 @@
 		cursor: not-allowed;
 	}
 
-	@container peers-section (max-width: 819px) {
-		.peer-sort-controls.hide-sort-when-table-visible .peer-sort-ui {
-			display: inline-flex;
-		}
-	}
-
 	@media (max-width: 640px) {
 		.peer-sort-controls.hide-sort-when-table-visible {
 			display: contents;
