@@ -441,7 +441,7 @@
 					<span class="planning-icon" aria-hidden="true">
 						<Settings2 size={14} strokeWidth={2} />
 					</span>
-					<span>Настройки</span>
+					<span class="planning-btn-label">Настройки</span>
 				</button>
 				{#if updatedTimeLabel || ($monitoringStore.stale && refreshing)}
 					<button
@@ -746,6 +746,10 @@
 		flex: 0 0 auto;
 	}
 
+	.planning-btn-label {
+		display: inline;
+	}
+
 	.clock-dot {
 		width: 8px;
 		height: 8px;
@@ -994,6 +998,34 @@
 	}
 
 	@media (max-width: 640px) {
+		.meta-row {
+			align-items: stretch;
+			gap: 0.375rem;
+		}
+
+		.meta-left {
+			flex: 1 1 auto;
+			min-width: 0;
+		}
+
+		.meta-left :global(.segmented-control) {
+			width: 100%;
+		}
+
+		.meta-actions {
+			flex: 0 0 auto;
+			margin-left: 0.375rem;
+		}
+
+		.planning-btn {
+			padding-left: 0.5rem;
+			padding-right: 0.5rem;
+		}
+
+		.planning-btn-label {
+			display: none;
+		}
+
 		.planning-grid {
 			grid-template-columns: 1fr;
 		}
