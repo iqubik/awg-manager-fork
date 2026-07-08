@@ -126,7 +126,7 @@
 	{/if}
 
 	{#snippet footer()}
-		<Button variant="ghost" size="md" onclick={onclose}>Отмена</Button>
+		<Button variant="secondary" size="md" onclick={onclose}>Отмена</Button>
 		<Button variant="primary" size="md" onclick={handleSave} disabled={loading} loading={saving}>
 			Сохранить
 		</Button>
