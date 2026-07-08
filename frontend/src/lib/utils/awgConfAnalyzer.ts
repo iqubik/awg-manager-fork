@@ -41,6 +41,9 @@ export type I1Parsed = {
 	rTagSizes: number[];
 	rcTagSizes: number[];
 	totalRBytes: number;
+	bTagIndex: number;
+	randomPrefixBytes: number;
+	hasRandomPrefixBeforeB: boolean;
 	hasT: boolean;
 	hasC: boolean;
 	hasRc: boolean;
@@ -61,7 +64,7 @@ function legacyProtoFromRawI1(i1: string): string {
 }
 
 /** Распознавание протокола по hex после тега `<b 0x…>` (логика близка к pumbax/awg-analyzer). */
-export function detectI1ProtocolFromHex(hex: string): string {
+export function detectI1ProtocolFromHex(hex: string, randomPrefixBytes = 0): string {
 	if (!hex) return 'Unknown';
 	const h = hex.toLowerCase();
 	if (/^16030[0-3]/.test(h)) return 'TLS';
@@ -82,7 +85,15 @@ export function detectI1ProtocolFromHex(hex: string): string {
 		'535542',
 	];
 	if (sipHex.some((s) => h.startsWith(s))) return 'SIP';
+	if (/^[0-9a-f]{4}(0100|8180|8580|8182|8183)0001[0-9a-f]{4}0000[0-9a-f]{4}/.test(h)) return 'DNS';
+	if (
+		randomPrefixBytes === 2 &&
+		/^(0100|8180|8580|8182|8183)0001[0-9a-f]{4}0000[0-9a-f]{4}/.test(h)
+	) {
+		return 'DNS';
+	}
 	if (/^[0-9a-f]{4}01[02]0000[12]/.test(h)) return 'DNS';
+	if (h.includes('00010001')) return 'DNS';
 	if (h.startsWith('474554') || h.startsWith('504f5354') || h.startsWith('48545450')) return 'HTTP';
 	if (h.startsWith('0001') && h.includes('2112a442')) return 'STUN';
 	return 'Custom';
@@ -97,6 +108,9 @@ export function parseI1(i1: string): I1Parsed {
 		rTagSizes: [],
 		rcTagSizes: [],
 		totalRBytes: 0,
+		bTagIndex: -1,
+		randomPrefixBytes: 0,
+		hasRandomPrefixBeforeB: false,
 		hasT: false,
 		hasC: false,
 		hasRc: false,
@@ -142,9 +156,28 @@ export function parseI1(i1: string): I1Parsed {
 
 	result.firstTag = result.tags[0].tag;
 	result.startsWith_b = result.firstTag === 'b';
-	if (!result.startsWith_b) {
+	result.bTagIndex = result.tags.findIndex((t) => t.tag === 'b');
+	if (result.bTagIndex > 0) {
+		const prefixTags = result.tags.slice(0, result.bTagIndex);
+		const safeRandomPrefix = prefixTags.every((t) => t.tag === 'r' || t.tag === 'rc');
+		if (safeRandomPrefix) {
+			result.hasRandomPrefixBeforeB = true;
+			result.randomPrefixBytes = prefixTags.reduce((sum, t) => {
+				if (t.tag === 'r' || t.tag === 'rc') {
+					const n = parseInt(t.arg, 10);
+					return sum + (Number.isNaN(n) ? 0 : n);
+				}
+				return sum;
+			}, 0);
+		} else {
+			result.errors.push(
+				'Перед <b …> допускаются только random-теги <r …> / <rc …>; другие теги могут ломать структуру I1.',
+			);
+		}
+	}
+	if (!result.startsWith_b && result.bTagIndex === -1) {
 		result.errors.push(
-			'Первый тег в I1 должен быть <b …> — иначе парсер amneziawg-go может отказать в handshake.',
+			'I1 с тегами должен содержать <b …> с базовой hex-сигнатурой пакета.',
 		);
 	}
 
@@ -160,7 +193,7 @@ export function parseI1(i1: string): I1Parsed {
 		result.errors.push('Тег <c> устарел — на старых клиентах AmneziaVPN возможен ErrorCode 1000.');
 	}
 
-	result.protocol = detectI1ProtocolFromHex(result.hexData);
+	result.protocol = detectI1ProtocolFromHex(result.hexData, result.randomPrefixBytes);
 	if (result.hexData.length >= 2) {
 		const firstByte = parseInt(result.hexData.substring(0, 2), 16);
 		result.firstByte = firstByte;
@@ -768,14 +801,17 @@ export function runChecks(iface: AwgIface, peer: AwgIface, version: AwgVersionIn
 			protoPts = pr === 'QUIC' ? 5 : pr === 'DNS' ? 4 : 3;
 
 			const structOk = p.errors.length === 0;
+			const structDetail = structOk
+				? p.hasRandomPrefixBeforeB
+					? `Перед <b> есть random-префикс (${p.randomPrefixBytes} байт) — это допустимо для официальных Amnezia-конфигов и похоже на рандомизацию transaction ID / префикса сигнатуры.`
+					: 'Теги `<b>`, `<r>` в ожидаемом виде; критичных замечаний нет.'
+				: p.errors.join(' ');
 			addChk(
 				'CPS Мимикрий (I1-I5)',
 				'Структура I1 (теги)',
 				structOk ? 'pass' : 'fail',
 				p.firstTag ? `<${p.firstTag}>` : '—',
-				structOk
-					? 'Теги `<b>`, `<r>` в ожидаемом виде; критичных замечаний нет.'
-					: p.errors.join(' '),
+				structDetail,
 				structOk ? 3 : 0,
 				3,
 			);
