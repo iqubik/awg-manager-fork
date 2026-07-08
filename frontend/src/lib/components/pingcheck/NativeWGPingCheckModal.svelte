@@ -184,7 +184,7 @@
 			</Button>
 		{/if}
 		<div class="actions-spacer"></div>
-		<Button variant="ghost" size="md" onclick={onclose}>Отмена</Button>
+		<Button variant="secondary" size="md" onclick={onclose}>Отмена</Button>
 		<Button variant="primary" size="md" onclick={handleSave} disabled={busy} loading={saving}>
 			{status?.exists ? 'Обновить' : 'Включить'}
 		</Button>
@@ -283,6 +283,12 @@
 
 	.actions-spacer {
 		flex: 1;
+	}
+
+	@media (max-width: 768px) {
+		.actions-spacer {
+			display: none;
+		}
 	}
 
 	@media (max-width: 640px) {
