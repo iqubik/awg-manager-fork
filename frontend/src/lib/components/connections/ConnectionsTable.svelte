@@ -1,7 +1,14 @@
 <script lang="ts">
-	import type { ConntrackConnection, ConnectionsPagination } from '$lib/types';
+	import type { ConntrackConnection, ConnectionsPagination, RuleHit } from '$lib/types';
 	import { formatBytes } from '$lib/utils/format';
 	import { Button, Badge } from '$lib/components/ui';
+
+	interface GroupedRuleHit {
+		key: string;
+		label: string;
+		count: number;
+		tooltip: string;
+	}
 
 	interface Props {
 		connections: ConntrackConnection[];
@@ -42,6 +49,51 @@
 	function nextPage() {
 		onPageChange(pagination.offset + pagination.limit);
 	}
+
+	function groupRules(rules: RuleHit[] = []): GroupedRuleHit[] {
+		const groups = new Map<
+			string,
+			{
+				key: string;
+				label: string;
+				count: number;
+				tips: Set<string>;
+			}
+		>();
+
+		for (const rule of rules) {
+			const key = rule.listId || rule.listName || rule.pattern || rule.fqdn || 'unknown';
+			const label = rule.listName || rule.listId || rule.pattern || rule.fqdn || '—';
+
+			if (!groups.has(key)) {
+				groups.set(key, {
+					key,
+					label,
+					count: 0,
+					tips: new Set<string>(),
+				});
+			}
+
+			const group = groups.get(key);
+			if (!group) continue;
+
+			group.count += 1;
+
+			const fqdn = rule.fqdn?.trim();
+			const pattern = rule.pattern?.trim();
+			const tip = fqdn && pattern ? `${fqdn} (pattern: ${pattern})` : fqdn || pattern || '';
+			if (tip) {
+				group.tips.add(tip);
+			}
+		}
+
+		return [...groups.values()].map((group) => ({
+			key: group.key,
+			label: group.label,
+			count: group.count,
+			tooltip: [...group.tips].join('\n'),
+		}));
+	}
 </script>
 
 {#snippet sortHeader(column: 'proto' | 'src' | 'dst' | 'iface' | 'state' | 'bytes', label: string)}
@@ -81,10 +133,11 @@
 						{conn.dst}{#if conn.dstPort > 0}:{conn.dstPort}{/if}
 						{#if conn.rules && conn.rules.length > 0}
 							<div class="rule-badges">
-								{#each conn.rules as r}
-									{@const tip = `${r.fqdn ?? ''}${r.pattern ? ' (pattern: ' + r.pattern + ')' : ''}`}
-									<span title={tip}>
-										<Badge variant="accent" size="sm">{r.listName || r.listId}</Badge>
+								{#each groupRules(conn.rules) as group (group.key)}
+									<span title={group.tooltip}>
+										<Badge variant="accent" size="sm">
+											{group.label}{group.count > 1 ? ` ×${group.count}` : ''}
+										</Badge>
 									</span>
 								{/each}
 							</div>
