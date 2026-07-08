@@ -7,9 +7,10 @@
 	import type { StatusDotVariant } from '$lib/components/ui/StatusDot.svelte';
 	import VersionBadge from '$lib/components/ui/VersionBadge.svelte';
 	import TunnelDelaySparkBars from '$lib/components/tunnels/TunnelDelaySparkBars.svelte';
-	import { Settings, Power, PowerOff, Info, Check, X, RotateCcw } from 'lucide-svelte';
-	import { formatTime } from '$lib/utils/format';
+	import WatchdogLogNavigator from '$lib/components/monitoring/WatchdogLogNavigator.svelte';
+	import { Settings, Power, PowerOff, Info, RotateCcw } from 'lucide-svelte';
 	import type { CardStats } from '$lib/utils/pingStats';
+	import { normalizePingLogEntry, sortWatchdogEntries, type WatchdogCheckEntry } from '$lib/utils/watchdogHistory';
 
 	interface Props {
 		name: string;
@@ -38,6 +39,9 @@
 	};
 	const st = $derived(STATUS[statusKind]);
 	const fmt = (v: number | null) => (v === null ? '—' : `${v}ms`);
+	const logEntries = $derived<WatchdogCheckEntry[]>(
+		sortWatchdogEntries((stats?.logs ?? []).map(normalizePingLogEntry)),
+	);
 </script>
 
 <div class="wd-card" class:recovering={statusKind === 'recovering'}>
@@ -78,18 +82,7 @@
 			<div class="wd-bars">
 				<TunnelDelaySparkBars history={stats.history} state="ok" maxBars={12} colorPerBar title="Проверить сейчас" onclick={onCheckNow} />
 			</div>
-			<div class="wd-log">
-				{#each stats.recent as e (e.timestamp + e.tunnelId)}
-					<div class="wd-log-row">
-						<span class="ts">{formatTime(e.timestamp)}</span>
-						<span class="ico" class:ok={e.success} class:bad={!e.success}>
-							{#if e.success}<Check size={13} />{:else}<X size={13} />{/if}
-						</span>
-						<span class="lat">{e.success ? `${e.latency}ms` : '—'}</span>
-						<span class="note">{e.error}</span>
-					</div>
-				{/each}
-			</div>
+			<WatchdogLogNavigator entries={logEntries} />
 		</div>
 
 		<!-- Footer -->
@@ -270,24 +263,6 @@
 		height: 100%;
 		gap: 2px;
 	}
-	.wd-log { display: flex; flex-direction: column; }
-	.wd-log-row {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 4px 0;
-		font-family: var(--font-mono);
-		font-size: 11px;
-		border-top: 1px solid color-mix(in srgb, var(--color-border) 45%, transparent);
-	}
-	.wd-log-row:first-child { border-top: none; }
-	.wd-log-row .ts { color: var(--color-text-muted); min-width: 56px; }
-	.wd-log-row .ico { display: inline-flex; align-items: center; }
-	.wd-log-row .ico.ok { color: var(--color-success); }
-	.wd-log-row .ico.bad { color: var(--color-error); }
-	.wd-log-row .lat { color: var(--color-text-primary); min-width: 52px; }
-	.wd-log-row .note { color: var(--color-text-muted); font-style: italic; }
-
 	/* Footer */
 	.wd-foot {
 		padding: 10px 14px;

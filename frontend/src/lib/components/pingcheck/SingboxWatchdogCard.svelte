@@ -42,6 +42,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api/client';
 	import { Badge, Button, StatusDot, TrafficChartModal } from '$lib/components/ui';
+	import WatchdogLogNavigator from '$lib/components/monitoring/WatchdogLogNavigator.svelte';
 	import {
 		TunnelDelaySparkBars,
 		TunnelListTrafficCell,
@@ -53,6 +54,11 @@
 	import { singboxDelayFromHistory } from '$lib/utils/singboxDelay';
 	import { singboxDelayStatusDot } from '$lib/utils/statusDot';
 	import { getSingboxProtocolLabel } from '$lib/utils/singboxPresentation';
+	import {
+		normalizeSingboxWatchdogLogEntry,
+		sortWatchdogEntries,
+		type WatchdogCheckEntry,
+	} from '$lib/utils/watchdogHistory';
 	import type { StatusDotVariant, BadgeVariant } from '$lib/components/ui';
 	import type { SingboxDelayState } from '$lib/utils/singboxDelay';
 
@@ -111,7 +117,9 @@
 			tx: txRates.slice(start, n),
 		};
 	});
-	const recentLogs = $derived((card.logs ?? []).slice(-5).reverse());
+	const logEntries = $derived<WatchdogCheckEntry[]>(
+		sortWatchdogEntries((card.logs ?? []).map(normalizeSingboxWatchdogLogEntry)),
+	);
 	const lossPct = $derived.by(() => {
 		const logs = card.logs ?? [];
 		if (logs.length === 0) return 0;
@@ -298,21 +306,7 @@
 				<div class="wd-error">{card.lastError}</div>
 			{/if}
 
-			{#if recentLogs.length > 0}
-				<div class="wd-log">
-					{#each recentLogs as entry (entry.timestamp + entry.targetId + entry.stateChange)}
-						<div class="wd-log-row">
-							<span class:ok={entry.success} class:bad={!entry.success}>
-								{entry.success ? 'OK' : 'ERR'}
-							</span>
-							<span>{entry.success ? `${entry.latency}ms` : entry.error || 'timeout'}</span>
-							{#if entry.stateChange}
-								<span class="wd-log-state">{entry.stateChange}</span>
-							{/if}
-						</div>
-					{/each}
-				</div>
-			{/if}
+			<WatchdogLogNavigator entries={logEntries} />
 		</div>
 
 		<div class="sbx-wd-traffic">
@@ -520,35 +514,6 @@
 		background: color-mix(in srgb, var(--color-error) 14%, transparent);
 		color: var(--color-error);
 		font-size: 12px;
-	}
-
-	.wd-log {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		margin-bottom: 12px;
-		font-family: var(--font-mono);
-		font-size: 11px;
-	}
-
-	.wd-log-row {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		color: var(--color-text-muted);
-	}
-
-	.wd-log-row .ok {
-		color: var(--color-success);
-	}
-
-	.wd-log-row .bad {
-		color: var(--color-error);
-	}
-
-	.wd-log-state {
-		margin-left: auto;
-		color: var(--color-text-primary);
 	}
 
 	.sbx-wd-traffic {

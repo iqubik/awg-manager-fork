@@ -12,8 +12,8 @@ export interface CardStats {
 	restarts: number;
 	/** chronological (oldest→newest), success→latency, fail→0; for TunnelDelaySparkBars */
 	history: number[];
-	/** newest-first, last 3 — for the «последние проверки» list */
-	recent: PingLogEntry[];
+	/** newest-first window for the in-card log navigator */
+	logs: PingLogEntry[];
 }
 
 /** Group entries by tunnelId, preserving input order within each group. */
@@ -51,6 +51,6 @@ export function computeCardStats(entries: PingLogEntry[], status: TunnelPingStat
 		failsLabel: `${status.failCount}/${status.failThreshold}`,
 		restarts: status.restartCount,
 		history,
-		recent: entries.slice(0, 3),
+		logs: entries,
 	};
 }
