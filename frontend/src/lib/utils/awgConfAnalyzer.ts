@@ -55,6 +55,54 @@ export type I1Parsed = {
 	protocol: string;
 };
 
+const AWG_S1_MIN = 15;
+const AWG_S1_MAX = 149;
+const AWG_S2_MIN = 15;
+const AWG_S2_MAX = 149;
+const AWG2_S3_MIN = 0;
+const AWG2_S3_MAX = 63;
+const AWG2_S4_MIN = 0;
+const AWG2_S4_MAX = 19;
+const AWG_PADDING_HARD_MAX = 255;
+
+function classifyPaddingValue(
+	value: number | null,
+	passMin: number,
+	passMax: number,
+): 'missing' | 'zero' | 'pass' | 'warn' | 'fail' {
+	if (value === null) return 'missing';
+	if (value === 0) return 'zero';
+	if (value >= passMin && value <= passMax) return 'pass';
+	if (value >= 0 && value <= AWG_PADDING_HARD_MAX) return 'warn';
+	return 'fail';
+}
+
+function paddingStatus(kind: 'missing' | 'zero' | 'pass' | 'warn' | 'fail'): CheckStatus {
+	if (kind === 'missing') return 'info';
+	if (kind === 'zero') return 'warn';
+	if (kind === 'pass') return 'pass';
+	return kind === 'fail' ? 'fail' : 'warn';
+}
+
+function paddingDetail(
+	label: string,
+	value: number | null,
+	kind: 'missing' | 'zero' | 'pass' | 'warn' | 'fail',
+	passMin: number,
+	passMax: number,
+): string {
+	if (kind === 'missing') return `${label} не задан — только в AWG 1.5/2.0`;
+	if (kind === 'zero') return `${label}=0 — рандомный префикс отключён`;
+	if (kind === 'pass') return `${label}=${value} — в официальном диапазоне генерации Amnezia ${passMin}–${passMax} ✓`;
+	if (kind === 'warn') {
+		if (value !== null && value < passMin) {
+			return `${label}=${value} — валидное значение, но ниже официального диапазона генерации Amnezia ${passMin}–${passMax}`;
+		}
+		return `${label}=${value} — валидное значение, но выше официального диапазона генерации Amnezia ${passMin}–${passMax}; проверьте MTU и стабильность`;
+	}
+	return `${label}=${value} — значение вне ожидаемого диапазона 0-255`;
+}
+
 function legacyProtoFromRawI1(i1: string): string {
 	if (i1.includes('0xc0') || i1.includes('0xC0')) return 'QUIC';
 	if (i1.includes('160303') || i1.includes('0x1603')) return 'TLS';
@@ -593,64 +641,75 @@ export function runChecks(iface: AwgIface, peer: AwgIface, version: AwgVersionIn
 
 	const hasS1 = S1 !== null;
 	const hasS2 = S2 !== null;
-	const s1Ok = hasS1 && S1 >= 0 && S1 <= 64;
-	const s2Ok = hasS2 && S2 >= 0 && S2 <= 64;
-	const s1s2Conflict = hasS1 && hasS2 && S1 !== null && S2 !== null && S1 + 56 === S2;
+	const s1Kind = classifyPaddingValue(S1, AWG_S1_MIN, AWG_S1_MAX);
+	const s2Kind = classifyPaddingValue(S2, AWG_S2_MIN, AWG_S2_MAX);
 
 	addChk(
 		'Handshake Padding (S1/S2)',
 		'S1 — Init prefix',
-		!hasS1 ? 'info' : S1 === 0 ? 'warn' : s1Ok ? 'pass' : 'warn',
+		paddingStatus(s1Kind),
 		hasS1 ? String(S1) : '(не задан)',
-		!hasS1
-			? 'S1 не задан — только в AWG 1.5/2.0'
-			: S1 === 0
-				? 'S1=0 — рандомный префикс Init-пакета отключён'
-				: s1Ok
-					? `S1=${S1} — в рекомендуемом диапазоне 0-64 ✓`
-					: `S1=${S1} — вне рекомендуемого диапазона 0-64`,
-		!hasS1 ? 1 : S1 === 0 ? 0 : s1Ok ? 6 : 3,
+		paddingDetail('S1', S1, s1Kind, AWG_S1_MIN, AWG_S1_MAX).replace(
+			'префикс отключён',
+			'префикс Init-пакета отключён',
+		),
+		!hasS1 ? 1 : s1Kind === 'zero' ? 0 : s1Kind === 'pass' ? 6 : s1Kind === 'warn' ? 4 : 1,
 		6,
 	);
 
 	addChk(
 		'Handshake Padding (S1/S2)',
 		'S2 — Response prefix',
-		!hasS2 ? 'info' : S2 === 0 ? 'warn' : s2Ok ? 'pass' : 'warn',
+		paddingStatus(s2Kind),
 		hasS2 ? String(S2) : '(не задан)',
-		!hasS2
-			? 'S2 не задан — только в AWG 1.5/2.0'
-			: S2 === 0
-				? 'S2=0 — рандомный префикс Response-пакета отключён'
-				: s2Ok
-					? `S2=${S2} — в рекомендуемом диапазоне 0-64 ✓`
-					: `S2=${S2} — вне рекомендуемого диапазона 0-64`,
-		!hasS2 ? 1 : S2 === 0 ? 0 : s2Ok ? 6 : 3,
+		paddingDetail('S2', S2, s2Kind, AWG_S2_MIN, AWG_S2_MAX).replace(
+			'префикс отключён',
+			'префикс Response-пакета отключён',
+		),
+		!hasS2 ? 1 : s2Kind === 'zero' ? 0 : s2Kind === 'pass' ? 6 : s2Kind === 'warn' ? 4 : 1,
 		6,
 	);
 
-	if (s1s2Conflict && S1 !== null && S2 !== null) {
+	const sizeCollisions: string[] = [];
+	const packetSizes = [
+		S1 !== null ? { name: 'Init', size: 148 + S1 } : null,
+		S2 !== null ? { name: 'Response', size: 92 + S2 } : null,
+		S3 !== null ? { name: 'Cookie', size: 64 + S3 } : null,
+		S4 !== null ? { name: 'Transport', size: 32 + S4 } : null,
+	].filter((item): item is { name: string; size: number } => item !== null);
+	for (let i = 0; i < packetSizes.length; i += 1) {
+		for (let j = i + 1; j < packetSizes.length; j += 1) {
+			if (packetSizes[i].size === packetSizes[j].size) {
+				sizeCollisions.push(`${packetSizes[i].name}=${packetSizes[i].size} и ${packetSizes[j].name}=${packetSizes[j].size}`);
+			}
+		}
+	}
+
+	if (sizeCollisions.length > 0) {
 		addChk(
 			'Handshake Padding (S1/S2)',
-			'S1+56 = S2 конфликт',
+			'Конфликт итоговых размеров пакетов',
 			'fail',
-			`S1=${S1} S2=${S2}`,
-			`S1+56=${S1 + 56} совпадает с S2=${S2} — правило AWG: S1+56 ≠ S2. Это делает пакеты предсказуемыми!`,
+			sizeCollisions.join('; '),
+			`После добавления padding совпали размеры handshake-пакетов: ${sizeCollisions.join('; ')}. Это делает трафик более предсказуемым.`,
 			0,
 			0,
 		);
 	}
 
 	if (S3 !== null || S4 !== null) {
-		const s3Ok = S3 !== null && S3 >= 0 && S3 <= 64;
-		const s4Ok = S4 !== null && S4 >= 0 && S4 <= 64;
+		const s3Kind = classifyPaddingValue(S3, AWG2_S3_MIN, AWG2_S3_MAX);
+		const s4Kind = classifyPaddingValue(S4, AWG2_S4_MIN, AWG2_S4_MAX);
+		const s3s4Ok = (S3 === null || s3Kind === 'pass' || s3Kind === 'warn') && (S4 === null || s4Kind === 'pass' || s4Kind === 'warn');
 		addChk(
 			'Handshake Padding (S1/S2)',
 			'S3/S4 (AWG 2.0 extended)',
-			s3Ok && s4Ok ? 'pass' : 'warn',
+			s3s4Ok ? 'pass' : 'warn',
 			`S3=${S3 ?? '—'} S4=${S4 ?? '—'}`,
-			'S3/S4 — расширенные префиксы AWG 2.0 для Cookie и Data пакетов. Максимальная непредсказуемость размеров.',
-			s3Ok && s4Ok ? 4 : 2,
+			s3s4Ok
+				? `S3/S4 — расширенные префиксы AWG 2.0 для Cookie и Data пакетов. Официальные диапазоны: S3 ${AWG2_S3_MIN}–${AWG2_S3_MAX}, S4 ${AWG2_S4_MIN}–${AWG2_S4_MAX}.`
+				: `S3/S4 — расширенные префиксы AWG 2.0 для Cookie и Data пакетов. Проверьте значения относительно официальных диапазонов S3 ${AWG2_S3_MIN}–${AWG2_S3_MAX}, S4 ${AWG2_S4_MIN}–${AWG2_S4_MAX}.`,
+			s3s4Ok ? 4 : 2,
 			4,
 		);
 	}

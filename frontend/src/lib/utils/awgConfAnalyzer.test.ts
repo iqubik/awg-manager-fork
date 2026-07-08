@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectI1ProtocolFromHex, parseI1 } from './awgConfAnalyzer';
+import { detectI1ProtocolFromHex, detectVersion, parseAWG, parseI1, runChecks } from './awgConfAnalyzer';
 
 describe('awgConfAnalyzer I1 parsing', () => {
 	it('accepts random prefix before b tag in I1', () => {
@@ -26,5 +26,32 @@ describe('awgConfAnalyzer I1 parsing', () => {
 				2,
 			),
 		).toBe('DNS');
+	});
+
+	it('treats S1=80 as valid Amnezia padding without 0-64 warning', () => {
+		const parsed = parseAWG(`[Interface]
+PrivateKey = TEST_PRIVATE_KEY
+Address = 10.0.0.2/32
+S1 = 80
+S2 = 19
+S3 = 51
+S4 = 8
+
+[Peer]
+PublicKey = TEST_PUBLIC_KEY
+AllowedIPs = 0.0.0.0/0
+Endpoint = demo.example.com:51820
+`);
+		const version = detectVersion(parsed.iface);
+		const checks = runChecks(parsed.iface, parsed.peer, version);
+		const s1 = checks.find((c) => c.title === 'S1 — Init prefix');
+
+		expect(s1).toBeTruthy();
+		expect(s1?.status).toBe('pass');
+		expect(s1?.detail).not.toContain('0-64');
+		expect(s1?.detail).toContain('15–149');
+
+		const conflict = checks.find((c) => c.title === 'Конфликт итоговых размеров пакетов');
+		expect(conflict).toBeUndefined();
 	});
 });
