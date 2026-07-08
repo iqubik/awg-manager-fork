@@ -159,4 +159,3 @@ func requireDownloadDir(t *testing.T) {
 		t.Fatalf("mkdir %s: %v", downloadDir, err)
 	}
 }
-
