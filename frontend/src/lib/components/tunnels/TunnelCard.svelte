@@ -297,8 +297,8 @@
 					</TunnelTitleRow>
 				</div>
 				<div class="meta-tags-dense">
-					<span class="iface-plain-dense" title={showEndpoint ? (tunnel.interfaceName || tunnel.id) : ''}>
-						{showEndpoint ? (tunnel.interfaceName || tunnel.id) : '••••'}
+					<span class="iface-plain-dense" title={tunnel.interfaceName || tunnel.id}>
+						{tunnel.interfaceName || tunnel.id}
 					</span>
 					{#if tunnel.awgVersion}
 						<VersionBadge kind="awg" value={tunnel.awgVersion} />
