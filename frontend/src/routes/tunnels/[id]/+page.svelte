@@ -146,6 +146,9 @@
 
 	function populateForm() {
 		if (!tunnel) return;
+		if (!tunnel.interface || !tunnel.peer) {
+			throw new Error('Некорректные данные туннеля');
+		}
 
 		$form.name = tunnel.name;
 		parseAddress(tunnel.interface.address);
