@@ -147,49 +147,55 @@
 				{/if}
 			</div>
 
-			<div class="conn-card-row">
-				<span class="conn-card-label">Источник</span>
-				<span class="conn-card-value mono">
-					{conn.src}{#if conn.srcPort > 0}:{conn.srcPort}{/if}
-					{#if conn.clientName}
-						<span class="client-name">{conn.clientName}</span>
-					{/if}
-				</span>
-			</div>
-
-			<div class="conn-card-row">
-				<span class="conn-card-label">Назначение</span>
-				<span class="conn-card-value mono">
-					{conn.dst}{#if conn.dstPort > 0}:{conn.dstPort}{/if}
-					{#if conn.rules && conn.rules.length > 0}
-						<div class="rule-badges">
-							{#each groupRules(conn.rules) as group (group.key)}
-								<span title={group.tooltip}>
-									<Badge variant="accent" size="sm">
-										{group.label}{group.count > 1 ? ` ×${group.count}` : ''}
-									</Badge>
-								</span>
-							{/each}
-						</div>
-					{/if}
-				</span>
-			</div>
-
-			<div class="conn-card-meta">
-				<div class="conn-card-row compact-row">
-					<span class="conn-card-label">Интерфейс</span>
-					<span class="conn-card-value">
-						{#if conn.tunnelId}
-							<Badge variant="accent" size="sm">{conn.tunnelName}</Badge>
-						{:else}
-							<Badge variant="muted" size="sm">{conn.interface || '—'}</Badge>
+			<div class="conn-card-body">
+				<div class="conn-line">
+					<span class="conn-line-label">Источник</span>
+					<span class="conn-line-value mono">
+						{conn.src}{#if conn.srcPort > 0}:{conn.srcPort}{/if}
+						{#if conn.clientName}
+							<span class="conn-line-separator">/</span>
+							<span class="client-name">{conn.clientName}</span>
 						{/if}
 					</span>
 				</div>
 
-				<div class="conn-card-row compact-row">
-					<span class="conn-card-label">Трафик</span>
-					<span class="conn-card-value mono">{formatBytes(conn.bytes)}</span>
+				<div class="conn-line">
+					<span class="conn-line-label">Назначение</span>
+					<span class="conn-line-value conn-dst-value mono">
+						<span class="endpoint">
+							{conn.dst}{#if conn.dstPort > 0}:{conn.dstPort}{/if}
+						</span>
+						{#if conn.rules && conn.rules.length > 0}
+							<span class="conn-line-separator">/</span>
+							<span class="rule-badges rule-badges-inline">
+								{#each groupRules(conn.rules) as group (group.key)}
+									<span title={group.tooltip}>
+										<Badge variant="accent" size="sm">
+											{group.label}{group.count > 1 ? ` ×${group.count}` : ''}
+										</Badge>
+									</span>
+								{/each}
+							</span>
+						{/if}
+					</span>
+				</div>
+
+				<div class="conn-card-meta">
+					<div class="conn-meta-item">
+						<span class="conn-line-label">Интерфейс</span>
+						<span class="conn-line-value">
+							{#if conn.tunnelId}
+								<Badge variant="accent" size="sm">{conn.tunnelName}</Badge>
+							{:else}
+								<Badge variant="muted" size="sm">{conn.interface || '—'}</Badge>
+							{/if}
+						</span>
+					</div>
+
+					<div class="conn-meta-item">
+						<span class="conn-line-label">Трафик</span>
+						<span class="conn-line-value mono">{formatBytes(conn.bytes)}</span>
+					</div>
 				</div>
 			</div>
 		</article>
@@ -433,7 +439,7 @@
 			border: 1px solid var(--color-border);
 			border-radius: 8px;
 			background: var(--color-bg-secondary);
-			padding: 0.625rem;
+			padding: 0.5rem 0.625rem;
 		}
 
 		.conn-card.row-tunneled {
@@ -445,42 +451,86 @@
 			align-items: center;
 			justify-content: space-between;
 			gap: 0.5rem;
-			margin-bottom: 0.5rem;
+			margin-bottom: 0.375rem;
 		}
 
-		.conn-card-row {
+		.conn-card-body {
+			display: flex;
+			flex-direction: column;
+			gap: 0.25rem;
+		}
+
+		.conn-line {
 			display: grid;
-			grid-template-columns: 5.25rem minmax(0, 1fr);
-			gap: 0.5rem;
-			align-items: start;
-			margin-top: 0.375rem;
+			grid-template-columns: 4.75rem minmax(0, 1fr);
+			gap: 0.375rem;
+			align-items: center;
+			min-width: 0;
 		}
 
-		.conn-card-label {
+		.conn-line-label {
 			font-size: 0.625rem;
 			color: var(--color-text-muted);
 		}
 
-		.conn-card-value {
+		.conn-line-value {
 			min-width: 0;
 			overflow-wrap: anywhere;
 		}
 
+		.conn-line-separator {
+			margin: 0 0.25rem;
+			color: var(--color-text-muted);
+		}
+
+		.conn-line .client-name {
+			display: inline;
+			margin-top: 0;
+			font-size: 0.625rem;
+			color: var(--color-text-muted);
+		}
+
+		.conn-dst-value {
+			display: flex;
+			align-items: center;
+			gap: 0.25rem;
+			min-width: 0;
+			flex-wrap: wrap;
+		}
+
+		.endpoint {
+			min-width: 0;
+			overflow-wrap: anywhere;
+		}
+
+		.rule-badges-inline {
+			display: inline-flex;
+			flex-wrap: wrap;
+			gap: 0.25rem;
+			margin-top: 0;
+		}
+
 		.conn-card-meta {
-			margin-top: 0.5rem;
-			padding-top: 0.5rem;
+			margin-top: 0.375rem;
+			padding-top: 0.375rem;
 			border-top: 1px solid var(--color-border);
 			display: grid;
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			gap: 0.5rem;
+		}
+
+		.conn-meta-item {
+			display: grid;
+			grid-template-columns: auto minmax(0, 1fr);
 			gap: 0.375rem;
-		}
-
-		.compact-row {
-			margin-top: 0;
 			align-items: center;
+			min-width: 0;
 		}
 
-		.rule-badges {
-			white-space: normal;
+		.conn-meta-item .conn-line-value {
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
 		}
 
 		.pagination {
