@@ -399,6 +399,7 @@
 		compactLayout.init();
 		settingsSectionIconMode.init();
 		serviceLetterIcons.init();
+		serviceLetterIcons.setEnabled(true);
 		tunnelDashboardMode.init();
 		tunnelDashboardLayout.init();
 		tunnelDashboardView.init();
