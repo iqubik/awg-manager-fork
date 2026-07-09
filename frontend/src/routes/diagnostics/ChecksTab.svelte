@@ -346,7 +346,7 @@
 	<div class="incident-modal-body">
 		{#if hasReport}
 			<p>
-				AWG Manager — open-source проект без службы поддержки и SLA. Инцидент попадёт
+				AWGM-fork — open-source fork без службы поддержки и SLA. Инцидент попадёт
 				в публичный GitHub issue; ответ и исправление не гарантируются.
 			</p>
 			<p>

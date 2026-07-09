@@ -54,11 +54,11 @@
 				<span class="footer-sep" aria-hidden="true">·</span>
 				<a
 					class="github-link"
-					href="https://github.com/hoaxisr/awg-manager"
+					href="https://github.com/iqubik/awg-manager-fork"
 					target="_blank"
 					rel="noopener noreferrer"
-					aria-label="Открыть GitHub репозиторий AWG Manager"
-					title="GitHub репозиторий AWG Manager"
+					aria-label="Открыть GitHub репозиторий AWGM-fork"
+					title="GitHub репозиторий AWGM-fork"
 				>
 					GitHub
 				</a>
