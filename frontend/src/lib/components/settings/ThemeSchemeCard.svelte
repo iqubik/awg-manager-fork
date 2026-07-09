@@ -8,10 +8,7 @@
 		SETTINGS_SECTION_ICON_MODE_LABELS,
 		type SettingsSectionIconMode,
 	} from '$lib/stores/settingsSectionIconMode';
-	import { serviceLetterIcons } from '$lib/stores/serviceLetterIcons';
-	import { tunnelDashboardMode } from '$lib/stores/tunnelDashboardMode';
 	import { usageLevel } from '$lib/stores/settings';
-	import { isTunnelDashboardAvailable } from '$lib/types/usageLevel';
 	import {
 		theme,
 		THEME_PRESETS,
@@ -57,7 +54,6 @@
 	let appearanceExpanded = $state(true);
 	let schemeExpanded = $state(false);
 	const compactForced = $derived($usageLevel === 'basic');
-	const dashboardRowVisible = $derived(isTunnelDashboardAvailable($usageLevel));
 	const compactChecked = $derived(compactForced || $compactLayout);
 
 	const currentThemeLabel = $derived.by(() => {
@@ -299,36 +295,6 @@
 					/>
 				</div>
 
-				{#if dashboardRowVisible}
-					<div class="setting-row dashboard-mode-row">
-						<div class="flex flex-col gap-1">
-							<span class="font-medium">Режим дашборда</span>
-							<span class="setting-description">
-								Объединяет AWG, Sing-box и подписки на одной странице с общей панелью поиска и
-								создания.
-							</span>
-						</div>
-						<Toggle
-							checked={$tunnelDashboardMode}
-							onchange={(enabled) => tunnelDashboardMode.setEnabled(enabled)}
-						/>
-					</div>
-				{/if}
-
-				<div class="setting-row letter-icons-row">
-					<div class="flex flex-col gap-1">
-						<span class="font-medium">Буквенные иконки</span>
-						<span class="setting-description">
-							Цветная плитка с первой буквой названия для списков маршрутизации (если не был
-							найден логотип).
-						</span>
-					</div>
-					<Toggle
-						checked={$serviceLetterIcons}
-						onchange={(enabled) => serviceLetterIcons.setEnabled(enabled)}
-					/>
-				</div>
-
 				{#if showFeedbackToggle}
 					<div class="setting-row feedback-fab-row">
 						<div class="flex flex-col gap-1">
@@ -351,8 +317,6 @@
 
 <style>
 	.compact-layout-row,
-	.dashboard-mode-row,
-	.letter-icons-row,
 	.feedback-fab-row {
 		align-items: center;
 	}
@@ -442,8 +406,6 @@
 		}
 
 		.compact-layout-row,
-		.dashboard-mode-row,
-		.letter-icons-row,
 		.feedback-fab-row {
 			flex-direction: row;
 			align-items: center;
@@ -452,8 +414,6 @@
 		}
 
 		.compact-layout-row > *:first-child,
-		.dashboard-mode-row > *:first-child,
-		.letter-icons-row > *:first-child,
 		.feedback-fab-row > *:first-child {
 			flex: 1 1 auto;
 			min-width: 0;
