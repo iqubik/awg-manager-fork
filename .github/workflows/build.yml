@@ -31,7 +31,34 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Detect private i18n token
+        id: iq_i18n
+        env:
+          IQ_I18N_TOKEN: ${{ secrets.IQ_I18N_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${IQ_I18N_TOKEN:-}" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout private i18n overlay
+        if: steps.iq_i18n.outputs.enabled == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: iqubik/awg-i18n-private
+          token: ${{ secrets.IQ_I18N_TOKEN }}
+          path: .iq-i18n-private
+          fetch-depth: 1
+
       - name: Build frontend
+        env:
+          IQ_I18N_PRIVATE_DIR: ${{ github.workspace }}/.iq-i18n-private
+          IQ_I18N_LANGUAGES: en,tr,fa,zh
+          IQ_I18N_PRIMARY_LANGUAGE: en
+          IQ_I18N_REQUIRE_PRIVATE: ${{ steps.iq_i18n.outputs.enabled == 'true' && '1' || '0' }}
         run: ./scripts/build-frontend.sh
 
       - name: Verify i18n runtime asset
@@ -72,6 +99,25 @@ jobs:
             echo "ERROR: iq-i18n-runtime.min.js resolved to HTML fallback" >&2
             exit 1
           fi
+
+          if [[ "${{ steps.iq_i18n.outputs.enabled }}" == "true" ]]; then
+            if printf '%s' "$runtime_source" | grep -q 'public-noop'; then
+              echo "ERROR: IQ_I18N_TOKEN is set, but frontend build contains public-noop runtime" >&2
+              exit 1
+            fi
+
+            if ! printf '%s' "$runtime_source" | grep -q 'private-overlay'; then
+              echo "ERROR: IQ_I18N_TOKEN is set, but frontend build does not contain private-overlay runtime" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Remove private i18n runtime from workspace
+        if: always()
+        shell: bash
+        run: |
+          git checkout -- frontend/static/iq-i18n-runtime.min.js || true
+          rm -f frontend/static/iq-i18n-runtime.min.js.map frontend/static/iq-i18n-runtime.min.js.LICENSE.txt
 
       - name: Upload frontend build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
