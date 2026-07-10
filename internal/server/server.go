@@ -30,6 +30,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/downloader"
 	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/hydraroute"
+	"github.com/hoaxisr/awg-manager/internal/integrationbackup"
 	"github.com/hoaxisr/awg-manager/internal/openapi"
 	"github.com/hoaxisr/awg-manager/internal/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/presets"
@@ -111,6 +112,7 @@ type Server struct {
 	clientRouteService         clientroute.Service
 	catalog                    routing.Catalog
 	hydraService               *hydraroute.Service
+	integrationBackup          *integrationbackup.Service
 	orch                       *orchestrator.Orchestrator
 	bus                        *events.Bus
 	singboxHandler             *api.SingboxHandler
@@ -192,6 +194,7 @@ type Deps struct {
 	Orch                 *orchestrator.Orchestrator
 	Bus                  *events.Bus
 	HydraService         *hydraroute.Service
+	IntegrationBackup    *integrationbackup.Service
 	SingboxHandler       *api.SingboxHandler
 	SingboxOrch          *singboxorch.Orchestrator
 	ClashProxy           *api.ClashProxy
@@ -249,6 +252,7 @@ func New(cfg Config, deps Deps) *Server {
 		clientRouteService:     deps.ClientRouteSvc,
 		catalog:                deps.Catalog,
 		hydraService:           deps.HydraService,
+		integrationBackup:      deps.IntegrationBackup,
 		orch:                   deps.Orch,
 		bus:                    deps.Bus,
 		singboxHandler:         deps.SingboxHandler,
@@ -776,6 +780,14 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/api/hydraroute/ipset-usage", guarded(hrHandler.GetIpsetUsage))
 		mux.HandleFunc("/api/hydraroute/oversized-tags", guarded(hrHandler.GetOversizedTags))
 		mux.HandleFunc("/api/hydraroute/policy-order", guarded(hrHandler.SetPolicyOrder))
+	}
+	if s.integrationBackup != nil {
+		backupHandler := api.NewIntegrationBackupHandler(s.integrationBackup)
+		backupHandler.SetEventBus(s.bus)
+		mux.HandleFunc("/api/singbox/backup", guarded(backupHandler.SingboxBackup))
+		mux.HandleFunc("/api/singbox/restore", guarded(backupHandler.SingboxRestore))
+		mux.HandleFunc("/api/hydraroute/backup", guarded(backupHandler.HydraRouteBackup))
+		mux.HandleFunc("/api/hydraroute/restore", guarded(backupHandler.HydraRouteRestore))
 	}
 
 	// Update endpoints (protected + boot guarded)

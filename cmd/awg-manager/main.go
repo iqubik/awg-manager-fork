@@ -38,6 +38,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/hydraroute"
 	hydrainstaller "github.com/hoaxisr/awg-manager/internal/hydraroute/installer"
+	"github.com/hoaxisr/awg-manager/internal/integrationbackup"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/managed"
 	"github.com/hoaxisr/awg-manager/internal/monitoring"
@@ -1003,6 +1004,7 @@ func main() {
 		eventBus,
 	)
 	singboxHandler := api.NewSingboxHandler(singboxOp, eventBus, delayChecker, testService, loggingService)
+	integrationBackupSvc := integrationbackup.NewService(*dataDir, settingsStore, singboxOp, hydraService)
 	singboxWatchdogSvc := singboxwatchdog.NewService(singboxWatchdogStore, singboxOp, subSvc, loggingService)
 	singboxWatchdogSvc.SetEventBus(eventBus)
 	singboxWatchdogSvc.SetManualStopReader(&singboxManualStopAdapter{store: settingsStore})
@@ -1113,6 +1115,7 @@ func main() {
 			Orch:                orch,
 			Bus:                 eventBus,
 			HydraService:        hydraService,
+			IntegrationBackup:   integrationBackupSvc,
 			SingboxHandler:      singboxHandler,
 			SingboxOrch:         sbOrch,
 			ClashProxy:          clashProxy,

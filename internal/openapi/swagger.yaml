@@ -1647,6 +1647,53 @@ definitions:
         example: true
         type: boolean
     type: object
+  api.IntegrationRestoreEnvelope:
+    properties:
+      data:
+        $ref: '#/definitions/api.IntegrationRestoreResponseDTO'
+      success:
+        example: true
+        type: boolean
+    type: object
+  api.IntegrationRestoreOutcomeDTO:
+    properties:
+      action:
+        enum:
+        - planned
+        - planned_delete
+        - restored
+        - deleted
+        - skipped
+        - conflict
+        - rollback
+        example: restored
+        type: string
+      error:
+        example: checksum не совпал
+        type: string
+      path:
+        example: /opt/etc/awg-manager/singbox/config.d/20-router.json
+        type: string
+    type: object
+  api.IntegrationRestoreResponseDTO:
+    properties:
+      component:
+        example: singbox
+        type: string
+      dryRun:
+        example: true
+        type: boolean
+      outcomes:
+        items:
+          $ref: '#/definitions/api.IntegrationRestoreOutcomeDTO'
+        type: array
+      warnings:
+        example:
+        - rollback выполнен после ошибки restore
+        items:
+          type: string
+        type: array
+    type: object
   api.IpsetUsageData:
     properties:
       maxElem:
@@ -7865,6 +7912,26 @@ paths:
       summary: NDMS shell hook
       tags:
       - hook
+  /hydraroute/backup:
+    get:
+      description: Возвращает ZIP-архив с allowlist-файлами HydraRoute и безопасным
+        snapshot настроек.
+      produces:
+      - application/zip
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Скачать backup HydraRoute
+      tags:
+      - hydraroute
   /hydraroute/config:
     get:
       description: Available when HydraRoute service is wired on the device.
@@ -8253,6 +8320,43 @@ paths:
       security:
       - CookieAuth: []
       summary: Set HydraRoute policy order
+      tags:
+      - hydraroute
+  /hydraroute/restore:
+    post:
+      consumes:
+      - application/zip
+      description: При dryRun=true выполняет только проверку ZIP-архива и показывает
+        план действий без записи на диск.
+      parameters:
+      - description: Только проверить архив без записи на диск
+        in: query
+        name: dryRun
+        type: boolean
+      - description: ZIP-архив backup
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.IntegrationRestoreEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Восстановить backup HydraRoute
       tags:
       - hydraroute
   /hydraroute/update:
@@ -10701,6 +10805,26 @@ paths:
       summary: List AWG outbound tags
       tags:
       - singbox
+  /singbox/backup:
+    get:
+      description: Возвращает ZIP-архив с allowlist-файлами sing-box и безопасным
+        snapshot настроек.
+      produces:
+      - application/zip
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Скачать backup sing-box
+      tags:
+      - singbox
   /singbox/config-preview:
     get:
       description: Returns the read-only pretty-printed JSON that sing-box loads when
@@ -11997,6 +12121,43 @@ paths:
       security:
       - CookieAuth: []
       summary: Toggle NDMS Proxy creation for sing-box tunnels
+      tags:
+      - singbox
+  /singbox/restore:
+    post:
+      consumes:
+      - application/zip
+      description: При dryRun=true выполняет только проверку ZIP-архива и показывает
+        план действий без записи на диск.
+      parameters:
+      - description: Только проверить архив без записи на диск
+        in: query
+        name: dryRun
+        type: boolean
+      - description: ZIP-архив backup
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.IntegrationRestoreEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Восстановить backup sing-box
       tags:
       - singbox
   /singbox/router/bindable-interfaces:

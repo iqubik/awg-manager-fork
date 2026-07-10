@@ -1638,6 +1638,13 @@ func (o *Operator) ValidateConfigDir(ctx context.Context) error {
 	return o.validator.Validate(o.configPath)
 }
 
+// ValidateConfigPath runs `sing-box check` against an arbitrary config dir.
+// Used by restore flows that must validate a temp snapshot before touching
+// the live config.d tree.
+func (o *Operator) ValidateConfigPath(ctx context.Context, configDir string) error {
+	return o.validator.Validate(configDir)
+}
+
 // ApplyLogLevel updates 00-base.json log.level and ensures log.timestamp
 // is present. When orchestrator is wired, writes through SlotBase so
 // validate+reload lifecycle stays centralized.

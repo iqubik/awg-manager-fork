@@ -2202,6 +2202,25 @@ export interface ManagedServerDriftResponse {
 
 // #endregion
 
+// ─────────────────────────────────────────────
+// #region Integration Backup / Restore
+// ─────────────────────────────────────────────
+
+export interface IntegrationRestoreOutcome {
+	path: string;
+	action: 'planned' | 'planned_delete' | 'restored' | 'deleted' | 'skipped' | 'conflict' | 'rollback';
+	error?: string;
+}
+
+export interface IntegrationRestoreResponse {
+	component: 'singbox' | 'hydraroute';
+	dryRun: boolean;
+	outcomes: IntegrationRestoreOutcome[];
+	warnings?: string[];
+}
+
+// #endregion
+
 // === Singbox Router Staging ===
 
 export interface RouterValidationErrorDTO {

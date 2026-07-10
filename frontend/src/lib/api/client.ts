@@ -110,6 +110,7 @@ import type {
 	ManagedServerDriftResponse,
 	ManagedServerRestoreResponse,
 	RestoreOptions,
+	IntegrationRestoreResponse,
 	DnsProxyInfo,
 	CatalogPreset,
 	SelectiveStatus,
@@ -179,22 +180,13 @@ class ApiClient {
 		this.abortController = new AbortController();
 	}
 
-	private async request<T>(
-		endpoint: string,
-		options: RequestInit = {}
-	): Promise<T> {
-		const url = `${this.baseUrl}${endpoint}`;
-
-		let response: Response;
+	private async fetchApi(endpoint: string, options: RequestInit = {}): Promise<Response> {
+		const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`;
 		try {
-			response = await fetch(url, {
+			return await fetch(url, {
 				...options,
 				credentials: 'same-origin',
 				signal: this.abortController.signal,
-				headers: {
-					'Content-Type': 'application/json',
-					...options.headers
-				}
 			});
 		} catch (e) {
 			if (e instanceof DOMException && e.name === 'AbortError') {
@@ -203,8 +195,17 @@ class ApiClient {
 			this.onConnectionLost?.();
 			throw new Error('Ошибка сети: не удалось подключиться к серверу');
 		}
+	}
 
-		// Handle 401 Unauthorized
+	private async parseJsonResponse<T>(response: Response): Promise<ApiResponse<T>> {
+		try {
+			return (await response.json()) as ApiResponse<T>;
+		} catch {
+			throw new Error(`Некорректный ответ сервера (${response.status})`);
+		}
+	}
+
+	private async throwApiError(response: Response): Promise<never> {
 		if (response.status === 401) {
 			this.onUnauthorized?.();
 			throw new Error('Сессия истекла');
@@ -212,45 +213,19 @@ class ApiClient {
 
 		const contentType = response.headers.get('content-type') || '';
 
-		// Handle 503 Service Unavailable — preserve server message when present.
-		if (response.status === 503) {
-			if (contentType.includes('application/json')) {
-				let message = 'Сервер временно недоступен';
-				try {
-					const body = (await response.json()) as ApiResponse<unknown>;
-					if (body.message) message = body.message;
-				} catch {
-					// keep default
-				}
-				throw new Error(message);
+		if (response.status === 503 && contentType.includes('application/json')) {
+			let message = 'Сервер временно недоступен';
+			try {
+				const body = (await response.json()) as ApiResponse<unknown>;
+				if (body.message) message = body.message;
+			} catch {
+				// keep default
 			}
-			// Non-JSON 503 — страница шлюза (nginx), разметку не показываем.
-			throw new ApiGatewayError(GATEWAY_MESSAGES[503], 503);
+			throw new Error(message);
 		}
 
-		if (!contentType.includes('application/json')) {
-			const text = await response.text();
-			// Gateway-ошибки (nginx перед awg-manager) отдают HTML-страницы —
-			// классифицируем по статусу и никогда не показываем разметку.
-			if (response.status in GATEWAY_MESSAGES) {
-				throw new ApiGatewayError(GATEWAY_MESSAGES[response.status], response.status);
-			}
-			const looksLikeHtml =
-				contentType.includes('text/html') || text.trimStart().startsWith('<');
-			if (looksLikeHtml) {
-				throw new Error(`Ошибка сервера (${response.status})`);
-			}
-			throw new Error(`Ошибка сервера (${response.status}): ${text.substring(0, 100)}`);
-		}
-
-		let data: ApiResponse<T>;
-		try {
-			data = await response.json();
-		} catch {
-			throw new Error(`Некорректный ответ сервера (${response.status})`);
-		}
-
-		if (!response.ok || data.error) {
+		if (contentType.includes('application/json')) {
+			const data = await this.parseJsonResponse<unknown>(response);
 			const err: Error & { status?: number; body?: unknown } = new Error(
 				data.message || `Ошибка запроса (${response.status})`
 			);
@@ -259,7 +234,99 @@ class ApiClient {
 			throw err;
 		}
 
+		if (response.status in GATEWAY_MESSAGES) {
+			throw new ApiGatewayError(GATEWAY_MESSAGES[response.status], response.status);
+		}
+
+		const text = await response.text().catch(() => '');
+		const looksLikeHtml =
+			contentType.includes('text/html') || text.trimStart().startsWith('<');
+		if (looksLikeHtml) {
+			throw new Error(`Ошибка сервера (${response.status})`);
+		}
+		throw new Error(`Ошибка сервера (${response.status}): ${text.substring(0, 100)}`);
+	}
+
+	private async request<T>(
+		endpoint: string,
+		options: RequestInit = {}
+	): Promise<T> {
+		const response = await this.fetchApi(endpoint, {
+			...options,
+			headers: {
+				'Content-Type': 'application/json',
+				...options.headers
+			}
+		});
+
+		const contentType = response.headers.get('content-type') || '';
+
+		if (!contentType.includes('application/json')) {
+			if (!response.ok) {
+				await this.throwApiError(response);
+			}
+			throw new Error(`Некорректный ответ сервера (${response.status})`);
+		}
+
+		const data = await this.parseJsonResponse<T>(response);
+
+		if (!response.ok || data.error) {
+			await this.throwApiError(
+				new Response(JSON.stringify(data), {
+					status: response.status,
+					headers: { 'Content-Type': contentType || 'application/json' }
+				})
+			);
+		}
+
 		return data.data as T;
+	}
+
+	private async downloadBinary(endpoint: string, fallbackFilename: string): Promise<void> {
+		const response = await this.fetchApi(endpoint);
+		if (!response.ok) {
+			await this.throwApiError(response);
+		}
+		const blob = await response.blob();
+		const filename = response.headers.get('Content-Disposition')
+			?.match(/filename="(.+)"/)?.[1] || fallbackFilename;
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = filename;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
+	private async restoreIntegration(
+		component: 'singbox' | 'hydraroute',
+		file: File,
+		dryRun: boolean,
+	): Promise<IntegrationRestoreResponse> {
+		const response = await this.fetchApi(`/${component}/restore?dryRun=${dryRun ? 'true' : 'false'}`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': file.type || 'application/zip',
+			},
+			body: file,
+		});
+		const contentType = response.headers.get('content-type') || '';
+		if (!contentType.includes('application/json')) {
+			if (!response.ok) {
+				await this.throwApiError(response);
+			}
+			throw new Error('Некорректный ответ сервера');
+		}
+		const data = await this.parseJsonResponse<IntegrationRestoreResponse>(response);
+		if (!response.ok || data.error || !data.data) {
+			await this.throwApiError(
+				new Response(JSON.stringify(data), {
+					status: response.status,
+					headers: { 'Content-Type': contentType || 'application/json' }
+				})
+			);
+		}
+		return data.data as IntegrationRestoreResponse;
 	}
 
 	private normalizePreviewMembers(raw: unknown): SubscriptionPreviewMember[] {
@@ -581,6 +648,18 @@ class ApiClient {
 
 	async updateHydraRoute(): Promise<HydraRouteStatus> {
 		return this.request('/hydraroute/update', { method: 'POST' });
+	}
+
+	async downloadHydraRouteBackup(): Promise<void> {
+		return this.downloadBinary('/hydraroute/backup', 'awgm-hydraroute-backup.zip');
+	}
+
+	async previewHydraRouteRestore(file: File): Promise<IntegrationRestoreResponse> {
+		return this.restoreIntegration('hydraroute', file, true);
+	}
+
+	async restoreHydraRouteBackup(file: File): Promise<IntegrationRestoreResponse> {
+		return this.restoreIntegration('hydraroute', file, false);
 	}
 
 	async getHydraRouteConfig(): Promise<HydraRouteConfig> {
@@ -1631,6 +1710,18 @@ class ApiClient {
 
 	async singboxUpdate(): Promise<SingboxStatus> {
 		return this.request('/singbox/update', { method: 'POST' });
+	}
+
+	async downloadSingboxBackup(): Promise<void> {
+		return this.downloadBinary('/singbox/backup', 'awgm-singbox-backup.zip');
+	}
+
+	async previewSingboxRestore(file: File): Promise<IntegrationRestoreResponse> {
+		return this.restoreIntegration('singbox', file, true);
+	}
+
+	async restoreSingboxBackup(file: File): Promise<IntegrationRestoreResponse> {
+		return this.restoreIntegration('singbox', file, false);
 	}
 
 	async singboxControl(action: 'start' | 'stop' | 'restart'): Promise<SingboxStatus> {
