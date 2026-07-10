@@ -151,6 +151,9 @@ func (h *IntegrationBackupHandler) restore(component string, w http.ResponseWrit
 		case integrationbackup.ComponentSingbox:
 			publishInvalidated(h.bus, ResourceSingboxStatus, "restore")
 			publishInvalidated(h.bus, ResourceSingboxTunnels, "restore")
+			publishInvalidated(h.bus, ResourceRoutingDnsRoutes, "restore")
+			publishInvalidated(h.bus, ResourceRoutingStaticRoutes, "restore")
+			publishInvalidated(h.bus, ResourceRoutingClientRoutes, "restore")
 			publishInvalidated(h.bus, ResourceSettings, "restore")
 		case integrationbackup.ComponentHydraRoute:
 			publishInvalidated(h.bus, ResourceRoutingHydrarouteStatus, "restore")
