@@ -177,3 +177,72 @@ describe('ApiClient gateway/HTML error classification', () => {
 		expect((err as Error).message).toBe('Ошибка сервера (500): boom from upstream');
 	});
 });
+
+describe('ApiClient integration backup transport', () => {
+	const originalFetch = globalThis.fetch;
+	const originalCreateObjectURL = URL.createObjectURL;
+	const originalRevokeObjectURL = URL.revokeObjectURL;
+
+	beforeEach(() => {
+		vi.restoreAllMocks();
+		URL.createObjectURL = vi.fn(() => 'blob:test');
+		URL.revokeObjectURL = vi.fn();
+	});
+
+	afterEach(() => {
+		globalThis.fetch = originalFetch;
+		URL.createObjectURL = originalCreateObjectURL;
+		URL.revokeObjectURL = originalRevokeObjectURL;
+	});
+
+	it('classifies gateway errors for backup download the same way as request()', async () => {
+		globalThis.fetch = vi.fn().mockResolvedValue(
+			new Response('<html><body>503</body></html>', {
+				status: 503,
+				headers: { 'Content-Type': 'text/html' },
+			}),
+		);
+
+		await expect(api.downloadSingboxBackup()).rejects.toBeInstanceOf(ApiGatewayError);
+	});
+
+	it('calls unauthorized handler on restore preview 401', async () => {
+		const onUnauthorized = vi.fn();
+		api.setUnauthorizedHandler(onUnauthorized);
+		globalThis.fetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ error: true, message: 'nope' }), {
+				status: 401,
+				headers: { 'Content-Type': 'application/json' },
+			}),
+		);
+
+		await expect(
+			api.previewSingboxRestore(new File(['zip'], 'backup.zip', { type: 'application/zip' })),
+		).rejects.toThrow('Сессия истекла');
+		expect(onUnauthorized).toHaveBeenCalledTimes(1);
+	});
+
+	it('keeps server JSON message on restore failure', async () => {
+		globalThis.fetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ error: true, message: 'архив повреждён' }), {
+				status: 400,
+				headers: { 'Content-Type': 'application/json' },
+			}),
+		);
+
+		await expect(
+			api.restoreHydraRouteBackup(new File(['zip'], 'backup.zip', { type: 'application/zip' })),
+		).rejects.toThrow('архив повреждён');
+	});
+
+	it('calls connection-lost handler on restore network failure', async () => {
+		const onConnectionLost = vi.fn();
+		api.setConnectionLostHandler(onConnectionLost);
+		globalThis.fetch = vi.fn().mockRejectedValue(new Error('network down'));
+
+		await expect(
+			api.previewSingboxRestore(new File(['zip'], 'backup.zip', { type: 'application/zip' })),
+		).rejects.toThrow('Ошибка сети: не удалось подключиться к серверу');
+		expect(onConnectionLost).toHaveBeenCalledTimes(1);
+	});
+});

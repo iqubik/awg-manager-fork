@@ -23,14 +23,18 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/api"
 	"github.com/hoaxisr/awg-manager/internal/auth"
 	"github.com/hoaxisr/awg-manager/internal/clientroute"
+	"github.com/hoaxisr/awg-manager/internal/connections"
 	"github.com/hoaxisr/awg-manager/internal/deviceproxy"
 	"github.com/hoaxisr/awg-manager/internal/diagnostics"
 	"github.com/hoaxisr/awg-manager/internal/dnscheck"
 	"github.com/hoaxisr/awg-manager/internal/downloader"
 	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/hydraroute"
+	"github.com/hoaxisr/awg-manager/internal/integrationbackup"
+	"github.com/hoaxisr/awg-manager/internal/openapi"
 	"github.com/hoaxisr/awg-manager/internal/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/presets"
+	"github.com/hoaxisr/awg-manager/internal/response"
 	"github.com/hoaxisr/awg-manager/internal/routing"
 	"github.com/hoaxisr/awg-manager/internal/singbox"
 	singboxorch "github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
@@ -44,6 +48,7 @@ import (
 	ndmstransport "github.com/hoaxisr/awg-manager/internal/ndms/transport"
 	"github.com/hoaxisr/awg-manager/internal/storage"
 	"github.com/hoaxisr/awg-manager/internal/sys/kmod"
+	"github.com/hoaxisr/awg-manager/internal/sys/osdetect"
 	"github.com/hoaxisr/awg-manager/internal/terminal"
 	"github.com/hoaxisr/awg-manager/internal/testing"
 	"github.com/hoaxisr/awg-manager/internal/traffic"
@@ -61,8 +66,10 @@ const (
 
 // Config holds server configuration.
 type Config struct {
-	FrontendFS fs.FS
-	Version    string
+	ListenAddr         string
+	LoopbackListenAddr string // optional: 127.0.0.1:port for reverse proxy support
+	FrontendFS         fs.FS
+	Version            string
 
 	// PprofStandaloneAddr, if non-empty, starts an additional listener that
 	// serves only Go's /debug/pprof/* endpoints (recommended: 127.0.0.1:6060).
@@ -105,9 +112,11 @@ type Server struct {
 	clientRouteService         clientroute.Service
 	catalog                    routing.Catalog
 	hydraService               *hydraroute.Service
+	integrationBackup          *integrationbackup.Service
 	orch                       *orchestrator.Orchestrator
 	bus                        *events.Bus
 	singboxHandler             *api.SingboxHandler
+	singboxWatchdogHandler     *api.SingboxWatchdogHandler
 	singboxConnsHandler        *api.SingboxConnectionsHandler
 	singboxRouterHandler       *api.SingboxRouterHandler
 	singboxFakeIPConfigHandler *api.SingboxFakeIPConfigHandler
@@ -131,12 +140,7 @@ type Server struct {
 	dnsCheckService            *dnscheck.Service
 	authMiddleware             *auth.Middleware
 	httpServer                 *http.Server
-
-	// listen владеет всеми HTTP-листенерами (по адресам из ListenSpec +
-	// безусловный loopback) и confirm-окном живой смены адреса. См. listen.go.
-	listen         listenState
-	listenDone     chan struct{} // закрывается в Shutdown — отпускает Start
-	listenDoneOnce sync.Once
+	loopbackListener           net.Listener // optional loopback listener for reverse proxy
 
 	ndmsDispatcher api.HookDispatcher
 	ndmsTransport  *ndmstransport.Client
@@ -190,6 +194,7 @@ type Deps struct {
 	Orch                 *orchestrator.Orchestrator
 	Bus                  *events.Bus
 	HydraService         *hydraroute.Service
+	IntegrationBackup    *integrationbackup.Service
 	SingboxHandler       *api.SingboxHandler
 	SingboxOrch          *singboxorch.Orchestrator
 	ClashProxy           *api.ClashProxy
@@ -247,6 +252,7 @@ func New(cfg Config, deps Deps) *Server {
 		clientRouteService:     deps.ClientRouteSvc,
 		catalog:                deps.Catalog,
 		hydraService:           deps.HydraService,
+		integrationBackup:      deps.IntegrationBackup,
 		orch:                   deps.Orch,
 		bus:                    deps.Bus,
 		singboxHandler:         deps.SingboxHandler,
@@ -320,6 +326,12 @@ func (s *Server) SetDownloadService(svc *downloader.Service) {
 // /api/singbox/router/* routes can be registered.
 func (s *Server) SetSingboxRouterHandler(h *api.SingboxRouterHandler) {
 	s.singboxRouterHandler = h
+}
+
+// SetSingboxWatchdogHandler wires the Sing-box watchdog HTTP handler so the
+// /api/singbox/watchdog/* routes can be registered.
+func (s *Server) SetSingboxWatchdogHandler(h *api.SingboxWatchdogHandler) {
+	s.singboxWatchdogHandler = h
 }
 
 // SetSingboxFakeIPConfigHandler wires the fakeip-tun config CRUD handler so
@@ -424,8 +436,18 @@ func IsPortFree(port int) bool {
 	return true
 }
 
+// SetListenAddr sets the listen address after port selection.
+func (s *Server) SetListenAddr(addr string) {
+	s.config.ListenAddr = addr
+}
+
+// SetLoopbackAddr sets the loopback listen address for reverse proxy support.
 func (s *Server) SetBootStatusFunc(fn func() bool) {
 	s.bootStatusFn = fn
+}
+
+func (s *Server) SetLoopbackAddr(addr string) {
+	s.config.LoopbackListenAddr = addr
 }
 
 // Start starts the HTTP server.
@@ -468,38 +490,37 @@ func (s *Server) Start() error {
 		// Individual handlers use context timeouts where needed.
 	}
 
-	// Мультилистенеры (listen.go): по одному на IPv4 каждого выбранного
-	// интерфейса + безусловный loopback. Boot — best-effort: интерфейс без
-	// IP пропускается (heal-тикер добиндит, когда IP появится); фатально
-	// только «не открылся ни один листенер».
-	s.listenDone = make(chan struct{})
-	s.listen.mu.Lock()
-	addrs, _ := s.resolveListenAddrs(s.listen.spec, false)
-	n, _ := s.applyListenLocked(addrs, true)
-	s.listen.mu.Unlock()
-	if n == 0 {
-		return fmt.Errorf("не удалось открыть ни одного HTTP-листенера (порт %d)", s.listen.spec.Port)
+	listener, err := net.Listen("tcp", s.config.ListenAddr)
+	if err != nil {
+		return err
 	}
-	s.startListenHeal()
 
-	// Блокируемся до Shutdown — контракт прежнего Serve-вызова для main.go.
-	<-s.listenDone
-	return http.ErrServerClosed
+	// Start loopback listener for reverse proxy support (e.g. Keenetic nginx)
+	if s.config.LoopbackListenAddr != "" {
+		ln, err := net.Listen("tcp", s.config.LoopbackListenAddr)
+		if err != nil {
+			s.appLog.Warn("loopback-listener", s.config.LoopbackListenAddr, "failed to start: "+err.Error())
+		} else {
+			s.loopbackListener = ln
+			loopbackSrv := &http.Server{
+				Handler:           handler,
+				ReadHeaderTimeout: 5 * time.Second,
+				IdleTimeout:       120 * time.Second,
+				MaxHeaderBytes:    8192,
+			}
+			go loopbackSrv.Serve(ln)
+			s.appLog.Info("loopback-listener", s.config.LoopbackListenAddr, "started")
+		}
+	}
+
+	return s.httpServer.Serve(listener)
 }
 
 // Shutdown gracefully shuts down the server.
 func (s *Server) Shutdown(ctx context.Context) error {
-	s.listen.mu.Lock()
-	if s.listen.healStop != nil {
-		close(s.listen.healStop)
-		s.listen.healStop = nil
+	if s.loopbackListener != nil {
+		s.loopbackListener.Close()
 	}
-	if s.listen.pendingTimer != nil {
-		s.listen.pendingTimer.Stop()
-	}
-	s.clearPendingLocked()
-	s.listen.mu.Unlock()
-
 	if s.pprofServer != nil {
 		shutdownCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		_ = s.pprofServer.Shutdown(shutdownCtx)
@@ -509,13 +530,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.httpServer == nil {
 		return nil
 	}
-	// httpServer.Shutdown закрывает все листенеры (Serve-горутины выходят)
-	// и дожидается соединений; после него отпускаем заблокированный Start.
-	err := s.httpServer.Shutdown(ctx)
-	if s.listenDone != nil {
-		s.listenDoneOnce.Do(func() { close(s.listenDone) })
-	}
-	return err
+	return s.httpServer.Shutdown(ctx)
 }
 
 // AddShutdownHook registers a function to call before syscall.Exec restart.
@@ -555,20 +570,75 @@ func (s *Server) ScheduleRestart() {
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
-	h := s.buildRouteHandlers()
-	s.registerCoreRoutes(mux, h)
-	s.registerTunnelRoutes(mux, h)
-	s.registerSystemRoutes(mux, h)
-	s.registerRoutingRoutes(mux, h)
-	s.registerSettingsRoutes(mux, h)
-	s.registerDeviceProxyRoutes(mux, h)
-	s.registerLogsImportRoutes(mux, h)
-	s.registerServerRoutes(mux, h)
-	s.registerPolicyRoutes(mux, h)
-	s.registerDiagnosticsRoutes(mux, h)
-	s.wireCrossHandlers(mux, h)
-	s.registerSingboxRoutes(mux, h)
-	s.registerStaticRoutes(mux, h)
+	// Create handlers (pass loggingService as AppLogger to constructors)
+	appLog := s.loggingService
+	authHandler := api.NewAuthHandler(s.keenetic, s.sessions, s.settings, appLog)
+	tunnelsHandler := api.NewTunnelsHandler(s.tunnelService, s.tunnels, appLog)
+	tunnelsHandler.SetSettingsStore(s.settings)
+	tunnelsHandler.SetPingCheckService(s.pingCheckService)
+	tunnelsHandler.SetTrafficHistory(s.trafficHistory)
+	tunnelsHandler.SetOrchestrator(s.orch)
+	controlHandler := api.NewControlHandler(s.tunnelService, appLog)
+	controlHandler.SetPingCheckService(s.pingCheckService)
+	controlHandler.SetOrchestrator(s.orch)
+	controlHandler.SetTunnelsHandler(tunnelsHandler)
+	controlHandler.SetEventBus(s.bus)
+	testingHandler := api.NewTestingHandler(s.testingService)
+	systemHandler := api.NewSystemHandler(s.config.Version)
+	systemHandler.SetSettingsStore(s.settings)
+	systemHandler.SetActiveBackend(s.activeBackend)
+	systemHandler.SetKmodLoader(s.kmodLoader)
+	systemHandler.SetSettingsWriter(s.settings)
+	systemHandler.SetTunnelService(s.tunnelService)
+	systemHandler.SetPingCheckService(s.pingCheckService)
+	systemHandler.SetNDMSQueries(s.ndmsQueries)
+	systemHandler.SetRestartFunc(s.ScheduleRestart)
+	if s.bootStatusFn != nil {
+		systemHandler.SetBootStatusFunc(s.bootStatusFn)
+	}
+	systemHandler.SetHydraRoute(s.hydraService)
+	systemHandler.SetSingboxOperator(s.singboxOp)
+	systemHandler.SetEventBus(s.bus)
+	if ms := int(s.config.SlowRequestThreshold / time.Millisecond); ms > 0 {
+		systemHandler.SetSlowRequestThresholdMs(ms)
+	}
+	settingsHandler := api.NewSettingsHandler(s.settings, appLog)
+	settingsHandler.SetDownloadService(s.downloadSvc)
+	settingsHandler.SetTunnelStore(s.tunnels)
+	settingsHandler.SetPingCheckService(s.pingCheckService)
+	settingsHandler.SetMonitoringService(s.monitoringService)
+	settingsHandler.SetEventBus(s.bus)
+	importHandler := api.NewImportHandler(s.tunnelService, s.tunnels, appLog)
+	importHandler.SetSettingsStore(s.settings)
+	importHandler.SetPingCheckService(s.pingCheckService)
+	importHandler.SetTunnelsHandler(tunnelsHandler)
+	wanHandler := api.NewWANHandler(s.tunnelService, appLog)
+	pingCheckHandler := api.NewPingCheckHandler(s.pingCheckService, s.tunnels, s.nwgOp, appLog)
+	pingCheckHandler.SetEventBus(s.bus)
+	pingCheckHandler.SetOrchestrator(s.orch)
+	tunnelsHandler.SetPingCheckSnapshot(pingCheckHandler.PublishSnapshot)
+	settingsHandler.SetPingCheckSnapshot(pingCheckHandler.PublishSnapshot)
+	loggingHandler := api.NewLoggingHandler(s.loggingService, appLog)
+	loggingHandler.SetEventBus(s.bus)
+	settingsHandler.SetLogsSnapshot(loggingHandler.PublishSnapshot)
+	// Wire eager re-apply of MaxAge / per-bucket MaxEntries after a
+	// settings PUT — without this the live buffers keep stale caps until
+	// the next AppLog tick (lazy apply path was removed).
+	settingsHandler.SetApplyLoggingSettings(s.loggingService.ApplySettings)
+	settingsHandler.SetApplySingboxLogSettings(func() error {
+		if s.singboxOp == nil || s.settings == nil {
+			return nil
+		}
+		return s.singboxOp.ApplyLogLevel(s.settings.GetSingboxLogLevel())
+	})
+	externalHandler := api.NewExternalTunnelsHandler(s.externalService, s.tunnelService, s.tunnels, appLog)
+	externalHandler.SetTunnelListPublisher(tunnelsHandler.PublishTunnelList)
+	updateHandler := api.NewUpdateHandler(s.updaterService, appLog)
+	dnsRouteHandler := api.NewDNSRouteHandler(s.dnsRouteService, appLog)
+	diagRunner := diagnostics.NewRunner(diagnostics.Deps{
+		TunnelService:        s.tunnelService,
+		NDMSQueries:          s.ndmsQueries,
+		NDMSTransport:        s.ndmsTransport,
 		Backend:              s.activeBackend,
 		KmodLoader:           s.kmodLoader,
 		TunnelStore:          s.tunnels,
@@ -710,6 +780,14 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/api/hydraroute/ipset-usage", guarded(hrHandler.GetIpsetUsage))
 		mux.HandleFunc("/api/hydraroute/oversized-tags", guarded(hrHandler.GetOversizedTags))
 		mux.HandleFunc("/api/hydraroute/policy-order", guarded(hrHandler.SetPolicyOrder))
+	}
+	if s.integrationBackup != nil {
+		backupHandler := api.NewIntegrationBackupHandler(s.integrationBackup)
+		backupHandler.SetEventBus(s.bus)
+		mux.HandleFunc("/api/singbox/backup", guarded(backupHandler.SingboxBackup))
+		mux.HandleFunc("/api/singbox/restore", guarded(backupHandler.SingboxRestore))
+		mux.HandleFunc("/api/hydraroute/backup", guarded(backupHandler.HydraRouteBackup))
+		mux.HandleFunc("/api/hydraroute/restore", guarded(backupHandler.HydraRouteRestore))
 	}
 
 	// Update endpoints (protected + boot guarded)

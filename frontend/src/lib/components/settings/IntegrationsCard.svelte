@@ -1,9 +1,16 @@
 <script lang="ts">
-	import type { SingboxStatus, HydraRouteStatus } from '$lib/types';
+	import type {
+		SingboxStatus,
+		HydraRouteStatus,
+		IntegrationRestoreResponse,
+	} from '$lib/types';
+	import { api } from '$lib/api/client';
 	import Button from '$lib/components/ui/Button.svelte';
+	import Modal from '$lib/components/ui/Modal.svelte';
 	import SideDrawer from '$lib/components/ui/SideDrawer.svelte';
 	import StatusDot from '$lib/components/ui/StatusDot.svelte';
 	import SettingsSectionLabel from './SettingsSectionLabel.svelte';
+	import { notifications } from '$lib/stores/notifications';
 	import { copyToClipboard } from '$lib/utils/clipboard';
 	import { hydraRouteInstallProgress } from '$lib/stores/hydrarouteInstall';
 	import { singboxInstallProgress } from '$lib/stores/singboxInstall';
@@ -163,6 +170,34 @@
 	});
 
 	let errorModalOpen = $state(false);
+	let restoreFileInput: HTMLInputElement | null = $state(null);
+	let restoreComponent = $state<'singbox' | 'hydraroute' | null>(null);
+	let restoreBusy = $state(false);
+	let backupBusy = $state<'singbox' | 'hydraroute' | null>(null);
+	let previewModalOpen = $state(false);
+	let restoreFile = $state<File | null>(null);
+	let restorePreview = $state<IntegrationRestoreResponse | null>(null);
+
+	function restoreActionLabel(action: string): string {
+		switch (action) {
+			case 'planned':
+				return 'План';
+			case 'planned_delete':
+				return 'План удаления';
+			case 'restored':
+				return 'Восстановлено';
+			case 'deleted':
+				return 'Удалено';
+			case 'skipped':
+				return 'Пропущено';
+			case 'conflict':
+				return 'Конфликт';
+			case 'rollback':
+				return 'Откат';
+			default:
+				return action;
+		}
+	}
 
 	function showErrorDetails() {
 		errorModalOpen = true;
@@ -185,6 +220,75 @@
 			errorModalOpen = false;
 		}
 	});
+
+	function openRestorePicker(component: 'singbox' | 'hydraroute') {
+		restoreComponent = component;
+		restoreFileInput?.click();
+	}
+
+	async function handleRestoreFileSelected(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file || !restoreComponent) return;
+		restoreBusy = true;
+		restoreFile = file;
+		restorePreview = null;
+		try {
+			restorePreview = restoreComponent === 'singbox'
+				? await api.previewSingboxRestore(file)
+				: await api.previewHydraRouteRestore(file);
+			previewModalOpen = true;
+		} catch (e) {
+			notifications.error(e instanceof Error ? e.message : 'Не удалось проверить архив резервной копии');
+			restoreFile = null;
+		} finally {
+			restoreBusy = false;
+		}
+	}
+
+	async function applyRestore() {
+		if (!restoreFile || !restoreComponent) return;
+		restoreBusy = true;
+		try {
+			const result = restoreComponent === 'singbox'
+				? await api.restoreSingboxBackup(restoreFile)
+				: await api.restoreHydraRouteBackup(restoreFile);
+			const rolledBack = result.outcomes.some((item) => item.action === 'rollback');
+			if (rolledBack) {
+				notifications.error('Восстановление завершилось откатом');
+			} else {
+				notifications.success(
+					restoreComponent === 'singbox'
+						? 'Резервная копия sing-box восстановлена'
+						: 'Резервная копия HydraRoute восстановлена'
+				);
+			}
+			previewModalOpen = false;
+			restoreFile = null;
+			restorePreview = null;
+			restoreComponent = null;
+		} catch (e) {
+			notifications.error(e instanceof Error ? e.message : 'Не удалось восстановить резервную копию');
+		} finally {
+			restoreBusy = false;
+		}
+	}
+
+	async function downloadBackup(component: 'singbox' | 'hydraroute') {
+		backupBusy = component;
+		try {
+			if (component === 'singbox') {
+				await api.downloadSingboxBackup();
+			} else {
+				await api.downloadHydraRouteBackup();
+			}
+		} catch (e) {
+			notifications.error(e instanceof Error ? e.message : 'Не удалось скачать резервную копию');
+		} finally {
+			backupBusy = null;
+		}
+	}
 </script>
 
 {#if showSingbox || showHydra}
@@ -285,29 +389,50 @@
 						{/if}
 					</div>
 				</div>
-				{#if installProgress}
-					<div class="progress-widget" class:progress-error={installProgress.phase === 'error'} class:progress-done={installProgress.phase === 'done'}>
-						<div class="progress-label">{installPhaseLabel}</div>
-						<div class="progress-bar" class:indeterminate={installProgressPct === null && installProgress.phase !== 'done' && installProgress.phase !== 'error'}>
-							<div
-								class="progress-fill"
-								style:width={installProgressPct !== null ? `${installProgressPct}%` : '100%'}
-							></div>
+				<div class="integration-actions">
+					{#if installProgress}
+						<div class="progress-widget" class:progress-error={installProgress.phase === 'error'} class:progress-done={installProgress.phase === 'done'}>
+							<div class="progress-label">{installPhaseLabel}</div>
+							<div class="progress-bar" class:indeterminate={installProgressPct === null && installProgress.phase !== 'done' && installProgress.phase !== 'error'}>
+								<div
+									class="progress-fill"
+									style:width={installProgressPct !== null ? `${installProgressPct}%` : '100%'}
+								></div>
+							</div>
 						</div>
-					</div>
-				{:else if singboxInstalled && singboxNeedsUpdate && onupdateSingbox}
-					<Button variant="primary" size="sm" onclick={onupdateSingbox} loading={singboxUpdating}>
-						{singboxUpdating ? 'Обновление...' : 'Обновить'}
-					</Button>
-				{:else if singboxInstalled}
-					<Button variant="secondary" size="sm" href="/?tab=singbox">Открыть</Button>
-				{:else if singboxStatusLoading}
-					<Button variant="secondary" size="sm" disabled>Ожидание…</Button>
-				{:else}
-					<Button variant="primary" size="sm" onclick={oninstallSingbox} loading={singboxInstalling}>
-						{singboxInstalling ? 'Установка...' : 'Установить'}
-					</Button>
-				{/if}
+					{:else if singboxInstalled && singboxNeedsUpdate && onupdateSingbox}
+						<Button variant="primary" size="sm" fullWidth onclick={onupdateSingbox} loading={singboxUpdating}>
+							{singboxUpdating ? 'Обновление...' : 'Обновить'}
+						</Button>
+					{:else if singboxInstalled}
+						<Button
+							variant="secondary"
+							size="sm"
+							fullWidth
+							onclick={() => downloadBackup('singbox')}
+							loading={backupBusy === 'singbox'}
+							disabled={restoreBusy}
+						>
+							Скачать
+						</Button>
+						<Button
+							variant="secondary"
+							size="sm"
+							fullWidth
+							onclick={() => openRestorePicker('singbox')}
+							loading={restoreBusy && restoreComponent === 'singbox'}
+						>
+							Восстановить
+						</Button>
+						<Button variant="secondary" size="sm" fullWidth href="/?tab=singbox">Открыть</Button>
+					{:else if singboxStatusLoading}
+						<Button variant="secondary" size="sm" fullWidth disabled>Ожидание…</Button>
+					{:else}
+						<Button variant="primary" size="sm" fullWidth onclick={oninstallSingbox} loading={singboxInstalling}>
+							{singboxInstalling ? 'Установка...' : 'Установить'}
+						</Button>
+					{/if}
+				</div>
 			</div>
 		{/if}
 
@@ -398,34 +523,55 @@
 						{/if}
 					</div>
 				</div>
-			{#if hydraInstallProgress}
-				<div class="progress-widget" class:progress-error={hydraInstallProgress.phase === 'error'} class:progress-done={hydraInstallProgress.phase === 'done'}>
-					<div class="progress-label">{hydraInstallPhaseLabel}</div>
-					<div class="progress-bar" class:indeterminate={hydraInstallProgressPct === null && hydraInstallProgress.phase !== 'done' && hydraInstallProgress.phase !== 'error'}>
-						<div class="progress-fill" style:width={hydraInstallProgressPct !== null ? `${hydraInstallProgressPct}%` : '100%'}></div>
+			<div class="integration-actions">
+				{#if hydraInstallProgress}
+					<div class="progress-widget" class:progress-error={hydraInstallProgress.phase === 'error'} class:progress-done={hydraInstallProgress.phase === 'done'}>
+						<div class="progress-label">{hydraInstallPhaseLabel}</div>
+						<div class="progress-bar" class:indeterminate={hydraInstallProgressPct === null && hydraInstallProgress.phase !== 'done' && hydraInstallProgress.phase !== 'error'}>
+							<div class="progress-fill" style:width={hydraInstallProgressPct !== null ? `${hydraInstallProgressPct}%` : '100%'}></div>
+						</div>
 					</div>
-				</div>
-			{:else if hydraInstalled && hydraManaged && hydraInstallSupported && hydraNeedsUpdate && !hydraInstalling && onupdateHydra}
-				<Button variant="primary" size="sm" onclick={onupdateHydra} loading={hydraUpdating}>
-					{hydraUpdating ? 'Обновление...' : 'Обновить'}
-				</Button>
-			{:else if hydraInstalled && hydraLegacy && hydraInstallSupported && !hydraInstalling && oninstallHydra}
-				<Button variant="primary" size="sm" onclick={oninstallHydra} loading={hydraInstalling}>
-					{hydraInstalling ? 'Установка...' : 'Установить официально'}
-				</Button>
-			{:else if hydraInstalled && !hydraUpdating}
-				<Button variant="secondary" size="sm" href="/routing?tab=hrneo">Открыть</Button>
-			{:else if hydraStatusLoading}
-				<Button variant="secondary" size="sm" disabled>Ожидание…</Button>
-			{:else if hydraInstallSupported && !hydraNoSpace && oninstallHydra}
-				<Button variant="primary" size="sm" onclick={oninstallHydra} loading={hydraInstalling}>
-					{hydraInstalling ? 'Установка...' : 'Установить'}
-				</Button>
-			{:else}
-				<Button variant="secondary" size="sm" disabled>
-					Недоступно
-				</Button>
-			{/if}
+				{:else if hydraInstalled && hydraManaged && hydraInstallSupported && hydraNeedsUpdate && !hydraInstalling && onupdateHydra}
+					<Button variant="primary" size="sm" fullWidth onclick={onupdateHydra} loading={hydraUpdating}>
+						{hydraUpdating ? 'Обновление...' : 'Обновить'}
+					</Button>
+				{:else if hydraInstalled && hydraLegacy && hydraInstallSupported && !hydraInstalling && oninstallHydra}
+					<Button variant="primary" size="sm" fullWidth onclick={oninstallHydra} loading={hydraInstalling}>
+						{hydraInstalling ? 'Установка...' : 'Установить официально'}
+					</Button>
+				{:else if hydraInstalled && !hydraUpdating}
+					<Button
+						variant="secondary"
+						size="sm"
+						fullWidth
+						onclick={() => downloadBackup('hydraroute')}
+						loading={backupBusy === 'hydraroute'}
+						disabled={restoreBusy}
+					>
+						Скачать
+					</Button>
+					<Button
+						variant="secondary"
+						size="sm"
+						fullWidth
+						onclick={() => openRestorePicker('hydraroute')}
+						loading={restoreBusy && restoreComponent === 'hydraroute'}
+					>
+						Восстановить
+					</Button>
+					<Button variant="secondary" size="sm" fullWidth href="/routing?tab=hrneo">Открыть</Button>
+				{:else if hydraStatusLoading}
+					<Button variant="secondary" size="sm" fullWidth disabled>Ожидание…</Button>
+				{:else if hydraInstallSupported && !hydraNoSpace && oninstallHydra}
+					<Button variant="primary" size="sm" fullWidth onclick={oninstallHydra} loading={hydraInstalling}>
+						{hydraInstalling ? 'Установка...' : 'Установить'}
+					</Button>
+				{:else}
+					<Button variant="secondary" size="sm" fullWidth disabled>
+						Недоступно
+					</Button>
+				{/if}
+			</div>
 			</div>
 		{/if}
 		</div>
@@ -448,6 +594,79 @@
 		</Button>
 	{/snippet}
 </SideDrawer>
+
+<input
+	bind:this={restoreFileInput}
+	class="sr-only"
+	type="file"
+	accept=".zip,application/zip,application/octet-stream"
+	onchange={handleRestoreFileSelected}
+/>
+
+<Modal
+	open={previewModalOpen}
+	title={restoreComponent === 'singbox' ? 'Восстановление резервной копии sing-box' : 'Восстановление резервной копии HydraRoute'}
+	size="lg"
+	onclose={() => {
+		if (restoreBusy) return;
+		previewModalOpen = false;
+		restoreFile = null;
+		restorePreview = null;
+		restoreComponent = null;
+	}}
+>
+	<div class="restore-preview">
+		<div class="setting-description warning">
+			Резервная копия может содержать приватные ключи, UUID, серверы, пароли и маршруты.
+			Восстановление изменит настройки компонента. Архив уже проверен, но применять его
+			стоит только если вы доверяете источнику.
+		</div>
+		{#if restoreFile}
+			<p class="setting-description">Файл: {restoreFile.name}</p>
+		{/if}
+		{#if (restorePreview?.outcomes ?? []).some((item) => item.action === 'planned_delete')}
+			<div class="setting-description warning">
+				Будут удалены файлы, отсутствующие в резервной копии.
+			</div>
+		{/if}
+		{#if restorePreview?.warnings?.length}
+			<div class="restore-warning-list">
+				{#each restorePreview.warnings as warning}
+					<div class="setting-description warning">{warning}</div>
+				{/each}
+			</div>
+		{/if}
+		<div class="restore-outcomes">
+			{#each restorePreview?.outcomes ?? [] as outcome}
+				<div class="restore-outcome">
+					<span class="font-medium">{restoreActionLabel(outcome.action)}</span>
+					<span class="restore-path">{outcome.path}</span>
+					{#if outcome.error}
+						<span class="setting-description warning">{outcome.error}</span>
+					{/if}
+				</div>
+			{/each}
+		</div>
+	</div>
+	{#snippet actions()}
+		<Button
+			variant="ghost"
+			size="sm"
+			onclick={() => {
+				previewModalOpen = false;
+				restoreFile = null;
+				restorePreview = null;
+				restoreComponent = null;
+			}}
+			disabled={restoreBusy}
+		>
+			Отмена
+		</Button>
+		<Button variant="primary" size="sm" onclick={applyRestore} loading={restoreBusy}>
+			Восстановить
+		</Button>
+	{/snippet}
+</Modal>
 
 <style>
 	.card {
@@ -481,6 +700,45 @@
 		align-items: center;
 		gap: 0.625rem;
 		min-width: 0;
+	}
+
+	.integration-actions {
+		grid-column: 1 / -1;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+		gap: 0.5rem;
+		width: 100%;
+		min-width: 0;
+	}
+
+	.restore-preview {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.restore-outcomes {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		max-height: 22rem;
+		overflow: auto;
+	}
+
+	.restore-outcome {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		padding: 0.625rem 0.75rem;
+		border: 1px solid var(--color-border);
+		border-radius: 0.75rem;
+		background: var(--color-surface-2);
+	}
+
+	.restore-path {
+		font-family: var(--font-mono, monospace);
+		font-size: 0.82rem;
+		word-break: break-all;
 	}
 
 	.settings-card-toggle-label {
@@ -583,13 +841,12 @@
 		grid-column: 1 / -1;
 	}
 
-	/* Same action-button floor as settings actions-card (fits «Обновление…»). */
-	@media (min-width: 641px) {
-		.setting-row > :global(.btn) {
-			justify-self: end;
-			align-self: center;
-			min-width: 7.5rem;
-		}
+	.integration-actions .progress-widget {
+		grid-column: 1 / -1;
+	}
+
+	.integration-actions :global(.btn) {
+		min-width: 0;
 	}
 
 	@media (min-width: 901px) {
@@ -632,12 +889,6 @@
 				grid-template-columns: minmax(0, 1fr) auto;
 				align-items: center;
 				gap: 0.625rem;
-			}
-
-			.setting-row > :global(.btn) {
-				justify-self: end;
-				align-self: center;
-				min-width: 7.5rem;
 			}
 		}
 	}
