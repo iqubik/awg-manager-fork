@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -137,6 +138,11 @@ func (h *IntegrationBackupHandler) restore(component string, w http.ResponseWrit
 	dryRun := isTruthy(r.URL.Query().Get("dryRun"))
 	out, err := h.svc.Restore(r.Context(), component, payload, dryRun)
 	if err != nil {
+		var rollbackErr *integrationbackup.RestoreRollbackError
+		if errors.As(err, &rollbackErr) && rollbackErr.Response != nil {
+			response.Success(w, rollbackErr.Response)
+			return
+		}
 		response.Error(w, err.Error(), "INTEGRATION_RESTORE_FAILED")
 		return
 	}
