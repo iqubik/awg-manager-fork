@@ -21,6 +21,7 @@ import (
 
 	"github.com/hoaxisr/awg-manager/internal/hydraroute"
 	"github.com/hoaxisr/awg-manager/internal/storage"
+	"github.com/hoaxisr/awg-manager/internal/sys/routerclock"
 )
 
 const (
@@ -60,6 +61,7 @@ type Service struct {
 	settings *storage.SettingsStore
 	singbox  singboxRuntime
 	hydra    hydraRuntime
+	now      func() routerclock.Info
 }
 
 func NewService(dataDir string, settings *storage.SettingsStore, singbox singboxRuntime, hydra hydraRuntime) *Service {
@@ -69,6 +71,7 @@ func NewService(dataDir string, settings *storage.SettingsStore, singbox singbox
 		settings: settings,
 		singbox:  singbox,
 		hydra:    hydra,
+		now:      routerclock.Get,
 	}
 }
 
@@ -178,11 +181,12 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
+	clock := s.now()
 	manifest := Manifest{
 		Type:          backupType,
 		FormatVersion: formatVersion,
 		Component:     component,
-		CreatedAt:     time.Now().UTC(),
+		CreatedAt:     clock.Now,
 		Files:         make([]ManifestFile, 0, len(files)),
 	}
 
@@ -258,7 +262,7 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 		return "", nil, err
 	}
 
-	filename := fmt.Sprintf("awgm-%s-backup-%s.zip", component, manifest.CreatedAt.Format("20060102T150405Z"))
+	filename := fmt.Sprintf("awgm-%s-backup-%s.zip", component, backupTimestampForFilename(clock))
 	return filename, buf.Bytes(), nil
 }
 
@@ -939,6 +943,34 @@ func parseArchive(component string, payload []byte) (*Manifest, map[string][]byt
 		}
 	}
 	return &manifest, files, settingsRaw, nil
+}
+
+func backupTimestampForFilename(clock routerclock.Info) string {
+	ts := clock.Now.Format("20060102-150405")
+	zone := sanitizeFilenameToken(clock.ZoneName)
+	if zone == "" {
+		return ts
+	}
+	return ts + "-" + zone
+}
+
+func sanitizeFilenameToken(token string) string {
+	var b strings.Builder
+	for _, c := range token {
+		switch {
+		case c >= 'a' && c <= 'z':
+			b.WriteRune(c)
+		case c >= 'A' && c <= 'Z':
+			b.WriteRune(c)
+		case c >= '0' && c <= '9':
+			b.WriteRune(c)
+		case c == '-' || c == '_':
+			b.WriteRune(c)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
 }
 
 func snapshotFiles(files []filePayload) ([]fileSnapshot, error) {

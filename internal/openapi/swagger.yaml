@@ -1697,6 +1697,9 @@ definitions:
   api.IntegrationRestoreResponseDTO:
     properties:
       component:
+        enum:
+        - singbox
+        - hydraroute
         example: singbox
         type: string
       dryRun:
@@ -8147,6 +8150,10 @@ paths:
           description: OK
           schema:
             type: file
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
         "500":
           description: Internal Server Error
           schema:
@@ -8555,7 +8562,7 @@ paths:
         in: query
         name: dryRun
         type: boolean
-      - description: ZIP-архив backup
+      - description: Raw ZIP archive body
         in: body
         name: body
         required: true
@@ -8572,8 +8579,8 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/api.APIErrorEnvelope'
-        "500":
-          description: Internal Server Error
+        "405":
+          description: Method Not Allowed
           schema:
             $ref: '#/definitions/api.APIErrorEnvelope'
       security:
@@ -11127,6 +11134,10 @@ paths:
           description: OK
           schema:
             type: file
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
         "500":
           description: Internal Server Error
           schema:
@@ -12445,7 +12456,7 @@ paths:
         in: query
         name: dryRun
         type: boolean
-      - description: ZIP-архив backup
+      - description: Raw ZIP archive body
         in: body
         name: body
         required: true
@@ -12462,8 +12473,8 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/api.APIErrorEnvelope'
-        "500":
-          description: Internal Server Error
+        "405":
+          description: Method Not Allowed
           schema:
             $ref: '#/definitions/api.APIErrorEnvelope'
       security:
