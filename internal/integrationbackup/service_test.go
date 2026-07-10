@@ -718,13 +718,13 @@ func TestBackupTimestampForFilename(t *testing.T) {
 		OffsetMinutes: 180,
 		Location:      loc,
 	}
-	got := backupTimestampForFilename(clock)
+	got := backupTimestampForFilename(clock.Now, clock.ZoneName)
 	if got != "20260710-143210-MSK" {
 		t.Errorf("backupTimestampForFilename() = %q, want %q", got, "20260710-143210-MSK")
 	}
 
 	clock.ZoneName = ""
-	got = backupTimestampForFilename(clock)
+	got = backupTimestampForFilename(clock.Now, "")
 	if got != "20260710-143210" {
 		t.Errorf("backupTimestampForFilename() = %q, want %q", got, "20260710-143210")
 	}
