@@ -755,3 +755,70 @@ func TestCreateBackupFilenameUsesRouterClock(t *testing.T) {
 		t.Errorf("CreateBackup filename = %q, want %q", filename, "awgm-singbox-backup-20260710-143210-MSK.zip")
 	}
 }
+
+func TestSetZipEntryLocalModTime(t *testing.T) {
+	h := &zip.FileHeader{
+		Name:   "test.txt",
+		Method: zip.Deflate,
+	}
+	loc := time.FixedZone("MSK", 3*3600)
+	ts := time.Date(2026, 7, 10, 5, 22, 0, 0, loc)
+	setZipEntryLocalModTime(h, ts)
+
+	if h.Modified.Year() != 2026 || h.Modified.Month() != 7 || h.Modified.Day() != 10 ||
+		h.Modified.Hour() != 5 || h.Modified.Minute() != 22 || h.Modified.Second() != 0 {
+		t.Errorf("Modified = %v, want wall-clock 2026-07-10 05:22:00", h.Modified)
+	}
+	if h.ModifiedTime != uint16((5<<11)|(22<<5)|(0/2)) {
+		t.Errorf("ModifiedTime = %x, want %x", h.ModifiedTime, uint16((5<<11)|(22<<5)|(0/2)))
+	}
+	expectedDate := uint16((2026-1980)<<9 | (7 << 5) | 10)
+	if h.ModifiedDate != expectedDate {
+		t.Errorf("ModifiedDate = %x, want %x", h.ModifiedDate, expectedDate)
+	}
+}
+
+func TestCreateBackupZipEntriesUseRouterWallClock(t *testing.T) {
+	svc, _, sb := newTestService(t)
+	writeFileForTest(t, filepath.Join(sb.dir, "00-base.json"), `{"log":{"level":"info"}}`)
+
+	loc := time.FixedZone("MSK", 3*3600)
+	svc.now = func() routerclock.Info {
+		return routerclock.Info{
+			Now:           time.Date(2026, 7, 10, 5, 22, 0, 0, loc),
+			ZoneName:      "MSK",
+			OffsetMinutes: 180,
+			Location:      loc,
+		}
+	}
+
+	_, payload, err := svc.CreateBackup(context.Background(), ComponentSingbox)
+	if err != nil {
+		t.Fatalf("CreateBackup: %v", err)
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
+	if err != nil {
+		t.Fatalf("zip.NewReader: %v", err)
+	}
+
+	expected := time.Date(2026, 7, 10, 5, 22, 0, 0, time.UTC)
+	checks := map[string]bool{
+		"awgm-backup/manifest.json":                                           false,
+		"awgm-backup/settings/singbox.json":                                   false,
+		"awgm-backup/files/opt/etc/awg-manager/singbox/config.d/00-base.json": false,
+	}
+	for _, f := range zr.File {
+		if _, ok := checks[f.Name]; ok {
+			checks[f.Name] = true
+			if !f.Modified.Equal(expected) {
+				t.Errorf("%s Modified = %v, want %v", f.Name, f.Modified, expected)
+			}
+		}
+	}
+	for name, ok := range checks {
+		if !ok {
+			t.Errorf("missing expected zip entry: %s", name)
+		}
+	}
+}
