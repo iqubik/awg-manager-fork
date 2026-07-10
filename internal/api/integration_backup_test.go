@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/hydraroute"
 	"github.com/hoaxisr/awg-manager/internal/integrationbackup"
 	"github.com/hoaxisr/awg-manager/internal/response"
@@ -111,6 +112,71 @@ func TestSingboxRestoreReturnsRollbackEnvelopeOnRollback(t *testing.T) {
 	}
 	if !apiResp.Success || apiResp.Error {
 		t.Fatalf("unexpected API envelope flags: %+v", apiResp)
+	}
+}
+
+func TestSingboxRestorePublishesRoutingInvalidations(t *testing.T) {
+	root := t.TempDir()
+	store := storage.NewSettingsStore(root)
+	if _, err := store.Load(); err != nil {
+		t.Fatalf("settings load: %v", err)
+	}
+	sb := &testIntegrationSingbox{dir: filepath.Join(root, "singbox", "config.d")}
+	if err := os.MkdirAll(sb.dir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	writeAPIBackupTestFile(t, filepath.Join(sb.dir, "00-base.json"), `{"log":{"level":"info"}}`)
+	writeAPIBackupTestFile(t, filepath.Join(root, "dns-routes.json"), `[]`)
+	svc := integrationbackup.NewService(root, store, sb, &testIntegrationHydra{})
+	_, payload, err := svc.CreateBackup(context.Background(), integrationbackup.ComponentSingbox)
+	if err != nil {
+		t.Fatalf("CreateBackup: %v", err)
+	}
+
+	bus := events.NewBus()
+	_, ch, unsub := bus.Subscribe()
+	defer unsub()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/singbox/restore", strings.NewReader(string(payload)))
+	rec := httptest.NewRecorder()
+
+	handler := NewIntegrationBackupHandler(svc)
+	handler.SetEventBus(bus)
+	handler.SingboxRestore(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	want := map[string]bool{
+		ResourceSingboxStatus:       false,
+		ResourceSingboxTunnels:      false,
+		ResourceRoutingDnsRoutes:    false,
+		ResourceRoutingStaticRoutes: false,
+		ResourceRoutingClientRoutes: false,
+		ResourceSettings:            false,
+	}
+	for range want {
+		select {
+		case evt := <-ch:
+			if evt.Type != "resource:invalidated" {
+				continue
+			}
+			data, ok := evt.Data.(events.ResourceInvalidatedEvent)
+			if !ok {
+				t.Fatalf("unexpected event payload type: %#v", evt.Data)
+			}
+			if _, exists := want[data.Resource]; exists {
+				want[data.Resource] = true
+			}
+		default:
+			t.Fatalf("missing expected invalidation events: %+v", want)
+		}
+	}
+	for resource, seen := range want {
+		if !seen {
+			t.Fatalf("resource %s was not invalidated", resource)
+		}
 	}
 }
 

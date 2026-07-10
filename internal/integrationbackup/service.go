@@ -33,6 +33,10 @@ const (
 	filesPrefix    = archiveRoot + "/files"
 	backupType     = "awgm-integration-backup"
 	formatVersion  = 1
+
+	maxArchiveEntries    = 128
+	maxArchiveEntryBytes = 8 << 20
+	maxArchiveTotalBytes = 32 << 20
 )
 
 type singboxRuntime interface {
@@ -392,6 +396,10 @@ func (s *Service) buildRestorePlan(component string, manifest *Manifest, files m
 	}
 	manifestSources := make(map[string]struct{}, len(manifest.Files))
 	for _, mf := range manifest.Files {
+		expectedArchivePath := archiveEntryForSource(mf.SourcePath)
+		if mf.ArchivePath != expectedArchivePath {
+			return nil, fmt.Errorf("archivePath не соответствует sourcePath: %s", mf.SourcePath)
+		}
 		actualPath, err := s.resolveSource(component, mf.SourcePath)
 		if err != nil {
 			return nil, err
@@ -766,11 +774,30 @@ func (s *Service) validate(component string, ctx context.Context) error {
 }
 
 func (s *Service) validatePlannedRestore(ctx context.Context, component string, plan *restorePlan) error {
+	if err := s.validateSettingsSnapshot(component, plan.Settings); err != nil {
+		return err
+	}
 	switch component {
 	case ComponentSingbox:
 		return s.validateSingboxTemp(ctx, plan)
 	case ComponentHydraRoute:
 		return s.validateHydraTemp(plan)
+	default:
+		return fmt.Errorf("неподдерживаемый компонент")
+	}
+}
+
+func (s *Service) validateSettingsSnapshot(component string, raw []byte) error {
+	if raw == nil {
+		return nil
+	}
+	switch component {
+	case ComponentSingbox:
+		var snap singboxSettingsSnapshot
+		return json.Unmarshal(raw, &snap)
+	case ComponentHydraRoute:
+		var snap hydraSettingsSnapshot
+		return json.Unmarshal(raw, &snap)
 	default:
 		return fmt.Errorf("неподдерживаемый компонент")
 	}
@@ -842,19 +869,41 @@ func parseArchive(component string, payload []byte) (*Manifest, map[string][]byt
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	if len(zr.File) > maxArchiveEntries {
+		return nil, nil, nil, fmt.Errorf("в архиве слишком много entries: %d", len(zr.File))
+	}
 	files := make(map[string][]byte, len(zr.File))
+	var totalUncompressed uint64
 	for _, f := range zr.File {
 		if err := validateArchiveName(f.Name); err != nil {
 			return nil, nil, nil, err
+		}
+		info := f.FileInfo()
+		if info.IsDir() {
+			return nil, nil, nil, fmt.Errorf("в архиве запрещена директория: %s", f.Name)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, nil, nil, fmt.Errorf("в архиве запрещен symlink: %s", f.Name)
+		}
+		if f.UncompressedSize64 > maxArchiveEntryBytes {
+			return nil, nil, nil, fmt.Errorf("entry слишком большой: %s", f.Name)
+		}
+		totalUncompressed += f.UncompressedSize64
+		if totalUncompressed > maxArchiveTotalBytes {
+			return nil, nil, nil, fmt.Errorf("суммарный размер распакованного архива слишком большой")
 		}
 		rc, err := f.Open()
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		data, readErr := io.ReadAll(rc)
+		lr := &io.LimitedReader{R: rc, N: maxArchiveEntryBytes + 1}
+		data, readErr := io.ReadAll(lr)
 		_ = rc.Close()
 		if readErr != nil {
 			return nil, nil, nil, readErr
+		}
+		if int64(len(data)) > maxArchiveEntryBytes || lr.N == 0 {
+			return nil, nil, nil, fmt.Errorf("entry слишком большой: %s", f.Name)
 		}
 		files[f.Name] = data
 	}
@@ -877,6 +926,10 @@ func parseArchive(component string, payload []byte) (*Manifest, map[string][]byt
 	}
 	var settingsRaw []byte
 	if manifest.Settings != nil {
+		expectedSettingsPath := settingsEntryForComponent(component)
+		if manifest.Settings.ArchivePath != expectedSettingsPath {
+			return nil, nil, nil, fmt.Errorf("settings archivePath не соответствует компоненту")
+		}
 		settingsRaw = files[manifest.Settings.ArchivePath]
 		if settingsRaw == nil {
 			return nil, nil, nil, fmt.Errorf("в архиве отсутствует settings snapshot: %s", manifest.Settings.ArchivePath)
