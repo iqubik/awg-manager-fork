@@ -204,7 +204,7 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 			Method: zip.Deflate,
 		}
 		h.SetMode(file.mode)
-		h.SetModTime(clock.Now)
+		h.SetModTime(createdAt)
 		w, err := zw.CreateHeader(h)
 		if err != nil {
 			_ = zw.Close()
@@ -227,7 +227,7 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 		settingsArchivePath := settingsEntryForComponent(component)
 		h := &zip.FileHeader{Name: settingsArchivePath, Method: zip.Deflate}
 		h.SetMode(0o644)
-		h.SetModTime(clock.Now)
+		h.SetModTime(createdAt)
 		w, err := zw.CreateHeader(h)
 		if err != nil {
 			_ = zw.Close()
@@ -256,7 +256,7 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 		Name:   manifestName,
 		Method: zip.Deflate,
 	}
-	mh.SetModTime(clock.Now)
+	mh.SetModTime(createdAt)
 	mw, err := zw.CreateHeader(mh)
 	if err != nil {
 		_ = zw.Close()
