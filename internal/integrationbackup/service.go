@@ -182,11 +182,12 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	clock := s.now()
+	createdAt := clock.Now.Truncate(time.Second)
 	manifest := Manifest{
 		Type:          backupType,
 		FormatVersion: formatVersion,
 		Component:     component,
-		CreatedAt:     clock.Now,
+		CreatedAt:     createdAt,
 		Files:         make([]ManifestFile, 0, len(files)),
 	}
 
@@ -203,6 +204,7 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 			Method: zip.Deflate,
 		}
 		h.SetMode(file.mode)
+		h.SetModTime(clock.Now)
 		w, err := zw.CreateHeader(h)
 		if err != nil {
 			_ = zw.Close()
@@ -225,6 +227,7 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 		settingsArchivePath := settingsEntryForComponent(component)
 		h := &zip.FileHeader{Name: settingsArchivePath, Method: zip.Deflate}
 		h.SetMode(0o644)
+		h.SetModTime(clock.Now)
 		w, err := zw.CreateHeader(h)
 		if err != nil {
 			_ = zw.Close()
@@ -249,7 +252,12 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 		_ = zw.Close()
 		return "", nil, err
 	}
-	mw, err := zw.Create(manifestName)
+	mh := &zip.FileHeader{
+		Name:   manifestName,
+		Method: zip.Deflate,
+	}
+	mh.SetModTime(clock.Now)
+	mw, err := zw.CreateHeader(mh)
 	if err != nil {
 		_ = zw.Close()
 		return "", nil, err
@@ -262,7 +270,7 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 		return "", nil, err
 	}
 
-	filename := fmt.Sprintf("awgm-%s-backup-%s.zip", component, backupTimestampForFilename(clock))
+	filename := fmt.Sprintf("awgm-%s-backup-%s.zip", component, backupTimestampForFilename(createdAt, clock.ZoneName))
 	return filename, buf.Bytes(), nil
 }
 
@@ -948,9 +956,9 @@ func parseArchive(component string, payload []byte) (*Manifest, map[string][]byt
 	return &manifest, files, settingsRaw, nil
 }
 
-func backupTimestampForFilename(clock routerclock.Info) string {
-	ts := clock.Now.Format("20060102-150405")
-	zone := sanitizeFilenameToken(clock.ZoneName)
+func backupTimestampForFilename(createdAt time.Time, zoneName string) string {
+	ts := createdAt.Format("20060102-150405")
+	zone := sanitizeFilenameToken(zoneName)
 	if zone == "" {
 		return ts
 	}
