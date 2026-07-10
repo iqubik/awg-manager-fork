@@ -210,6 +210,37 @@ func TestRestoreRollsBackOnValidationFailure(t *testing.T) {
 	}
 }
 
+func TestRestoreDryRunValidatesSingboxTempConfig(t *testing.T) {
+	svc, _, sb := newTestService(t)
+	target := filepath.Join(sb.dir, "00-base.json")
+	writeFileForTest(t, target, `{"log":{"level":"info"}}`)
+
+	_, payload, err := svc.CreateBackup(context.Background(), ComponentSingbox)
+	if err != nil {
+		t.Fatalf("CreateBackup: %v", err)
+	}
+	payload, err = rewriteArchiveEntry(
+		payload,
+		archiveEntryForSource("/opt/etc/awg-manager/singbox/config.d/00-base.json"),
+		[]byte(`{"log":{"level":"invalid"}}`),
+		true,
+	)
+	if err != nil {
+		t.Fatalf("rewriteArchiveEntry: %v", err)
+	}
+
+	if _, err := svc.Restore(context.Background(), ComponentSingbox, payload, true); err == nil || !strings.Contains(err.Error(), "invalid") {
+		t.Fatalf("expected dry-run validation error, got %v", err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read target after dry-run: %v", err)
+	}
+	if string(got) != `{"log":{"level":"info"}}` {
+		t.Fatalf("dry-run changed file content: %s", got)
+	}
+}
+
 func TestRestoreDryRunPlansDeleteForStaleSingboxFile(t *testing.T) {
 	svc, _, sb := newTestService(t)
 	writeFileForTest(t, filepath.Join(sb.dir, "00-base.json"), `{"log":{"level":"info"}}`)
@@ -255,6 +286,26 @@ func TestRestoreDeletesStaleSingboxFile(t *testing.T) {
 	}
 	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
 		t.Fatalf("expected stale file to be removed, got err=%v", err)
+	}
+}
+
+func TestRestoreDeletesStaleSingboxAWGMJSON(t *testing.T) {
+	svc, _, sb := newTestService(t)
+	writeFileForTest(t, filepath.Join(sb.dir, "00-base.json"), `{"log":{"level":"info"}}`)
+
+	_, payload, err := svc.CreateBackup(context.Background(), ComponentSingbox)
+	if err != nil {
+		t.Fatalf("CreateBackup: %v", err)
+	}
+
+	stalePath := filepath.Join(svc.dataDir, "deviceproxy.json")
+	writeFileForTest(t, stalePath, `{"enabled":true}`)
+
+	if _, err := svc.Restore(context.Background(), ComponentSingbox, payload, false); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale deviceproxy.json to be removed, got err=%v", err)
 	}
 }
 

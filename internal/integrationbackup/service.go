@@ -97,6 +97,25 @@ type RestoreResponse struct {
 	Warnings  []string         `json:"warnings,omitempty"`
 }
 
+type RestoreRollbackError struct {
+	Response *RestoreResponse
+	Cause    error
+}
+
+func (e *RestoreRollbackError) Error() string {
+	if e == nil || e.Cause == nil {
+		return "restore rollback"
+	}
+	return e.Cause.Error()
+}
+
+func (e *RestoreRollbackError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
 type RestoreOutcome struct {
 	Path   string `json:"path"`
 	Action string `json:"action"`
@@ -278,12 +297,11 @@ func (s *Service) Restore(ctx context.Context, component string, archive []byte,
 			Action: plannedAction(dryRun),
 		})
 	}
-	if dryRun {
-		return resp, nil
-	}
-
 	if err := s.validatePlannedRestore(ctx, component, plan); err != nil {
 		return nil, err
+	}
+	if dryRun {
+		return resp, nil
 	}
 
 	fileSnaps, err := snapshotTargets(plan)
@@ -307,7 +325,7 @@ func (s *Service) Restore(ctx context.Context, component string, archive []byte,
 
 	rollback := func(cause error) error {
 		for _, out := range resp.Outcomes {
-			if out.Action == "restored" || out.Action == "planned" {
+			if out.Action == "restored" || out.Action == "deleted" || out.Action == "planned" || out.Action == "planned_delete" {
 				resp.Warnings = append(resp.Warnings, "выполнен rollback после ошибки восстановления")
 				break
 			}
@@ -325,7 +343,7 @@ func (s *Service) Restore(ctx context.Context, component string, archive []byte,
 		if restoreRunning && startFn != nil {
 			_ = startFn()
 		}
-		return cause
+		return &RestoreRollbackError{Response: cloneRestoreResponse(resp), Cause: cause}
 	}
 
 	for i, file := range plan.Writes {
@@ -558,6 +576,21 @@ func (s *Service) listManagedFiles(component string) (map[string]string, error) 
 		}
 		if err := appendMatches(filepath.Join(configDir, "rule-sets", "dat"), "*.*", "/opt/etc/awg-manager/singbox/rule-sets/dat", ruleSetFilter); err != nil {
 			return nil, err
+		}
+		candidates := []fileSpec{
+			{sourcePath: "/opt/etc/awg-manager/subscriptions.json", actualPath: filepath.Join(s.dataDir, "subscriptions.json")},
+			{sourcePath: "/opt/etc/awg-manager/singbox_watchdog.json", actualPath: filepath.Join(s.dataDir, "singbox_watchdog.json")},
+			{sourcePath: "/opt/etc/awg-manager/deviceproxy.json", actualPath: filepath.Join(s.dataDir, "deviceproxy.json")},
+			{sourcePath: "/opt/etc/awg-manager/dns-routes.json", actualPath: filepath.Join(s.dataDir, "dns-routes.json")},
+			{sourcePath: "/opt/etc/awg-manager/static-routes.json", actualPath: filepath.Join(s.dataDir, "static-routes.json")},
+			{sourcePath: "/opt/etc/awg-manager/client-routes.json", actualPath: filepath.Join(s.dataDir, "client-routes.json")},
+		}
+		for _, spec := range candidates {
+			if _, err := os.Stat(spec.actualPath); err == nil {
+				out[spec.sourcePath] = spec.actualPath
+			} else if err != nil && !os.IsNotExist(err) {
+				return nil, err
+			}
 		}
 	case ComponentHydraRoute:
 		candidates := []fileSpec{
@@ -1037,6 +1070,22 @@ func plannedDeleteAction(dryRun bool) string {
 		return "planned_delete"
 	}
 	return "deleted"
+}
+
+func cloneRestoreResponse(resp *RestoreResponse) *RestoreResponse {
+	if resp == nil {
+		return nil
+	}
+	cloned := &RestoreResponse{
+		Component: resp.Component,
+		DryRun:    resp.DryRun,
+		Warnings:  append([]string(nil), resp.Warnings...),
+	}
+	if len(resp.Outcomes) > 0 {
+		cloned.Outcomes = make([]RestoreOutcome, len(resp.Outcomes))
+		copy(cloned.Outcomes, resp.Outcomes)
+	}
+	return cloned
 }
 
 func remapIntoTempRoot(sourceRoot string, tempRoot string, actualPath string) (string, error) {
