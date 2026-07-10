@@ -15,6 +15,7 @@ kmod/awg-proxy/tests/manual_tunnel.sh
 kmod/awg-proxy/tests/manual_tunnel_kernel.sh
 .cache/
 .tmp/
+tmp/
 down_ref_plan.md
 coverage.txt
 coverage.out
