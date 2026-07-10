@@ -909,6 +909,9 @@ func parseArchive(component string, payload []byte) (*Manifest, map[string][]byt
 		if int64(len(data)) > maxArchiveEntryBytes || lr.N == 0 {
 			return nil, nil, nil, fmt.Errorf("entry слишком большой: %s", f.Name)
 		}
+		if _, exists := files[f.Name]; exists {
+			return nil, nil, nil, fmt.Errorf("в архиве найден duplicate entry: %s", f.Name)
+		}
 		files[f.Name] = data
 	}
 	manifestRaw, ok := files[manifestName]
