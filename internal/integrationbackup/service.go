@@ -204,7 +204,7 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 			Method: zip.Deflate,
 		}
 		h.SetMode(file.mode)
-		h.SetModTime(createdAt)
+		setZipEntryLocalModTime(h, createdAt)
 		w, err := zw.CreateHeader(h)
 		if err != nil {
 			_ = zw.Close()
@@ -227,7 +227,7 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 		settingsArchivePath := settingsEntryForComponent(component)
 		h := &zip.FileHeader{Name: settingsArchivePath, Method: zip.Deflate}
 		h.SetMode(0o644)
-		h.SetModTime(createdAt)
+		setZipEntryLocalModTime(h, createdAt)
 		w, err := zw.CreateHeader(h)
 		if err != nil {
 			_ = zw.Close()
@@ -256,7 +256,7 @@ func (s *Service) CreateBackup(ctx context.Context, component string) (string, [
 		Name:   manifestName,
 		Method: zip.Deflate,
 	}
-	mh.SetModTime(createdAt)
+	setZipEntryLocalModTime(mh, createdAt)
 	mw, err := zw.CreateHeader(mh)
 	if err != nil {
 		_ = zw.Close()
@@ -963,6 +963,22 @@ func backupTimestampForFilename(createdAt time.Time, zoneName string) string {
 		return ts
 	}
 	return ts + "-" + zone
+}
+
+func setZipEntryLocalModTime(h *zip.FileHeader, t time.Time) {
+	wall := time.Date(
+		t.Year(),
+		t.Month(),
+		t.Day(),
+		t.Hour(),
+		t.Minute(),
+		t.Second(),
+		0,
+		time.UTC,
+	)
+	h.Modified = wall
+	h.ModifiedTime = uint16(wall.Hour()<<11 | wall.Minute()<<5 | wall.Second()/2)
+	h.ModifiedDate = uint16((wall.Year()-1980)<<9 | int(wall.Month())<<5 | wall.Day())
 }
 
 func sanitizeFilenameToken(token string) string {
