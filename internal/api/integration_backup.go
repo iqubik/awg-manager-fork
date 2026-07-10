@@ -20,7 +20,7 @@ type IntegrationRestoreOutcomeDTO struct {
 
 // IntegrationRestoreResponseDTO — полезная нагрузка restore/dry-run ответа.
 type IntegrationRestoreResponseDTO struct {
-	Component string                         `json:"component" example:"singbox"`
+	Component string                         `json:"component" example:"singbox" enums:"singbox,hydraroute"`
 	DryRun    bool                           `json:"dryRun" example:"true"`
 	Outcomes  []IntegrationRestoreOutcomeDTO `json:"outcomes"`
 	Warnings  []string                       `json:"warnings,omitempty" example:"rollback выполнен после ошибки restore"`
@@ -51,6 +51,7 @@ func (h *IntegrationBackupHandler) SetEventBus(bus *events.Bus) { h.bus = bus }
 //	@Produce		application/zip
 //	@Security		CookieAuth
 //	@Success		200	{file}		binary
+//	@Failure		405	{object}	APIErrorEnvelope
 //	@Failure		500	{object}	APIErrorEnvelope
 //	@Router			/singbox/backup [get]
 func (h *IntegrationBackupHandler) SingboxBackup(w http.ResponseWriter, r *http.Request) {
@@ -65,11 +66,11 @@ func (h *IntegrationBackupHandler) SingboxBackup(w http.ResponseWriter, r *http.
 //	@Accept			application/zip
 //	@Produce		json
 //	@Security		CookieAuth
-//	@Param			dryRun	query		boolean						false	"Только проверить архив без записи на диск"
-//	@Param			body	body		string						true	"ZIP-архив backup"
+//	@Param			dryRun	query		boolean							false	"Только проверить архив без записи на диск"
+//	@Param			body	body		string							true	"Raw ZIP archive body"
 //	@Success		200		{object}	IntegrationRestoreEnvelope
 //	@Failure		400		{object}	APIErrorEnvelope
-//	@Failure		500		{object}	APIErrorEnvelope
+//	@Failure		405		{object}	APIErrorEnvelope
 //	@Router			/singbox/restore [post]
 func (h *IntegrationBackupHandler) SingboxRestore(w http.ResponseWriter, r *http.Request) {
 	h.restore(integrationbackup.ComponentSingbox, w, r)
@@ -83,6 +84,7 @@ func (h *IntegrationBackupHandler) SingboxRestore(w http.ResponseWriter, r *http
 //	@Produce		application/zip
 //	@Security		CookieAuth
 //	@Success		200	{file}		binary
+//	@Failure		405	{object}	APIErrorEnvelope
 //	@Failure		500	{object}	APIErrorEnvelope
 //	@Router			/hydraroute/backup [get]
 func (h *IntegrationBackupHandler) HydraRouteBackup(w http.ResponseWriter, r *http.Request) {
@@ -97,11 +99,11 @@ func (h *IntegrationBackupHandler) HydraRouteBackup(w http.ResponseWriter, r *ht
 //	@Accept			application/zip
 //	@Produce		json
 //	@Security		CookieAuth
-//	@Param			dryRun	query		boolean						false	"Только проверить архив без записи на диск"
-//	@Param			body	body		string						true	"ZIP-архив backup"
+//	@Param			dryRun	query		boolean							false	"Только проверить архив без записи на диск"
+//	@Param			body	body		string							true	"Raw ZIP archive body"
 //	@Success		200		{object}	IntegrationRestoreEnvelope
 //	@Failure		400		{object}	APIErrorEnvelope
-//	@Failure		500		{object}	APIErrorEnvelope
+//	@Failure		405		{object}	APIErrorEnvelope
 //	@Router			/hydraroute/restore [post]
 func (h *IntegrationBackupHandler) HydraRouteRestore(w http.ResponseWriter, r *http.Request) {
 	h.restore(integrationbackup.ComponentHydraRoute, w, r)

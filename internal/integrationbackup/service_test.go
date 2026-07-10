@@ -13,9 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hoaxisr/awg-manager/internal/hydraroute"
 	"github.com/hoaxisr/awg-manager/internal/storage"
+	"github.com/hoaxisr/awg-manager/internal/sys/routerclock"
 )
 
 type fakeSingbox struct {
@@ -683,4 +685,73 @@ func buildArchiveForTest(t *testing.T, manifest Manifest, entries map[string]zip
 		t.Fatalf("close archive: %v", err)
 	}
 	return buf.Bytes()
+}
+
+func TestSanitizeFilenameToken(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"MSK", "MSK"},
+		{"moscow", "moscow"},
+		{"MSK+3", "MSK-3"},
+		{"UTC+0", "UTC-0"},
+		{"Europe/Moscow", "Europe-Moscow"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := sanitizeFilenameToken(tt.input)
+		if got != tt.want {
+			t.Errorf("sanitizeFilenameToken(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestBackupTimestampForFilename(t *testing.T) {
+	loc, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	clock := routerclock.Info{
+		Now:           time.Date(2026, 7, 10, 14, 32, 10, 0, loc),
+		ZoneName:      "MSK",
+		OffsetMinutes: 180,
+		Location:      loc,
+	}
+	got := backupTimestampForFilename(clock)
+	if got != "20260710-143210-MSK" {
+		t.Errorf("backupTimestampForFilename() = %q, want %q", got, "20260710-143210-MSK")
+	}
+
+	clock.ZoneName = ""
+	got = backupTimestampForFilename(clock)
+	if got != "20260710-143210" {
+		t.Errorf("backupTimestampForFilename() = %q, want %q", got, "20260710-143210")
+	}
+}
+
+func TestCreateBackupFilenameUsesRouterClock(t *testing.T) {
+	svc, _, sb := newTestService(t)
+	writeFileForTest(t, filepath.Join(sb.dir, "00-base.json"), `{"log":{"level":"info"}}`)
+
+	loc, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	svc.now = func() routerclock.Info {
+		return routerclock.Info{
+			Now:           time.Date(2026, 7, 10, 14, 32, 10, 0, loc),
+			ZoneName:      "MSK",
+			OffsetMinutes: 180,
+			Location:      loc,
+		}
+	}
+
+	filename, _, err := svc.CreateBackup(context.Background(), ComponentSingbox)
+	if err != nil {
+		t.Fatalf("CreateBackup: %v", err)
+	}
+	if filename != "awgm-singbox-backup-20260710-143210-MSK.zip" {
+		t.Errorf("CreateBackup filename = %q, want %q", filename, "awgm-singbox-backup-20260710-143210-MSK.zip")
+	}
 }
