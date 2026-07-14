@@ -13,6 +13,7 @@ import type {
 	GeoFileEntry,
 	GeoTag,
 	HydraRouteConfig,
+	IntegrationRestoreResponse,
 	HydraRouteOversizedResponse,
 	HydraRouteStatus,
 	IPCheckService,
@@ -21,6 +22,7 @@ import type {
 	LoginResult,
 	LogsResponse,
 	MonitoringSnapshot,
+	MonitoringSample,
 	RouterInterface,
 	ServerListenChangeResult,
 	ServerListenState,
@@ -106,6 +108,18 @@ export class SystemClient extends TunnelsClient {
 			method: 'POST',
 			body: JSON.stringify({ action }),
 		});
+	}
+
+	async downloadHydraRouteBackup(): Promise<void> {
+		return this.downloadBinary('/hydraroute/backup', 'awgm-hydraroute-backup.zip');
+	}
+
+	async previewHydraRouteRestore(file: File): Promise<IntegrationRestoreResponse> {
+		return this.restoreIntegration<IntegrationRestoreResponse>('hydraroute', file, true);
+	}
+
+	async restoreHydraRouteBackup(file: File): Promise<IntegrationRestoreResponse> {
+		return this.restoreIntegration<IntegrationRestoreResponse>('hydraroute', file, false);
 	}
 
 	async getHydraRouteConfig(): Promise<HydraRouteConfig> {
@@ -558,6 +572,21 @@ export class SystemClient extends TunnelsClient {
 	async getMonitoringMatrix(opts?: { force?: boolean }): Promise<MonitoringSnapshot> {
 		const path = opts?.force ? '/monitoring/matrix?force=1' : '/monitoring/matrix';
 		return this.request<MonitoringSnapshot>(path);
+	}
+
+	async getMonitoringHistory(opts: {
+		target: string;
+		tunnelId: string;
+		limit?: number;
+	}): Promise<MonitoringSample[]> {
+		const params = new URLSearchParams({
+			target: opts.target,
+			tunnelId: opts.tunnelId,
+		});
+		if (typeof opts.limit === 'number' && opts.limit > 0) {
+			params.set('limit', String(opts.limit));
+		}
+		return this.request<MonitoringSample[]>(`/monitoring/history?${params.toString()}`);
 	}
 
 	// #endregion

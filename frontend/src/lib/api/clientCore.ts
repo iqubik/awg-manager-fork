@@ -68,6 +68,110 @@ export class CoreClient {
 		this.abortController = new AbortController();
 	}
 
+	protected async fetchApi(endpoint: string, options: RequestInit = {}): Promise<Response> {
+		const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`;
+		try {
+			return await fetch(url, {
+				...options,
+				credentials: 'same-origin',
+				signal: this.abortController.signal,
+			});
+		} catch (e) {
+			if (e instanceof DOMException && e.name === 'AbortError') {
+				throw e;
+			}
+			this.onConnectionLost?.();
+			throw new Error('Ошибка сети: не удалось подключиться к серверу');
+		}
+	}
+
+	protected async parseJsonResponse<T>(response: Response): Promise<ApiResponse<T>> {
+		try {
+			return (await response.json()) as ApiResponse<T>;
+		} catch {
+			throw new Error(`Некорректный ответ сервера (${response.status})`);
+		}
+	}
+
+	protected async throwApiError(response: Response): Promise<never> {
+		if (response.status === 401) {
+			this.onUnauthorized?.();
+			throw new Error('Сессия истекла');
+		}
+
+		const contentType = response.headers.get('content-type') || '';
+		if (contentType.includes('application/json')) {
+			const data = await this.parseJsonResponse<unknown>(response);
+			const err: Error & { status?: number; body?: unknown } = new Error(
+				data.message || `Ошибка запроса (${response.status})`
+			);
+			err.status = response.status;
+			err.body = data;
+			throw err;
+		}
+
+		if (response.status in GATEWAY_MESSAGES) {
+			throw new ApiGatewayError(GATEWAY_MESSAGES[response.status], response.status);
+		}
+
+		const text = await response.text().catch(() => '');
+		const looksLikeHtml =
+			contentType.includes('text/html') || text.trimStart().startsWith('<');
+		if (looksLikeHtml) {
+			throw new Error(`Ошибка сервера (${response.status})`);
+		}
+		throw new Error(`Ошибка сервера (${response.status}): ${text.substring(0, 100)}`);
+	}
+
+	protected async downloadBinary(endpoint: string, fallbackFilename: string): Promise<void> {
+		const response = await this.fetchApi(endpoint);
+		if (!response.ok) {
+			await this.throwApiError(response);
+		}
+
+		const blob = await response.blob();
+		const filename = response.headers.get('Content-Disposition')
+			?.match(/filename="(.+)"/)?.[1] || fallbackFilename;
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = filename;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
+	protected async restoreIntegration<T>(
+		component: 'singbox' | 'hydraroute',
+		file: File,
+		dryRun: boolean,
+	): Promise<T> {
+		const response = await this.fetchApi(`/${component}/restore?dryRun=${dryRun ? 'true' : 'false'}`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': file.type || 'application/zip',
+			},
+			body: file,
+		});
+		const contentType = response.headers.get('content-type') || '';
+		if (!contentType.includes('application/json')) {
+			if (!response.ok) {
+				await this.throwApiError(response);
+			}
+			throw new Error('Некорректный ответ сервера');
+		}
+
+		const data = await this.parseJsonResponse<T>(response);
+		if (!response.ok || data.error || !data.data) {
+			const err: Error & { status?: number; body?: unknown } = new Error(
+				data.message || `Ошибка запроса (${response.status})`
+			);
+			err.status = response.status;
+			err.body = data;
+			throw err;
+		}
+		return data.data as T;
+	}
+
 	protected async request<T>(
 		endpoint: string,
 		options: RequestInit = {}

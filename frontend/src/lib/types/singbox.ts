@@ -60,6 +60,12 @@ export interface SingboxStatus {
 	currentSha256?: string;
 	/** SHA256 of the sing-box binary pinned to this awg-manager build. */
 	requiredSha256?: string;
+	/** True when the installed sing-box version matches the pinned version. */
+	versionMatchesRequired?: boolean;
+	/** True when the installed sing-box SHA256 matches the pinned binary. */
+	checksumMatchesRequired?: boolean;
+	/** True for same-version custom builds and newer external builds. */
+	customBuild?: boolean;
 	/** True when the installed sing-box version or SHA256 differs from the pinned binary. */
 	updateAvailable: boolean;
 	/**
@@ -202,6 +208,82 @@ export interface MonitoringSnapshot {
 	tunnels: MonitoringTunnel[];
 	cells: MonitoringCell[];
 	updatedAt: string;
+}
+
+export interface MonitoringSample {
+	latencyMs: number | null;
+	ok: boolean;
+	ts: string;
+}
+
+export type SingboxWatchdogTargetKind = 'tunnel' | 'subscription';
+export type SingboxWatchdogRecoveryMode = 'off' | 'restart-singbox' | 'switch-member';
+export type SingboxWatchdogStatusKind =
+	| 'alive'
+	| 'warming'
+	| 'recovering'
+	| 'dead'
+	| 'disabled'
+	| 'stopped';
+
+export interface SingboxWatchdogConfig {
+	id: string;
+	kind: SingboxWatchdogTargetKind;
+	ref: string;
+	enabled: boolean;
+	interval: number;
+	failThreshold: number;
+	timeout: number;
+	recoveryMode: SingboxWatchdogRecoveryMode;
+	persistSwitch?: boolean;
+}
+
+export interface SingboxWatchdogStatus {
+	id: string;
+	kind: SingboxWatchdogTargetKind;
+	ref: string;
+	name: string;
+	checkTag: string;
+	trafficTag: string;
+	selectorTag?: string;
+	activeMemberTag?: string;
+	protocol?: string;
+	security?: string;
+	transport?: string;
+	proxyInterface?: string;
+	kernelInterface?: string;
+	running: boolean;
+	configured: boolean;
+	enabled: boolean;
+	status: SingboxWatchdogStatusKind;
+	interval: number;
+	timeout: number;
+	lastCheck?: string;
+	lastLatency: number;
+	failCount: number;
+	failThreshold: number;
+	restartCount: number;
+	switchCount: number;
+	lastError?: string;
+	lastRecovery?: string;
+	recoveryMode: SingboxWatchdogRecoveryMode;
+	persistSwitch?: boolean;
+}
+
+export interface SingboxWatchdogLogEntry {
+	timestamp: string;
+	targetId: string;
+	targetName: string;
+	kind: SingboxWatchdogTargetKind;
+	checkTag: string;
+	success: boolean;
+	latency: number;
+	error: string;
+	failCount: number;
+	threshold: number;
+	stateChange: string;
+	memberFrom?: string;
+	memberTo?: string;
 }
 
 // #endregion

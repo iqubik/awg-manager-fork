@@ -36,7 +36,7 @@ func (l *singboxAndSubLister) ListTunnels(ctx context.Context) ([]singbox.Tunnel
 	return l.op.ListTunnels(ctx)
 }
 
-func (l *singboxAndSubLister) ListSubActiveTags() []string {
+func (l *singboxAndSubLister) ListSubDelayTags() []string {
 	return l.sub.ListActiveMemberTags()
 }
 

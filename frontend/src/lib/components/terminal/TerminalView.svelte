@@ -80,7 +80,6 @@
 		};
 	}
 
-	function connectSocket(term: Terminal, fitAddon: FitAddon): Promise<WebSocket> {
 	function closeSocketAndWait(socket: WebSocket | null, timeoutMs = 1200): Promise<void> {
 		if (!socket || socket.readyState === WebSocket.CLOSED) {
 			return Promise.resolve();

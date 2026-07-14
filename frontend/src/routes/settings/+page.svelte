@@ -1270,35 +1270,6 @@ $effect(() => {
 		padding-block: 0;
 	}
 
-	.api-key-visibility-button {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 2.5rem;
-		height: 2.5rem;
-		flex: 0 0 2.5rem;
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-sm);
-		background: var(--color-bg-secondary);
-		color: var(--color-text-secondary);
-		cursor: pointer;
-		transition:
-			color var(--t-fast) ease,
-			border-color var(--t-fast) ease,
-			background var(--t-fast) ease;
-	}
-
-	.api-key-visibility-button:hover:not(:disabled) {
-		color: var(--color-text-primary);
-		border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
-		background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-secondary));
-	}
-
-	.api-key-visibility-button:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
-	}
-
 	.api-key-input {
 		width: 100%;
 		max-width: none;

@@ -6,12 +6,16 @@ import type {
 	DeviceProxyInstance,
 	DeviceProxyOutbound,
 	DeviceProxyRuntime,
+	IntegrationRestoreResponse,
 	IPResult,
 	SingboxConfigPreview,
 	SingboxImportResponse,
 	SingboxInboundsList,
 	SingboxStatus,
 	SingboxTunnel,
+	SingboxWatchdogConfig,
+	SingboxWatchdogLogEntry,
+	SingboxWatchdogStatus,
 	UserConfigApplyResponse,
 	UserConfigCheckResponse
 } from '$lib/types';
@@ -60,6 +64,18 @@ export class SingboxClient extends RoutingClient {
 
 	async singboxUpdate(): Promise<SingboxStatus> {
 		return this.request('/singbox/update', { method: 'POST' });
+	}
+
+	async downloadSingboxBackup(): Promise<void> {
+		return this.downloadBinary('/singbox/backup', 'awgm-singbox-backup.zip');
+	}
+
+	async previewSingboxRestore(file: File): Promise<IntegrationRestoreResponse> {
+		return this.restoreIntegration<IntegrationRestoreResponse>('singbox', file, true);
+	}
+
+	async restoreSingboxBackup(file: File): Promise<IntegrationRestoreResponse> {
+		return this.restoreIntegration<IntegrationRestoreResponse>('singbox', file, false);
 	}
 
 	async singboxControl(action: 'start' | 'stop' | 'restart'): Promise<SingboxStatus> {
@@ -325,6 +341,54 @@ export class SingboxClient extends RoutingClient {
 
 	async getDeviceProxyInstanceRuntime(id: string): Promise<DeviceProxyRuntime> {
 		return this.request<DeviceProxyRuntime>(`/proxy/instance/runtime?id=${encodeURIComponent(id)}`);
+	}
+
+	async selectDeviceProxyInstanceRuntime(id: string, tag: string): Promise<{ active: string }> {
+		return this.request<{ active: string }>(`/proxy/instance/runtime/select?id=${encodeURIComponent(id)}`, {
+			method: 'POST',
+			body: JSON.stringify({ tag }),
+		});
+	}
+
+	async singboxWatchdogStatus(): Promise<SingboxWatchdogStatus[]> {
+		return this.request('/singbox/watchdog/status');
+	}
+
+	async singboxWatchdogLogs(targetId?: string): Promise<SingboxWatchdogLogEntry[]> {
+		const qs = targetId ? `?targetId=${encodeURIComponent(targetId)}` : '';
+		return this.request(`/singbox/watchdog/logs${qs}`);
+	}
+
+	async singboxWatchdogClearLogs(): Promise<void> {
+		await this.request('/singbox/watchdog/logs/clear', { method: 'POST' });
+	}
+
+	async singboxWatchdogConfigure(config: SingboxWatchdogConfig): Promise<void> {
+		await this.request('/singbox/watchdog/configure', {
+			method: 'POST',
+			body: JSON.stringify(config),
+		});
+	}
+
+	async singboxWatchdogEnable(id: string): Promise<void> {
+		await this.request('/singbox/watchdog/enable', {
+			method: 'POST',
+			body: JSON.stringify({ id }),
+		});
+	}
+
+	async singboxWatchdogDisable(id: string): Promise<void> {
+		await this.request('/singbox/watchdog/disable', {
+			method: 'POST',
+			body: JSON.stringify({ id }),
+		});
+	}
+
+	async singboxWatchdogCheckNow(id?: string): Promise<void> {
+		await this.request('/singbox/watchdog/check-now', {
+			method: 'POST',
+			body: JSON.stringify(id ? { id } : {}),
+		});
 	}
 
 	// #endregion

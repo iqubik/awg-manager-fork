@@ -9,3 +9,4 @@ export * from './types/diagnostics';
 export * from './types/singbox';
 export * from './types/sbRouter';
 export * from './types/subscriptions';
+export * from './types/usageLevel';

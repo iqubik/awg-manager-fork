@@ -197,6 +197,12 @@ func (s *SettingsStore) Load() (*Settings, error) {
 		needsSave = true
 	}
 
+	normalizedMonitoring := NormalizeMonitoringSettings(settings.Monitoring)
+	if settings.Monitoring != normalizedMonitoring {
+		settings.Monitoring = normalizedMonitoring
+		needsSave = true
+	}
+
 	if needsSave {
 		if err := s.saveUnlocked(&settings); err != nil {
 			return nil, err
@@ -245,6 +251,7 @@ func (s *SettingsStore) defaultSettings() *Settings {
 			RouteTag:  "direct",
 			RouteKind: "direct",
 		},
+		Monitoring: DefaultMonitoringSettings(),
 		ConnectivityCheckURL: DefaultConnectivityCheckURL,
 		SingboxRouter: SingboxRouterSettings{
 			Enabled:        false,

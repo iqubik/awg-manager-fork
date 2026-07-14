@@ -13,6 +13,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/singbox/installer"
 	"github.com/hoaxisr/awg-manager/internal/sys/ndmsinfo"
 	"github.com/hoaxisr/awg-manager/internal/sys/perftrace"
+	"github.com/hoaxisr/awg-manager/internal/sys/semver"
 )
 
 // IsInstalled reports whether the sing-box binary exists at the absolute
@@ -78,10 +79,17 @@ func (o *Operator) GetStatus(ctx context.Context) Status {
 	if o.inst != nil && s.CurrentVersion != "" && s.RequiredVersion != "" {
 		s.CurrentSHA256, _ = o.inst.CurrentSHA256()
 		s.RequiredSHA256 = o.inst.RequiredSHA256()
-		s.UpdateAvailable = s.CurrentVersion != s.RequiredVersion ||
-			(s.CurrentSHA256 != "" && s.RequiredSHA256 != "" && !strings.EqualFold(s.CurrentSHA256, s.RequiredSHA256))
+		cmp := semver.Compare(s.CurrentVersion, s.RequiredVersion)
+		s.VersionMatchesRequired = cmp == 0
+		s.ChecksumMatchesRequired = s.CurrentSHA256 != "" &&
+			s.RequiredSHA256 != "" &&
+			strings.EqualFold(s.CurrentSHA256, s.RequiredSHA256)
+		s.CustomBuild = cmp > 0 || (cmp == 0 && s.CurrentSHA256 != "" && s.RequiredSHA256 != "" && !s.ChecksumMatchesRequired)
+		s.UpdateAvailable = cmp < 0
 	} else {
-		s.UpdateAvailable = s.CurrentVersion != "" && s.RequiredVersion != "" && s.CurrentVersion != s.RequiredVersion
+		s.UpdateAvailable = s.CurrentVersion != "" &&
+			s.RequiredVersion != "" &&
+			semver.Compare(s.CurrentVersion, s.RequiredVersion) < 0
 	}
 	if o.inst != nil {
 		s.InstallState = string(o.inst.EvaluateInstallState())

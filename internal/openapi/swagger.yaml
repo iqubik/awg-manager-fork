@@ -51,21 +51,6 @@ definitions:
       h4:
         example: "4"
         type: string
-      i1:
-        example: <b 0x1603010200><rc 32><r 64><t>
-        type: string
-      i2:
-        example: <b 0xabcdef01><r 24><t><rd 6>
-        type: string
-      i3:
-        example: <r 40><rc 7><b 0x01020304><t>
-        type: string
-      i4:
-        example: <t><r 18><rc 6><b 0xaabbccdd><rd 5>
-        type: string
-      i5:
-        example: <b 0x11223344><r 28><t><rd 4>
-        type: string
       jc:
         example: 4
         type: integer
@@ -413,24 +398,26 @@ definitions:
   api.ChangelogEntryDTO:
     properties:
       date:
-        example: "2024-01-15"
+        example: "2026-06-12"
         type: string
       groups:
         items:
           $ref: '#/definitions/api.ChangelogGroupDTO'
         type: array
       version:
-        example: 2.5.0
+        example: 2.12.3.10+r2
         type: string
     type: object
   api.ChangelogGroupDTO:
     properties:
       heading:
-        example: Bug Fixes
+        example: Исправлено
         type: string
       items:
         example:
-        - Fixed tunnel restart loop
+        - |-
+          fix(dev): align local build version with VERSION file
+          Комментарий: локальная dev-сборка теперь берёт base VERSION и добавляет +r0 сама.
         items:
           type: string
         type: array
@@ -1408,6 +1395,23 @@ definitions:
         example: true
         type: boolean
     type: object
+  api.GeoUpdateScheduleDTO:
+    properties:
+      interval:
+        example: "off"
+        type: string
+      updatedAt:
+        example: "2024-01-15T02:00:00Z"
+        type: string
+    type: object
+  api.GeoUpdateScheduleResponse:
+    properties:
+      data:
+        $ref: '#/definitions/api.GeoUpdateScheduleDTO'
+      success:
+        example: true
+        type: boolean
+    type: object
   api.HealthData:
     properties:
       instanceId:
@@ -1492,12 +1496,39 @@ definitions:
     type: object
   api.HydraRouteStatusData:
     properties:
+      checksumMatchesRequired:
+        example: true
+        type: boolean
+      currentSha256:
+        example: 0123abcd
+        type: string
+      currentVersion:
+        example: 2.4.1
+        type: string
+      customBuild:
+        example: false
+        type: boolean
+      freeBytes:
+        example: 8221456
+        type: integer
+      installState:
+        example: installed
+        type: string
+      installSupported:
+        example: true
+        type: boolean
       installed:
         example: true
         type: boolean
       lastError:
         example: 'neo restart: exit status 1'
         type: string
+      legacy:
+        example: false
+        type: boolean
+      managed:
+        example: true
+        type: boolean
       pid:
         example: 12345
         type: integer
@@ -1509,15 +1540,30 @@ definitions:
         - dead
         example: running
         type: string
+      requiredBytes:
+        example: 32145678
+        type: integer
+      requiredSha256:
+        example: 89ef4567
+        type: string
+      requiredVersion:
+        example: 2.4.1
+        type: string
       running:
         example: true
         type: boolean
       stalePid:
         example: 12345
         type: integer
+      updateAvailable:
+        example: false
+        type: boolean
       version:
         example: 2.4.1
         type: string
+      versionMatchesRequired:
+        example: true
+        type: boolean
     type: object
   api.HydraRouteStatusResponse:
     properties:
@@ -1604,6 +1650,56 @@ definitions:
       success:
         example: true
         type: boolean
+    type: object
+  api.IntegrationRestoreEnvelope:
+    properties:
+      data:
+        $ref: '#/definitions/api.IntegrationRestoreResponseDTO'
+      success:
+        example: true
+        type: boolean
+    type: object
+  api.IntegrationRestoreOutcomeDTO:
+    properties:
+      action:
+        enum:
+        - planned
+        - planned_delete
+        - restored
+        - deleted
+        - skipped
+        - conflict
+        - rollback
+        example: restored
+        type: string
+      error:
+        example: checksum не совпал
+        type: string
+      path:
+        example: /opt/etc/awg-manager/singbox/config.d/20-router.json
+        type: string
+    type: object
+  api.IntegrationRestoreResponseDTO:
+    properties:
+      component:
+        enum:
+        - singbox
+        - hydraroute
+        example: singbox
+        type: string
+      dryRun:
+        example: true
+        type: boolean
+      outcomes:
+        items:
+          $ref: '#/definitions/api.IntegrationRestoreOutcomeDTO'
+        type: array
+      warnings:
+        example:
+        - rollback выполнен после ошибки restore
+        items:
+          type: string
+        type: array
     type: object
   api.IpsetUsageData:
     properties:
@@ -2043,6 +2139,40 @@ definitions:
         example: tun_abc123
         type: string
     type: object
+  api.MonitoringHistoryResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/api.MonitoringSampleDTO'
+        type: array
+      success:
+        example: true
+        type: boolean
+    type: object
+  api.MonitoringSampleDTO:
+    properties:
+      latencyMs:
+        example: 42
+        type: integer
+      ok:
+        example: true
+        type: boolean
+      ts:
+        example: "2024-01-15T10:30:00Z"
+        type: string
+    type: object
+  api.MonitoringSettingsDTO:
+    properties:
+      historyHours:
+        example: 24
+        type: integer
+      matrixRefreshIntervalSec:
+        example: 60
+        type: integer
+      sampleIntervalSec:
+        example: 60
+        type: integer
+    type: object
   api.MonitoringSnapshotData:
     properties:
       cells:
@@ -2072,13 +2202,16 @@ definitions:
   api.MonitoringTargetDTO:
     properties:
       host:
-        example: https://www.google.com
+        example: 8.8.8.8
         type: string
       id:
         example: target_google
         type: string
       name:
-        example: Google
+        example: Google DNS
+        type: string
+      url:
+        example: https://8.8.8.8/
         type: string
     type: object
   api.MonitoringTunnelDTO:
@@ -3046,6 +3179,12 @@ definitions:
         example: Policy0
         type: string
     type: object
+  api.SetGeoUpdateScheduleRequest:
+    properties:
+      interval:
+        example: daily
+        type: string
+    type: object
   api.SetInterfaceUpRequest:
     properties:
       name:
@@ -3131,6 +3270,8 @@ definitions:
         $ref: '#/definitions/api.GeoFileSettingsDTO'
       logging:
         $ref: '#/definitions/api.LoggingSettingsDTO'
+      monitoring:
+        $ref: '#/definitions/api.MonitoringSettingsDTO'
       monitoringExcludedTunnels:
         example:
         - tn-1
@@ -4344,10 +4485,10 @@ definitions:
         type: boolean
       udpTimeout:
         description: |-
-          UDPTimeout задаёт таймаут UDP-сессий для inbound'ов tproxy-in / fakeip tun-in
-          (Go duration string, например "5m0s", "10m0s"). Пустое значение = таймаут
-          по умолчанию (5m0s). Увеличение помогает играм и другим «тихим» UDP-приложениям
-          не терять сессию во время длинных пауз без трафика.
+          UDPTimeout sets the UDP session timeout for the tproxy-in / fakeip tun-in
+          inbound (Go duration string, e.g. "5m0s", "10m0s"). Empty = use default
+          (5m0s). Increase to prevent long-quiet UDP applications (games, etc.) from
+          having their sessions silently dropped mid-game.
         example: 10m0s
         type: string
       wanAutoDetect:
@@ -4571,12 +4712,18 @@ definitions:
     type: object
   api.SingboxStatusData:
     properties:
+      checksumMatchesRequired:
+        example: true
+        type: boolean
       currentSha256:
         example: 76e67bb07b5c2bf4cef108c2f21a5ffaa684d124c21ffe220fc89b39cf1de934
         type: string
       currentVersion:
         example: 1.13.11
         type: string
+      customBuild:
+        example: false
+        type: boolean
       features:
         example:
         - with_quic
@@ -4625,6 +4772,9 @@ definitions:
       version:
         example: 1.9.3
         type: string
+      versionMatchesRequired:
+        example: true
+        type: boolean
     type: object
   api.SingboxStatusResponse:
     properties:
@@ -5221,49 +5371,6 @@ definitions:
       transport:
         example: ws
         type: string
-    type: object
-  api.SubscriptionPreviewMemberDTO:
-    properties:
-      key:
-        example: aabbccdd
-        type: string
-      label:
-        example: Demo NL
-        type: string
-      port:
-        example: 443
-        type: integer
-      protocol:
-        example: vless
-        type: string
-      reason:
-        example: unsupported outbound protocol
-        type: string
-      security:
-        example: tls
-        type: string
-      server:
-        example: nl.example.com
-        type: string
-      sni:
-        example: cdn.example.com
-        type: string
-      supported:
-        example: true
-        type: boolean
-      transport:
-        example: ws
-        type: string
-    type: object
-  api.SubscriptionPreviewResponse:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/api.SubscriptionPreviewMemberDTO'
-        type: array
-      success:
-        example: true
-        type: boolean
     type: object
   api.SubscriptionRejectedDTO:
     properties:
@@ -5921,8 +6028,7 @@ definitions:
         example: https://github.com/iqubik/awg-manager-fork/releases/latest/download/VERSION
         type: string
       warning:
-        example: Пакет будет загружен из GitHub Release этого форка. SHA256 не опубликован,
-          поэтому дополнительная проверка контрольной суммы пропущена.
+        example: ""
         type: string
     type: object
   api.UpdatePeerRequestDTO:
@@ -7974,6 +8080,30 @@ paths:
       summary: NDMS shell hook
       tags:
       - hook
+  /hydraroute/backup:
+    get:
+      description: Возвращает ZIP-архив с allowlist-файлами HydraRoute и безопасным
+        snapshot настроек.
+      produces:
+      - application/zip
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Скачать backup HydraRoute
+      tags:
+      - hydraroute
   /hydraroute/config:
     get:
       description: Available when HydraRoute service is wired on the device.
@@ -8144,6 +8274,50 @@ paths:
       summary: Rescan HydraRoute geo files from hrneo.conf
       tags:
       - hydraroute
+  /hydraroute/geo-files/schedule:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GeoUpdateScheduleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Get HydraRoute geo file auto-update schedule
+      tags:
+      - hydraroute
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Geo auto-update schedule interval
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SetGeoUpdateScheduleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.GeoUpdateScheduleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Set HydraRoute geo file auto-update schedule
+      tags:
+      - hydraroute
   /hydraroute/geo-files/take-control:
     post:
       consumes:
@@ -8229,6 +8403,28 @@ paths:
       summary: HydraRoute geo tags
       tags:
       - hydraroute
+  /hydraroute/install:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.HydraRouteStatusResponse'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Install HydraRoute Neo package
+      tags:
+      - hydraroute
   /hydraroute/ipset-usage:
     get:
       produces:
@@ -8294,6 +8490,65 @@ paths:
       security:
       - CookieAuth: []
       summary: Set HydraRoute policy order
+      tags:
+      - hydraroute
+  /hydraroute/restore:
+    post:
+      consumes:
+      - application/zip
+      description: При dryRun=true выполняет только проверку ZIP-архива и показывает
+        план действий без записи на диск.
+      parameters:
+      - description: Только проверить архив без записи на диск
+        in: query
+        name: dryRun
+        type: boolean
+      - description: Raw ZIP archive body
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.IntegrationRestoreEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Восстановить backup HydraRoute
+      tags:
+      - hydraroute
+  /hydraroute/update:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.HydraRouteStatusResponse'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Update HydraRoute Neo package
       tags:
       - hydraroute
   /import/conf:
@@ -9268,6 +9523,49 @@ paths:
       summary: Restore drifted managed servers
       tags:
       - managed
+  /monitoring/history:
+    get:
+      description: Returns up to `limit` (default current monitoring capacity) most-recent
+        samples for a single (target, tunnelId) pair, oldest-first.
+      parameters:
+      - description: Target identifier
+        in: query
+        name: target
+        required: true
+        type: string
+      - description: Tunnel identifier
+        in: query
+        name: tunnelId
+        required: true
+        type: string
+      - description: Max samples to return (default current monitoring capacity)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.MonitoringHistoryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Get monitoring history
+      tags:
+      - monitoring
   /monitoring/matrix:
     get:
       description: Returns the latest cross-tunnel × cross-target latency/loss matrix
@@ -10766,6 +11064,30 @@ paths:
       summary: List AWG outbound tags
       tags:
       - singbox
+  /singbox/backup:
+    get:
+      description: Возвращает ZIP-архив с allowlist-файлами sing-box и безопасным
+        snapshot настроек.
+      produces:
+      - application/zip
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Скачать backup sing-box
+      tags:
+      - singbox
   /singbox/config-preview:
     get:
       description: Returns the read-only pretty-printed JSON that sing-box loads when
@@ -12062,6 +12384,43 @@ paths:
       security:
       - CookieAuth: []
       summary: Toggle NDMS Proxy creation for sing-box tunnels
+      tags:
+      - singbox
+  /singbox/restore:
+    post:
+      consumes:
+      - application/zip
+      description: При dryRun=true выполняет только проверку ZIP-архива и показывает
+        план действий без записи на диск.
+      parameters:
+      - description: Только проверить архив без записи на диск
+        in: query
+        name: dryRun
+        type: boolean
+      - description: Raw ZIP archive body
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.IntegrationRestoreEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+        "405":
+          description: Method Not Allowed
+          schema:
+            $ref: '#/definitions/api.APIErrorEnvelope'
+      security:
+      - CookieAuth: []
+      summary: Восстановить backup sing-box
       tags:
       - singbox
   /singbox/router/bindable-interfaces:
@@ -14662,7 +15021,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.SubscriptionPreviewResponse'
+            $ref: '#/definitions/api.APIEnvelope'
         "400":
           description: Bad Request
           schema:
@@ -14776,6 +15135,11 @@ paths:
       tags:
       - singbox
     get:
+      parameters:
+      - description: When set, returns single tunnel
+        in: query
+        name: tag
+        type: string
       produces:
       - application/json
       responses:
@@ -14793,7 +15157,7 @@ paths:
             $ref: '#/definitions/api.APIErrorEnvelope'
       security:
       - CookieAuth: []
-      summary: List sing-box tunnels
+      summary: List or get sing-box tunnel(s)
       tags:
       - singbox
     post:

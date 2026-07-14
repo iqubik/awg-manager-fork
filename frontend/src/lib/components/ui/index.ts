@@ -50,3 +50,5 @@ export { default as NdmsIconTile } from './NdmsIconTile.svelte';
 export { default as TableSortHeader } from './TableSortHeader.svelte';
 export { default as FieldHint } from './FieldHint.svelte';
 export { default as SensitiveBlockEye } from './SensitiveBlockEye.svelte';
+export { default as PukhososSprite } from './PukhososSprite.svelte';
+export type { PukhososAnimation, PukhososWalkFrameMode } from './PukhososSprite.svelte';

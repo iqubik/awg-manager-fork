@@ -12,6 +12,20 @@ export interface HydraRouteStatus {
 	stalePid?: number;
 	processState?: 'not_installed' | 'stopped' | 'running' | 'dead';
 	lastError?: string;
+	managed?: boolean;
+	legacy?: boolean;
+	currentVersion?: string;
+	requiredVersion?: string;
+	currentSha256?: string;
+	requiredSha256?: string;
+	versionMatchesRequired?: boolean;
+	checksumMatchesRequired?: boolean;
+	customBuild?: boolean;
+	updateAvailable?: boolean;
+	installState?: string;
+	requiredBytes?: number;
+	freeBytes?: number;
+	installSupported?: boolean;
 }
 
 export interface HydraRouteConfig {
@@ -248,6 +262,12 @@ export interface GeoFileSettings {
 	refreshDailyTime?: string;
 }
 
+export interface MonitoringSettings {
+	historyHours: number;
+	sampleIntervalSec: number;
+	matrixRefreshIntervalSec: number;
+}
+
 export interface Settings {
 	schemaVersion?: number;
 	authEnabled: boolean;
@@ -271,6 +291,7 @@ export interface Settings {
 	download: DownloadSettings;
 	dnsRoute: DNSRouteSettings;
 	geoFile: GeoFileSettings;
+	monitoring?: MonitoringSettings;
 	connectivityCheckUrl: string;
 	usageLevel: UsageLevel;
 	hiddenSystemTunnels?: string[];
@@ -319,6 +340,19 @@ export interface UpdateInfo {
 	checking: boolean;
 	error?: string;
 	warning?: string;
+}
+
+export interface IntegrationRestoreOutcome {
+	path: string;
+	action: 'planned' | 'planned_delete' | 'restored' | 'deleted' | 'skipped' | 'conflict' | 'rollback';
+	error?: string;
+}
+
+export interface IntegrationRestoreResponse {
+	component: 'singbox' | 'hydraroute';
+	dryRun: boolean;
+	outcomes: IntegrationRestoreOutcome[];
+	warnings?: string[];
 }
 
 export interface ChangelogGroup {
