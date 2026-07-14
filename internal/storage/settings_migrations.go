@@ -265,6 +265,7 @@ func (s *SettingsStore) migrateToV27(settings *Settings) {
 	if settings.SingboxRouter.RoutingMode == "" {
 		settings.SingboxRouter.RoutingMode = "tproxy"
 	}
+	settings.Monitoring = NormalizeMonitoringSettings(settings.Monitoring)
 	settings.SchemaVersion = 27
 }
 

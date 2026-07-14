@@ -282,11 +282,15 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		response.ErrorWithStatus(w, http.StatusBadRequest, err.Error(), "INVALID_CONNECTIVITY_CHECK_URL")
 		return
 	}
-	if err := storage.ValidateMonitoringSettings(merged.Monitoring); err != nil {
+	monitoringToValidate := merged.Monitoring
+	if patch.Monitoring == nil {
+		monitoringToValidate = storage.NormalizeMonitoringSettings(monitoringToValidate)
+	}
+	if err := storage.ValidateMonitoringSettings(monitoringToValidate); err != nil {
 		response.ErrorWithStatus(w, http.StatusBadRequest, err.Error(), "INVALID_MONITORING_SETTINGS")
 		return
 	}
-	merged.Monitoring = storage.NormalizeMonitoringSettings(merged.Monitoring)
+	merged.Monitoring = storage.NormalizeMonitoringSettings(monitoringToValidate)
 	merged.Download.RouteTag = strings.TrimSpace(merged.Download.RouteTag)
 	if merged.Download.RouteTag == "" {
 		merged.Download.RouteTag = "direct"

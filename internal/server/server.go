@@ -141,6 +141,7 @@ type Server struct {
 	authMiddleware             *auth.Middleware
 	httpServer                 *http.Server
 	loopbackListener           net.Listener // optional loopback listener for reverse proxy
+	listen                     listenState
 
 	ndmsDispatcher api.HookDispatcher
 	ndmsTransport  *ndmstransport.Client
@@ -264,6 +265,9 @@ func New(cfg Config, deps Deps) *Server {
 		singboxConfigPreviewFn: deps.SingboxConfigPreview,
 		authMiddleware:         auth.NewMiddleware(deps.Sessions, deps.Settings, &authLoggerAdapter{log: appLog}),
 		instanceID:             id,
+		listen: listenState{
+			listeners: make(map[string]net.Listener),
+		},
 	}
 }
 

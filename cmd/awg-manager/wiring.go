@@ -11,6 +11,7 @@ import (
 	"github.com/hoaxisr/awg-manager/internal/dnsroute"
 	"github.com/hoaxisr/awg-manager/internal/events"
 	"github.com/hoaxisr/awg-manager/internal/hydraroute"
+	"github.com/hoaxisr/awg-manager/internal/integrationbackup"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/managed"
 	"github.com/hoaxisr/awg-manager/internal/monitoring"
@@ -128,6 +129,7 @@ type app struct {
 	terminalManager     *terminal.ManagerImpl
 	clientRouteService  *clientroute.ServiceImpl
 	accessPolicySvc     *accesspolicy.ServiceImpl
+	integrationBackup   *integrationbackup.Service
 
 	// sing-box
 	singboxOp           *singbox.Operator

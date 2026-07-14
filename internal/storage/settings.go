@@ -245,6 +245,7 @@ func (s *SettingsStore) defaultSettings() *Settings {
 			RouteTag:  "direct",
 			RouteKind: "direct",
 		},
+		Monitoring:           DefaultMonitoringSettings(),
 		ConnectivityCheckURL: DefaultConnectivityCheckURL,
 		SingboxRouter: SingboxRouterSettings{
 			Enabled:        false,

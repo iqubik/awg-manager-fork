@@ -262,7 +262,7 @@ func (s *Server) registerSystemRoutes(mux *http.ServeMux, h *routeHandlers) {
 
 	// HydraRoute settings (protected + boot guarded)
 	if s.hydraService != nil {
-		hrHandler := api.NewHydraRouteHandler(s.hydraService, s.downloadSvc)
+		hrHandler := api.NewHydraRouteHandler(s.hydraService, s.downloadSvc, s.settings)
 		hrHandler.SetEventBus(s.bus)
 		mux.HandleFunc("/api/hydraroute/config", h.guarded(hrHandler.GetConfig))
 		mux.HandleFunc("/api/hydraroute/config/update", h.guarded(hrHandler.UpdateConfig))

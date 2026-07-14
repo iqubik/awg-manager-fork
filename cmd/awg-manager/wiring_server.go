@@ -108,6 +108,7 @@ func (a *app) setupServer() {
 			Orch:                a.orch,
 			Bus:                 a.eventBus,
 			HydraService:        a.hydraService,
+			IntegrationBackup:   a.integrationBackup,
 			SingboxHandler:      a.singboxHandler,
 			SingboxOrch:         a.sbOrch,
 			ClashProxy:          a.clashProxy,

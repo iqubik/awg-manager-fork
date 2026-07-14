@@ -1747,10 +1747,7 @@ func TestNextFreeListenPortSlot(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := newTestConfigWithListenPorts(t, tc.existing)
-			got, err := nextFreeListenPortSlot(cfg, tc.reserved)
-			if err != nil {
-				t.Fatalf("nextFreeListenPortSlot: %v", err)
-			}
+			got := nextFreeListenPortSlot(cfg, tc.reserved)
 			if got != tc.want {
 				t.Errorf("nextFreeListenPortSlot = %d, want %d", got, tc.want)
 			}
@@ -1764,10 +1761,7 @@ func TestNextFreeListenPortSlot_SkipsOccupiedPort_WhenNDMSProxyDisabled(t *testi
 	})
 
 	cfg := newTestConfigWithListenPorts(t, nil)
-	got, err := nextFreeListenPortSlot(cfg, nil)
-	if err != nil {
-		t.Fatalf("nextFreeListenPortSlot: %v", err)
-	}
+	got := nextFreeListenPortSlot(cfg, nil)
 	if got != 1 {
 		t.Fatalf("nextFreeListenPortSlot = %d, want 1", got)
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/hoaxisr/awg-manager/internal/api"
 	"github.com/hoaxisr/awg-manager/internal/events"
+	"github.com/hoaxisr/awg-manager/internal/integrationbackup"
 	"github.com/hoaxisr/awg-manager/internal/logging"
 	"github.com/hoaxisr/awg-manager/internal/singbox"
 	"github.com/hoaxisr/awg-manager/internal/singbox/installer"
@@ -228,6 +229,10 @@ func (a *app) setupSingbox() {
 	// UI log view (replaces the old file-based log; see process.go).
 	logFwdCtx, logFwdCancel := context.WithCancel(context.Background())
 	a.deferOnExit(logFwdCancel)
+
+	// Integration backup/restore for sing-box and HydraRoute is created only
+	// after both services exist. The HTTP layer receives it via server.Deps.
+	a.integrationBackup = integrationbackup.NewService(a.dataDir, a.settingsStore, newIntegrationBackupSingbox(a.singboxOp), a.hydraService)
 	go singbox.NewLogForwarder(a.singboxOp.Clash().Address(), a.loggingService).Run(logFwdCtx)
 
 }

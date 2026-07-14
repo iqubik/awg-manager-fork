@@ -74,7 +74,7 @@ const UPSTREAM = process.env.UPSTREAM ?? 'http://127.0.0.1:8080';
 // вероятностные сбои) становится воспроизводимой — скриншот-сравнение
 // рефакторингов UI требует бит-в-бит одинаковых ответов между прогонами.
 const DETERMINISTIC = ['1', 'true'].includes(String(process.env.MOCK_DETERMINISTIC ?? ''));
-const rand = () => (DETERMINISTIC ? 0.5 : rand());
+const rand = () => (DETERMINISTIC ? 0.5 : Math.random());
 
 const PORT = Number(process.env.PORT ?? 8081);
 const VALID = new Set(['basic', 'advanced', 'expert']);

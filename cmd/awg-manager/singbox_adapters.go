@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/hoaxisr/awg-manager/internal/singbox"
+	"github.com/hoaxisr/awg-manager/internal/singbox/installer"
 	singboxorch "github.com/hoaxisr/awg-manager/internal/singbox/orchestrator"
 	"github.com/hoaxisr/awg-manager/internal/singbox/subscription"
 )
@@ -36,8 +37,42 @@ func (l *singboxAndSubLister) ListTunnels(ctx context.Context) ([]singbox.Tunnel
 	return l.op.ListTunnels(ctx)
 }
 
-func (l *singboxAndSubLister) ListSubActiveTags() []string {
+func (l *singboxAndSubLister) ListSubDelayTags() []string {
 	return l.sub.ListActiveMemberTags()
+}
+
+// integrationBackupSingbox adapts *singbox.Operator to the runtime
+// contract expected by integrationbackup.Service.
+type integrationBackupSingbox struct {
+	op        *singbox.Operator
+	validator *singbox.Validator
+}
+
+func newIntegrationBackupSingbox(op *singbox.Operator) *integrationBackupSingbox {
+	return &integrationBackupSingbox{
+		op:        op,
+		validator: singbox.NewValidator(installer.DefaultBinaryPath),
+	}
+}
+
+func (a *integrationBackupSingbox) ConfigDir() string {
+	return a.op.ConfigDir()
+}
+
+func (a *integrationBackupSingbox) ValidateConfigDir(ctx context.Context) error {
+	return a.op.ValidateConfigDir(ctx)
+}
+
+func (a *integrationBackupSingbox) ValidateConfigPath(_ context.Context, configDir string) error {
+	return a.validator.Validate(configDir)
+}
+
+func (a *integrationBackupSingbox) Control(ctx context.Context, action string) error {
+	return a.op.Control(ctx, action)
+}
+
+func (a *integrationBackupSingbox) IsRunning() (bool, int) {
+	return a.op.IsRunning()
 }
 
 // orchValidatorAdapter bridges singbox.Validator (no context) to the

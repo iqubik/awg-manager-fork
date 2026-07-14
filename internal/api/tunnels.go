@@ -923,7 +923,11 @@ func (h *TunnelsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	tunnelID := req.ID
 	if tunnelID == "" {
 		var err error
-		tunnelID, err = h.store.NextAvailableID()
+		backend := req.Backend
+		if backend == "" {
+			backend = "kernel"
+		}
+		tunnelID, err = h.store.NextAvailableID(backend)
 		if err != nil {
 			response.Error(w, "failed to generate tunnel ID", "CREATE_FAILED")
 			return

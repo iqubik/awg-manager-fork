@@ -179,7 +179,7 @@ func nextFreeListenPortSlot(cfg *Config, reserved map[int]bool) int {
 		}
 	}
 	for i := 0; i < maxProxySlots; i++ {
-		if !used[i] {
+		if !used[i] && localListenPortAvailable(firstPort+i) {
 			return i
 		}
 	}

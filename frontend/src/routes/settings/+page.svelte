@@ -20,7 +20,6 @@
 		SettingsFooter,
 		UsageLevelCard,
 		HttpServerCard,
-		ExperimentalSettingsCard,
 		SettingsSectionLabel,
 	} from "$lib/components/settings";
 	import { setSettings as setGlobalSettings } from "$lib/stores/settings";
@@ -48,7 +47,6 @@
 	import { usageLevel } from "$lib/stores/settings";
 	import { waitForBackendRestart } from "$lib/restartRecovery";
 	import { developFeedbackFabVisible } from "$lib/stores/developFeedbackFab";
-	import { experimentalSettingsUnlocked } from "$lib/stores/experimentalSettingsUnlocked";
 	import { settingsUpdateHighlight } from "$lib/stores/settingsUpdateHighlight";
 	import { pluralize, AVAILABLE_WORDS, TUNNEL_WORDS } from "$lib/utils/pluralize";
 	import {
@@ -991,10 +989,7 @@ $effect(() => {
 					</div>
 				</div>
 
-				{#if $experimentalSettingsUnlocked}
-					<ExperimentalSettingsCard />
-				{/if}
-				{/if}
+			{/if}
 			</main>
 		</div>
 
